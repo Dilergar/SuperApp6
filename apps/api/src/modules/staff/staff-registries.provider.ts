@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { TEAM_WORKSPACE_ROLES, type SearchResultItem } from '@superapp/shared';
+import { AUDIENCE_LABEL_FORMS, TEAM_WORKSPACE_ROLES, type SearchResultItem } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { AudiencesRegistry } from '../../core/audiences/audiences.registry';
@@ -71,12 +71,13 @@ export class StaffRegistriesProvider implements OnModuleInit {
         if (!a) return [];
         return branchHeadHolders(g, a.branchId, at, id).userIds;
       },
-      // Своя подпись нужна ровно для ОБЪЕКТА: движок умеет назвать человека
+      // Своя форма нужна ровно для ОБЪЕКТА: движок умеет назвать человека
       // («Руководитель объекта: Имя»), а имя объекта по его id взять не может.
+      // Отдаём КЛЮЧ формы и имя данными: слово соберётся при чтении в языке зрителя.
       label: async (id, ctx) => {
         if (!ctx.workspaceId) return null;
         const b = await this.db.staffBranch.findFirst({ where: { id, workspaceId: ctx.workspaceId }, select: { name: true } });
-        return b ? this.i18n.translate('common.audience.label.siteHeadOfSite', { name: b.name }) : null;
+        return b ? { key: AUDIENCE_LABEL_FORMS.siteHeadOfSite, name: b.name } : null;
       },
     });
 

@@ -252,7 +252,8 @@
     "text": "Строка",
     "textarea": "Текст"
   },
-  "fileStampedSuffix": "(подписано)",
+  "fileName": "{base}.{ext}",
+  "fileNameStamped": "{base} (подписано).{ext}",
   "filedPlace": {
     "registry": "реестр «{typeName}»",
     "registryAndPersonal": "реестр «{typeName}» и личное дело"

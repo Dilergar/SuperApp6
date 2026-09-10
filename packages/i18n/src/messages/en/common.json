@@ -11,7 +11,6 @@
   },
   "actions": {
     "add": "Add",
-    "apply": "Apply",
     "back": "Back",
     "cancel": "Cancel",
     "close": "Close",
@@ -32,7 +31,6 @@
     "save": "Save",
     "search": "Search",
     "select": "Select",
-    "show": "Show",
     "yes": "Yes"
   },
   "audience": {
@@ -44,13 +42,13 @@
     "kind": {
       "branch": "Site",
       "branch_head_of": "Site head",
-      "circle": "A Group",
+      "circle": "Group",
       "department": "Department",
       "manager_of": "Manager",
       "position": "Position",
       "subordinates_of": "Team (subordinates)",
-      "user": "A person",
-      "workspace": "The whole team"
+      "user": "Person",
+      "workspace": "Whole team"
     },
     "label": {
       "branch": "Site «{name}»",
@@ -73,7 +71,7 @@
     "prevMonth": "Previous month"
   },
   "calls": {
-    "recordingTitle": "Call · {date} {time}"
+    "recordingTitle": "Call · {at}.{ext}"
   },
   "chronicle": {
     "empty": "Nothing has happened here yet — events will show up here",
@@ -88,7 +86,7 @@
   "docs": {
     "bigFileHint": "The file is big ({mb} MB) — opening it may take up to a minute",
     "milestoneName": "{title} (v{n}).{ext}",
-    "othersEditing": "{name} and {n} more"
+    "othersSuffix": " and {n} more"
   },
   "dropzone": {
     "title": "Drag files here or <pick>choose</pick>"
@@ -106,7 +104,7 @@
     "position": "Positions",
     "user": "People",
     "workspace": "Organization",
-    "workspaceAll": "The whole organization"
+    "workspaceAll": "Whole organization"
   },
   "files": {
     "attach": "Attach a file",
@@ -127,7 +125,7 @@
     "upload": "Upload",
     "uploadCancelled": "Cancelled",
     "uploadError": "Error",
-    "uploadFailed": "The upload failed",
+    "uploadFailed": "Upload failed",
     "uploadPhotoAria": "Upload a photo",
     "view": "View",
     "viewHint": "Open read-only — nothing will change"
@@ -161,7 +159,6 @@
     "description": "Description",
     "item": "the item",
     "name": "Name",
-    "none": "None",
     "optional": "Optional",
     "someone": "Someone",
     "status": "Status",

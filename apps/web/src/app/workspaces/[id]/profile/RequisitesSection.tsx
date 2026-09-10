@@ -491,7 +491,7 @@ export function RequisitesEditor({
           />
           <Input
             label={t('requisites.accounts.bankLabel')}
-            placeholder="Kaspi Bank"
+            placeholder={t('requisites.bankPlaceholder')}
             maxLength={REQUISITE_LIMITS.bankNameMaxLength}
             value={accBank}
             onChange={(e) => setAccBank(e.target.value)}

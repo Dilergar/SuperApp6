@@ -1,6 +1,7 @@
 import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import noCyrillicLiteral from '../../scripts/eslint-rules/no-cyrillic-literal.cjs';
+import noViewerTextInPayload from '../../scripts/eslint-rules/no-viewer-text-in-payload.cjs';
 
 // ============================================================
 // МЕХАНИЧЕСКИЙ СТРАЖ ИСХОДЯЩИХ ЗАПРОСОВ.
@@ -140,8 +141,19 @@ export default [
   // ============================================================
   {
     files: ['src/**/*.ts'],
-    plugins: { i18n: { rules: { 'no-cyrillic-literal': noCyrillicLiteral } } },
+    plugins: {
+      i18n: {
+        rules: {
+          'no-cyrillic-literal': noCyrillicLiteral,
+          'no-viewer-text-in-payload': noViewerTextInPayload,
+        },
+      },
+    },
     rules: {
+      // Вечная запись (хроника, уведомление, джоб) хранит СТРУКТУРУ: текст в языке
+      // зрителя, положенный в payload, застывает в языке нажавшего кнопку навсегда.
+      // Литерала в коде при этом нет — страж кириллицы такое не видит.
+      'i18n/no-viewer-text-in-payload': 'error',
       'i18n/no-cyrillic-literal': [
         'error',
         {

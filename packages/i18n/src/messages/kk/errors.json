@@ -27,11 +27,11 @@
   "auth": {
     "accountDeleted": "Аккаунт жойылды",
     "accountNotFound": "Аккаунт табылмады",
-    "badCredentials": "Телефон нөмірі немесе құпиясөз қате",
+    "badCredentials": "Телефон нөмірі немесе құпия сөз қате",
     "invalidToken": "Токен жарамсыз",
     "localeUnsupported": "Бұл тіл қолданылмайды",
     "notYourSession": "Бұл сіздің сеансыңыз емес",
-    "passwordRequired": "Растау үшін ағымдағы құпиясөз қажет",
+    "passwordRequired": "Растау үшін ағымдағы құпия сөз қажет",
     "phoneOnDeletedAccount": "Бұл нөмір жоюға белгіленген аккаунтқа тіркелген. Оны қалпына келтіру үшін кіріңіз.",
     "phoneTaken": "Бұл телефон нөмірі тіркелген",
     "sessionExpired": "Сеанс мерзімі бітті — қайта кіріңіз",
@@ -40,8 +40,8 @@
     "userNotFound": "Пайдаланушы табылмады",
     "verifyRequired": "Нөмірді SMS арқылы растау қажет",
     "verifyStale": "Растау жарамсыз немесе ескірген. Кодты қайта сұраңыз",
-    "wrongCurrentPassword": "Ағымдағы құпиясөз қате",
-    "wrongPassword": "Құпиясөз қате"
+    "wrongCurrentPassword": "Ағымдағы құпия сөз қате",
+    "wrongPassword": "Құпия сөз қате"
   },
   "calendar": {
     "badPeriod": "Кезең жарамсыз",
@@ -507,7 +507,7 @@
   "http": {
     "badRequest": "Сұрау дұрыс емес",
     "conflict": "Деректер қайшылығы",
-    "forbidden": "Рұқсат жоқ",
+    "forbidden": "Бұған қолжетімділігіңіз жоқ",
     "notFound": "Табылмады",
     "payloadTooLarge": "Файл тым үлкен",
     "tooManyRequests": "Тым көп әрекет, кейінірек көріңіз",
@@ -773,7 +773,7 @@
     "noIdentityNeeded": "Сілтеме нөмірді растауды талап етпейді",
     "noOpenLimit": "Мұндай сілтемеге ашу шегін қоюға болмайды: алушы құжатқа қайта орала алуы керек",
     "notFound": "Сілтеме табылмады",
-    "passwordRequired": "Құпиясөз қажет",
+    "passwordRequired": "Құпия сөз қажет",
     "refNotFound": "Нысан табылмады",
     "revoked": "Сілтеме кері қайтарылды",
     "revokedCreateNew": "Сілтеме қайтарылды — жаңасын жасаңыз",
@@ -782,7 +782,7 @@
     "sessionMismatchSection": "Сеанс бұл бөлімге сәйкес келмейді",
     "tooManyTries": "Қате әрекет тым көп — кейінірек көріңіз",
     "typeUnsupported": "Нысанның бұл түрі үшін қонақ сілтемелері қолдау таппайды",
-    "wrongPassword": "Құпиясөз қате"
+    "wrongPassword": "Құпия сөз қате"
   },
   "shop": {
     "alreadyPledged": "Сіз салым қосқансыз — өзгерту үшін салымыңызды кері алыңыз",
@@ -989,11 +989,11 @@
       "birthDateInvalid": "Туған күні жарамсыз",
       "firstNameRequired": "Аты міндетті",
       "kzMobile": "Қазақстандық мобильді нөмірді енгізіңіз: +7 (7XX) XXX-XX-XX",
-      "passwordDigit": "Құпиясөзде сан болуы керек",
-      "passwordLower": "Құпиясөзде кіші әріп болуы керек",
-      "passwordMin": "Құпиясөз кемінде 8 таңбадан тұрады",
-      "passwordSpecial": "Құпиясөзде арнайы таңба болуы керек",
-      "passwordUpper": "Құпиясөзде бас әріп болуы керек",
+      "passwordDigit": "Құпия сөзде сан болуы керек",
+      "passwordLower": "Құпия сөзде кіші әріп болуы керек",
+      "passwordMin": "Құпия сөз кемінде 8 таңбадан тұрады",
+      "passwordSpecial": "Құпия сөзде арнайы таңба болуы керек",
+      "passwordUpper": "Құпия сөзде бас әріп болуы керек",
       "phoneFormat": "Телефон нөмірі +7XXXXXXXXXX пішімінде",
       "verifyToken": "Растау токені жарамсыз"
     },
@@ -1151,7 +1151,7 @@
     },
     "process": {
       "badCharacters": "Рұқсат етілмеген таңбалар",
-      "basicRequired": "Логин және құпиясөз",
+      "basicRequired": "Логин және құпия сөз",
       "emptyDocument": "Құжат бос",
       "eventRequired": "Оқиғаны таңдаңыз",
       "headerRequired": "Тақырыптың аты мен мәні",
@@ -1253,9 +1253,9 @@
     },
     "verify": {
       "code": "SMS-тегі кодты енгізіңіз",
-      "currentPasswordRequired": "Ағымдағы құпиясөзді енгізіңіз",
+      "currentPasswordRequired": "Ағымдағы құпия сөзді енгізіңіз",
       "newPhoneRequired": "Жаңа телефон нөмірін көрсетіңіз",
-      "passwordRequired": "Құпиясөзді енгізіңіз",
+      "passwordRequired": "Құпия сөзді енгізіңіз",
       "token": "Растау токені жарамсыз"
     },
     "voice": {

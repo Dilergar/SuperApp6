@@ -20,6 +20,7 @@ import {
   type DocumentSessionStatus,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { fullNameOrNull } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { AccessService } from '../access/access.service';
 import { FilesService } from '../files/files.service';
@@ -929,16 +930,18 @@ export class DocsService implements OnModuleInit {
           select: { firstName: true, lastName: true },
         })
       : null;
-    const name =
-      [actor?.firstName, actor?.lastName].filter(Boolean).join(' ') ||
-      this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone');
-    const actorName = others
-      ? this.i18n.translateFor(SOURCE_LOCALE, 'common.docs.othersEditing', { name, n: others })
-      : name;
-    const period = this.i18n
-      .format(SOURCE_LOCALE, APP_TIMEZONE)
-      .timeRange(session.lockedAt, session.lastPutAt);
-    const payload = { title: doc.title, documentId: doc.id, period };
+    // Имя актора — снимок ИЛИ null (слово подставит рендер в языке читателя).
+    const actorName = fullNameOrNull(actor);
+    // «и ещё двое» — СЛОВО продукта: в вечную запись едет ключ приписки и число,
+    // а фраза собирается при чтении. Период — машинный интервал ISO 8601
+    // («начало/конец»): зритель увидит время своими правилами и в своём поясе,
+    // а не в тех, что были у сервера в момент записи (docs/i18n.md).
+    const payload = {
+      title: doc.title,
+      documentId: doc.id,
+      periodIso: `${session.lockedAt.toISOString()}/${session.lastPutAt.toISOString()}`,
+      ...(others ? { othersSuffixKey: 'common.docs.othersSuffix', n: others } : {}),
+    };
 
     const entries: ChatterLogInput[] = [
       { refType: 'document', refId: doc.id, actorId, actorName, typeKey: 'document.edited', payload },

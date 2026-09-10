@@ -100,8 +100,8 @@
     "applyTo": "Apply to",
     "applyToHint": "Editing the series affects the future occurrences too",
     "booking": "Booking: {status}",
-    "color": "Colour",
-    "colorAria": "Event colour",
+    "color": "Color",
+    "colorAria": "Event color",
     "confirm": "Confirm",
     "createTitle": "New event",
     "end": "End",
@@ -166,7 +166,7 @@
     "hour2": "2 hours before",
     "min10": "10 minutes before",
     "min30": "30 minutes before",
-    "week1": "A week before"
+    "week1": "1 week before"
   },
   "resourceType": {
     "equipment": "Equipment",
@@ -215,8 +215,8 @@
     "subtitle": "Change only this occurrence or the whole series?",
     "thisAndFollowing": "This and the following",
     "thisOne": "Only this one",
-    "title": "A recurring event",
-    "whole": "The whole series"
+    "title": "Recurring event",
+    "whole": "Whole series"
   },
   "share": {
     "emptyHint": "Pick a person above — they will see your availability or the details.",

@@ -3,7 +3,7 @@ import { SOURCE_LOCALE } from '@superapp/shared';
 import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
-import { fullName } from '../../shared/utils/user-name';
+import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { AccessService } from '../../core/access/access.service';
@@ -316,6 +316,9 @@ export class MessengerService implements OnModuleInit {
         chatType: chat.type as ChatCallStatePayload['chatType'],
         // DM живёт без title (имя пира зависит от зрителя) — модалке входящего
         // хватает имени звонящего
+        // Не вечная запись: это СОСТОЯНИЕ звонка в сокете, оно живёт минуты и
+        // собирается заново на каждом чтении — язык запроса здесь и есть язык зрителя.
+        // eslint-disable-next-line i18n/no-viewer-text-in-payload
         chatTitle: chat.title ?? startedByName ?? this.i18n.translate('messenger.callFallback'),
         startedByName,
         active,
@@ -536,7 +539,9 @@ export class MessengerService implements OnModuleInit {
 
     const creator = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
     await this.postStructuredSystemMessage(chat.id, 'group.created', {
-      actorName: fullName(creator),
+      // Имени нет → пустая строка: рендер плашки подставит слово каталога в языке
+      // ЧИТАТЕЛЯ. Записанное здесь, оно застыло бы английским навсегда.
+      actorName: fullNameOrNull(creator) ?? '',
       name,
     });
 
@@ -549,7 +554,7 @@ export class MessengerService implements OnModuleInit {
 
     const actor = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
     await this.postStructuredSystemMessage(chatId, 'group.renamed', {
-      actorName: fullName(actor),
+      actorName: fullNameOrNull(actor) ?? '',
       title,
     });
     return this.getChatDetail(userId, chatId);
@@ -637,7 +642,7 @@ export class MessengerService implements OnModuleInit {
 
     const actor = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
     await this.postStructuredSystemMessage(chatId, 'group.member_left', {
-      actorName: fullName(actor),
+      actorName: fullNameOrNull(actor) ?? '',
     });
   }
 
@@ -1435,7 +1440,7 @@ export class MessengerService implements OnModuleInit {
       message: this.toMessage(msg, '__broadcast__'),
       memberUserIds,
       recipientIds,
-      authorName: fullName(msg.author),
+      authorName: fullNameOrNull(msg.author) ?? '',
       // chat.type в БД — колонка String; перечисление живёт в коде (CHAT_TYPES).
       chatType: chatType as ChatType,
       preview: this.toPreview(msg).text,
@@ -1865,7 +1870,7 @@ export class MessengerService implements OnModuleInit {
       message: this.toMessage(msg, '__broadcast__'),
       memberUserIds,
       recipientIds,
-      authorName: fullName(msg.author),
+      authorName: fullNameOrNull(msg.author) ?? '',
       // chat.type в БД — колонка String; перечисление живёт в коде (CHAT_TYPES).
       chatType: chatType as ChatType,
       preview: this.toPreview(msg).text,
@@ -2358,7 +2363,7 @@ export class MessengerService implements OnModuleInit {
   private toPreview(r: any): MessagePreview {
     const deleted = !!r.deletedAt;
     let text: string | null;
-    if (deleted) text = this.i18n.translate('messenger.messageDeleted');
+    if (deleted) text = this.i18n.translate('messenger.list.messageDeleted');
     else if (r.type === 'text') text = r.content ?? '';
     else if (r.type === 'attachment') text = r.content || this.attachmentPreviewText(r.payload);
     else if (r.type === 'system') text = this.systemText(r.payload) ?? this.i18n.translate('messenger.systemPlaque.unknown');

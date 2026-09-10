@@ -21,8 +21,8 @@
     "executorPlaceholder": "Pick an assignee…",
     "failed": "Could not create the task",
     "mode": {
-      "group": "A group",
-      "person": "A person",
+      "group": "Group",
+      "person": "Person",
       "self": "Myself"
     },
     "noCircles": "Create a group on the «My Circle» page first",

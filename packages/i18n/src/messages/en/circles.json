@@ -4,7 +4,7 @@
     "addToGroups": "Add to my groups right away",
     "addToGroupsHint": "Optional — a person can always be sorted into groups later.",
     "myRoleFor": "What I call {name}",
-    "sender": "The sender",
+    "sender": "Sender",
     "subtitle": "The role is the caption on the person’s card. You can change it later.",
     "theirRoleFor": "What {name} calls me",
     "title": "Accept the invitation from {name}"
@@ -50,7 +50,7 @@
   },
   "color": {
     "green": "Green",
-    "groupAria": "Group colour",
+    "groupAria": "Group color",
     "lilac": "Lilac",
     "lime": "Lime",
     "peach": "Peach",
@@ -95,12 +95,12 @@
     "searchPartial": "The search runs over the already loaded people — the one you need may be further down the list.",
     "searchPlaceholder": "Name, role, number…",
     "showMore": "Show more",
-    "sortAria": "The order of people",
+    "sortAria": "Order of people",
     "sortName": "By name",
     "sortRecent": "Recent"
   },
   "groupModal": {
-    "colour": "Colour",
+    "colour": "Color",
     "down": "Down",
     "name": "Group name",
     "namePlaceholder": "Family, Relatives…",
@@ -108,7 +108,7 @@
     "position": "{index} of {total}",
     "saved": "The group is updated",
     "selectPlaceholder": "Start typing the group name…",
-    "subtitle": "The name, the icon, the colour and the place in the filter list",
+    "subtitle": "The name, the icon, the color and the place in the filter list",
     "title": "«{name}» group settings",
     "up": "Up"
   },
@@ -259,7 +259,7 @@
     "bio": "About",
     "city": "City",
     "dateOfBirth": "Date of birth",
-    "email": "E-mail",
+    "email": "Email",
     "maritalStatus": "Marital status",
     "onlineStatus": "Online status",
     "socialLinks": "Social links"

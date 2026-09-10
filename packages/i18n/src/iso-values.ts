@@ -17,7 +17,8 @@ import type { Formatters } from './format';
 //
 // Рендер подставляет отформатированное значение под именем БЕЗ суффикса. Вид
 // формата выводится из САМОГО значения (оно машинное, поэтому вывод точен):
-// `YYYY-MM` → месяц с годом, `YYYY-MM-DD` → дата, полный ISO с `T` → дата и время.
+// `YYYY-MM` → месяц с годом, `YYYY-MM-DD` → дата, полный ISO с `T` → дата и время,
+// `<начало>/<конец>` → диапазон («14:30 – 15:10» или две даты, если дни разные).
 // Уже заданное имя без суффикса (снимок старой записи) не перебивается — старые
 // строки читаются как есть.
 // ============================================================
@@ -30,11 +31,22 @@ const DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
 
 /** Машинная строка → строка в правилах и словах зрителя; чужая форма — как есть. */
 function formatIso(value: string, fmt: Formatters): string {
+  // ДИАПАЗОН пишется одним значением через слэш — это форма самого ISO 8601
+  // (`<начало>/<конец>`). Так «правил документ с 14:30 по 15:10» собирается
+  // правилами зрителя целиком, а не двумя запечёнными половинами.
+  const slash = value.indexOf('/');
+  if (slash > 0) {
+    const from = value.slice(0, slash);
+    const to = value.slice(slash + 1);
+    if (isMoment(from) && isMoment(to)) return fmt.timeRange(from, to);
+  }
   if (MONTH_RE.test(value)) return fmt.date(`${value}-01`, 'monthYear');
   if (DAY_RE.test(value)) return fmt.date(value, 'long');
   if (DATE_TIME_RE.test(value)) return fmt.dateTime(value);
   return value;
 }
+
+const isMoment = (v: string): boolean => DAY_RE.test(v) || DATE_TIME_RE.test(v);
 
 /**
  * Развернуть `<имя>Iso` в `<имя>` форматтерами зрителя. Возвращает НОВЫЙ объект;

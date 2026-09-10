@@ -118,7 +118,6 @@
     "role": "Роль",
     "title": "Доступ к «{name}»"
   },
-  "somebody": "Кто-то",
   "spaceTitle": "Диск · {name}",
   "systemFolder": {
     "chat_uploads": "Файлы из переписки",

@@ -43,7 +43,7 @@ export class AudiencesDevController {
       max: dto.max ?? 500,
       onOverflow: dto.onOverflow ?? 'throw',
     });
-    const labels = await this.audiences.labelMany(dto.refs, ctx);
+    const labels = await this.audiences.labelTexts(dto.refs, ctx);
     return { success: true, data: { userIds, labels } };
   }
 }

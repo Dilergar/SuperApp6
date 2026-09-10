@@ -2,7 +2,7 @@
   "breadcrumb": "Organizations",
   "card": {
     "city": "City",
-    "email": "E-mail",
+    "email": "Email",
     "industry": "Industry",
     "members": "Employees",
     "membersShort": "{n, plural, one {# person} other {# people}}",
@@ -29,7 +29,7 @@
       },
       "journal": {
         "desc": "The chronicle: hiring, roles, positions, tasks",
-        "title": "The journal"
+        "title": "Journal"
       },
       "links": {
         "desc": "What the team shared with people who have no account",
@@ -74,6 +74,7 @@
       "documents": "Documents",
       "drive": "Drive",
       "hr": "HR",
+      "notes": "Notes",
       "objects": "Sites",
       "processes": "Processes",
       "share": "Guest links",
@@ -91,7 +92,7 @@
       "title": "The journal is open from the Manager role"
     },
     "showMore": "Show more",
-    "title": "The journal of the organization"
+    "title": "Organization journal"
   },
   "legalEntities": {
     "add": "Legal entity",
@@ -103,7 +104,7 @@
     "emptyAction": "Add a legal entity",
     "emptyDescription": "Add an LLP or a sole proprietor — the contracts will be made on its behalf",
     "emptyTitle": "No legal entities yet",
-    "head": "The head one",
+    "head": "Head",
     "hideArchive": "Hide the archive",
     "makeHead": "Make it the head one",
     "makeHeadMessage": "The details of «{name}» will be used everywhere a legal entity is not picked explicitly. The previous head one stays in the list as an ordinary one.",
@@ -111,7 +112,7 @@
     "newName": "Name",
     "newNameHint": "Fill in the details after it is created",
     "newNamePlaceholder": "LLP «Romashka-South»",
-    "newTitle": "A new legal entity",
+    "newTitle": "New legal entity",
     "noRequisites": "The details are not filled in",
     "restore": "Restore",
     "showArchive": "Show the archive",
@@ -181,7 +182,7 @@
     "anketa": {
       "about": "About the company",
       "city": "City",
-      "email": "E-mail",
+      "email": "Email",
       "industry": "Industry",
       "logo": "Logo",
       "logoRemoved": "The logo is removed",
@@ -205,8 +206,8 @@
       "subscription": "Subscription"
     },
     "sectionTitle": {
-      "anketa": "The company details",
-      "card": "The company card",
+      "anketa": "Company details",
+      "card": "Company card",
       "notifications": "Notifications",
       "security": "Security",
       "settings": "Settings",
@@ -216,7 +217,7 @@
     "security": {
       "danger": {
         "subtitle": "Deactivation hides the organization. The data is kept",
-        "title": "The danger zone"
+        "title": "Danger zone"
       },
       "deactivate": "Deactivate the organization",
       "deactivateConfirmMessage": "The organization goes to the archive for {n, plural, one {# day} other {# days}} — it can be brought back from the «Archive» block on the home page. After that it is deleted for good.",
@@ -238,7 +239,7 @@
     "subscription": {
       "free": "Free",
       "subtitle": "Paid plans for organizations will come later",
-      "title": "The current plan of the organization",
+      "title": "Current plan of the organization",
       "upgrade": "Upgrade (soon)"
     },
     "title": "Profile",
@@ -249,7 +250,7 @@
     },
     "visibility": {
       "city": "City",
-      "contactEmail": "E-mail",
+      "contactEmail": "Email",
       "contactPhone": "Phone",
       "description": "Description",
       "industry": "Industry",
@@ -279,12 +280,12 @@
     "binPlaceholder": "12 digits",
     "director": "Director",
     "directorPick": "Pick an employee…",
-    "directorPicker": "The director (from the employees)",
-    "directorWithBasis": "{name} · acting on the ground of {basis}",
-    "documentLanguage": "The language of the documents",
+    "directorPicker": "Director (from the employees)",
+    "directorWithBasis": "{name} · acting on the basis of {basis}",
+    "documentLanguage": "Document language",
     "documentLanguageHint": "The language of the papers of the organization: contracts, orders and invoices are printed in it. Every form can override it.",
     "editSubtitle": "The legal form, the BIN, the bank, the director — for contracts and invoices. The toggle «Company details» on the right decides what the employees see",
-    "entityName": "The name of the legal entity",
+    "entityName": "Legal entity name",
     "entityNameHint": "How to show it in lists and pickers",
     "entityNamePlaceholder": "LLP «Romashka»",
     "entitySubtitle": "The legal form, the BIN, the bank, the director: they go into the contracts and the invoices of this legal entity",
@@ -294,35 +295,36 @@
     "legalAddress": "Legal address",
     "legalAddressPlaceholder": "Almaty, … street, office …",
     "legalName": "Legal name",
-    "legalNameFull": "The full legal name",
+    "legalNameFull": "Full legal name",
     "legalNameHint": "The name in SuperApp6 is the brand; the contract takes the legal form",
     "orgForm": "Legal form",
     "orgFormNone": "Not stated",
     "save": "Save the details",
-    "signBasis": "Acts on the ground of",
-    "signBasisDate": "The date of the document",
-    "signBasisNumber": "The number of the document",
+    "signBasis": "Acts on the basis of",
+    "signBasisDate": "Document date",
+    "signBasisNumber": "Document number",
     "signBasisPlaceholder": "A power of attorney no. 5 of 01.02.2026",
     "signBasisPreview": "In the document: {basis}",
     "taxRegime": "Tax regime",
     "taxRegimeNone": "Not stated",
-    "title": "Company details",
+    "title": "Requisites",
     "vat": "VAT",
     "vatDate": "Certificate date",
     "vatNumber": "Certificate number",
     "vatPayer": "a payer",
-    "vatPayerToggle": "A VAT payer",
+    "vatPayerToggle": "VAT payer",
     "vatPayerWithCert": "a payer (certificate {cert})",
     "vatSeries": "Certificate series",
-    "viewSubtitle": "For contracts and invoices"
+    "viewSubtitle": "For contracts and invoices",
+    "bankPlaceholder": "Kaspi Bank"
   },
   "taxRegime": {
     "astana_hub": "Astana Hub",
-    "general": "The general regime",
+    "general": "General regime",
     "other": "Other",
-    "patent": "A patent",
-    "retail": "The retail tax",
-    "simplified": "A simplified declaration",
+    "patent": "Patent",
+    "retail": "Retail tax",
+    "simplified": "Simplified declaration",
     "snr_kh": "The special regime for farm enterprises"
   },
   "toDashboard": "To the home page",

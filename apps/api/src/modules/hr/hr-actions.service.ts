@@ -92,6 +92,16 @@ export class HrActionsService {
     return this.i18n.translateFor(SOURCE_LOCALE, key, values);
   }
 
+  /**
+   * Причина отказа для витрины: в колонке новых записей лежит КЛЮЧ каталога — его
+   * переводим в языке запроса; у записей до перехода там готовая фраза (и техническое
+   * сообщение сбоя тоже) — она показывается как есть.
+   */
+  private reasonText(value: string | null): string | null {
+    if (!value) return null;
+    return this.i18n.has(value) ? this.i18n.translate(value) : value;
+  }
+
   constructor(
     private readonly db: DatabaseService,
     private readonly i18n: I18nService,
@@ -147,9 +157,11 @@ export class HrActionsService {
         refId: hrMemberRefId(workspaceId, subjectUserId),
         workspaceId,
         actorId: actorId ?? undefined,
-        actorName: actorId ? await this.nameOf(actorId) : this.src('common.labels.system'),
+        actorName: actorId ? await this.nameOf(actorId) : null,
         typeKey,
-        payload,
+        // Действие без человека — это СИСТЕМА, и слово для неё едет ключом:
+        // записанное фразой, оно застыло бы в языке источника (docs/i18n.md).
+        payload: actorId ? payload : { ...payload, actorNameKey: 'common.labels.system' },
       })
       .catch(() => undefined);
   }
@@ -491,11 +503,12 @@ export class HrActionsService {
         const legality = await this.checkLegality(tx, action);
         if (!legality.ok) {
           const reasonKey = legality.reasonKey ?? 'hr.fail.legality';
-          // `failReason` — колонка БД: снимок в языке ИСТОЧНИКА. Ленты и
-          // уведомления перерисовывают ту же причину по ключу.
+          // `failReason` — колонка БД: в ней лежит КЛЮЧ каталога, а слово собирается
+          // при чтении в языке зрителя. Записанная фраза застыла бы английской у
+          // казахоязычного кадровика (docs/i18n.md).
           await tx.hrAction.update({
             where: { id: action.id },
-            data: { status: 'failed', appliedAt: null, failReason: this.src(reasonKey) },
+            data: { status: 'failed', appliedAt: null, failReason: reasonKey },
           });
           return { kind: 'failed' as const, action, reasonKey };
         }
@@ -1226,7 +1239,9 @@ export class HrActionsService {
       batchId: row.batchId,
       employmentId: row.employmentId,
       appliedAt: row.appliedAt?.toISOString() ?? null,
-      failReason: row.failReason,
+      // Причина — ключ каталога у новых записей и готовая фраза у старых: старые
+      // читаются как есть.
+      failReason: this.reasonText(row.failReason),
       createdById: row.createdById,
       createdAt: row.createdAt.toISOString(),
       documents: (docsByAction.get(row.id) ?? []).map((d) => ({

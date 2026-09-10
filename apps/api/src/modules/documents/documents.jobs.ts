@@ -610,7 +610,7 @@ export class DocumentsJobs implements OnModuleInit {
         spaceId: space.id,
         parentId: typeFolder.id,
         fileId: fileToPin,
-        name: this.fileName(doc, { stamped, pdf: pinIsPdf }),
+        ...this.fileName(doc, { stamped, pdf: pinIsPdf }),
         parentAncestors: [...typeFolder.ancestorIds, typeFolder.id],
         depth: typeFolder.depth + 1,
       });
@@ -639,7 +639,7 @@ export class DocumentsJobs implements OnModuleInit {
         spaceId: space.id,
         parentId: personFolder.id,
         fileId: doc.fileId,
-        name: this.fileName(doc),
+        ...this.fileName(doc),
         parentAncestors: [...personFolder.ancestorIds, personFolder.id],
         depth: personFolder.depth + 1,
       });
@@ -784,15 +784,22 @@ export class DocumentsJobs implements OnModuleInit {
   private fileName(
     doc: { number: string | null; title: string; builderDoc?: unknown; fileId?: string | null; pdfFileId?: string | null },
     opts: { stamped?: boolean; pdf?: boolean } = {},
-  ): string {
+  ): { name: string; autoName: { key: string; params: Record<string, string> } } {
     const base = doc.number ? `${doc.number} ${doc.title}` : doc.title;
     // По умолчанию подшивается сам `fileId` карточки: у builder-документа это уже
     // PDF, у ЗАГРУЖЕННОГО PDF отпечаток совпадает с файлом, остальное — .docx бланка.
     const isPdf =
       opts.pdf ?? (!!doc.builderDoc || (!!doc.pdfFileId && doc.pdfFileId === doc.fileId));
-    // Имя файла — тоже снимок в БД (см. правило языка источника)
-    const suffix = opts.stamped ? ` ${this.i18n.translateFor(SOURCE_LOCALE, 'documents.fileStampedSuffix')}` : '';
-    return `${base}${suffix}.${isPdf ? 'pdf' : 'docx'}`.replace(/[\\/:*?"<>|]/g, '-');
+    // Имя собирает ПЛАТФОРМА: номер и название — данные организации, приписка
+    // «(подписано)» — слово продукта. В `name` ложится снимок языка-источника, а
+    // рядом едет ключ с параметрами: читателю имя соберут на его языке.
+    const ext = isPdf ? 'pdf' : 'docx';
+    const safeBase = base.replace(/[\\/:*?"<>|]/g, '-');
+    const key = opts.stamped ? 'documents.fileNameStamped' : 'documents.fileName';
+    return {
+      name: this.i18n.translateFor(SOURCE_LOCALE, key, { base: safeBase, ext }),
+      autoName: { key, params: { base: safeBase, ext } },
+    };
   }
 }
 

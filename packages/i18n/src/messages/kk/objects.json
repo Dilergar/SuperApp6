@@ -372,7 +372,7 @@
   },
   "tabs": {
     "aria": "Нысан бөлімдері",
-    "history": "Шежіре",
+    "history": "Хроника",
     "overview": "Шолу",
     "shifts": "Ауысым кестесі",
     "shiftsShort": "Ауысымдар",
@@ -411,7 +411,7 @@
     "expandAll": "Бәрін жаю",
     "expandNode": "«{name}» жаю",
     "headOf": "Басқарады: {name}",
-    "noAccess": "Рұқсат жоқ",
+    "noAccess": "Қолжетімділік жоқ",
     "nothingFound": "Ештеңе табылмады",
     "nothingFoundHint": "Басқа сөзді байқап көріңіз — іздеу нысанның атауы, мекенжайы және түрі бойынша жүреді.",
     "peopleCount": "{n, plural, one {# адам} other {# адам}}",

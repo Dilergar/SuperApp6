@@ -17,7 +17,7 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
-import { fullName } from '../../shared/utils/user-name';
+import { fullNameOrNull } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { RolesService } from '../../core/roles/roles.service';
@@ -496,14 +496,14 @@ export class OfficeService implements OnModuleInit {
     return map;
   }
 
-  private async nameOf(userId: string): Promise<string> {
+  private async nameOf(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    // Снимок имени в payload уведомления переживает аккаунт — фолбэк общий
-    // (`common.labels.someone` в языке источника).
-    return fullName(u);
+    // Снимок имени в payload уведомления переживает аккаунт: имени нет → null,
+    // а слово-заглушку продюсер кладёт ключом (`<имя>Key`) — оно переводится при чтении.
+    return fullNameOrNull(u);
   }
 
   /**

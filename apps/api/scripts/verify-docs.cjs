@@ -504,8 +504,11 @@ async function main() {
     const docChron = await prisma.chatterEntry.findFirst({
       where: { refType: 'document', refId: doc2Id, typeKey: 'document.edited' },
     });
-    check('заход правки записан в хронику документа', !!docChron, docChron ? String(docChron.payload?.period ?? '') : 'нет записи');
-    check('запись несёт промежуток времени', !!docChron?.payload?.period);
+    check('заход правки записан в хронику документа', !!docChron, docChron ? String(docChron.payload?.periodIso ?? '') : 'нет записи');
+    // Промежуток лежит МАШИННЫМ интервалом ISO («начало/конец»), а не готовой
+    // строкой: время читатель видит своими правилами и в своём поясе.
+    const periodIso = String(docChron?.payload?.periodIso ?? '');
+    check('запись несёт машинный промежуток (ISO-интервал)', /^\d{4}-\d{2}-\d{2}T[^/]+\/\d{4}-\d{2}-\d{2}T/.test(periodIso), periodIso);
     const placeChron = await prisma.chatterEntry.findFirst({
       where: { refType: 'task', refId: taskId, typeKey: 'task.document_edited' },
     });

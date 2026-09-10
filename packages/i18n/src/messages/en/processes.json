@@ -1,7 +1,7 @@
 {
   "analytics": {
     "avgCycle": "The average time of a process",
-    "byStep": "The time by step",
+    "byStep": "Time by step",
     "byStepHint": "Where the process stands the longest",
     "colAvg": "Average",
     "colMax": "Maximum",
@@ -41,34 +41,34 @@
   },
   "create": {
     "action": "New process",
-    "nameLabel": "The name of the process",
+    "nameLabel": "Process name",
     "namePlaceholder": "For example: Replacing the equipment",
     "subtitle": "The canvas opens next: a trigger, the steps, an end",
     "title": "New process"
   },
   "credentialType": {
     "basic": "A login and a password (Basic)",
-    "bearer": "A bearer token",
-    "header": "A header (a token in a header)"
+    "bearer": "Bearer token",
+    "header": "Header (token in a header)"
   },
   "creds": {
     "add": "Credentials",
     "delete": "Delete the credential {name}",
-    "headerName": "The header name",
+    "headerName": "Header name",
     "headerNamePlaceholder": "The header name (e.g. X-Auth-Token)",
-    "headerValue": "The header value",
+    "headerValue": "Header value",
     "login": "Login",
-    "nameLabel": "The name of the credential",
+    "nameLabel": "Credential name",
     "none": "Without credentials",
     "password": "Password",
     "short": "Credentials",
-    "title": "The credentials for the HTTP nodes",
+    "title": "Credentials for HTTP nodes",
     "token": "Token",
-    "typeLabel": "The type of the credential"
+    "typeLabel": "Credential type"
   },
   "defaults": {
-    "processName": "A process",
-    "taskTitle": "A process task"
+    "processName": "Process",
+    "taskTitle": "Process task"
   },
   "duration": {
     "day": "d",
@@ -85,7 +85,7 @@
     "availableToNodes": "Available to the next nodes",
     "blocksPublish": "Blocks the publication · {count}",
     "botWebhookHint": "After the publication the bot connects automatically (a public API address is needed). On localhost set this address on the bot by hand through setWebhook.",
-    "botWebhookUrl": "The webhook address of the bot",
+    "botWebhookUrl": "Bot webhook address",
     "changedElsewhere": "The process was changed elsewhere.",
     "closeNode": "Close the node settings",
     "copyUrl": "Copy the address",
@@ -121,18 +121,18 @@
     "settings": "Settings",
     "settingsHint": "The settings of the process: the name, the visibility, the credentials, the archive",
     "start": "Start",
-    "startForm": "The start form",
+    "startForm": "Start form",
     "startFormHint": "The fields the initiator fills in when pressing «Start». They are available to the nodes as form substitutions.",
     "tgChat": "the chat",
     "tgName": "the name",
     "tgReply": "To answer: add a «Telegram» node (the same credential token), set Chat ID to the value of",
     "tgText": "the text",
     "toList": "To the list",
-    "triggerBadge": "A start trigger",
+    "triggerBadge": "Start trigger",
     "unsaved": "not saved",
     "webhookAfterPublish": "The URL appears after the process is published.",
     "webhookHint": "An external system (Kaspi, 1C, a website…) calls this address with a POST and the process starts. The request body becomes the form values.",
-    "webhookUrl": "The webhook URL"
+    "webhookUrl": "Webhook URL"
   },
   "empty": {
     "canEdit": "Create the first one: draw a chain of tasks and approvals on the canvas.",
@@ -161,7 +161,7 @@
       "placeholder": "24"
     },
     "maxTokens": {
-      "label": "The answer token limit",
+      "label": "Answer token limit",
       "placeholder": "1024"
     },
     "message": {
@@ -207,29 +207,29 @@
     }
   },
   "form": {
-    "addField": "A form field",
+    "addField": "Form field",
     "duplicateKey": "The key «{key}» is repeated",
     "fieldKey": "key",
-    "fieldKeyLabel": "The field key",
-    "fieldName": "The field name",
-    "fieldType": "The field type",
-    "options": "The options",
-    "optionsPlaceholder": "The options, comma-separated",
+    "fieldKeyLabel": "Field key",
+    "fieldName": "Field name",
+    "fieldType": "Field type",
+    "options": "Options",
+    "optionsPlaceholder": "Options, comma-separated",
     "removeField": "Remove the field",
     "required": "req.",
     "type": {
       "boolean": "Yes/No",
       "date": "Date",
       "number": "Number",
-      "select": "A list",
+      "select": "List",
       "text": "Text"
     }
   },
   "inbox": {
     "emptyText": "The department tasks you can take and the approvals will appear here.",
     "emptyTitle": "The inbox is empty",
-    "kindApprove": "An approval",
-    "kindTask": "A department task",
+    "kindApprove": "Approval",
+    "kindTask": "Department task",
     "subtitle": "The queued tasks of your department and the approvals on you",
     "take": "Take"
   },
@@ -249,7 +249,7 @@
     "decisionApproved": "approved",
     "decisionRejected": "declined",
     "due": "due {at}",
-    "form": "The process form",
+    "form": "Process form",
     "formEmpty": "The form is empty",
     "formHint": "The values the process was started with",
     "inDepartmentQueue": "In the department queue",
@@ -257,7 +257,7 @@
     "notFound": "The process was not found",
     "notFoundText": "It may have been deleted, or you have no access.",
     "overdueStep": "overdue",
-    "reason": "The reason",
+    "reason": "Reason",
     "reasonPlaceholder": "What exactly to fix",
     "reassign": "Reassign the step",
     "reassignAction": "Reassign",
@@ -270,7 +270,7 @@
     "steps": "Steps",
     "stepsHint": "How long each step took and who carried it",
     "taskWord": "task",
-    "title": "A process run",
+    "title": "Process run",
     "toProcesses": "To the processes"
   },
   "instanceStatus": {
@@ -317,7 +317,7 @@
     "emptyTitle": "There are no started processes yet",
     "now": "now: {steps}",
     "subtitle": "Who started it, where the token is now and how long it has been running",
-    "title": "The log of the runs"
+    "title": "Run log"
   },
   "node": {
     "action": {
@@ -331,14 +331,14 @@
             "label": "Extra parameters (JSON, optional)"
           },
           "refId": {
-            "label": "The object id",
+            "label": "Object id",
             "placeholder": "'{{'form.orderId'}}' / '{{'steps.x.id'}}'"
           },
           "refType": {
-            "label": "The object type"
+            "label": "Object type"
           }
         },
-        "title": "A card action"
+        "title": "Card action"
       }
     },
     "ai": {
@@ -350,7 +350,7 @@
             "placeholder": "5"
           },
           "systemPrompt": {
-            "label": "System prompt (the role)",
+            "label": "System prompt (role)",
             "placeholder": "You are a supply dispatcher…"
           },
           "toolDescription": {
@@ -358,7 +358,7 @@
             "placeholder": "Why another agent should call this one"
           },
           "userPrompt": {
-            "label": "The task",
+            "label": "Task",
             "placeholder": "Handle the order '{{'form.orderId'}}'"
           }
         },
@@ -380,7 +380,7 @@
         "description": "The memory of the agent by a session key: it remembers the context between the runs of the process with the same key (the client id from the form, for example).",
         "field": {
           "sessionKey": {
-            "label": "The session key",
+            "label": "Session key",
             "placeholder": "'{{'form.clientId'}}' (empty means the run id)"
           },
           "window": {
@@ -398,7 +398,7 @@
         "description": "Connects to an agent and makes it return a strict JSON with the fields you need. The result lands in output.data (the fields are available as '{{'steps.agent.data.field'}}').",
         "field": {
           "fields": {
-            "label": "The JSON fields (one «key: description» per line)",
+            "label": "JSON fields (one «key: description» per line)",
             "placeholder": "decision: approve or reject\nreason: a short reason\namount: a number"
           }
         },
@@ -409,7 +409,7 @@
       "description": "Splits the flow in two by a form field: the «Yes» branch and the «No» branch.",
       "field": {
         "field": {
-          "label": "A form field"
+          "label": "Form field"
         },
         "op": {
           "label": "Condition"
@@ -454,11 +454,11 @@
         "description": "Creates a new document by a template on the basis of the current one (an order out of an application). The data of the organization and of the employee is filled in by itself.",
         "field": {
           "templateId": {
-            "label": "The template of the new document"
+            "label": "New document template"
           },
           "title": {
             "label": "Title",
-            "placeholder": "An order granting a leave"
+            "placeholder": "Order granting a leave"
           }
         },
         "title": "Generate a document"
@@ -486,8 +486,8 @@
           "kind": {
             "label": "Kind",
             "option": {
-              "expense": "An expense",
-              "income": "An income"
+              "expense": "Expense",
+              "income": "Income"
             }
           },
           "note": {
@@ -506,7 +506,7 @@
         "description": "Queues the submission to ESUTD (erdo.enbek.kz) with a deadline by the working calendar: a conclusion within 5 working days, an amendment within 15 calendar days, a termination within 3 working days (Rules № 353). Usually the application of the action queues it by itself; the node is for the routes where the submission is needed separately.",
         "field": {
           "kind": {
-            "label": "The kind of the data",
+            "label": "Data kind",
             "option": {
               "amendment": "Amending a contract",
               "contract": "Concluding a contract",
@@ -525,12 +525,12 @@
             "help": "The relative recipients (a manager…) are taken from the org structure at the moment of the step; no manager found means the owner of the organization.",
             "label": "Who decides",
             "option": {
-              "branch": "A branch",
-              "branch_head": "The head of the site of the initiator",
-              "department": "A department",
-              "initiator": "The initiator of the process",
-              "initiator_manager": "The manager of the initiator",
-              "member": "An employee",
+              "branch": "Branch",
+              "branch_head": "Head of the initiator’s site",
+              "department": "Department",
+              "initiator": "Process initiator",
+              "initiator_manager": "Initiator’s manager",
+              "member": "Employee",
               "position": "A position (whoever holds it now)",
               "subject": "The party of the document (the employee named in the order)",
               "subject_manager": "The manager of the party of the document"
@@ -573,7 +573,7 @@
             "placeholder": "Buying a washing machine for '{{'form.budget'}}' ₸"
           }
         },
-        "title": "A decision by a person"
+        "title": "Decision by a person"
       },
       "task": {
         "description": "Creates a task in Tasks (with the chat and the reminders) and waits for it to be accepted. In the «Department» mode the task goes into a queue and any member of the department can take it. Substitutions '{{'form.field'}}' are supported.",
@@ -582,10 +582,10 @@
             "help": "The manager is taken from the org structure at the moment of the step; if no manager is found, the owner of the organization is used.",
             "label": "Assignee",
             "option": {
-              "department": "A department (a queue)",
-              "initiator": "The initiator of the process",
-              "initiator_manager": "The manager of the initiator",
-              "member": "An employee"
+              "department": "Department (queue)",
+              "initiator": "Process initiator",
+              "initiator_manager": "Initiator’s manager",
+              "member": "Employee"
             }
           },
           "assigneeUserId": {
@@ -595,11 +595,11 @@
             "placeholder": "What has to be done (the assignee sees it)"
           },
           "title": {
-            "label": "The task title",
+            "label": "Task title",
             "placeholder": "Find a washing machine under '{{'form.budget'}}' ₸"
           }
         },
-        "title": "A task for a person"
+        "title": "Task for a person"
       }
     },
     "kz": {
@@ -607,7 +607,7 @@
         "description": "The orders of the Kaspi Shop: fetch the new ones, accept, complete (the token comes from the seller cabinet). Kaspi has no webhooks — poll it on a schedule.",
         "field": {
           "credentialId": {
-            "label": "X-Auth-Token (a credential)"
+            "label": "X-Auth-Token (credential)"
           },
           "operation": {
             "label": "Operation",
@@ -618,7 +618,7 @@
             }
           },
           "orderId": {
-            "label": "The order id"
+            "label": "Order id"
           }
         },
         "title": "Kaspi Shop"
@@ -627,16 +627,16 @@
         "description": "A request to a published 1C database over the standard OData (the basic auth lives in a credential). The database must be reachable publicly.",
         "field": {
           "baseUrl": {
-            "label": "The OData base address"
+            "label": "OData base address"
           },
           "body": {
             "label": "Data (JSON)"
           },
           "credentialId": {
-            "label": "The 1C login and password (a basic credential)"
+            "label": "1C login and password (basic credential)"
           },
           "entity": {
-            "label": "The object",
+            "label": "Object",
             "placeholder": "Catalog_Goods"
           },
           "filter": {
@@ -646,7 +646,7 @@
             "label": "Operation",
             "option": {
               "create": "Create",
-              "list": "Read (a list)"
+              "list": "Read (list)"
             }
           }
         },
@@ -656,13 +656,13 @@
         "description": "Sends an SMS through Mobizon.kz (the apiKey lives in a credential). The alphanumeric sender name is registered in advance.",
         "field": {
           "credentialId": {
-            "label": "The Mobizon API key (a credential)"
+            "label": "Mobizon API key (credential)"
           },
           "from": {
-            "label": "The sender name (optional)"
+            "label": "Sender name (optional)"
           },
           "recipient": {
-            "label": "Recipient (a phone)",
+            "label": "Recipient (phone)",
             "placeholder": "7700…"
           }
         },
@@ -676,7 +676,7 @@
             "placeholder": "'{{'form.chatId'}}', 123456789 or @mychannel"
           },
           "credentialId": {
-            "label": "The bot token (a credential)"
+            "label": "Bot token (credential)"
           },
           "text": {
             "help": "Mandatory for a plain node. If the node is connected to an agent as a tool, the agent writes the text."
@@ -688,13 +688,13 @@
         "description": "Sends a message through the WhatsApp Cloud API (the access token lives in a credential; templates are needed outside the 24-hour window). Substitutions are supported.",
         "field": {
           "credentialId": {
-            "label": "The access token (a credential)"
+            "label": "Access token (credential)"
           },
           "phoneNumberId": {
             "label": "Phone number ID"
           },
           "to": {
-            "label": "To (a phone)",
+            "label": "To (phone)",
             "placeholder": "77001234567"
           }
         },
@@ -711,7 +711,7 @@
           },
           "source": {
             "help": "A link to an array: the result of a previous step or a form field.",
-            "label": "The list (where from)",
+            "label": "List (where from)",
             "placeholder": "'{{'steps.kaspi.body.data'}}' / '{{'form.list'}}'"
           }
         },
@@ -752,11 +752,11 @@
         "description": "Starts another published process of this organization as a sub-process (on behalf of the initiator). There is a depth guard against recursion. The form values are passed as JSON.",
         "field": {
           "definitionId": {
-            "label": "The process (the definition id)",
+            "label": "Process (definition id)",
             "placeholder": "the id of a published process"
           },
           "input": {
-            "label": "The form of the sub-process (JSON, optional)"
+            "label": "Sub-process form (JSON, optional)"
           }
         },
         "title": "Start a process"
@@ -767,7 +767,7 @@
         "description": "Calls an external API (Kaspi, 1C, any REST). It supports the substitutions '{{'form.field'}}' in the URL and the body, the headers and the credentials from the safe. The answer is available to the next steps.",
         "field": {
           "body": {
-            "label": "The request body"
+            "label": "Request body"
           },
           "headers": {
             "label": "Headers (JSON)"
@@ -794,7 +794,7 @@
         "description": "Sends a message to a chat or a direct message to an employee on behalf of the initiator (who must have access to the chat). Substitutions '{{'form.x'}}' and '{{'steps.x'}}' are supported; it can be connected to an AI agent as a tool.",
         "field": {
           "chatId": {
-            "label": "The chat id"
+            "label": "Chat id"
           },
           "text": {
             "help": "Mandatory for a plain node. As a tool of an agent the text is written by the agent."
@@ -807,7 +807,7 @@
             }
           }
         },
-        "title": "A chat message"
+        "title": "Chat message"
       }
     },
     "staff": {
@@ -831,7 +831,7 @@
         "field": {
           "templateId": {
             "help": "One template — one route. The publication will not let a second published route onto the same template.",
-            "label": "The document template"
+            "label": "Document template"
           }
         },
         "title": "A document was submitted"
@@ -854,7 +854,7 @@
             "label": "Event"
           }
         },
-        "title": "A SuperApp event"
+        "title": "SuperApp event"
       },
       "schedule": {
         "description": "Starts the process automatically every N hours or days. The form is not filled in (the default values are used).",
@@ -874,7 +874,7 @@
         "field": {
           "credentialId": {
             "help": "A bearer credential with the token from @BotFather. After the publication the webhook of the bot sets itself up (a public API address is needed; on localhost set it by hand).",
-            "label": "The bot token (a credential)"
+            "label": "Bot token (credential)"
           }
         },
         "title": "Telegram: incoming"
@@ -889,7 +889,7 @@
         "description": "Changes the role of an employee in the organization on behalf of the initiator — the initiator must be an Admin or above (the owner and the contractor cannot be assigned).",
         "field": {
           "role": {
-            "label": "The new role",
+            "label": "New role",
             "option": {
               "admin": "Admin",
               "manager": "Manager",
@@ -974,13 +974,13 @@
     }
   },
   "runningChip": "running: {count}",
-  "sections": "The sections of Processes",
+  "sections": "Sections of Processes",
   "settings": {
     "archive": "Archive the process",
     "close": "Close the settings",
     "description": "Description",
     "name": "Name",
-    "title": "The settings of the process",
+    "title": "Process settings",
     "versions": "Versions",
     "versionsHint": "The running processes live out their own version — the edits do not disturb them.",
     "visibility": "Who sees it",
@@ -1031,6 +1031,6 @@
   },
   "visibility": {
     "admins": "Admins only",
-    "team": "The whole team"
+    "team": "Whole team"
   }
 }

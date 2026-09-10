@@ -25,7 +25,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { ChatterRefRegistry } from './chatter-ref.registry';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { forbidden, notFound } from '../../shared/errors/api-error';
-import { renderChatter, type ChatterRawKind } from '@superapp/i18n';
+import { renderChatter, chatterChangeDisplay, type ChatterRawKind } from '@superapp/i18n';
 
 /** Тип джоба проекции плашки (core/jobs); payload = { entryId }, uniqueKey = `ce:<id>`. */
 export const CHATTER_CHATPOST_JOB = 'chatter.chatpost';
@@ -506,9 +506,15 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
    * накопленная история переводится задним числом вместе с каталогом.
    */
   private toDto(row: ChatterEntry): ChatterEntryDto {
-    const changes = (row.changes as unknown as ChatterChange[] | null) ?? null;
+    const stored = (row.changes as unknown as ChatterChange[] | null) ?? null;
     const payload = (row.payload as Record<string, unknown> | null) ?? null;
     const locale = this.i18n.locale;
+    const t = this.i18n.forLocale(locale);
+    const fmt = this.i18n.format(locale);
+    const dash = t('common.labels.dash');
+    // Те же значения, что уйдут в `text`: клиент ищет их в готовой фразе, чтобы
+    // подменить чипами «было → стало».
+    const changes = stored?.map((c) => ({ ...c, display: chatterChangeDisplay(c, t, fmt, dash) })) ?? null;
     return {
       id: row.id.toString(),
       refType: row.refType,

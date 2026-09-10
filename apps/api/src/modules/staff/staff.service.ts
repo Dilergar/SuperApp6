@@ -12,7 +12,7 @@ import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
-import { fullName } from '../../shared/utils/user-name';
+import { fullNameOrNull } from '../../shared/utils/user-name';
 import {
   OBJECTS_ERROR_CODES,
   ORG_ERROR_CODES,
@@ -91,12 +91,12 @@ export class StaffService {
   ) {}
 
   /** Имя пользователя для снапшотов хроники (удалённый/неизвестный → «Пользователь»). */
-  private async chatterUserName(userId: string, tx?: Tx): Promise<string> {
+  private async chatterUserName(userId: string, tx?: Tx): Promise<string | null> {
     const u = await (tx ?? this.db).user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return fullName(u);
+    return fullNameOrNull(u);
   }
 
   /** После КАЖДОЙ мутации структуры: проекция прав + сброс снимка графа. */

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { AudienceContext, AudienceKind } from '@superapp/shared';
+import type { AudienceContext, AudienceKind, AudienceLabelPart } from '@superapp/shared';
 
 /**
  * Резолвер одного вида адресата, зарегистрированный ВЛАДЕЛЬЦЕМ данных:
@@ -16,8 +16,13 @@ export interface AudienceResolver {
    * Чужая организация / человек вне команды → пустой список (не ошибка).
    */
   resolve(id: string, ctx: AudienceContext, limit: number): Promise<string[]>;
-  /** Подпись для витрин («Группа «Семья»», «Руководитель Ивана»); null → подпись вида */
-  label?(id: string, ctx: AudienceContext): Promise<string | null>;
+  /**
+   * Своя ФОРМА подписи вида: ключ каталога + имя сущности снимком («Группа «{name}»»,
+   * «Руководитель объекта «{name}»»). Слова резолвер не отдаёт НИКОГДА — подпись
+   * собирается при чтении в языке зрителя, а записанная словом застыла бы в языке
+   * того, кто нажал кнопку (docs/i18n.md). null → подпись вида по умолчанию.
+   */
+  label?(id: string, ctx: AudienceContext): Promise<AudienceLabelPart | null>;
 }
 
 @Injectable()

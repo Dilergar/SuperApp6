@@ -489,8 +489,9 @@ export class ShareLinksGuestService {
         to: [{ userId: link.createdById }],
         payload: {
           // Название — из СНИМКА на строке: в момент раздачи объект назывался так, и
-          // ходить за свежим именем к потребителю на каждое открытие незачем.
-          targetName: link.refTitle ?? this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.item'),
+          // ходить за свежим именем к потребителю на каждое открытие незачем. Его
+          // отсутствие заменяет слово продукта — КЛЮЧОМ, а не фразой.
+          ...(link.refTitle ? { targetName: link.refTitle } : { targetNameKey: 'common.labels.item' }),
           labelSuffix: link.label ? ` («${link.label}»)` : '',
           // Кто открыл — когда ссылка требовала подтверждение номера. Пустая строка у
           // анонимных: шаблонизатор реестра условий не умеет.

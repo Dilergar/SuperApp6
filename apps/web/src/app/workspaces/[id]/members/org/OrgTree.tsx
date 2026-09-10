@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { OrgChartDepartmentDto, OrgChartDto, OrgChartPositionDto } from '@superapp/shared';
 import { Button, Card, CardHeader, Chip, EmptyState, Glyph, Icon, LoadingBlock } from '@/components/ui';
 import { dmy } from '@/lib/dates';
+import { useFormatters } from '@/lib/format';
 import { fetchOrgLine } from '@/lib/org-api';
 import { orgLineKey } from '@/lib/queries';
 import { PersonChip } from '@/app/circles/PersonCard';
@@ -26,18 +27,20 @@ export function OrgTree({ workspaceId, chart, meId }: { workspaceId: string; cha
     enabled: !!meId,
   });
   const line = lineQ.data;
+  // При равном `sortOrder` порядок задаёт имя — в алфавите ЗРИТЕЛЯ.
+  const { compare } = useFormatters();
   const byDept = useMemo(() => {
     const m = new Map<string | null, OrgChartPositionDto[]>();
     for (const p of chart.positions) m.set(p.departmentId, [...(m.get(p.departmentId) ?? []), p]);
-    for (const list of m.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    for (const list of m.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || compare(a.name, b.name));
     return m;
-  }, [chart.positions]);
+  }, [chart.positions, compare]);
   const children = useMemo(() => {
     const m = new Map<string | null, OrgChartDepartmentDto[]>();
     for (const d of chart.departments) m.set(d.parentId, [...(m.get(d.parentId) ?? []), d]);
-    for (const list of m.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    for (const list of m.values()) list.sort((a, b) => a.sortOrder - b.sortOrder || compare(a.name, b.name));
     return m;
-  }, [chart.departments]);
+  }, [chart.departments, compare]);
 
   const noDept = byDept.get(null) ?? [];
   return (

@@ -144,7 +144,7 @@
     "inviteNotYours": "This invitation is not addressed to you",
     "inviteStillActive": "This invitation is still active",
     "invitesPerDay": "Invitation limit reached: {max} per 24 hours",
-    "linkExists": "The link already exists",
+    "linkExists": "Link already exists",
     "noAccess": "You have no access to this contact",
     "notFound": "The contact was not found",
     "notInCircle": "This person is not in your Circle",
@@ -224,7 +224,7 @@
     "builderNotReadyMore": "The form is not ready to be published: {issue} (and {count} more)",
     "campaignAudienceEmpty": "The audience is empty — there is nobody to acquaint",
     "campaignDocCancelled": "The document is cancelled — an acknowledgement campaign is not started for it",
-    "campaignEmptyFile": "The file of the document is empty",
+    "campaignEmptyFile": "The document file is empty",
     "campaignFinished": "The campaign is already finished",
     "campaignManagerOnly": "Acknowledgement campaigns are run by a Manager or higher",
     "campaignNoPdf": "The document has no printed PDF — take an imprint on the card first",
@@ -271,7 +271,7 @@
     "numberByRoute": "For this type the number is assigned by the route at the registration",
     "numberDraftOnly": "The number is assigned to a draft — before it is sent to the counterparty",
     "numberRight": "The author or a Manager and above can assign the number",
-    "orderTemplateNotPublished": "The template of the order is not published yet",
+    "orderTemplateNotPublished": "The order template is not published yet",
     "pdfRenderOff": "The PDF renderer is off — start the pdf profile (GOTENBERG_URL)",
     "pdfStillBuilding": "The PDF imprint is still being built — try again in a minute",
     "personNotEmployed": "This person does not work in the organization",
@@ -365,7 +365,7 @@
     "changedConcurrently": "The file was changed concurrently — save it again",
     "checksumMismatch": "The checksum does not match — the file was damaged in transfer",
     "contentLengthRequired": "The Content-Length header is required",
-    "copyOwnerMissing": "The owner of the copy was not specified",
+    "copyOwnerMissing": "The owner of the copy was not given",
     "deleteByOwner": "The file can be deleted by its owner or by whoever uploaded it",
     "empty": "The file is empty",
     "emptyContent": "The content is empty",
@@ -491,7 +491,7 @@
     "groundRequired": "Name the ground of the termination (an article of the Labour Code of the RK)",
     "leaveEndRequired": "A leave requires an end date",
     "libraryItemNotFound": "There is no such form in the library",
-    "libraryRouteNotPublished": "The route of the form is not published: {reason}",
+    "libraryRouteNotPublished": "The form route is not published: {reason}",
     "librarySignerNotEmployed": "The signer must work in the organization",
     "librarySignerPositionNotFound": "The position of the signer is not found in this organization",
     "managerRequired": "Not enough rights (a Manager or higher is needed)",
@@ -506,7 +506,7 @@
   },
   "http": {
     "badRequest": "The request is invalid",
-    "conflict": "The data conflicts",
+    "conflict": "Data conflict",
     "forbidden": "You have no access to this",
     "notFound": "Not found",
     "payloadTooLarge": "The file is too large",
@@ -629,7 +629,7 @@
     "modelInUse": "There is equipment of this model — write it off or move it first",
     "modelNotFound": "The model was not found",
     "modelNotInOrg": "The model is not found in this organization",
-    "modelsManageOnly": "The catalogue of models is kept by a manager of a site",
+    "modelsManageOnly": "The catalog of models is kept by a manager of a site",
     "nameDuplicate": "A site with this name already exists",
     "notFound": "The site was not found",
     "notWorkingHere": "This person does not work at this site",
@@ -801,7 +801,7 @@
     "listingAccessDenied": "You have no access to this listing",
     "listingHasActiveOrder": "A listing with an active order or campaign cannot be deleted",
     "listingHasNoPrice": "The listing has no price",
-    "listingLimit": "The listing limit of the showcase is reached",
+    "listingLimit": "The showcase listing limit is reached",
     "listingNotFound": "The listing was not found",
     "listingUnavailable": "The listing is unavailable",
     "needCompanyCurrency": "Create the company currency in the organization wallet first to set a price",
@@ -958,7 +958,7 @@
     "tagBrokenByBreak": "The tag is torn by the end of a paragraph or a line break: …{snippet}… — a tag must sit inside one paragraph",
     "tagWithoutField": "A tag with no field name: {tag}",
     "templateTooBig": "The template is bigger than allowed",
-    "unclosedTag": "An unclosed tag: …{snippet}…",
+    "unclosedTag": "Unclosed tag: …{snippet}…",
     "unknownCollection": "The repeat collection «{path}» is not among the template form fields",
     "unknownFieldInGroup": "The group «{prefix}» has no field «{field}» (tag {tag})",
     "unknownFormatter": "Unknown format «{formatter}» in the tag {tag}",
@@ -998,7 +998,7 @@
       "verifyToken": "The confirmation token is not valid"
     },
     "calendar": {
-      "color": "The colour must be in the #RRGGBB format",
+      "color": "The color must be in the #RRGGBB format",
       "endBeforeStart": "The end cannot be earlier than the start",
       "occurrenceStart": "«occurrenceStart» is required to edit a single occurrence",
       "periodEnd": "The end of the period must be later than its start",
@@ -1069,7 +1069,7 @@
       "badCharacters": "The characters < and > are not allowed",
       "currencyCode": "A currency code is 3 letters (KZT, USD…)",
       "dayOfMonthRequired": "Name the day of the month",
-      "installmentCategoryRequired": "For an instalment, name the purchase category",
+      "installmentCategoryRequired": "For an installment, name the purchase category",
       "invalidDate": "The date is not valid",
       "isoDate": "The date is in the YYYY-MM-DD format",
       "loanAccountRequired": "For a loan, name the account the money lands in",
@@ -1088,7 +1088,7 @@
     "invalidEnum": "«{path}»: unknown value",
     "invalidString": {
       "datetime": "«{path}»: invalid date and time",
-      "email": "«{path}»: invalid e-mail",
+      "email": "«{path}»: invalid email",
       "other": "«{path}»: invalid format",
       "url": "«{path}»: invalid link",
       "uuid": "«{path}»: invalid identifier"
@@ -1110,7 +1110,7 @@
     "notMultipleOf": "«{path}»: must be a multiple of {multipleOf}",
     "notes": {
       "badCharacters": "The name has characters that are not allowed",
-      "color": "The colour is not in the palette",
+      "color": "The color is not in the palette",
       "contentOrMarkdown": "Name either content or markdown",
       "nameRequired": "The name is required",
       "nothingToUpdate": "There is nothing to change"
@@ -1137,11 +1137,11 @@
     },
     "office": {
       "badCharacters": "The name has characters that are not allowed",
-      "nameRequired": "The name of the meeting is required"
+      "nameRequired": "The meeting name is required"
     },
     "org": {
       "badCharacters": "The characters < and > are not allowed",
-      "deputySelf": "A position cannot deputise for itself",
+      "deputySelf": "A position cannot deputize for itself",
       "deputyTargetOne": "Name exactly one: a deputy position or a person",
       "isoDate": "The date is in the YYYY-MM-DD format",
       "noteTooLong": "The note is too long",
@@ -1248,7 +1248,7 @@
     "unrecognizedKeys": "Unknown fields: {keys}",
     "user": {
       "badCharacters": "The characters are not allowed",
-      "email": "The e-mail format is not valid",
+      "email": "The email format is not valid",
       "isoDate": "The date is in the YYYY-MM-DD format"
     },
     "verify": {
@@ -1273,7 +1273,7 @@
     },
     "workspace": {
       "badCharacters": "The characters < and > are not allowed",
-      "nameRequired": "The name of the organization is required",
+      "nameRequired": "The organization name is required",
       "nothingToUpdate": "There is nothing to update"
     }
   },
@@ -1360,7 +1360,7 @@
     "notFound": "The organization was not found",
     "notMember": "You are not a member of this organization",
     "ownerCannotLeave": "The owner cannot leave — transfer the ownership first",
-    "ownerNotRemovable": "The owner of the organization is not dismissed",
+    "ownerNotRemovable": "The organization owner cannot be dismissed",
     "ownerOnly": "Only the owner can do this",
     "ownerRoleImmutable": "The role of the owner is not changed — transfer the ownership instead",
     "roleNotAssignable": "This role is not assigned by hand",

@@ -21,6 +21,8 @@
 
 ## Выдача
 
+- **Имя файла собирается ПРИ ВЫДАЧЕ.** Назвала платформа («Звонок · 11 сент. 14:30.ogg», «Договор (в3).docx») → в `meta.autoName` лежит ключ каталога с параметрами, и `FilesService.displayName` собирает имя в языке ЗАПРОСА — и в DTO, и в `Content-Disposition`, так что человек скачивает файл с именем на своём языке. Назвал человек — имя отдаётся как есть ([i18n.md](i18n.md)).
+
 - Приватные: `GET /files/:id/download?variant=` → JSON `{url, expiresAt}`; s3 → presigned (~10 мин), local → HMAC-ссылка `GET /files/raw/:id?exp&sig` (**подпись только по query** — path переписывает алиас /api↔/api/v1; `<img>/<video>` работают без JWT; Range/206).
 - Публичный класс (аватарки/лого/фото товаров): вечная ссылка `GET /public-files/:token` (неугадываемый токен, `Cache-Control: immutable`).
 - Батч для лент: `buildAttachmentViews` (ссылки серверным обогащением, без N+1); `AttachmentFileView.mediumUrl` для превью.

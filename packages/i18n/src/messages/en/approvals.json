@@ -7,7 +7,7 @@
     "notOpened": "The request did not open",
     "notOpenedHint": "It may have been withdrawn, or you have no access to its subject.",
     "openSubject": "Open the subject",
-    "route": "The route",
+    "route": "Route",
     "routeOneStep": "One step",
     "routeSteps": "{n, plural, one {# step} other {# steps}} one after another",
     "step": "Step {index} · {title}",
@@ -68,7 +68,7 @@
     "internal": "Internal approval in SuperApp6",
     "sms": "Confirmed by an SMS code"
   },
-  "someone": "An employee",
+  "someone": "Employee",
   "source": {
     "acknowledgements": "Acknowledgements",
     "signatures": "Signatures"

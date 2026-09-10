@@ -171,8 +171,7 @@
   },
   "participantFallback": "Қатысушы",
   "picker": {
-    "loadFailed": "Айналаны жүктеу мүмкін болмады",
-    "searchHint": "Аты бойынша іздеу…"
+    "loadFailed": "Айналаны жүктеу мүмкін болмады"
   },
   "presence": {
     "atUntil": "{title} — {time} дейін",

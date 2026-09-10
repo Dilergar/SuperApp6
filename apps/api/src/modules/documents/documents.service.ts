@@ -75,7 +75,7 @@ import { FilesService } from '../../core/files/files.service';
 import { ShareLinksService } from '../../core/share-links/share-links.service';
 import { SmsOutboundService } from '../../core/verify/sms-outbound.service';
 import { isDevEnv } from '../../shared/config/env.validation';
-import { fullName } from '../../shared/utils/user-name';
+import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
 import {
   DOCUMENTS_FILE_JOB,
   DOCUMENTS_GENERATE_JOB,
@@ -3078,12 +3078,12 @@ export class DocumentsService {
     return row;
   }
 
-  private async nameOf(userId: string): Promise<string> {
+  private async nameOf(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return fullName(u);
+    return fullNameOrNull(u);
   }
 
   /** Контрагенты и контакты страницы — двумя батчами (без N+1), из их сервиса */

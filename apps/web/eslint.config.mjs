@@ -2,6 +2,7 @@ import tsParser from '@typescript-eslint/parser';
 import nextPlugin from '@next/eslint-plugin-next';
 import reactHooks from 'eslint-plugin-react-hooks';
 import noCyrillicLiteral from '../../scripts/eslint-rules/no-cyrillic-literal.cjs';
+import noUiTextLiteral from '../../scripts/eslint-rules/no-ui-text-literal.cjs';
 
 // ============================================================
 // МЕХАНИЧЕСКИЙ СТРАЖ ГРАНИЦЫ API ↔ клиент (третий эшелон защиты).
@@ -103,8 +104,24 @@ export default [
   // ============================================================
   {
     files: ['src/**/*.ts', 'src/**/*.tsx'],
-    plugins: { i18n: { rules: { 'no-cyrillic-literal': noCyrillicLiteral } } },
+    plugins: {
+      i18n: {
+        rules: {
+          'no-cyrillic-literal': noCyrillicLiteral,
+          'no-ui-text-literal': noUiTextLiteral,
+        },
+      },
+    },
     rules: {
+      // Язык-источник продукта — английский, и с ним появилась вторая половина той же
+      // ошибки: английская фраза в коде выглядит «правильной» и проезжает мимо стража
+      // кириллицы, оставаясь одним языком навсегда.
+      'i18n/no-ui-text-literal': [
+        'error',
+        {
+          allowFiles: ['src/app/dev/**'],
+        },
+      ],
       'i18n/no-cyrillic-literal': [
         'error',
         {

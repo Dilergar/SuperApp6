@@ -19,7 +19,7 @@
       },
       "binOrIin": {
         "example": "123456789012",
-        "label": "BIN or IIN (the Р-1 box)"
+        "label": "BIN or IIN (P-1 box)"
       },
       "director": {
         "example": "Ivan Ivanov",
@@ -27,7 +27,7 @@
       },
       "ground": {
         "example": "the Articles of Association",
-        "label": "Ground of the signature"
+        "label": "Signature basis"
       },
       "iik": {
         "example": "KZ86125KZT5004100100",
@@ -90,7 +90,7 @@
         "label": "Registration number"
       },
       "title": {
-        "example": "A leave application",
+        "example": "Leave application",
         "label": "Document title"
       }
     },
@@ -104,7 +104,7 @@
         "label": "Date of birth"
       },
       "branch": {
-        "example": "The Abai branch",
+        "example": "Abai branch",
         "label": "Site (branch)"
       },
       "branchHead": {
@@ -116,7 +116,7 @@
         "label": "Site head position"
       },
       "department": {
-        "example": "The sales department",
+        "example": "Sales department",
         "label": "Department"
       },
       "firstName": {
@@ -175,7 +175,7 @@
     },
     "employment_contract": {
       "branch": {
-        "example": "The Abai branch",
+        "example": "Abai branch",
         "label": "Place of work (branch)"
       },
       "date": {
@@ -239,7 +239,7 @@
       },
       "ground": {
         "example": "art. 56 of the Labour Code of the RK",
-        "label": "Ground for termination (article of the Labour Code of the RK)"
+        "label": "Grounds for termination (article of the Labour Code of the RK)"
       },
       "kind": {
         "example": "Transfer",
@@ -247,7 +247,7 @@
       },
       "label": "HR action",
       "newBranch": {
-        "example": "The Abai branch",
+        "example": "Abai branch",
         "label": "New branch"
       },
       "newPosition": {
@@ -289,7 +289,7 @@
       },
       "ground": {
         "example": "the Articles of Association",
-        "label": "Ground of the signature"
+        "label": "Signature basis"
       },
       "iik": {
         "example": "KZ86125KZT5004100100",

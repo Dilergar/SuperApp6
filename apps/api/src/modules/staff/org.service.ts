@@ -24,7 +24,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
-import { fullName } from '../../shared/utils/user-name';
+import { fullNameOrNull } from '../../shared/utils/user-name';
 import { OrgGraphService } from './org-graph.service';
 import { OrgRightsService } from './org-rights.service';
 import { StaffService } from './staff.service';
@@ -608,9 +608,9 @@ export class OrgService {
     return out;
   }
 
-  private async nameOf(userId: string): Promise<string> {
+  private async nameOf(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
-    return fullName(u);
+    return fullNameOrNull(u);
   }
 
   private async assertTeamMember(userId: string, workspaceId: string): Promise<WorkspaceRole> {

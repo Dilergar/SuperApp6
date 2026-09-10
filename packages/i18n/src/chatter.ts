@@ -1,5 +1,6 @@
 import type { Translator, TranslationValues } from './translator';
 import { resolveLabelKeys } from './label-keys';
+import { resolveAudienceLabels } from './audience-label';
 import { resolveIsoValues } from './iso-values';
 import { createFormatters, type Formatters } from './format';
 import type { Locale } from '@superapp/shared';
@@ -18,10 +19,12 @@ import type { Locale } from '@superapp/shared';
 // дата и число форматируются профилем региона зрителя, а не тем, что запеклось.
 //
 // То же и для дат ВНУТРИ фразы: продюсер кладёт `<имя>Iso`, рендер подставляет
-// отформатированное значение под именем без суффикса (`resolveIsoValues`).
+// отформатированное значение под именем без суффикса (`resolveIsoValues`), и для
+// адресатов: `<имя>Audience` — снимок структуры, подпись собирается при чтении
+// (`resolveAudienceLabels`).
 // ============================================================
 
-export type ChatterRawKind = 'text' | 'date' | 'datetime' | 'number';
+export type ChatterRawKind = 'text' | 'date' | 'datetime' | 'number' | 'key';
 
 export interface ChatterRaw {
   from: string | null;
@@ -48,6 +51,7 @@ export interface ChatterEntryLike {
 function renderRaw(
   value: string | null,
   kind: ChatterRawKind,
+  t: Translator,
   fmt: Formatters,
   dash: string,
 ): string {
@@ -58,7 +62,28 @@ function renderRaw(
     const n = Number(value);
     return Number.isFinite(n) ? fmt.number(n) : value;
   }
+  // Слово продукта: в записи лежит КЛЮЧ. Ключа нет в каталоге (переименовали,
+  // сервис уехал) — показываем как есть: запись честнее пустоты.
+  if (kind === 'key') return t.has(value) ? t(value) : value;
   return value;
+}
+
+/**
+ * Значения «было → стало» в языке зрителя: сырое (дата, число, ключ) —
+ * пересобранным, иначе снимок записи. Одна функция на СЕРВЕР (плоский `text`)
+ * и на ВЕБ (чипы диффа): разойдись они, чип перестал бы находиться в тексте.
+ */
+export function chatterChangeDisplay(
+  change: ChatterChangeLike | null | undefined,
+  t: Translator,
+  fmt: Formatters,
+  dash: string,
+): { from: string; to: string } {
+  if (!change) return { from: dash, to: dash };
+  return {
+    from: change.raw ? renderRaw(change.raw.from, change.raw.kind, t, fmt, dash) : change.from ?? dash,
+    to: change.raw ? renderRaw(change.raw.to, change.raw.kind, t, fmt, dash) : change.to ?? dash,
+  };
 }
 
 /** Подпись изменённого поля: каталог (если тип переведён) → снапшот записи. */
@@ -92,14 +117,14 @@ export function renderChatter(
   const first = entry.changes?.[0];
 
   const vars: Record<string, unknown> = { ...(entry.payload ?? {}) };
-  if (first) {
-    vars.from = first.raw ? renderRaw(first.raw.from, first.raw.kind, fmt, dash) : first.from ?? dash;
-    vars.to = first.raw ? renderRaw(first.raw.to, first.raw.kind, fmt, dash) : first.to ?? dash;
-  } else {
-    vars.from = dash;
-    vars.to = dash;
-  }
-  vars.actorName = entry.actorName?.trim() || t('common.labels.someone');
+  const display = chatterChangeDisplay(first, t, fmt, dash);
+  vars.from = display.from;
+  vars.to = display.to;
+  // Актор: снимок имени → слово из payload по ключу («Система», когда действие
+  // совершил не человек) → общее «Кто-то». Ключ, а не слово: запись вечна.
+  const actorSnapshot = entry.actorName?.trim();
+  if (actorSnapshot) vars.actorName = actorSnapshot;
+  else if (typeof vars.actorNameKey !== 'string') vars.actorName = t('common.labels.someone');
 
   // Подпись изменённого поля берётся из каталога по refType и полю — той же
   // ступенью, что у `chatterFieldLabel`. Снимок `payload.fieldLabel` кладут
@@ -116,10 +141,15 @@ export function renderChatter(
       typeof branchName === 'string' && branchName ? ` · ${t('chatter.branchClause', { name: branchName })}` : '';
   }
 
+  // Адресат («Отдел «Продажи»», «Руководитель инициатора») лежит в записи СНИМКОМ
+  // структуры и собирается словом здесь, в языке зрителя. Разворот идёт ПЕРВЫМ —
+  // до отбрасывания объектов ниже: снимок и есть объект.
+  const withAudiences = resolveAudienceLabels(t, vars);
+
   // ICU принимает только примитивы: объект/массив в payload → пустая строка
   // (в UI не должно появиться «[object Object]»).
   const values: TranslationValues = {};
-  for (const [k, v] of Object.entries(vars)) {
+  for (const [k, v] of Object.entries(withAudiences)) {
     if (v === undefined || v === null) continue;
     if (typeof v === 'object') continue;
     values[k] = v as string | number | boolean;

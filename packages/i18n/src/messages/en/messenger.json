@@ -169,10 +169,9 @@
     "pickChat": "Pick a chat",
     "pickChatHint": "Open a chat on the left or start a new one with someone from your Circle"
   },
-  "participantFallback": "A participant",
+  "participantFallback": "Participant",
   "picker": {
-    "loadFailed": "Could not load the Circle",
-    "searchHint": "Search by name…"
+    "loadFailed": "Could not load the Circle"
   },
   "presence": {
     "atUntil": "At {title} until {time}",
@@ -203,7 +202,7 @@
       "failed": "Could not schedule it",
       "fillTextAndTime": "Enter the text and the delivery time.",
       "label": "Message",
-      "placeholder": "The message text…",
+      "placeholder": "Message text…",
       "submit": "Schedule",
       "subtitle": "The message is sent automatically at the chosen time.",
       "title": "Schedule a message",
@@ -278,7 +277,7 @@
   "somebody": "Somebody",
   "someone": "someone",
   "systemPlaque": {
-    "unknown": "A system message"
+    "unknown": "System message"
   },
   "typing": {
     "few": "{names} are typing…",

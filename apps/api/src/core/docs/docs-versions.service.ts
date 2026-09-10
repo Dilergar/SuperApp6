@@ -270,12 +270,18 @@ export class DocsVersionsService implements OnModuleInit {
 
       const snapshot = await this.ingestSnapshot(target.id, {
         path: tmp,
-        // Имя файла ложится В БД — снимок в языке ИСТОЧНИКА.
+        // Имя файла назвала ПЛАТФОРМА: в строке остаётся снимок в языке источника
+        // (поиск, фолбэк), а рядом — ключ с параметрами, и человек скачает файл с
+        // именем на своём языке (docs/i18n.md).
       name: this.i18n.translateFor(SOURCE_LOCALE, 'common.docs.milestoneName', {
         title: doc.title,
         n: target.versionNo,
         ext: doc.ext,
       }),
+      autoName: {
+        key: 'common.docs.milestoneName',
+        params: { title: doc.title, n: target.versionNo, ext: doc.ext },
+      },
         // Канонический MIME формата: у документов, оживлённых до этой правки, в строке
         // может лежать application/octet-stream, который белый список профиля не примет.
         mime: documentFormatByExt(doc.ext)?.mime ?? doc.mime,

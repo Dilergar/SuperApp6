@@ -8,6 +8,7 @@ import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button, GlyphField, Input, Modal } from '@/components/ui';
 import { apiPatch, apiPost } from '@/lib/api';
+import { useFormatters } from '@/lib/format';
 import type { AcceptInvitationInput, Circle, IncomingInvitation } from '@superapp/shared';
 import { GROUP_COLORS, runAction, sortGroups } from './circles-lib';
 import { ColorPalette, GroupSelectField, RolePicker } from './circles-ui';
@@ -31,8 +32,9 @@ export function GroupEditModal({
   const [icon, setIcon] = useState<string | null>(group.icon);
   const [color, setColor] = useState<string>(group.color ?? GROUP_COLORS[0].value);
   const [saving, setSaving] = useState(false);
+  const { compare } = useFormatters();
 
-  const ordered = useMemo(() => sortGroups(groups), [groups]);
+  const ordered = useMemo(() => sortGroups(groups, compare), [groups, compare]);
   const startIndex = Math.max(0, ordered.findIndex((g) => g.id === group.id));
   const [index, setIndex] = useState(startIndex);
 

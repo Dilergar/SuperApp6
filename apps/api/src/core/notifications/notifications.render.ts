@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { resolveIsoValues, resolveLabelKeys, type Locale } from '@superapp/i18n';
+import { resolveAudienceLabels, resolveIsoValues, resolveLabelKeys, type Locale } from '@superapp/i18n';
 import { notificationDef } from '@superapp/shared';
 import { I18nService } from '../../shared/i18n/i18n.service';
 
@@ -37,10 +37,15 @@ export class NotificationsRenderer {
     // `<имя>Key` в payload — КЛЮЧ каталога, а не слово: вид кадрового действия,
     // способ вручения и прочие слова продукта не вправе застыть в языке того,
     // кто нажал кнопку (docs/i18n.md, render-at-read). `<имя>Iso` — та же идея для
-    // машинной даты: «2026-09» превращается в «сентябрь 2026» правилами зрителя.
+    // машинной даты: «2026-09» превращается в «сентябрь 2026» правилами зрителя,
+    // `<имя>Audience` — для адресата (ключ формы + имя справочника снимком).
+    // Адресат («Отдел «Продажи»») лежит в payload СНИМКОМ структуры и собирается
+    // словом здесь — до `toValues`, которая выбрасывает объекты.
+    const t = this.i18n.forLocale(locale);
+    const withAudiences = resolveAudienceLabels(t, payload ?? {});
     const values = resolveLabelKeys(
-      this.i18n.forLocale(locale),
-      resolveIsoValues(this.i18n.format(locale), { ...toValues(payload), n }),
+      t,
+      resolveIsoValues(this.i18n.format(locale), { ...toValues(withAudiences), n }),
     );
     const titleKey = `notifications.${type}.title`;
     const bodyKey = `notifications.${type}.body`;

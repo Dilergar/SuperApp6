@@ -112,7 +112,7 @@
     },
     "document": {
       "created": "{actorName} открыл(а) файл «{title}» для совместного редактирования",
-      "edited": "{actorName} правил(а) документ ({period})",
+      "edited": "{actorName} правил(а) документ ({period}){othersSuffix}",
       "restored": "{actorName} вернул(а) версию {versionNo} как текущую",
       "version_saved": "{actorName} сохранил(а) версию {versionNo}"
     },

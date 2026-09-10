@@ -222,7 +222,7 @@ function NewAccountModal({ bookId, onClose, onDone }: { bookId: string | null; o
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 'var(--spacing-3)', alignItems: 'start' }}>
           <Input
             label={common('labels.name')}
-            placeholder="Kaspi Gold…"
+            placeholder={t('accountNamePlaceholder')}
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus

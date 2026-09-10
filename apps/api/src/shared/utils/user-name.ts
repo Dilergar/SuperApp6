@@ -1,16 +1,26 @@
+type NameParts = { firstName: string; lastName: string | null };
+
 /**
- * A user's display name from first/last name, with a fallback when the user is missing.
- * Single source of truth — services used to each define their own copy of this.
+ * Имя человека из строки пользователя. Единственный источник правды — сервисы
+ * когда-то держали по своей копии.
  *
- * The default fallback is in the SOURCE locale: it is the right word for a snapshot
- * written to the database (a chronicle actor name outlives the account). Whoever shows
- * the result to a person LIVE passes the translated word instead —
- * `i18n.translate('common.labels.someone')`.
+ * Строки НЕТ (аккаунт удалён, связь пустая) → `null`, а НЕ слово-заглушка. Слово
+ * («Кто-то») — это текст продукта, и его даёт КАТАЛОГ в языке того, кто читает:
+ *   - витрина: `fullNameOrNull(u) ?? this.i18n.translate('common.labels.someone')`;
+ *   - вечная запись: `null` в колонку снимка (рендер подставит слово при чтении)
+ *     либо `<имя>Key: 'common.labels.someone'` в payload (docs/i18n.md).
+ * Запечённое в базу «Someone» осталось бы английским у казахоязычного читателя
+ * навсегда — миграции для этого не существует.
  */
-export function fullName(
-  u: { firstName: string; lastName: string | null } | null | undefined,
-  fallback = 'Someone',
-): string {
-  if (!u) return fallback;
-  return [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.firstName || fallback;
+export function fullNameOrNull(u: NameParts | null | undefined): string | null {
+  if (!u) return null;
+  return [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.firstName || null;
+}
+
+/**
+ * Имя человека, который ТОЧНО есть (обязательная связь). Пустая строка вместо
+ * заглушки: слово вместо имени — работа каталога, а не этой функции.
+ */
+export function fullName(u: NameParts): string {
+  return fullNameOrNull(u) ?? '';
 }

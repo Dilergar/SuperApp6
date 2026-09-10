@@ -2,7 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { AccessService } from '../../core/access/access.service';
-import { fullName } from '../../shared/utils/user-name';
+import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { parseMentions, MENTION_LIMITS, type MentionCandidate, type MentionSourceType } from '@superapp/shared';
 
 const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true } as const;
@@ -24,6 +25,7 @@ export class MentionsService {
     private db: DatabaseService,
     private notifications: NotificationsService,
     private access: AccessService,
+    private i18n: I18nService,
   ) {}
 
   /** Ключ идемпотентности упоминания в источнике */
@@ -62,14 +64,22 @@ export class MentionsService {
         this.db.user.findUnique({ where: { id: authorId }, select: USER_LITE }),
         this.db.chat.findUnique({ where: { id: chatId }, select: { workspaceId: true } }),
       ]);
-      const mentionerName = fullName(author);
+      const mentionerName = fullNameOrNull(author);
       const snippet = content.slice(0, MENTION_LIMITS.snippetLength);
       for (const userId of keptIds) {
         await this.notifications
           .send(null, {
             type: 'mention.received',
             to: [{ userId }],
-            payload: { mentionerName, snippet, chatId, messageId, sourceType: 'messenger', sourceId: chatId },
+            payload: {
+              // Имя — данные; его отсутствие — слово продукта, и оно едет ключом.
+              ...(mentionerName ? { mentionerName } : { mentionerNameKey: 'common.labels.someone' }),
+              snippet,
+              chatId,
+              messageId,
+              sourceType: 'messenger',
+              sourceId: chatId,
+            },
             ref: { type: 'chat_message', id: messageId },
             actorId: authorId,
             workspaceId: chat?.workspaceId ?? null,
@@ -117,14 +127,19 @@ export class MentionsService {
       const candidateIds = [...new Set(opts.mentionedUserIds.filter((id) => id && id !== mentionerUserId))].slice(0, MENTION_LIMITS.maxPerMessage);
       if (!candidateIds.length) return;
       const author = await this.db.user.findUnique({ where: { id: mentionerUserId }, select: USER_LITE });
-      const mentionerName = fullName(author);
+      const mentionerName = fullNameOrNull(author);
       const snippet = opts.snippet ? opts.snippet.slice(0, MENTION_LIMITS.snippetLength) : '';
       for (const userId of candidateIds) {
         await this.notifications
           .send(null, {
             type: 'mention.received',
             to: [{ userId }],
-            payload: { mentionerName, snippet, sourceType, sourceId },
+            payload: {
+              ...(mentionerName ? { mentionerName } : { mentionerNameKey: 'common.labels.someone' }),
+              snippet,
+              sourceType,
+              sourceId,
+            },
             ref: { type: sourceType, id: sourceId },
             actorId: mentionerUserId,
             workspaceId: opts.workspaceId ?? null,
@@ -148,10 +163,12 @@ export class MentionsService {
       include: { user: { select: USER_LITE } },
     });
     const needle = (q ?? '').trim().toLowerCase();
+    // Алфавит — ЗРИТЕЛЯ: без языка порядок берётся из окружения процесса.
+    const compare = this.i18n.format().compare;
     return members
       .map((m) => ({ userId: m.userId, name: fullName(m.user), avatar: m.user.avatar }))
       .filter((c) => (needle ? c.name.toLowerCase().includes(needle) : true))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => compare(a.name, b.name))
       .slice(0, 20);
   }
 }

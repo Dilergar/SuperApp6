@@ -6,7 +6,7 @@
   "edits": "Edits",
   "hideHistory": "Hide the history",
   "history": "History",
-  "historyHint": "The versions of the document and who edited it",
+  "historyHint": "Document versions and who edited them",
   "noEdits": "Nobody has edited it yet",
   "noVersions": "There are none yet — a version is created once the last editor leaves the document.",
   "opening": "Opening the document…",

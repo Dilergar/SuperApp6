@@ -455,7 +455,7 @@ export class NotesService {
       await this.links.syncWikilinks(tx, note.id, proj.doc, userId);
       for (const r of related) await this.links.addRelated(tx, note.id, r.targetType, r.targetId, userId);
       await this.enqueueProjection(tx, note);
-      await this.log(tx, scope, note.id, 'note.created', { targetName: this.displayTitle(note) });
+      await this.log(tx, scope, note.id, 'note.created', { ...this.logTitle(note) });
       return note;
     });
 
@@ -518,12 +518,12 @@ export class NotesService {
       // Витрина поиска зависит и от заголовка — джоб ставим на любое сохранение
       await this.enqueueProjection(tx, fresh);
       if (fresh.title !== note.title) {
-        await this.log(tx, scope, noteId, 'note.renamed', { targetName: this.displayTitle(fresh) }, [
+        await this.log(tx, scope, noteId, 'note.renamed', { ...this.logTitle(fresh) }, [
           { field: 'title', label: this.src('chatter.fields.note.title'), from: note.title || null, to: fresh.title || null },
         ]);
       }
       if (folderChange) {
-        await this.log(tx, scope, noteId, 'note.moved', { targetName: this.displayTitle(fresh), to: folderChange.toName });
+        await this.log(tx, scope, noteId, 'note.moved', { ...this.logTitle(fresh), to: folderChange.toName });
       }
       return fresh;
     });
@@ -613,7 +613,7 @@ export class NotesService {
         sourceId: note.id,
         mentionerUserId: scope.userId,
         mentionedUserIds: withAccess,
-        snippet: this.displayTitle(note),
+        snippet: this.ownTitle(note) || this.i18n.translate('notes.untitled'),
         actionUrl: noteUrl(scope.space, note.id),
         workspaceId: scope.space.ownerType === 'workspace' ? scope.space.ownerId : null,
       });
@@ -626,12 +626,27 @@ export class NotesService {
     };
   }
 
-  /** Заголовок для показа: явный, иначе из документа */
+  /** Заголовок для показа: явный, иначе из документа. Язык — ЗАПРОСА (render-at-read). */
   displayTitle(note: { title: string; content?: unknown; plainText: string }): string {
-    const untitled = this.i18n.translate('notes.untitled');
+    return this.ownTitle(note) || this.i18n.translate('notes.untitled');
+  }
+
+  /** Собственное название заметки: явное, из документа или первая строка. Пусто — значит его нет. */
+  private ownTitle(note: { title: string; content?: unknown; plainText: string }): string {
     if (note.title) return note.title;
-    if (note.content) return deriveNoteTitle(note.content as unknown as NoteDoc, untitled);
-    return note.plainText.split('\n')[0]?.slice(0, 80) || untitled;
+    if (note.content) return deriveNoteTitle(note.content as unknown as NoteDoc, '');
+    return note.plainText.split('\n')[0]?.slice(0, 80) || '';
+  }
+
+  /**
+   * Имя заметки для ВЕЧНОЙ записи (payload хроники). Названия нет — кладём КЛЮЧ
+   * каталога, а не слово: слово застыло бы в языке того, кто нажал кнопку, и
+   * казахский читатель видел бы «Без названия» посреди своей фразы.
+   * `resolveLabelKeys` подставит перевод под именем БЕЗ суффикса при чтении.
+   */
+  logTitle(note: { title: string; content?: unknown; plainText: string }, as = 'targetName'): Record<string, string> {
+    const own = this.ownTitle(note);
+    return own ? { [as]: own } : { [`${as}Key`]: 'notes.untitled' };
   }
 
   private project(doc: NoteDoc): Projection {
@@ -728,7 +743,7 @@ export class NotesService {
     await this.db.$transaction(async (tx) => {
       await tx.note.updateMany({ where: { id: noteId, deletedAt: null }, data: { deletedAt: new Date() } });
       await this.enqueueProjection(tx, { ...note, deletedAt: new Date() });
-      await this.log(tx, scope, noteId, 'note.trashed', { targetName: this.displayTitle(note) });
+      await this.log(tx, scope, noteId, 'note.trashed', { ...this.logTitle(note) });
     });
     await this.search.remove(noteId);
   }
@@ -747,7 +762,7 @@ export class NotesService {
         select: NOTE_FULL_SELECT,
       });
       await this.enqueueProjection(tx, fresh);
-      await this.log(tx, scope, noteId, 'note.restored', { targetName: this.displayTitle(fresh) });
+      await this.log(tx, scope, noteId, 'note.restored', { ...this.logTitle(fresh) });
       return fresh;
     });
     await this.search.index({ ...restored, ownerType: scope.space.ownerType, ownerId: scope.space.ownerId });
@@ -794,7 +809,7 @@ export class NotesService {
     const described = await this.links.requireTarget(userId, scope, targetType, targetId);
     await this.db.$transaction(async (tx) => {
       const added = await this.links.addRelated(tx, noteId, targetType, targetId, userId);
-      if (added) await this.log(tx, scope, noteId, 'note.related', { targetName: this.displayTitle(note), to: described.title });
+      if (added) await this.log(tx, scope, noteId, 'note.related', { ...this.logTitle(note), to: described.title });
     });
     return this.detail(scope, note, access);
   }
@@ -803,7 +818,7 @@ export class NotesService {
     const { note, scope, access } = await this.requireNote(userId, noteId, 'editor');
     await this.db.$transaction(async (tx) => {
       const removed = await this.links.removeRelated(tx, noteId, targetType, targetId);
-      if (removed) await this.log(tx, scope, noteId, 'note.unrelated', { targetName: this.displayTitle(note), from: targetType });
+      if (removed) await this.log(tx, scope, noteId, 'note.unrelated', { ...this.logTitle(note), from: targetType });
     });
     return this.detail(scope, note, access);
   }
@@ -831,7 +846,8 @@ export class NotesService {
       refId: noteId,
       workspaceId: scope.space.ownerType === 'workspace' ? scope.space.ownerId : null,
       actorId: scope.userId,
-      actorName: fullName(actor),
+      // Имени нет (аккаунт исчез) → null: слово-заглушку подставит рендер в языке зрителя.
+      actorName: actor ? fullName(actor) : null,
       typeKey,
       payload,
       changes: changes ?? null,

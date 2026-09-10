@@ -1,5 +1,6 @@
 import tsParser from '@typescript-eslint/parser';
 import noCyrillicLiteral from '../../scripts/eslint-rules/no-cyrillic-literal.cjs';
+import noUiTextLiteral from '../../scripts/eslint-rules/no-ui-text-literal.cjs';
 
 // ============================================================
 // СТРАЖ МУЛЬТИЯЗЫЧНОСТИ мобильного клиента.
@@ -24,7 +25,16 @@ export default [
         ecmaFeatures: { jsx: true },
       },
     },
-    plugins: { i18n: { rules: { 'no-cyrillic-literal': noCyrillicLiteral } } },
-    rules: { 'i18n/no-cyrillic-literal': 'error' },
+    plugins: {
+      i18n: {
+        rules: {
+          'no-cyrillic-literal': noCyrillicLiteral,
+          'no-ui-text-literal': noUiTextLiteral,
+        },
+      },
+    },
+    // Язык-источник английский, поэтому вторая половина той же ошибки — английская
+    // фраза литералом: страж кириллицы её не видит, а перевести её негде.
+    rules: { 'i18n/no-cyrillic-literal': 'error', 'i18n/no-ui-text-literal': 'error' },
   },
 ];

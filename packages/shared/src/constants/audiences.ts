@@ -52,6 +52,43 @@ export const AUDIENCE_ANCHOR_KEYS: Record<AudienceAnchor, string> = {
   $self: 'self',
 };
 
+/** Ключ каталога подписи ВИДА («Отдел», «Должность») — слово даёт каталог, не код */
+export function audienceKindKey(kind: AudienceKind): string {
+  return `common.audience.kind.${kind}`;
+}
+
+/** Ключ каталога слова ЯКОРЯ («инициатора», «меня») */
+export function audienceAnchorKey(anchor: AudienceAnchor): string {
+  return `common.audience.anchor.${AUDIENCE_ANCHOR_KEYS[anchor]}`;
+}
+
+/**
+ * ФОРМЫ подписи адресата — ключи каталога, которыми движок называет снимок
+ * (`AudienceLabelSnapshot.key`). Список нужен ЯВНО: ключ, собранный на лету, стражи
+ * каталогов не видят, и пропажа перевода обнаружилась бы у пользователя — поэтому
+ * `check:i18n` читает ЭТОТ словарь (плюс `AUDIENCE_KINDS` и `AUDIENCE_ANCHOR_KEYS`,
+ * из которых собираются ключи вида и якоря) и сверяет весь набор с каталогами.
+ * Две последние формы приходят из модулей-владельцев (`branch_head_of` —
+ * StaffModule, `circle` — ContactsModule): движок их не выдумывает, но записать в
+ * вечный payload может только их.
+ */
+export const AUDIENCE_LABEL_FORMS = {
+  department: 'common.audience.label.department',
+  position: 'common.audience.label.position',
+  branch: 'common.audience.label.branch',
+  wholeTeam: 'common.audience.label.wholeTeam',
+  managerOf: 'common.audience.label.managerOf',
+  managerOfAnchor: 'common.audience.label.managerOfAnchor',
+  teamOf: 'common.audience.label.teamOf',
+  teamOfAnchor: 'common.audience.label.teamOfAnchor',
+  siteHeadOf: 'common.audience.label.siteHeadOf',
+  siteHeadOfAnchor: 'common.audience.label.siteHeadOfAnchor',
+  /** Форма модуля-владельца: «Руководитель объекта «{name}»» (StaffModule) */
+  siteHeadOfSite: 'common.audience.label.siteHeadOfSite',
+  /** Форма модуля-владельца: «Группа «{name}»» (ContactsModule) */
+  circleNamed: 'circles.groupNamed',
+} as const;
+
 export interface AudienceKindDef {
   /** Разворачивается по оргструктуре относительно человека (id = userId или якорь) */
   relative: boolean;

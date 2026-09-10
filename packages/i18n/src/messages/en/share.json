@@ -107,7 +107,7 @@
     "nameLabel": "What is your name",
     "next": "Next",
     "open": "Open",
-    "pageTitle": "A link — SuperApp6",
+    "pageTitle": "Link — SuperApp6",
     "passwordLabel": "Password",
     "passwordLocked": "Too many wrong attempts. Try again in {min, plural, one {# minute} other {# minutes}}.",
     "passwordSubtitle": "Enter the password you were given",

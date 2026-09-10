@@ -74,6 +74,7 @@
       "documents": "Документы",
       "drive": "Диск",
       "hr": "Кадры",
+      "notes": "Заметки",
       "objects": "Объекты",
       "processes": "Процессы",
       "share": "Ссылки наружу",
@@ -314,7 +315,8 @@
     "vatPayerToggle": "Плательщик НДС",
     "vatPayerWithCert": "плательщик (св-во {cert})",
     "vatSeries": "Серия свидетельства",
-    "viewSubtitle": "Для договоров и счетов"
+    "viewSubtitle": "Для договоров и счетов",
+    "bankPlaceholder": "Kaspi Bank"
   },
   "taxRegime": {
     "astana_hub": "Astana Hub",

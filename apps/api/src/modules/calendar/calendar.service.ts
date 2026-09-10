@@ -867,7 +867,9 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       avatar: u.avatar,
       accessLevel: detailed.has(u.id) ? 'detailed' : 'busy',
     }));
-    return out.sort((a, b) => fullName(a).localeCompare(fullName(b)));
+    // Алфавит — ЗРИТЕЛЯ: у казахского свои места для Ә, Ғ, Қ, Ң, Ө, Ұ, Ү, Һ, І.
+    const compare = this.i18n.format().compare;
+    return out.sort((a, b) => compare(fullName(a), fullName(b)));
   }
 
   // ============================================================

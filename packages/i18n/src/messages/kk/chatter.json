@@ -112,7 +112,7 @@
     },
     "document": {
       "created": "{actorName} «{title}» файлын бірлесіп өңдеуге ашты",
-      "edited": "{actorName} құжатты өңдеді ({period})",
+      "edited": "{actorName} құжатты өңдеді ({period}){othersSuffix}",
       "restored": "{actorName} {versionNo} нұсқасын ағымдағы етіп қайтарды",
       "version_saved": "{actorName} {versionNo} нұсқасын сақтады"
     },

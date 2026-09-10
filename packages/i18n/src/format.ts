@@ -326,6 +326,32 @@ export function formatBytes(bytes: number, ctx: FormatContext, units: ByteUnits)
   return `${formatNumber(bytes / 1024 ** 3, ctx, { maximumFractionDigits: 2 })} ${units.gb}`;
 }
 
+// ============================================================
+// ПОРЯДОК СЛОВ — тоже язык.
+//
+// `a.localeCompare(b)` без языка берёт умолчание РАНТАЙМА: у сервера это
+// окружение процесса, у браузера — настройка системы, и один и тот же список
+// людей приходит на экран в разном порядке. Для казахского это не мелочь:
+// Ә, Ғ, Қ, Ң, Ө, Ұ, Ү, Һ, І стоят в алфавите СВОИМИ местами, а не рядом с
+// «похожими» русскими буквами, — сортировка чужим языком рассыпает ростер.
+//
+// Коллятор дорогой, поэтому кэшируется на язык: список людей зовёт сравнение
+// N·log N раз.
+// ============================================================
+const collators = new Map<string, Intl.Collator>();
+
+/** Сравнение имён (людей, отделов, файлов) в алфавите ЗРИТЕЛЯ. */
+export function compareNames(locale: Locale): (a: string, b: string) => number {
+  let hit = collators.get(locale);
+  if (!hit) {
+    // `numeric` — чтобы «Объект 2» шёл перед «Объект 10»; `base` не различает
+    // регистр и диакритику: человек ищет имя, а не байты.
+    hit = new Intl.Collator(locale, { numeric: true, sensitivity: 'base' });
+    collators.set(locale, hit);
+  }
+  return hit.compare;
+}
+
 /** Набор форматтеров, привязанный к языку и поясу — удобно передавать одним объектом. */
 export interface Formatters {
   locale: Locale;
@@ -344,6 +370,8 @@ export interface Formatters {
   month(value: Date | string | number): string;
   number(value: number, options?: NumberOptions): string;
   money(minor: number, opts?: { scale?: number; symbol?: string | null }): string;
+  /** Сравнение имён в алфавите зрителя — для `sort` любых человекочитаемых списков */
+  compare(a: string, b: string): number;
 }
 
 export function createFormatters(locale: Locale, timeZone?: string): Formatters {
@@ -362,6 +390,7 @@ export function createFormatters(locale: Locale, timeZone?: string): Formatters 
     month: (v) => formatMonth(v, ctx),
     number: (v, o) => formatNumber(v, ctx, o),
     money: (v, o) => formatMoney(v, ctx, o),
+    compare: compareNames(locale),
   };
 }
 

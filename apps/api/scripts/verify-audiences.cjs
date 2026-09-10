@@ -148,11 +148,83 @@ async function main() {
     const fg = (await call('GET', '/templates/field-groups', t1)).json?.data ?? [];
     const emp = (Array.isArray(fg) ? fg : fg.groups ?? []).find((g) => g.key === 'employee');
     const keys = (emp?.fields ?? []).map((f) => f.key);
-    check('группа «Сотрудник»: Руководитель / Руководитель Должность / Руководитель объекта', ['Руководитель', 'Руководитель Должность', 'Руководитель объекта', 'Руководитель объекта Должность'].every((k) => keys.includes(k)), keys.join(','));
+    // Имена полей бланка — английские (язык-источник, docs/i18n.md): в теге живёт КЛЮЧ,
+    // а подпись поля человеку даёт каталог.
+    check('группа «Сотрудник»: Manager / ManagerPosition / BranchHead / BranchHeadPosition', ['Manager', 'ManagerPosition', 'BranchHead', 'BranchHeadPosition'].every((k) => keys.includes(k)), keys.join(','));
     const resolved = await call('POST', '/templates/dev/resolve', t1, { workspaceId: wsId, subjectUserId: u2 });
     const vals = resolved.json?.data?.values ?? resolved.json?.data ?? {};
     const flat = JSON.stringify(vals);
     check('поля «Руководитель» резолвятся по факту (suite3 — Руководитель продаж)', resolved.ok && flat.includes('Руководитель продаж'), `${resolved.status} ${flat.slice(0, 200)}`);
+
+    // ===== Подпись адресата НЕ ЗАСТЫВАЕТ: в вечной записи структура, слово — при чтении =====
+    // Заявка живёт годами, её читают все участники маршрута. Записанная фразой
+    // подпись («Отдел «Продажи»») навсегда осталась бы в языке автора.
+    const prismaSnap = new PrismaClient();
+    const stepRow = await prismaSnap.approvalStep
+      .findFirst({
+        where: { id: stepDep?.id },
+        select: { assigneeLabelKey: true, assigneeLabelName: true, assigneeLabel: true },
+      })
+      .catch(() => null);
+    check(
+      'в строке шага — КЛЮЧ формы и имя данными, фразы нет',
+      stepRow?.assigneeLabelKey === 'common.audience.label.department' &&
+        stepRow?.assigneeLabelName === 'Продажи' &&
+        stepRow?.assigneeLabel === null,
+      JSON.stringify(stepRow),
+    );
+    const readIn = async (locale) =>
+      (await call('GET', `/approvals/${ap.json?.data?.id}`, t1, undefined, { 'X-Locale': locale })).json?.data?.steps?.[0]
+        ?.assigneeLabel;
+    const [labEn, labRu, labKk] = [await readIn('en'), await readIn('ru'), await readIn('kk')];
+    check('стопка по-английски: «Department «Продажи»»', labEn === 'Department «Продажи»', JSON.stringify(labEn));
+    check('стопка по-русски: «Отдел «Продажи»»', labRu === 'Отдел «Продажи»', JSON.stringify(labRu));
+    check('стопка по-казахски: «Продажи» бөлімі', labKk === '«Продажи» бөлімі', JSON.stringify(labKk));
+
+    // ===== Ступени чтения подписи: снимок → наследная фраза → подпись ВИДА =====
+    // Заявки, заведённые до перехода на структуру, читаются как есть; исчезнувший из
+    // справочника отдел не оставляет шаг без подписи вовсе.
+    await prismaSnap.approvalStep.update({
+      where: { id: stepDep?.id },
+      data: { assigneeLabelKey: null, assigneeLabelName: null, assigneeLabel: 'Отдел «Старое имя»' },
+    });
+    check('наследная фраза старой заявки читается как есть', (await readIn('en')) === 'Отдел «Старое имя»', JSON.stringify(await readIn('en')));
+    await prismaSnap.approvalStep.update({ where: { id: stepDep?.id }, data: { assigneeLabel: null } });
+    const [kindEn, kindRu] = [await readIn('en'), await readIn('ru')];
+    check('без ключа и фразы подпись собирается из ВИДА в языке зрителя', kindEn === 'Department' && kindRu === 'Отдел', `${kindEn} / ${kindRu}`);
+    await prismaSnap.approvalStep.update({
+      where: { id: stepDep?.id },
+      data: { assigneeLabelKey: 'common.audience.label.department', assigneeLabelName: 'Продажи' },
+    });
+
+    // ===== То же в ХРОНИКЕ: payload несёт снимок, а не фразу =====
+    const wsNote = (await call('POST', '/notes', t1, { workspaceId: wsId, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'aud: подпись' }] }] } })).json?.data;
+    const shareDep = await call('POST', `/notes/${wsNote?.id}/shares`, t1, {
+      principalType: 'department',
+      principalId: dep.id,
+      role: 'viewer',
+    });
+    check('заметка расшарена отделу', shareDep.ok, `status ${shareDep.status} ${JSON.stringify(shareDep.json?.message ?? '')}`);
+    const chatterIn = async (locale) =>
+      (await call('GET', `/chatter/note/${wsNote?.id}`, t1, undefined, { 'X-Locale': locale })).json?.data;
+    const chRu = await chatterIn('ru');
+    const sharedEntry = (chRu?.items ?? chRu ?? []).find((e) => e.typeKey === 'note.shared');
+    check(
+      'в payload хроники — снимок адресата (kind+id+ключ+имя), фразы нет',
+      !!sharedEntry?.payload?.principalLabelAudience &&
+        sharedEntry.payload.principalLabelAudience.kind === 'department' &&
+        sharedEntry.payload.principalLabelAudience.id === dep.id &&
+        sharedEntry.payload.principalLabelAudience.key === 'common.audience.label.department' &&
+        sharedEntry.payload.principalLabelAudience.name === 'Продажи' &&
+        sharedEntry.payload.principalLabel === undefined,
+      JSON.stringify(sharedEntry?.payload),
+    );
+    check('текст записи по-русски содержит «Отдел «Продажи»»', (sharedEntry?.text ?? '').includes('Отдел «Продажи»'), sharedEntry?.text);
+    const chEn = await chatterIn('en');
+    const sharedEn = (chEn?.items ?? chEn ?? []).find((e) => e.typeKey === 'note.shared');
+    check('та же запись по-английски: «Department «Продажи»»', (sharedEn?.text ?? '').includes('Department «Продажи»'), sharedEn?.text);
+    await prismaSnap.$disconnect();
+
   } finally {
     for (const id of cleanup.ws) await call('DELETE', `/workspaces/${id}`, t1).catch(() => {});
   }

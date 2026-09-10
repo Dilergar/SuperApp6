@@ -30,7 +30,9 @@ import {
   type InitFileInput,
   type AttachmentFileView,
 } from '@superapp/shared';
+import { resolveIsoValues } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { I18nService } from '../../shared/i18n/i18n.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { FilesUrlService } from './files-url.service';
 import { FilesRefRegistry } from './files-ref.registry';
@@ -78,6 +80,7 @@ export class FilesService implements OnModuleInit {
     private readonly registry: FilesRefRegistry,
     private readonly scanHook: FilesScanHook,
     private readonly pipeline: FilesPipelineService,
+    private readonly i18n: I18nService,
     @Inject(STORAGE_DRIVER) private readonly driver: StorageDriver,
   ) {}
 
@@ -362,6 +365,13 @@ export class FilesService implements OnModuleInit {
      */
     ownerType?: FileOwnerType;
     ownerId?: string;
+    /**
+     * АВТОимя: файл назвала платформа, а не человек («Звонок · 11 сент. 14:30»,
+     * «Договор (в3).docx»). В строке остаётся имя в языке ИСТОЧНИКА (поиск, фолбэк),
+     * а рядом ложится ключ каталога с параметрами — и человек получает файл с именем
+     * НА СВОЁМ языке, в том числе при скачивании (docs/i18n.md).
+     */
+    autoName?: { key: string; params?: Record<string, string | number> };
   }): Promise<FileDto> {
     const ownerType: FileOwnerType = opts.ownerType ?? 'user';
     const ownerId = ownerType === 'user' ? (opts.ownerId ?? opts.ownerUserId) : opts.ownerId ?? '';
@@ -430,7 +440,7 @@ export class FilesService implements OnModuleInit {
             publicToken: spec.visibility === 'public' ? randomBytes(24).toString('base64url') : null,
             storageDriver: this.driver.name,
             storageKey,
-            meta: { pipeline: needsPipeline ? 'pending' : 'done' },
+            meta: { pipeline: needsPipeline ? 'pending' : 'done', ...(opts.autoName ? { autoName: opts.autoName } : {}) },
           },
         });
         if (countsToQuota) {
@@ -1669,7 +1679,25 @@ export class FilesService implements OnModuleInit {
   ): { key: string; mime: string; name: string } {
     return variant
       ? { key: variant.storageKey, mime: variant.mime, name: this.variantName(row.name, variant.kind, variant.mime) }
-      : { key: row.storageKey, mime: row.mime, name: row.name };
+      : { key: row.storageKey, mime: row.mime, name: this.displayName(row) };
+  }
+
+  /**
+   * Имя файла для ЧЕЛОВЕКА. Назвал платформа (`meta.autoName`) — собираем из каталога
+   * в языке ЗАПРОСА (и дату в нём — правилами зрителя); назвал человек — отдаём как
+   * есть. Так казахоязычный сотрудник скачивает «Қоңырау · 11 қыркүйек 14:30», а не
+   * английскую строку, запечённую при записи.
+   */
+  displayName(row: { name: string; meta?: unknown }): string {
+    const meta = (row.meta ?? null) as { autoName?: { key?: unknown; params?: unknown } } | null;
+    const key = typeof meta?.autoName?.key === 'string' ? meta.autoName.key : null;
+    if (!key || !this.i18n.has(key)) return row.name;
+    const raw = (meta?.autoName?.params ?? {}) as Record<string, unknown>;
+    const values: Record<string, string | number> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string' || typeof v === 'number') values[k] = v;
+    }
+    return this.i18n.translate(key, resolveIsoValues(this.i18n.format(), values));
   }
 
   contentDisposition(mime: string, name: string): string {
@@ -1701,7 +1729,7 @@ export class FilesService implements OnModuleInit {
       uploaderId: row.uploaderId,
       profile: row.profile,
       kind: row.kind as FileDto['kind'],
-      name: row.name,
+      name: this.displayName(row),
       mime: row.mime,
       size: Number(row.size),
       sha256: row.sha256,

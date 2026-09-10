@@ -11,7 +11,6 @@
   },
   "actions": {
     "add": "Қосу",
-    "apply": "Қолдану",
     "back": "Артқа",
     "cancel": "Болдырмау",
     "close": "Жабу",
@@ -32,7 +31,6 @@
     "save": "Сақтау",
     "search": "Іздеу",
     "select": "Таңдау",
-    "show": "Көрсету",
     "yes": "Иә"
   },
   "audience": {
@@ -73,7 +71,7 @@
     "prevMonth": "Алдыңғы ай"
   },
   "calls": {
-    "recordingTitle": "Қоңырау · {date} {time}"
+    "recordingTitle": "Қоңырау · {at}.{ext}"
   },
   "chronicle": {
     "empty": "Әзірге бос — оқиғалар осында шығады",
@@ -88,7 +86,7 @@
   "docs": {
     "bigFileHint": "Файл үлкен ({mb} МБ) — ашылуы бір минутқа дейін созылуы мүмкін",
     "milestoneName": "{title} (н{n}).{ext}",
-    "othersEditing": "{name} және тағы {n}"
+    "othersSuffix": " және тағы {n}"
   },
   "dropzone": {
     "title": "Файлдарды осында сүйреңіз немесе <pick>таңдаңыз</pick>"
@@ -161,7 +159,6 @@
     "description": "Сипаттама",
     "item": "нысан",
     "name": "Атауы",
-    "none": "Жоқ",
     "optional": "Міндетті емес",
     "someone": "Біреу",
     "status": "Күйі",

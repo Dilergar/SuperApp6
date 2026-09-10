@@ -171,8 +171,7 @@
   },
   "participantFallback": "Участник",
   "picker": {
-    "loadFailed": "Не удалось загрузить окружение",
-    "searchHint": "Поиск по имени…"
+    "loadFailed": "Не удалось загрузить окружение"
   },
   "presence": {
     "atUntil": "На {title} до {time}",

@@ -6,6 +6,7 @@ import {
   WORKSPACE_ROLE_RANK,
   extractNoteMentions,
   type AudienceKind,
+  type AudienceLabelSnapshot,
   type NoteDoc,
   type NoteRole,
   type NoteShareDto,
@@ -100,7 +101,7 @@ export class NotesShareService {
     const out = new Map<string, string>();
     if (!refs.length) return out;
     const uniq = [...new Map(refs.map((r) => [`${r.type}:${r.id}`, r])).values()];
-    const labels = await this.audiences.labelMany(
+    const labels = await this.audiences.labelTexts(
       uniq.map((r) => ({ type: r.type as AudienceKind, id: r.id })),
       { workspaceId: null },
     );
@@ -115,27 +116,27 @@ export class NotesShareService {
   async shareNote(userId: string, noteId: string, input: NoteShareInput): Promise<NoteShareDto[]> {
     const { note, scope } = await this.notes.requireNote(userId, noteId, 'manager');
     await this.assertPrincipalAllowed(userId, scope, input);
-    const label = await this.principalLabel(input.principalType, input.principalId);
+    const principal = await this.principalAudience(input.principalType, input.principalId);
     await this.db.$transaction(async (tx) => {
       await this.acl.grant(NOTE_REF_TYPE, noteId, input.role, { type: input.principalType, id: input.principalId }, tx);
       await this.notes.log(tx, scope, noteId, 'note.shared', {
-        targetName: this.notes.displayTitle(note),
-        principalLabel: label,
+        ...this.notes.logTitle(note),
+        principalLabelAudience: principal,
         role: input.role,
       });
     });
-    await this.notifyRecipient(scope, userId, input, this.notes.displayTitle(note), noteUrl(scope.space, noteId));
+    await this.notifyRecipient(scope, userId, input, this.notes.logTitle(note, 'noteName'), noteUrl(scope.space, noteId));
     return this.listNoteShares(userId, noteId);
   }
 
   async unshareNote(userId: string, noteId: string, principalType: string, principalId: string): Promise<NoteShareDto[]> {
     const { note, scope } = await this.notes.requireNote(userId, noteId, 'manager');
-    const label = await this.principalLabel(principalType, principalId);
+    const principal = await this.principalAudience(principalType, principalId);
     await this.db.$transaction(async (tx) => {
       for (const role of NOTE_ROLES) {
         await this.acl.revoke(NOTE_REF_TYPE, noteId, role, { type: principalType, id: principalId }, tx);
       }
-      await this.notes.log(tx, scope, noteId, 'note.unshared', { targetName: this.notes.displayTitle(note), principalLabel: label });
+      await this.notes.log(tx, scope, noteId, 'note.unshared', { ...this.notes.logTitle(note), principalLabelAudience: principal });
     });
     return this.listNoteShares(userId, noteId);
   }
@@ -144,30 +145,30 @@ export class NotesShareService {
     const scope = await this.scopeOfFolder(userId, folderId);
     const { folder } = await this.folders.requireFolder(scope, folderId, 'manager');
     await this.assertPrincipalAllowed(userId, scope, input);
-    const label = await this.principalLabel(input.principalType, input.principalId);
+    const principal = await this.principalAudience(input.principalType, input.principalId);
     await this.db.$transaction(async (tx) => {
       await this.acl.grant(NOTE_FOLDER_REF_TYPE, folderId, input.role, { type: input.principalType, id: input.principalId }, tx);
       // Открытая папка отдаёт доступ ко ВСЕМУ поддереву — это событие для хроники
       await this.folders.log(tx, scope, folderId, 'note.folder.shared', {
         targetName: folder.name,
-        principalLabel: label,
+        principalLabelAudience: principal,
         role: input.role,
       });
     });
     const url = scope.space.ownerType === 'workspace' ? `/workspaces/${scope.space.ownerId}/notes?folder=${folderId}` : `/notes?folder=${folderId}`;
-    await this.notifyRecipient(scope, userId, input, folder.name, url);
+    await this.notifyRecipient(scope, userId, input, { noteName: folder.name }, url);
     return this.listFolderShares(userId, folderId);
   }
 
   async unshareFolder(userId: string, folderId: string, principalType: string, principalId: string): Promise<NoteShareDto[]> {
     const scope = await this.scopeOfFolder(userId, folderId);
     const { folder } = await this.folders.requireFolder(scope, folderId, 'manager');
-    const label = await this.principalLabel(principalType, principalId);
+    const principal = await this.principalAudience(principalType, principalId);
     await this.db.$transaction(async (tx) => {
       for (const role of NOTE_ROLES) {
         await this.acl.revoke(NOTE_FOLDER_REF_TYPE, folderId, role, { type: principalType, id: principalId }, tx);
       }
-      await this.folders.log(tx, scope, folderId, 'note.folder.unshared', { targetName: folder.name, principalLabel: label });
+      await this.folders.log(tx, scope, folderId, 'note.folder.unshared', { targetName: folder.name, principalLabelAudience: principal });
     });
     return this.listFolderShares(userId, folderId);
   }
@@ -184,7 +185,7 @@ export class NotesShareService {
         continue; // упомянут человек вне окружения/организации — молча пропускаем
       }
       await this.acl.grant(NOTE_REF_TYPE, noteId, 'viewer', { type: 'user', id: m.userId });
-      await this.notifyRecipient(scope, userId, { principalType: 'user', principalId: m.userId, role: 'viewer' }, this.notes.displayTitle(note), noteUrl(scope.space, noteId));
+      await this.notifyRecipient(scope, userId, { principalType: 'user', principalId: m.userId, role: 'viewer' }, this.notes.logTitle(note, 'noteName'), noteUrl(scope.space, noteId));
     }
     return this.listNoteShares(userId, noteId);
   }
@@ -285,7 +286,7 @@ export class NotesShareService {
     return this.acl.scopeForSpaceId(userId, folder.spaceId);
   }
 
-  private async notifyRecipient(scope: NoteScope, actorId: string, input: { principalType: string; principalId: string; role: NoteRole }, name: string, url: string): Promise<void> {
+  private async notifyRecipient(scope: NoteScope, actorId: string, input: { principalType: string; principalId: string; role: NoteRole }, name: Record<string, string>, url: string): Promise<void> {
     // Адресно — только человеку: рассылка «всему отделу» о каждой папке стала бы шумом.
     if (input.principalType !== 'user') return;
     const actor = await this.db.user.findUnique({ where: { id: actorId }, select: { firstName: true, lastName: true } });
@@ -293,7 +294,12 @@ export class NotesShareService {
       .send(null, {
         type: 'note.shared',
         to: [{ userId: input.principalId }],
-        payload: { ownerName: fullName(actor), noteName: name, role: input.role },
+        payload: {
+          // Имя — данные; его отсутствие — слово продукта, и оно едет ключом.
+          ...(actor ? { ownerName: fullName(actor) } : { ownerNameKey: 'common.labels.someone' }),
+          ...name,
+          role: input.role,
+        },
         actorId,
         workspaceId: scope.space.ownerType === 'workspace' ? scope.space.ownerId : null,
         reason: 'subscribed',
@@ -302,7 +308,12 @@ export class NotesShareService {
       .catch(() => undefined);
   }
 
-  private async principalLabel(type: string, id: string): Promise<string> {
-    return this.audiences.label({ type: type as AudienceKind, id }, { workspaceId: null });
+  /**
+   * Принципал для ВЕЧНОЙ записи — снимком структуры, а не фразой: «Отдел «Продажи»»,
+   * записанное словом, застыло бы в языке того, кто открыл доступ. Подпись собирает
+   * читающий (`resolveAudienceLabels` в renderChatter).
+   */
+  private async principalAudience(type: string, id: string): Promise<AudienceLabelSnapshot> {
+    return this.audiences.labelSnapshot({ type: type as AudienceKind, id }, { workspaceId: null });
   }
 }

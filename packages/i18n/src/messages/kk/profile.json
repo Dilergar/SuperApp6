@@ -74,7 +74,7 @@
     "iin": "ЖСН",
     "iinInvalid": "Бақылау сомасы сәйкес келмейді",
     "iinInvalidLong": "ЖСН: 12 цифр, нөмірді тексеріңіз — бақылау сомасы сәйкес келмейді",
-    "iinPlaceholder": "12 цифр",
+    "iinPlaceholder": "12 сан",
     "lastName": "Тегі",
     "marital": {
       "divorced": "Ажырасқан",

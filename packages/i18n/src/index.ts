@@ -45,11 +45,13 @@ export {
   formatNumber,
   formatMoney,
   formatBytes,
+  compareNames,
 } from './format';
 export type { Formatters, FormatContext, DateStyle, TimeOptions, NumberOptions, ByteUnits } from './format';
 
-export { renderChatter, chatterFieldLabel } from './chatter';
+export { renderChatter, chatterFieldLabel, chatterChangeDisplay } from './chatter';
 export { resolveLabelKeys } from './label-keys';
+export { renderAudienceLabel, resolveAudienceLabels, isAudienceLabelSnapshot } from './audience-label';
 export { resolveIsoValues } from './iso-values';
 export type {
   ChatterRaw,

@@ -40,7 +40,7 @@
     "open": "Bulk action",
     "perPersonHint": "An OWN order is created and a route is started for every person («an order per person is legally correct»). One unsuitable person does not break the batch — they stay on the progress screen with a reason.",
     "progressOf": "{created} of {total}",
-    "progressTitle": "A bulk operation",
+    "progressTitle": "Bulk operation",
     "running": "The orders are being created and sent to their routes…",
     "salaryOptional": "Salary, ₸ per month (optional)",
     "salaryRequired": "The new salary, ₸ per month (for everyone in the batch)",
@@ -48,7 +48,7 @@
     "start": "Start",
     "stat": "{status}: {n}",
     "syncFactHint": "Otherwise a legal transfer creates a «fact ≠ contract» mismatch for every one of them.",
-    "title": "A bulk HR action"
+    "title": "Bulk HR action"
   },
   "campaign": {
     "ackBannerTitle": "This document is sent to you to read",
@@ -59,12 +59,12 @@
     "confirmBySms": "Confirm with a code from an SMS"
   },
   "campaignFixMode": {
-    "click": "A mark in the system (a click)",
+    "click": "Mark in the system (a click)",
     "sms": "A code from an SMS (stronger evidence)"
   },
   "campaignMode": {
     "one_off": "One-off",
-    "standing": "A standing rule"
+    "standing": "Standing rule"
   },
   "campaignStatus": {
     "active": "Under way",
@@ -111,7 +111,7 @@
     "emptyTitle": "Nothing is burning",
     "loadFailed": "The deadlines did not load",
     "lockedDescription": "HR deadlines are visible to a Manager and higher.",
-    "lockedTitle": "A section for managers",
+    "lockedTitle": "Section for managers",
     "registryFile": "HR register",
     "registryZip": "Register (ZIP)",
     "title": "HR deadlines",
@@ -127,7 +127,7 @@
     "hintPaper": "The employee has no QES: the signature of the employee is replaced by printing the copy («Download PDF») and by recording the hand-over",
     "method": "Method",
     "title": "Hand-over to the employee",
-    "trackNumber": "The track number of the letter",
+    "trackNumber": "Letter track number",
     "trackSuffix": " · track {track}"
   },
   "deliveryChronicle": {
@@ -209,7 +209,7 @@
     "notRequiredConfirmTitle": "Is the filing not required?",
     "numberSuffix": " (No. {number})",
     "payloadSubtitle": "By the list of Rules No. 353 — paste it into the enbek.kz form",
-    "payloadTitle": "The data for ESUTD",
+    "payloadTitle": "Data for ESUTD",
     "pendingTitle": "ESUTD: not filed",
     "queueFailed": "The ESUTD queue did not load — the filing deadlines are not visible on this screen right now.",
     "submitConfirm": "I confirm: it is filed",
@@ -255,7 +255,7 @@
     "effectiveAt": "Takes effect on",
     "effectiveAtRequired": "Name the date it takes effect",
     "effectiveTo": "Until",
-    "ground": "Ground (an article of the Labour Code of the RK)",
+    "ground": "Grounds (article of the Labour Code of the RK)",
     "groundHint": "The ground is printed in the order and goes to ESUTD — there is no pre-filling on purpose.",
     "groundRequired": "Pick the ground of the termination (an article of the Labour Code of the RK)",
     "hirePackage": "The hiring package (together with the order)",
@@ -263,8 +263,8 @@
     "leaveFrom": "Leave from",
     "leaveTo": "Leave until",
     "loading": "Loading…",
-    "newBranch": "The new site",
-    "newPosition": "The new position",
+    "newBranch": "New site",
+    "newPosition": "New position",
     "newSalaryMonthly": "The new salary, ₸ per month",
     "noBranch": "Without a site",
     "noProbation": "without a probation period",
@@ -283,7 +283,7 @@
     "st54Warning": "The check of art. 54 of the Labour Code of the RK is repeated at the moment of the application: leaves — by the data of the system, sick leaves are unknown to the system — check them by hand.",
     "syncFact": "Update the actual assignment",
     "syncFactHint": "Otherwise a legal transfer creates a «fact ≠ contract» mismatch by itself.",
-    "template": "The order template",
+    "template": "Order template",
     "templateHint": "The template must have a published route with the node «Apply the HR action» — otherwise the start refuses honestly. The ready-made forms are in the library (Documents → Templates).",
     "templateNoRouteSuffix": " — no route!",
     "templateRequired": "Pick the order template",
@@ -317,7 +317,7 @@
         "description": "Art. 46 p. 2 of the Labour Code of the RK: 15 calendar days ahead, and since 08.06.2026 in writing only (on paper or as an electronic document with a QES). The employer signs with a QES, the employee reads it.",
         "docType": "Notices",
         "field": {
-          "ChangeDate": "The date of the change of the conditions",
+          "ChangeDate": "Conditions change date",
           "WhatChanges": "What changes"
         },
         "template": "Notice of a change of the working conditions",
@@ -351,7 +351,7 @@
         "description": "The employee submits it themselves («Submit an application»); the manager approves it, and the order is created by the HR action «Leave».",
         "docType": "Applications",
         "field": {
-          "LeavePeriod": "The period of the leave"
+          "LeavePeriod": "Leave period"
         },
         "template": "Leave application",
         "title": "Leave application"
@@ -372,7 +372,7 @@
         "description": "At the initiative of the employee (art. 56 of the Labour Code of the RK): the notice is at least 1 month, and the withdrawal of the application is unconditional for the whole notice period (art. 56 p. 4).",
         "docType": "Resignation applications",
         "field": {
-          "DismissalDate": "The desired date of the dismissal"
+          "DismissalDate": "Desired dismissal date"
         },
         "template": "Resignation application",
         "title": "Resignation application"
@@ -393,10 +393,10 @@
     "noSignature": "No signature",
     "routeDescription": "Installed from the library of HR forms («{title}»)",
     "routeName": "Route: {title}",
-    "signerByPerson": "A particular person",
+    "signerByPerson": "A specific person",
     "signerByPosition": "A position (whoever holds it now)",
     "signerLabel": "Who signs on behalf of the organization",
-    "signerMode": "The kind of the signer",
+    "signerMode": "Signer kind",
     "signerPersonHint": "Pick an employee",
     "signerPositionHint": "For example, the Director",
     "signerRequired": "Name the signer of the organization",
@@ -412,13 +412,13 @@
       "subjectSign": "Signature of the employee"
     },
     "subtitle": "An employment contract, orders, applications, a consent to personal data, notices — with ready-made routes and a built-in signature level (Labour Code of the RK, art. 33: HR documents need a QES)",
-    "title": "The library of the HR forms of the RK",
+    "title": "Library of RK HR forms",
     "update": "Update",
     "wizardHint": "The wizard creates a document kind, a published builder template and a PUBLISHED route. The signer is asked once and is put into the step «Sign»."
   },
   "orderNumberSuffix": " (order {number})",
   "personalDoc": {
-    "organizationFallback": "The organization"
+    "organizationFallback": "Organization"
   },
   "personalDocKind": {
     "acknowledged": "Acknowledged",
@@ -430,7 +430,7 @@
     "description": "A personal archive of HR documents: the access has no time limit — it survives a dismissal and the closing of the company",
     "emptyDescription": "Everything you sign, everything you read and everything the employers hand over to you will appear here — forever.",
     "emptyTitle": "Empty so far",
-    "filter": "The filter of the archive",
+    "filter": "Archive filter",
     "loadFailed": "The archive did not load",
     "noQesBody": "A key of the National Certification Authority of the RK is issued remotely: egov.kz → «Get a QES» (a video verification) — or in the eGov Mobile app (the section «Digital documents → QES»). Documents can be signed from a phone by a QR code through eGov Mobile — a separate key on a computer is not required.",
     "noQesTitle": "No QES?",

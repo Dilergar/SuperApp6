@@ -30,7 +30,7 @@ import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService, type ChatterTrackSpec } from '../../core/chatter/chatter.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
-import { fullName } from '../../shared/utils/user-name';
+import { fullNameOrNull } from '../../shared/utils/user-name';
 
 
 const WS_CONTEXT = 'workspace';
@@ -657,12 +657,12 @@ export class CounterpartiesService {
     return new Map(rows.map((r) => [r.counterpartyId as string, r._count._all]));
   }
 
-  private async nameOf(userId: string): Promise<string> {
+  private async nameOf(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return fullName(u);
+    return fullNameOrNull(u);
   }
 
   private lite(row: Counterparty): CounterpartyLiteDto {

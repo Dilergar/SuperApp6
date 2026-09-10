@@ -13,6 +13,7 @@ import {
   TEAM_WORKSPACE_ROLES,
   APPROVAL_ASSIGNEE_TYPES,
   type ApprovalAssigneeType,
+  type AudienceLabelSnapshot,
   type ApprovalActorLite,
   type ApprovalDecisionKind,
   type ApprovalInboxScope,
@@ -28,6 +29,7 @@ import {
   type InboxPageDto,
   type InboxCountDto,
 } from '@superapp/shared';
+import { renderAudienceLabel } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { ApiError, badRequest, forbidden, notFound, type ErrorParams } from '../../shared/errors/api-error';
@@ -210,7 +212,7 @@ export class ApprovalsService implements OnModuleInit {
             title: step.title ?? this.src(`approvals.kind.${step.kind}.action`),
             assigneeType: step.assigneeType,
             assigneeId: step.assigneeId,
-            assigneeLabel: await this.labelOf(step.assigneeType, step.assigneeId, ctx.workspaceId),
+            ...this.labelColumns(await this.assigneeSnapshotOf(step.assigneeType, step.assigneeId, ctx.workspaceId)),
             rule: step.rule ?? 'any',
             dueHours: step.dueInHours ?? null,
             // Требование подписи пишем ВМЕСТЕ со строкой шага, до его активации:
@@ -372,7 +374,7 @@ export class ApprovalsService implements OnModuleInit {
                 payload: {
                   refTitle: step.request.refTitle,
                   stepTitle: step.title,
-                  assigneeLabel: step.assigneeLabel ?? this.src('approvals.toAssignee'),
+                  ...this.assigneeLabelPayload(step, 'approvals.toAssignee'),
                 },
                 ref: { type: 'approval_request', id: step.requestId },
                 workspaceId: step.request.workspaceId,
@@ -470,11 +472,90 @@ export class ApprovalsService implements OnModuleInit {
     return count > 0;
   }
 
-  /** Название должности/отдела — снимком, чтобы история решений пережила переименование */
-  /** Подпись адресата для стопки/истории — единый словарь core/audiences (человек — без подписи) */
-  private async labelOf(assigneeType: string, assigneeId: string, workspaceId: string | null): Promise<string | null> {
+  /**
+   * Подпись адресата шага — СНИМКОМ структуры (единый словарь core/audiences):
+   * ключ формы + имя справочника на момент заведения. Слова в строке шага нет:
+   * заявка живёт годами, и «Отдел «Продажи»», записанное фразой, застыло бы в языке
+   * автора — стопку читают все участники маршрута, каждый в своём языке.
+   * Человек подписи не получает: в стопке он рисуется карточкой.
+   */
+  private async assigneeSnapshotOf(
+    assigneeType: string,
+    assigneeId: string,
+    workspaceId: string | null,
+  ): Promise<AudienceLabelSnapshot | null> {
     if (assigneeType === 'user') return null;
-    return this.audiences.label({ type: assigneeType as ApprovalAssigneeType, id: assigneeId }, { workspaceId });
+    return this.audiences.labelSnapshot({ type: assigneeType as ApprovalAssigneeType, id: assigneeId }, { workspaceId });
+  }
+
+  /** Снимок → колонки строки шага: ключ формы каталога и имя справочника данными */
+  private labelColumns(snap: AudienceLabelSnapshot | null): {
+    assigneeLabelKey: string | null;
+    assigneeLabelName: string | null;
+  } {
+    return { assigneeLabelKey: snap?.key ?? null, assigneeLabelName: snap?.name ?? null };
+  }
+
+  /**
+   * Строка шага → снимок подписи. Ключ и имя лежат колонками, вид и id уже есть в
+   * самой строке — снимок собирается без второго похода в справочник.
+   */
+  private snapshotOfStep(step: {
+    assigneeType: string;
+    assigneeId: string;
+    assigneeLabelKey: string | null;
+    assigneeLabelName: string | null;
+    assigneeLabel?: string | null;
+  }): AudienceLabelSnapshot | null {
+    // Человек подписи не получает — он рисуется карточкой.
+    if (step.assigneeType === 'user') return null;
+    // Пустой снимок при живой наследной фразе — это заявка, заведённая ДО перехода на
+    // структуру: подпись живёт только в ней, и перебивать её нечем. Пустой снимок без
+    // фразы — справочник исчез: тогда снимок из вида и id даёт хотя бы «Отдел».
+    if (!step.assigneeLabelKey && !step.assigneeLabelName && step.assigneeLabel) return null;
+    return {
+      kind: step.assigneeType as ApprovalAssigneeType,
+      id: step.assigneeId,
+      key: step.assigneeLabelKey,
+      name: step.assigneeLabelName,
+    };
+  }
+
+  /**
+   * Подпись адресата шага для ВИТРИНЫ, в языке запроса. Ступени: снимок структуры →
+   * наследная фраза (заявки до перехода на структуру читаются как есть) → ничего
+   * (человек: в стопке он карточка, а не подпись).
+   */
+  private assigneeTextOf(step: {
+    assigneeType: string;
+    assigneeId: string;
+    assigneeLabelKey: string | null;
+    assigneeLabelName: string | null;
+    assigneeLabel: string | null;
+  }): string | null {
+    const snap = this.snapshotOfStep(step);
+    return snap ? renderAudienceLabel(this.i18n.t, snap) : step.assigneeLabel;
+  }
+
+  /**
+   * Подпись адресата в payload ВЕЧНОГО уведомления. Три ступени, и ни на одной нет
+   * слова: снимок структуры → наследная фраза старой заявки → ключ каталога
+   * («выбранной группе»). Уведомление живёт годами и рисуется в языке ЧИТАТЕЛЯ.
+   */
+  private assigneeLabelPayload(
+    step: {
+      assigneeType: string;
+      assigneeId: string;
+      assigneeLabelKey: string | null;
+      assigneeLabelName: string | null;
+      assigneeLabel: string | null;
+    },
+    fallbackKey: string,
+  ): Record<string, unknown> {
+    const snap = this.snapshotOfStep(step);
+    if (snap) return { assigneeLabelAudience: snap };
+    if (step.assigneeLabel) return { assigneeLabel: step.assigneeLabel };
+    return { assigneeLabelKey: fallbackKey };
   }
 
   // ============================================================
@@ -890,7 +971,9 @@ export class ApprovalsService implements OnModuleInit {
         to: [{ userId: request.createdById }],
         payload: {
           refTitle: request.refTitle,
-          outcomeLabel: this.src(`approvals.status.${request.status}`),
+          // Исход («Согласовано») — слово продукта: в вечное уведомление едет ключ,
+          // а фраза собирается в языке читателя.
+          outcomeLabelKey: `approvals.status.${request.status}`,
           comment: last ? ((await this.lastComment(last.id)) ?? '') : '',
         },
         ref: { type: 'approval_request', id: request.id },
@@ -915,7 +998,18 @@ export class ApprovalsService implements OnModuleInit {
   private async notifyStep(
     refTitle: string,
     workspaceId: string | null,
-    step: { id: string; kind: string; title: string; awaitingUserIds: string[]; assigneeLabel: string | null; requestId: string },
+    step: {
+      id: string;
+      kind: string;
+      title: string;
+      awaitingUserIds: string[];
+      assigneeType: string;
+      assigneeId: string;
+      assigneeLabelKey: string | null;
+      assigneeLabelName: string | null;
+      assigneeLabel: string | null;
+      requestId: string;
+    },
   ): Promise<void> {
     const actionUrl = this.hrefFor(workspaceId, step.requestId);
 
@@ -930,10 +1024,10 @@ export class ApprovalsService implements OnModuleInit {
             type: 'approval.unassigned',
             to: [{ userId: request.createdById }],
             payload: {
-            refTitle,
-            stepTitle: step.title,
-            assigneeLabel: step.assigneeLabel ?? this.src('approvals.toSelectedGroup'),
-          },
+              refTitle,
+              stepTitle: step.title,
+              ...this.assigneeLabelPayload(step, 'approvals.toSelectedGroup'),
+            },
             ref: { type: 'approval_request', id: step.requestId },
             workspaceId,
             reason: 'owner',
@@ -1216,7 +1310,7 @@ export class ApprovalsService implements OnModuleInit {
       status: s.status as ApprovalStepDto['status'],
       assigneeType: s.assigneeType as ApprovalStepDto['assigneeType'],
       assigneeId: s.assigneeId,
-      assigneeLabel: s.assigneeLabel,
+      assigneeLabel: this.assigneeTextOf(s),
       rule: s.rule as ApprovalStepDto['rule'],
       awaitingUserIds: s.awaitingUserIds,
       decisions: s.decisions.map((d) => ({

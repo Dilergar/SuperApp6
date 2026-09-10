@@ -89,6 +89,9 @@ const EMPTY_CAPS: ObjectCapsDto = {
  * (`branch#member` пишется замыканием вверх), голова здания — голова его этажей
  * (`branch#head` — замыканием вниз, см. `applyStaffDiff`).
  */
+/** Имя, которым платформа называет основной объект организации (автоимя) */
+const DEFAULT_BRANCH_NAME_KEY = 'staff.member.defaultBranch';
+
 @Injectable()
 export class ObjectsService {
   constructor(
@@ -625,8 +628,11 @@ export class ObjectsService {
       throw conflict('objects.tooDeep', { max: OBJECT_LIMITS.maxDepth }, { code: OBJECTS_ERROR_CODES.objectTooDeep });
     }
 
-    // Снимок «откуда → куда» ложится в БД: пишем его в языке ИСТОЧНИКА.
-    const topLevel = this.i18n.translateFor(SOURCE_LOCALE, 'objects.topLevel');
+    // Снимок «откуда → куда» ложится в БД в языке ИСТОЧНИКА, а рядом едет `raw`
+    // КЛЮЧАМИ: имя объекта каталогу неизвестно и покажется как есть, а «Верхний
+    // уровень» — слово продукта — соберётся в языке зрителя.
+    const TOP_LEVEL_KEY = 'objects.topLevel';
+    const topLevel = this.i18n.translateFor(SOURCE_LOCALE, TOP_LEVEL_KEY);
     const fromLabel = branch.parentId ? await this.branchName(this.db, branch.parentId) : topLevel;
     const toLabel = parent ? parent.name : topLevel;
 
@@ -650,7 +656,21 @@ export class ObjectsService {
         workspaceId,
         actorId: userId,
         typeKey: 'branch.moved',
-        changes: [{ field: 'parentId', label: this.fieldLabel('parentId'), from: fromLabel, to: toLabel }],
+        changes: [
+          {
+            field: 'parentId',
+            label: this.fieldLabel('parentId'),
+            from: fromLabel,
+            to: toLabel,
+            // В `raw` — то же самое КЛЮЧАМИ: имени объекта в каталоге нет, оно
+            // покажется как есть, а «Верхний уровень» соберётся у зрителя.
+            raw: {
+              from: branch.parentId ? fromLabel : TOP_LEVEL_KEY,
+              to: parent ? parent.name : TOP_LEVEL_KEY,
+              kind: 'key' as const,
+            },
+          },
+        ],
       });
       return tx.staffBranch.findUniqueOrThrow({ where: { id: branchId } });
     });
@@ -745,8 +765,11 @@ export class ObjectsService {
           {
             field: 'isDefault',
             label: this.fieldLabel('isDefault'),
+            // Снимок — фолбэк старых читателей, правда — в `raw`: там КЛЮЧ, и
+            // «Нет → Да» переводится задним числом языком зрителя.
             from: this.i18n.translateFor(SOURCE_LOCALE, 'common.actions.no'),
             to: this.i18n.translateFor(SOURCE_LOCALE, 'common.actions.yes'),
+            raw: { from: 'common.actions.no', to: 'common.actions.yes', kind: 'key' },
           },
         ],
       });
@@ -884,7 +907,7 @@ export class ObjectsService {
     return {
       id: b.id,
       workspaceId: b.workspaceId,
-      name: b.name,
+      name: this.displayName(b),
       kind: b.kind as ObjectKind,
       parentId: b.parentId,
       ancestorIds: b.ancestorIds,
@@ -1018,6 +1041,19 @@ export class ObjectsService {
     if (!id) return null;
     const row = await tx.legalEntity.findUnique({ where: { id }, select: { name: true } });
     return row?.name ?? null;
+  }
+
+  /**
+   * Имя объекта для ЧТЕНИЯ. Основной объект организация не называла: платформа
+   * подставила ему имя при создании («Основной объект»), и слово даёт каталог в
+   * языке зрителя — тот же приём, что у книги финансов и комнаты офиса. Имя,
+   * набранное человеком, не трогаем никогда.
+   */
+  private displayName(b: { name: string; isDefault?: boolean }): string {
+    if (!b.isDefault) return b.name;
+    return b.name === this.i18n.translateFor(SOURCE_LOCALE, DEFAULT_BRANCH_NAME_KEY)
+      ? this.i18n.translate(DEFAULT_BRANCH_NAME_KEY)
+      : b.name;
   }
 
   private async branchName(db: DatabaseService, id: string): Promise<string> {

@@ -114,8 +114,10 @@ function buildSentence(
 
   let diffInline = false;
   if (change) {
-    const from = change.from ?? dash;
-    const to = change.to ?? dash;
+    // Значения берём СОБРАННЫЕ сервером: снимок записи мог быть в другом языке
+    // (слово-ключ) или в другом формате (дата), и чип не нашёлся бы в тексте.
+    const from = change.display?.from ?? change.from ?? dash;
+    const to = change.display?.to ?? change.to ?? dash;
     const candidates = [`${from} → ${to}`, `«${from}» → «${to}»`];
     for (const c of candidates) {
       const j = rest.indexOf(c);
@@ -222,7 +224,10 @@ function ChronicleRow({
         </div>
         {showChangeBelow && change && (
           <div style={{ marginTop: 'var(--spacing-1)' }}>
-            <DiffChips from={change.from ?? dash} to={change.to ?? dash} />
+            <DiffChips
+              from={change.display?.from ?? change.from ?? dash}
+              to={change.display?.to ?? change.to ?? dash}
+            />
           </div>
         )}
       </div>

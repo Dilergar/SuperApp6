@@ -80,7 +80,7 @@ export class NotesSearchService implements OnModuleInit {
         title:
           note.title ||
           note.plainText.split('\n')[0]?.slice(0, 80) ||
-          this.i18n.translateFor(SOURCE_LOCALE, 'notes.untitled'),
+          this.i18n.translate('notes.untitled'),
         body: note.plainText.slice(0, 20_000),
         workspaceId: note.ownerType === 'workspace' ? note.ownerId : null,
       });

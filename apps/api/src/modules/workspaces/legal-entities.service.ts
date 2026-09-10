@@ -312,8 +312,10 @@ export class LegalEntitiesService {
           {
             field: 'isHead',
             label: this.src('chatter.fields.workspace.isHead'),
+            // Снимок — фолбэк, правда в `raw`: ключ переводится языком зрителя.
             from: this.src('common.actions.no'),
             to: this.src('common.actions.yes'),
+            raw: { from: 'common.actions.no', to: 'common.actions.yes', kind: 'key' },
           },
         ],
       });

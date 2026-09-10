@@ -87,9 +87,9 @@ export class ApprovalsJobs implements OnModuleInit {
     const payload = {
       refTitle: step.request.refTitle,
       stepTitle: step.title,
-      // Время в APP_TIMEZONE, а не в поясе сервера: «до 05.08 18:00» должно
-      // значить одно и то же и в проде на UTC, и на машине разработчика.
-      deadlineLabel: this.i18n.format(SOURCE_LOCALE, APP_TIMEZONE).dateTime(step.deadlineAt),
+      // Дата — МАШИННАЯ (`<имя>Iso`): «до 05.08 18:00» человек увидит своими
+      // правилами и в своём поясе, а не в тех, что были у сервера при записи.
+      deadlineLabelIso: step.deadlineAt.toISOString(),
     };
     const actionUrl = this.hrefFor(step.request.workspaceId, step.requestId);
 

@@ -460,7 +460,9 @@ export class GoogleCalendarService {
   private async ensureCalendars(c: GoogleConnection): Promise<void> {
     const data: { syncCalendarId?: string; tasksCalendarId?: string } = {};
     if (!c.syncCalendarId) data.syncCalendarId = await this.createCalendar(c, SYNC_CAL_NAME);
-    if (!c.tasksCalendarId) data.tasksCalendarId = await this.createCalendar(c, this.i18n.translateFor(SOURCE_LOCALE, TASKS_CAL_NAME_KEY));
+    // Имя календаря ложится в ЧУЖОЙ сервис и нашим рендером уже не перерисовывается —
+    // пишем его в языке человека НА МОМЕНТ подключения (дальше он волен переименовать).
+    if (!c.tasksCalendarId) data.tasksCalendarId = await this.createCalendar(c, this.i18n.translate(TASKS_CAL_NAME_KEY));
     if (Object.keys(data).length) {
       await this.db.googleConnection.update({ where: { userId: c.userId }, data });
       Object.assign(c, data);

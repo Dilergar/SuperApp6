@@ -13,11 +13,12 @@
 //   • шаблонных строках (`…`) — включая куски вокруг подстановок;
 //   • текстовых узлах JSX (>текст<).
 //
-// И вторую половину той же ошибки — ЗАШИТЫЙ ЯЗЫК ФОРМАТА: `toLocaleDateString('ru-RU')`
-// и `new Intl.NumberFormat('ru-RU')`. Кириллицы в такой строке нет, поэтому первый
-// проход её не видел, а по-казахски она всё равно даёт русский месяц и русские
-// разделители. Формат — это язык И регион сразу, и берётся он только у форматтеров
-// платформы (`@superapp/i18n/format`, хуки `lib/format.ts`, `I18nService.format`).
+// И вторую половину той же ошибки — ЗАШИТЫЙ ЯЗЫК: `toLocaleDateString('ru-RU')`,
+// `new Intl.NumberFormat('ru-RU')`, `a.localeCompare(b, 'ru')`. Кириллицы в такой
+// строке нет, поэтому первый проход её не видел, а по-казахски она всё равно даёт
+// русский месяц, русские разделители и русский ПОРЯДОК списка (Ә, Ғ, Қ, Ң, Ө, Ұ,
+// Ү, Һ, І стоят в казахском алфавите своими местами). Формат и порядок берутся
+// только у платформы (`@superapp/i18n/format`, `lib/format.ts`, `I18nService.format`).
 //
 // Комментарии НЕ трогаются намеренно: комментарии в этом проекте пишутся
 // по-русски и объясняют «почему» — они часть кода, а не интерфейса.
@@ -43,10 +44,22 @@ const MESSAGE =
   'Строка для человека не может быть литералом: её нельзя перевести. Заведите ключ в каталоге @superapp/i18n и возьмите текст через useTranslations()/getTranslations() (веб) или I18nService (API). Файл ещё не переведён целиком — впишите его в i18n.legacy.json рядом с eslint.config.mjs.';
 
 const LOCALE_MESSAGE =
-  'Язык формата зашит строкой: toLocaleString/Intl с литералом языка («ru-RU») навсегда делают дату, число и месяц русскими — независимо от того, что выбрал человек. Берите форматтеры платформы: useFormatters()/useShortDate() (веб) или I18nService.format() (API), а первый аргумент — только переменная языка зрителя.';
+  'Язык зашит строкой: toLocaleString/Intl/localeCompare с литералом языка («ru-RU») навсегда делают дату, число, месяц и ПОРЯДОК списка русскими — независимо от того, что выбрал человек. Берите платформу: useFormatters() (веб) или I18nService.format() (API) — там же compare() для сортировки, — а первый аргумент только переменная языка зрителя.';
 
-/** Методы `Date`/`Number`, у которых ПЕРВЫЙ аргумент — тег языка. */
-const LOCALE_METHODS = new Set(['toLocaleString', 'toLocaleDateString', 'toLocaleTimeString']);
+/**
+ * Методы, у которых ПЕРВЫЙ аргумент — тег языка. Кроме дат сюда входят
+ * `localeCompare` (ПОРЯДОК списка: в казахском Ә, Ғ, Қ, Ң, Ө, Ұ, Ү, Һ, І стоят
+ * своими местами) и `toLocaleUpper/LowerCase` (регистр тоже язык: турецкое «i»).
+ * Язык у них берётся у зрителя — `useFormatters().compare` / `I18nService.format()`.
+ */
+const LOCALE_METHODS = new Set([
+  'toLocaleString',
+  'toLocaleDateString',
+  'toLocaleTimeString',
+  'toLocaleUpperCase',
+  'toLocaleLowerCase',
+  'localeCompare',
+]);
 /** Конструкторы `Intl`, у которых первый аргумент — тег языка. */
 const INTL_CTORS = new Set([
   'DateTimeFormat',
@@ -213,7 +226,9 @@ module.exports = {
       CallExpression(node) {
         const callee = node.callee;
         if (callee?.type === 'MemberExpression' && !callee.computed && LOCALE_METHODS.has(callee.property?.name)) {
-          if (isLocaleTag(node.arguments[0])) report(node.arguments[0], LOCALE_MESSAGE);
+          // У `localeCompare(that, locales)` язык — ВТОРОЙ аргумент, у остальных первый.
+          const at = callee.property.name === 'localeCompare' ? 1 : 0;
+          if (isLocaleTag(node.arguments[at])) report(node.arguments[at], LOCALE_MESSAGE);
           return;
         }
         // `Intl.DateTimeFormat('ru-RU')` — тот же конструктор без `new`.

@@ -590,7 +590,9 @@ export class ProcessEngineService {
     const task = await this.tasks.createTask(
       instance.startedById,
       {
-        title: spec.title || this.i18n.translateFor(SOURCE_LOCALE, 'processes.defaults.taskTitle'),
+        // Название по умолчанию даёт платформа, а читает его ИНИЦИАТОР процесса:
+        // пишем в его языке (дальше это уже данные задачи — он волен переименовать).
+        title: spec.title || this.i18n.translateFor(await this.i18n.localeOf(instance.startedById), 'processes.defaults.taskTitle'),
         description: spec.description ?? undefined,
         executorId: userId,
         dueDate: spec.dueInHours ? new Date(Date.now() + spec.dueInHours * 3_600_000).toISOString() : undefined,

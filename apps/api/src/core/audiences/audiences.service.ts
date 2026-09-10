@@ -1,16 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import {
-  AUDIENCE_ANCHOR_KEYS,
   AUDIENCE_ERROR_CODES,
   AUDIENCE_KIND_DEFS,
+  AUDIENCE_LABEL_FORMS,
   TEAM_WORKSPACE_ROLES,
+  audienceAnchorKey,
+  audienceKindKey,
   isAudienceAnchor,
   type AudienceAnchor,
   type AudienceContext,
   type AudienceKind,
   type AudienceLabelDto,
+  type AudienceLabelSnapshot,
   type AudienceRef,
 } from '@superapp/shared';
+import { renderAudienceLabel } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest, type ErrorParams } from '../../shared/errors/api-error';
 import { I18nService } from '../../shared/i18n/i18n.service';
@@ -69,14 +73,14 @@ export class AudiencesService {
     private readonly i18n: I18nService,
   ) {}
 
-  /** Подпись вида адресата в языке зрителя */
+  /** Подпись вида адресата в языке ЗАПРОСА — только для отказов и витрин */
   private kindLabel(kind: AudienceKind): string {
-    return this.i18n.translate(`common.audience.kind.${kind}`);
+    return this.i18n.translate(audienceKindKey(kind));
   }
 
-  /** Подпись якоря («инициатора», «меня») в языке зрителя */
+  /** Слово якоря («инициатора», «меня») в языке ЗАПРОСА — только для отказов */
   private anchorLabel(anchor: AudienceAnchor): string {
-    return this.i18n.translate(`common.audience.anchor.${AUDIENCE_ANCHOR_KEYS[anchor]}`);
+    return this.i18n.translate(audienceAnchorKey(anchor));
   }
 
   /** Развернуть список адресатов в уникальных живых людей (порядок — первого появления) */
@@ -149,53 +153,98 @@ export class AudiencesService {
     }
   }
 
-  /** Подпись адресата для витрин («Отдел «Продажи»», «Руководитель инициатора») */
-  async label(ref: AudienceRef, ctx: AudienceContext): Promise<string> {
+  /**
+   * СНИМОК подписи адресата: ключ формы + имя сущности данными. Единственный выход
+   * подписи из движка наружу — слова здесь нет.
+   *
+   * Снимок ложится и в вечную запись (хроника, уведомление, шаг согласования), и в
+   * витрину: разные пути читают одну структуру, поэтому «Отдел «Продажи»» на экране
+   * и в истории собирается одной формулой. Слово даёт `renderAudienceLabel` при
+   * ЧТЕНИИ, в языке зрителя (docs/i18n.md, render-at-read).
+   *
+   * Имя — снимком, а не ссылкой: справочник переименуют, отдел расформируют, а
+   * запись обязана остаться читаемой («Согласовал Главный бухгалтер» — тот, что был
+   * тогда). Якорь (`$initiator`) остаётся якорем: за ним стоит не человек, а правило.
+   */
+  async labelSnapshot(ref: AudienceRef, ctx: AudienceContext): Promise<AudienceLabelSnapshot> {
     const def = AUDIENCE_KIND_DEFS[ref.type];
     const anchor = isAudienceAnchor(ref.id) ? ref.id : null;
-    const t = (key: string, params?: Record<string, string>) => this.i18n.translate(key, params);
+    const base = { kind: ref.type, id: ref.id };
+    const nameOfPerson = async (): Promise<string | null> => (anchor ? null : await this.userName(ref.id));
+
     if (def.relative) {
-      const who = anchor ? this.anchorLabel(anchor) : await this.userName(ref.id);
       switch (ref.type) {
         case 'manager_of':
-          return t(anchor ? 'common.audience.label.managerOfAnchor' : 'common.audience.label.managerOf', { who });
+          return {
+            ...base,
+            key: anchor ? AUDIENCE_LABEL_FORMS.managerOfAnchor : AUDIENCE_LABEL_FORMS.managerOf,
+            name: await nameOfPerson(),
+          };
         case 'subordinates_of':
-          return t(anchor ? 'common.audience.label.teamOfAnchor' : 'common.audience.label.teamOf', { who });
+          return {
+            ...base,
+            key: anchor ? AUDIENCE_LABEL_FORMS.teamOfAnchor : AUDIENCE_LABEL_FORMS.teamOf,
+            name: await nameOfPerson(),
+          };
         case 'branch_head_of': {
+          // Своя форма нужна ровно для ОБЪЕКТА: имя объекта по его id знает StaffModule.
           const custom = await this.registry.get(ref.type)?.label?.(ref.id, ctx);
-          if (custom) return custom;
-          return t(anchor ? 'common.audience.label.siteHeadOfAnchor' : 'common.audience.label.siteHeadOf', { who });
+          if (custom) return { ...base, ...custom };
+          return {
+            ...base,
+            key: anchor ? AUDIENCE_LABEL_FORMS.siteHeadOfAnchor : AUDIENCE_LABEL_FORMS.siteHeadOf,
+            name: await nameOfPerson(),
+          };
         }
         default:
-          return this.kindLabel(ref.type);
+          return { ...base, key: null, name: null };
       }
     }
+
     switch (ref.type) {
       case 'user':
-        return anchor ? this.anchorLabel(anchor) : await this.userName(ref.id);
+        return { ...base, key: null, name: await nameOfPerson() };
       case 'workspace':
-        return t('common.audience.label.wholeTeam');
+        return { ...base, key: AUDIENCE_LABEL_FORMS.wholeTeam, name: null };
       case 'department': {
         const row = await this.db.staffDepartment.findUnique({ where: { id: ref.id }, select: { name: true } });
-        return row ? t('common.audience.label.department', { name: row.name }) : this.kindLabel(ref.type);
+        return { ...base, key: row ? AUDIENCE_LABEL_FORMS.department : null, name: row?.name ?? null };
       }
       case 'position': {
         const row = await this.db.staffPosition.findUnique({ where: { id: ref.id }, select: { name: true } });
-        return row ? t('common.audience.label.position', { name: row.name }) : this.kindLabel(ref.type);
+        return { ...base, key: row ? AUDIENCE_LABEL_FORMS.position : null, name: row?.name ?? null };
       }
       case 'branch': {
         const row = await this.db.staffBranch.findUnique({ where: { id: ref.id }, select: { name: true } });
-        return row ? t('common.audience.label.branch', { name: row.name }) : this.kindLabel(ref.type);
+        return { ...base, key: row ? AUDIENCE_LABEL_FORMS.branch : null, name: row?.name ?? null };
       }
       default: {
         const custom = await this.registry.get(ref.type)?.label?.(ref.id, ctx);
-        return custom ?? this.kindLabel(ref.type);
+        return { ...base, key: custom?.key ?? null, name: custom?.name ?? null };
       }
     }
   }
 
-  async labelMany(refs: AudienceRef[], ctx: AudienceContext): Promise<AudienceLabelDto[]> {
-    return Promise.all(refs.map(async (ref) => ({ ...ref, label: await this.label(ref, ctx) })));
+  /** Снимки пачкой (панель доступа, список шагов маршрута) */
+  async labelSnapshots(refs: AudienceRef[], ctx: AudienceContext): Promise<AudienceLabelSnapshot[]> {
+    return Promise.all(refs.map((ref) => this.labelSnapshot(ref, ctx)));
+  }
+
+  /**
+   * Подпись адресата ТЕКСТОМ в языке запроса — только для ВИТРИН (панель доступа,
+   * список шагов, отказ движка). В вечную запись такой текст класть нельзя: он
+   * застынет в языке того, кто нажал кнопку, — туда идёт `labelSnapshot`
+   * (страж `i18n/no-viewer-text-in-payload` держит это правило механически).
+   */
+  async labelText(ref: AudienceRef, ctx: AudienceContext): Promise<string> {
+    return renderAudienceLabel(this.i18n.t, await this.labelSnapshot(ref, ctx));
+  }
+
+  /** Подписи витрины пачкой (см. `labelText`) */
+  async labelTexts(refs: AudienceRef[], ctx: AudienceContext): Promise<AudienceLabelDto[]> {
+    const snaps = await this.labelSnapshots(refs, ctx);
+    const t = this.i18n.t;
+    return snaps.map((snap, i) => ({ ...refs[i], label: renderAudienceLabel(t, snap) }));
   }
 
   /** Принадлежит ли ось оргструктуры организации (человек — команде; вся команда — ей самой) */
@@ -288,8 +337,13 @@ export class AudiencesService {
     return ids.filter((id) => alive.has(id));
   }
 
-  private async userName(userId: string): Promise<string> {
+  /**
+   * Имя человека для снимка. Нет строки → null, а НЕ слово-заглушка: подпись живёт
+   * в вечной записи, и запечённое «Someone» осталось бы английским у казахоязычного
+   * читателя навсегда. Слово вместо пустого имени подставит рендер при чтении.
+   */
+  private async userName(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
-    return fullName(u);
+    return u ? fullName(u) : null;
   }
 }

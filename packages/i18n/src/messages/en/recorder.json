@@ -38,7 +38,7 @@
     "disabled": "Transcription is not connected (start the whisper container and set VOICE_STT_URL)",
     "inProgress": "Transcribing… this can take a few minutes",
     "language": "Language:",
-    "lastFailed": "The previous attempt failed",
+    "lastFailed": "Previous attempt failed",
     "run": "Transcribe"
   },
   "subtitle": "Record a meeting or upload a file — you will get the text split by speaker",

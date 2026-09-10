@@ -161,7 +161,7 @@ export class ChatCallsListener implements OnModuleInit {
       if (absent.length) {
         // Второй участник так и не подключился — «пропущенный» (отклонение тоже, как в Telegram)
         await this.messenger.postChatSystemMessage(chatId, 'call.missed', { typeKey: 'call.missed' });
-        const fromName = (await this.nameOf(p.startedById)) ?? this.src('messenger.somebody');
+        const fromName = await this.nameOf(p.startedById);
         for (const userId of absent) {
           // Ни звонящему, ни тому, кто сам завершил (нажал «Отклонить»), — «Пропущенный» не шлём
           if (userId === p.startedById || userId === p.endedById) continue;
@@ -169,7 +169,11 @@ export class ChatCallsListener implements OnModuleInit {
             .send(null, {
               type: 'call.missed',
               to: [{ userId }],
-              payload: { fromName, chatId },
+              payload: {
+                // Имя — данные; его отсутствие — слово продукта, и оно едет ключом.
+                ...(fromName ? { fromName } : { fromNameKey: 'messenger.somebody' }),
+                chatId,
+              },
               ref: { type: 'chat', id: chatId },
               actorId: p.startedById,
               reason: 'participant',

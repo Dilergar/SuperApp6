@@ -456,9 +456,11 @@ export class HrService implements HrPort, HrNodesPort {
         refId: hrMemberRefId(workspaceId, subjectUserId),
         workspaceId,
         actorId: actorId ?? undefined,
-        actorName: actorId ? await this.nameOf(actorId) : this.src('common.labels.system'),
+        actorName: actorId ? await this.nameOf(actorId) : null,
         typeKey,
-        payload,
+        // Действие без человека — это СИСТЕМА, и слово для неё едет ключом:
+        // записанное фразой, оно застыло бы в языке источника (docs/i18n.md).
+        payload: actorId ? payload : { ...payload, actorNameKey: 'common.labels.system' },
       })
       .catch(() => undefined);
   }

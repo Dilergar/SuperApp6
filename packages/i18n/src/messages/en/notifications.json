@@ -146,12 +146,12 @@
     "counterparty_declined": {
       "body": "{reasonLabel}",
       "label": "Counterparty declined",
-      "title": "The counterparty refused: «{title}»"
+      "title": "Counterparty refused: «{title}»"
     },
     "counterparty_signed": {
       "body": "{signerLabel}",
       "label": "Counterparty signed",
-      "title": "The counterparty signed: «{title}»"
+      "title": "Counterparty signed: «{title}»"
     },
     "external_expired": {
       "body": "The document returned to draft — send it again",
@@ -161,7 +161,7 @@
     "internal_declined": {
       "body": "{signerLabel}{reasonLabel}",
       "label": "Our signer declined",
-      "title": "A signer refused: «{title}»"
+      "title": "Signer refused: «{title}»"
     },
     "resolved": {
       "body": "{numberLabel}",

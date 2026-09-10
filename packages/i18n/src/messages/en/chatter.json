@@ -23,7 +23,7 @@
       "actualAddress": "Actual address",
       "bin": "BIN / IIN",
       "directorName": "Director",
-      "email": "E-mail",
+      "email": "Email",
       "legalAddress": "Legal address",
       "legalName": "Legal name",
       "name": "Name",
@@ -59,11 +59,11 @@
     },
     "workspace": {
       "branch": "Site",
-      "defaultBranch": "The main site",
+      "defaultBranch": "Main site",
       "department": "Department",
-      "head": "The head",
-      "isHead": "The head legal entity",
-      "primary": "The main place",
+      "head": "Head",
+      "isHead": "Head legal entity",
+      "primary": "Main place",
       "reportsTo": "Reports to"
     }
   },
@@ -112,7 +112,7 @@
     },
     "document": {
       "created": "{actorName} opened the file «{title}» for co-editing",
-      "edited": "{actorName} edited the document ({period})",
+      "edited": "{actorName} edited the document ({period}){othersSuffix}",
       "restored": "{actorName} made version {versionNo} current again",
       "version_saved": "{actorName} saved version {versionNo}"
     },

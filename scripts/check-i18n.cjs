@@ -297,6 +297,43 @@ for (const ns of NAMESPACES) {
   }
 }
 
+// ---------- 5c. реестр подписи адресата ⇔ каталоги ----------
+// Подпись адресата («Отдел «Продажи»», «Руководитель инициатора») собирается ПРИ
+// ЧТЕНИИ из снимка: в вечной записи лежит ключ формы, а слово даёт каталог в языке
+// зрителя. Ключи вида и якоря собираются на лету (`common.audience.kind.${kind}`) —
+// проверка 7 их не видит, и пропажа перевода обнаружилась бы у пользователя вместо
+// стража. Поэтому набор собирается из `constants/audiences.ts` (packages/shared) и сверяется явно.
+{
+  const src = fs.readFileSync(path.join(ROOT, 'packages', 'shared', 'src', 'constants', 'audiences.ts'), 'utf8');
+  const forms = [...(/AUDIENCE_LABEL_FORMS\s*=\s*\{([\s\S]*?)\}\s*as const/.exec(src)?.[1] ?? '')
+    .matchAll(/:\s*'([^']+)'/g)].map((m) => m[1]);
+  const kinds = listFromSource(path.join(ROOT, 'packages', 'shared', 'src', 'constants', 'audiences.ts'), 'AUDIENCE_KINDS');
+  const anchors = [...(/AUDIENCE_ANCHOR_KEYS\s*:[^=]*=\s*\{([\s\S]*?)\}/.exec(src)?.[1] ?? '').matchAll(/:\s*'([^']+)'/g)].map(
+    (m) => m[1],
+  );
+  const keys = [
+    ...forms,
+    ...kinds.map((k) => `common.audience.kind.${k}`),
+    ...anchors.map((a) => `common.audience.anchor.${a}`),
+  ];
+  if (forms.length === 0 || kinds.length === 0 || anchors.length === 0) {
+    err('реестр подписи адресата не разобрался: packages/shared/src/constants/audiences.ts');
+  }
+  for (const locale of LOCALES) {
+    const missing = keys.filter((key) => {
+      const ns = key.slice(0, key.indexOf('.'));
+      const rest = key.slice(key.indexOf('.') + 1);
+      return !flat[locale]?.[ns]?.has(rest);
+    });
+    if (missing.length) {
+      err(
+        `messages/${locale} — нет ${missing.length} ключей подписи адресата (core/audiences):\n    ` +
+          missing.join('\n    '),
+      );
+    }
+  }
+}
+
 // ---------- 6. ключ, которого нет в коде (предупреждение) ----------
 {
   const files = [];
@@ -351,6 +388,16 @@ for (const ns of NAMESPACES) {
 {
   const known = (ns, key) => flat[SOURCE_LOCALE]?.[ns]?.has(key) === true;
 
+  /** Хвост полного пути: `browser.colName` от `drive.browser.colName`. */
+  const suffixes = new Set();
+  for (const ns of NAMESPACES) {
+    for (const key of flat[SOURCE_LOCALE]?.[ns]?.keys() ?? []) {
+      const parts = `${ns}.${key}`.split('.');
+      for (let i = 1; i < parts.length; i++) suffixes.add(parts.slice(i).join('.'));
+    }
+  }
+  const knownBySuffix = (key) => suffixes.has(key);
+
   const codeFiles = [];
   const walkCode = (dir) => {
     if (!fs.existsSync(dir)) return;
@@ -392,6 +439,176 @@ for (const ns of NAMESPACES) {
       /\b(?:notFound|forbidden|badRequest|conflict|tooMany|unprocessable|unauthorized)\(\s*'([A-Za-z0-9_.]+)'/g,
     )) {
       if (!known('errors', call[1])) err(`код просит ключ, которого нет: errors.${call[1]} — ${at(call.index)}`);
+    }
+
+    // --- API: `I18nService` зовёт ключ ЦЕЛИКОМ, вместе с неймспейсом ---
+    //
+    // У сервера нет привязки «переводчик → неймспейс»: `this.i18n.translate('messenger.list.messageDeleted')`
+    // называет полный путь. Без этой ветки опечатка доезжала до экрана буквально —
+    // так `messenger.messageDeleted` (ключа нет вовсе) полгода отдавался мобильному
+    // клиенту и списку чатов вместо «Сообщение удалено».
+    for (const call of src.matchAll(
+      /\.(?:translate|translateFor)\(\s*(?:[^,'"`()]+,\s*)?'([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)'/g,
+    )) {
+      const [ns, ...rest] = call[1].split('.');
+      if (!NAMESPACES.includes(ns)) continue; // не ключ каталога, а чужой вызов с точкой
+      if (!known(ns, rest.join('.'))) err(`код просит ключ, которого нет: ${call[1]} — ${at(call.index)}`);
+    }
+
+    // --- реестры: ключ приезжает ПРОПОМ (`labelKey: 'calendar.layer.tasks'`) ---
+    //
+    // Такой ключ не проходит ни через `useTranslations`, ни через `translate`:
+    // его читает чужой компонент, и опечатка в реестре видна только на экране.
+    // Путь бывает полным (реестр общего пакета) и относительным неймспейсу
+    // потребителя (`browser.colName` у Диска) — принимаем оба.
+    for (const call of src.matchAll(
+      /\b(?:label|title|desc|description|hint|name|text|body|caption|placeholder|summary|subtitle|tooltip|aria)Key\s*[:=]\s*'([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+)'/g,
+    )) {
+      const key = call[1];
+      const [ns, ...rest] = key.split('.');
+      if (NAMESPACES.includes(ns) && known(ns, rest.join('.'))) continue;
+      if (knownBySuffix(key)) continue;
+      err(`реестр называет ключ, которого нет: ${key} — ${at(call.index)}`);
+    }
+  }
+}
+
+// ---------- 8. язык-источник чист (ошибка) ----------
+//
+// `SOURCE_LOCALE` — язык НАПИСАНИЯ: из него растут остальные каталоги, его же
+// видит человек, чей язык платформе незнаком. Кириллица в нём означает ровно
+// одно: фразу написали по-русски и забыли перевести, а «перевод» на ru потом
+// сделали копией. Ловится это только здесь — стражи кода смотрят на КОД.
+{
+  const CYRILLIC = /[Ѐ-ӿ]/;
+  for (const ns of NAMESPACES) {
+    for (const [key, message] of flat[SOURCE_LOCALE]?.[ns] ?? []) {
+      if (CYRILLIC.test(message)) {
+        err(`messages/${SOURCE_LOCALE}/${ns}.json → ${key}: кириллица в языке-источнике — «${message}»`);
+      }
+    }
+  }
+}
+
+// ---------- 9. DSL внутри фразы не переводится (ошибка) ----------
+//
+// `{{form.field}}`, `{{steps.agent.data.field}}`, `{Organization.Bin}` — это не
+// слова, а ИДЕНТИФИКАТОРЫ: `processIdSchema` (shared) принимает только латиницу.
+// Переведённый пример звал набрать то, что схема отвергнет, — и подсказка
+// «подставьте {{form.поле}}» ломала ровно того человека, который ей поверил.
+{
+  const DSL = /\{\{'?([A-Za-z0-9_.]*[^A-Za-z0-9_.'{}\s][^'{}]*)'?\}\}/g;
+  for (const locale of LOCALES) {
+    for (const ns of NAMESPACES) {
+      for (const [key, message] of flat[locale]?.[ns] ?? []) {
+        for (const m of message.matchAll(DSL)) {
+          err(`messages/${locale}/${ns}.json → ${key}: подстановка DSL переведена — «${m[0]}» (идентификаторы латинские во ВСЕХ языках)`);
+        }
+      }
+    }
+  }
+}
+
+// ---------- 10. множественное число по правилам ЯЗЫКА (ошибка) ----------
+//
+// Проверка 4 сверяет ветки с языком-источником, а у языка-источника их две
+// (one/other). Русскому нужны четыре: без `many` «5 товаров» рендерится веткой
+// `other`, и первая же правка `other` под дробное число («1,5 товара») молча
+// делает «5 товара». Категории — CLDR.
+{
+  const REQUIRED = { en: ['one', 'other'], kk: ['one', 'other'], ru: ['one', 'few', 'many', 'other'] };
+  const walkPlural = (nodes, visit) => {
+    for (const node of nodes) {
+      if (!node || typeof node !== 'object') continue;
+      if (node.type === 6) visit(node);
+      for (const opt of Object.values(node.options ?? {})) walkPlural(opt.value ?? [], visit);
+      if (node.children) walkPlural(node.children, visit);
+    }
+  };
+  for (const locale of LOCALES) {
+    const need = REQUIRED[locale];
+    if (!need) continue;
+    for (const ns of NAMESPACES) {
+      for (const [key, message] of flat[locale]?.[ns] ?? []) {
+        let ast;
+        try {
+          ast = parse(message);
+        } catch {
+          continue; // разбор уже отругался проверкой 3
+        }
+        walkPlural(ast, (node) => {
+          const branches = Object.keys(node.options ?? {});
+          const missing = need.filter((b) => !branches.includes(b));
+          if (missing.length) {
+            err(`messages/${locale}/${ns}.json → ${key}: у «${node.value}» нет веток ${missing.join(', ')} — язык их требует (CLDR)`);
+          }
+        });
+      }
+    }
+  }
+}
+
+// ---------- 11. перевод, который переводом не является (ошибка) ----------
+//
+// Казахский, скопированный с русского, проходит ВСЕ проверки выше: ключи на
+// месте, ICU разбирается, плейсхолдеры совпадают. Видно это только человеку —
+// и только тому, кто читает по-казахски. Поэтому совпадение kk и ru объявляется
+// ЯВНО: список ниже — это «в обоих языках слово действительно одно и то же»
+// (Телефон, Банк, Менеджер), а не «руки не дошли».
+//
+// Список работает в ОБЕ стороны: строка, которая перестала совпадать, обязана
+// уйти из него — иначе он превращается в вечное разрешение, и следующая копия
+// проедет молча.
+{
+  const listFile = path.join(MSG, 'identical-kk-ru.json');
+  const declared = fs.existsSync(listFile) ? new Set(JSON.parse(fs.readFileSync(listFile, 'utf8'))) : new Set();
+  const CYRILLIC = /[Ѐ-ӿ]/;
+  const copies = [];
+  const stale = [];
+  for (const ns of NAMESPACES) {
+    for (const [key, message] of flat.kk?.[ns] ?? []) {
+      const full = `${ns}.${key}`;
+      const same = flat.ru?.[ns]?.get(key) === message && CYRILLIC.test(message);
+      if (same && !declared.has(full)) copies.push(full);
+      if (!same && declared.has(full)) stale.push(full);
+    }
+  }
+  if (copies.length) {
+    err(
+      `${copies.length} казахских строк дословно совпали с русскими. Переведите — или, если слово в обоих ` +
+        `языках одно, впишите ключ в messages/identical-kk-ru.json:\n    ` +
+        copies.slice(0, 20).join('\n    ') + (copies.length > 20 ? '\n    …' : ''),
+    );
+  }
+  if (stale.length) {
+    err(
+      `${stale.length} ключей в messages/identical-kk-ru.json больше не совпадают — уберите их из списка:\n    ` +
+        stale.slice(0, 20).join('\n    ') + (stale.length > 20 ? '\n    …' : ''),
+    );
+  }
+  for (const full of declared) {
+    const [ns, ...rest] = full.split('.');
+    if (!flat.kk?.[ns]?.has(rest.join('.'))) {
+      err(`messages/identical-kk-ru.json называет ключ, которого нет: ${full}`);
+    }
+  }
+}
+
+// ---------- 12. прямой апостроф в языке-источнике (ошибка) ----------
+//
+// В ICU одинарная кавычка — СЛУЖЕБНЫЙ символ: `'{` съедает подстановку целиком.
+// Поэтому в английских фразах пишется типографский `’`, а прямой `'` остаётся
+// ровно для экранирования (`'{'`).
+{
+  const source = flat[SOURCE_LOCALE];
+  for (const ns of NAMESPACES) {
+    for (const [key, message] of source?.[ns] ?? []) {
+      // Экранирование ICU: кавычка «включает» буквальный режим, если сразу за
+      // ней идёт `{`, `}` или `#`, и выключает его следующей кавычкой.
+      const stripped = message.replace(/'[{}#][^']*'?/g, '').replace(/''/g, '');
+      if (stripped.includes("'")) {
+        err(`messages/${SOURCE_LOCALE}/${ns}.json → ${key}: прямой апостроф — служебный символ ICU, пишите «’»: «${message}»`);
+      }
     }
   }
 }

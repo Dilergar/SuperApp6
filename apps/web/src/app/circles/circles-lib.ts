@@ -96,13 +96,14 @@ export function samePhone(a: string, b: string): boolean {
 }
 
 /**
- * Порядок Групп в фильтре: сначала `sortOrder`, при равенстве — по имени.
+ * Порядок Групп в фильтре: сначала `sortOrder`, при равенстве — по имени в
+ * алфавите ЗРИТЕЛЯ (сравнение приходит параметром: чистая функция языка не знает).
  * Одна функция на чипы-фильтры и на перестановку в окне правки, иначе «Выше»
  * двигало бы группу относительно НЕ того списка, который человек видит.
  */
-export function sortGroups(groups: Circle[]): Circle[] {
+export function sortGroups(groups: Circle[], compare: (a: string, b: string) => number): Circle[] {
   return [...groups].sort((a, b) =>
-    a.sortOrder !== b.sortOrder ? a.sortOrder - b.sortOrder : a.name.localeCompare(b.name),
+    a.sortOrder !== b.sortOrder ? a.sortOrder - b.sortOrder : compare(a.name, b.name),
   );
 }
 
@@ -133,18 +134,22 @@ export function filterContacts(list: Contact[], query: string): Contact[] {
  * Сортировка грида. `recent` — как отдаёт сервер (сначала недавно
  * подтверждённые), `name` — по имени и фамилии с русским сравнением.
  */
-export function sortContacts(list: Contact[], sort: ContactSort): Contact[] {
+export function sortContacts(
+  list: Contact[],
+  sort: ContactSort,
+  compare: (a: string, b: string) => number,
+): Contact[] {
   if (sort === 'recent') {
     return [...list].sort(
       (a, b) => new Date(b.confirmedAt).getTime() - new Date(a.confirmedAt).getTime(),
     );
   }
-  // Сравнение имён — правилами ЯЗЫКА ЗРИТЕЛЯ: зашитый 'ru' сортировал бы
-  // казахские и английские имена русским алфавитом.
-  const collator = new Intl.Collator(undefined, { sensitivity: 'base' });
+  // Сравнение имён — правилами ВЫБРАННОГО языка, а не языка браузера: в Казахстане
+  // русская Windows у казахоязычного человека обычное дело, и `Intl.Collator(undefined)`
+  // сортировал бы его окружение русским алфавитом вопреки его же выбору.
   return [...list].sort((a, b) => {
-    const byFirst = collator.compare(a.them.firstName, b.them.firstName);
+    const byFirst = compare(a.them.firstName, b.them.firstName);
     if (byFirst !== 0) return byFirst;
-    return collator.compare(a.them.lastName ?? '', b.them.lastName ?? '');
+    return compare(a.them.lastName ?? '', b.them.lastName ?? '');
   });
 }

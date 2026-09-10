@@ -85,6 +85,8 @@ export interface OrgLayoutInput {
   /** Рисовать рамки отделов (выключается на очень больших схемах) */
   frames: boolean;
   labels: OrgLayoutLabels;
+  /** Сравнение имён в алфавите зрителя (`useFormatters().compare`) */
+  compare: (a: string, b: string) => number;
 }
 
 export interface OrgLayout {
@@ -101,14 +103,22 @@ export interface OrgLayout {
 interface Rect { x: number; y: number; w: number; h: number }
 const intersects = (a: Rect, b: Rect) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
-const byOrder = (a: { sortOrder: number; name: string }, b: { sortOrder: number; name: string }) =>
-  a.sortOrder - b.sortOrder || a.name.localeCompare(b.name);
+/**
+ * Порядок в ряду: сначала `sortOrder`, при равенстве — по имени в алфавите
+ * ЗРИТЕЛЯ. Чистая функция языка не знает, поэтому сравнение приходит параметром —
+ * тем же приёмом, что и подписи (`labels`).
+ */
+const byOrder =
+  (compare: (a: string, b: string) => number) =>
+  (a: { sortOrder: number; name: string }, b: { sortOrder: number; name: string }) =>
+    a.sortOrder - b.sortOrder || compare(a.name, b.name);
 
-export function layoutOrg({ chart, view, focus, frames: wantFrames, labels }: OrgLayoutInput): OrgLayout {
+export function layoutOrg({ chart, view, focus, frames: wantFrames, labels, compare }: OrgLayoutInput): OrgLayout {
+  const order = byOrder(compare);
   const posById = new Map(chart.positions.map((p) => [p.id, p]));
   const depById = new Map(chart.departments.map((d) => [d.id, d]));
   const depRank = new Map<string, number>();
-  [...chart.departments].sort(byOrder).forEach((d, i) => depRank.set(d.id, i));
+  [...chart.departments].sort(order).forEach((d, i) => depRank.set(d.id, i));
 
   const sup = (p: OrgChartPositionDto): string | null =>
     p.superiorPositionId && p.superiorPositionId !== p.id && posById.has(p.superiorPositionId) ? p.superiorPositionId : null;
@@ -151,7 +161,7 @@ export function layoutOrg({ chart, view, focus, frames: wantFrames, labels }: Or
   const children = new Map<string, OrgChartPositionDto[]>();
   const roots: OrgChartPositionDto[] = [];
   const cmp = (a: OrgChartPositionDto, b: OrgChartPositionDto) =>
-    (depRank.get(a.departmentId ?? '') ?? -1) - (depRank.get(b.departmentId ?? '') ?? -1) || byOrder(a, b);
+    (depRank.get(a.departmentId ?? '') ?? -1) - (depRank.get(b.departmentId ?? '') ?? -1) || order(a, b);
   for (const p of chart.positions) {
     if (!visible.has(p.id)) continue;
     const s = sup(p);
@@ -260,7 +270,7 @@ export function layoutOrg({ chart, view, focus, frames: wantFrames, labels }: Or
     }
     const candidates = chart.departments
       .filter((d) => d.depth <= ORG_FRAME_MAX_DEPTH && (membersOf.get(d.id)?.length ?? 0) > 0)
-      .sort((a, b) => b.depth - a.depth || byOrder(a, b));
+      .sort((a, b) => b.depth - a.depth || order(a, b));
     for (const d of candidates) {
       const members = membersOf.get(d.id) ?? [];
       const rects: Rect[] = members.map(nodeRect);

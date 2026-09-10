@@ -16,7 +16,7 @@ import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { ApprovalsService } from '../../core/approvals/approvals.service';
 import { RedisService } from '../../shared/redis/redis.service';
-import { fullName } from '../../shared/utils/user-name';
+import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import {
   WORKSPACE_ERROR_CODES,
@@ -120,12 +120,12 @@ export class WorkspacesService implements OnModuleInit {
   }
 
   /** Имя пользователя для снапшотов хроники (удалённый/неизвестный → «Пользователь»). */
-  private async userName(userId: string): Promise<string> {
+  private async userName(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return fullName(u);
+    return fullNameOrNull(u);
   }
 
   /**
@@ -698,7 +698,7 @@ export class WorkspacesService implements OnModuleInit {
             workspaceId: w.id,
             workspaceName: w.name,
             days: daysLeft,
-            purgeDate: this.i18n.format(SOURCE_LOCALE, APP_TIMEZONE).date(purgeAt),
+            purgeDateIso: purgeAt.toISOString().slice(0, 10),
           },
           ref: { type: 'workspace', id: w.id },
           reason: 'owner',
@@ -1064,6 +1064,13 @@ export class WorkspacesService implements OnModuleInit {
             label: this.i18n.translateFor(SOURCE_LOCALE, 'chatter.fields.staff.role'),
             from: this.roleName(targetRole),
             to: this.roleName(data.role),
+            // Снимок — фолбэк, правда — в `raw` КЛЮЧАМИ: «Сотрудник → Менеджер»
+            // собирается в языке зрителя, а не застывает в языке источника.
+            raw: {
+              from: `common.role.workspace.${targetRole}`,
+              to: `common.role.workspace.${data.role}`,
+              kind: 'key' as const,
+            },
           },
         ],
         payload: { targetUserId, targetName: await this.userName(targetUserId) },
@@ -1313,7 +1320,7 @@ export class WorkspacesService implements OnModuleInit {
       refId: workspaceId,
       workspaceId,
       actorId: userId,
-      actorName: fullName(inviter),
+      actorName: fullNameOrNull(inviter),
       typeKey: 'staff.invited',
       payload: {
         targetUserId: target?.id ?? null,
@@ -1436,7 +1443,7 @@ export class WorkspacesService implements OnModuleInit {
         refId: inv.workspaceId,
         workspaceId: inv.workspaceId,
         actorId: userId,
-        actorName: fullName(me),
+        actorName: fullNameOrNull(me),
         typeKey: 'staff.hired',
       });
 
@@ -1567,7 +1574,7 @@ export class WorkspacesService implements OnModuleInit {
   // Единый источник отображаемого имени — shared/utils/user-name (та же реализация,
   // что и в staff.service; локальная копия разъезжалась бы с ней по фолбэку/маске).
   private fullName(u: UserNameRow): string {
-    return fullName(u);
+    return fullNameOrNull(u) ?? this.i18n.translate('common.labels.someone');
   }
 
   private async getWorkspaceOrThrow(workspaceId: string) {

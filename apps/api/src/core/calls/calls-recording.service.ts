@@ -364,18 +364,20 @@ export class CallsRecordingService implements OnModuleInit, OnApplicationBootstr
       let fileId = rec.fileId;
       if (!fileId) {
         const started = rec.startedAt;
-        // Имя файла ложится В БД — снимок в языке ИСТОЧНИКА и по правилам региона.
-        const fmt = this.i18n.format(SOURCE_LOCALE, APP_TIMEZONE);
-        const title = this.i18n.translateFor(SOURCE_LOCALE, 'common.calls.recordingTitle', {
-          date: fmt.date(started, 'dayMonth'),
-          time: fmt.time(started),
+        // Имя файла назвала ПЛАТФОРМА: снимок — в языке источника, а рядом ложится
+        // ключ с МАШИННЫМ моментом, и зритель увидит дату своими правилами.
+        const atIso = started.toISOString();
+        const name = this.i18n.translateFor(SOURCE_LOCALE, 'common.calls.recordingTitle', {
+          at: this.i18n.format(SOURCE_LOCALE, APP_TIMEZONE).dateTime(started),
+          ext: 'ogg',
         });
         const file = await this.files.ingestLocalFile({
           path: hostPath,
-          name: `${title}.ogg`,
+          name,
           mime: 'audio/ogg',
           profile: 'dictaphone',
           ownerUserId: rec.startedById,
+          autoName: { key: 'common.calls.recordingTitle', params: { atIso, ext: 'ogg' } },
         });
         fileId = file.id;
         await this.db.callRecording.updateMany({

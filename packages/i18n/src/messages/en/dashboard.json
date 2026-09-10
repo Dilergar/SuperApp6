@@ -23,7 +23,7 @@
     "expenses": "Expenses",
     "finance": "Finance",
     "income": "Income: {amount}",
-    "title": "The month"
+    "title": "Month"
   },
   "roles": {
     "none": "none",

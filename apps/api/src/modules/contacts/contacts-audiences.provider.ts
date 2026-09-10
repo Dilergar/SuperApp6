@@ -1,7 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DatabaseService } from '../../shared/database/database.service';
+import { AUDIENCE_LABEL_FORMS } from '@superapp/shared';
 import { AudiencesRegistry } from '../../core/audiences/audiences.registry';
-import { I18nService } from '../../shared/i18n/i18n.service';
 import { ContactsService } from './contacts.service';
 
 /**
@@ -16,7 +16,6 @@ export class ContactsAudiencesProvider implements OnModuleInit {
     private readonly db: DatabaseService,
     private readonly contacts: ContactsService,
     private readonly audiences: AudiencesRegistry,
-    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -31,8 +30,9 @@ export class ContactsAudiencesProvider implements OnModuleInit {
       },
       label: async (circleId) => {
         const c = await this.db.circle.findUnique({ where: { id: circleId }, select: { name: true } });
-        // Подпись адресата собирается при ЧТЕНИИ в языке зрителя.
-        return c ? this.i18n.translate('circles.groupNamed', { name: c.name }) : null;
+        // Резолвер отдаёт КЛЮЧ формы и имя данными — слово соберётся при ЧТЕНИИ в
+        // языке зрителя. Готовая фраза застыла бы в вечной записи навсегда.
+        return c ? { key: AUDIENCE_LABEL_FORMS.circleNamed, name: c.name } : null;
       },
     });
   }

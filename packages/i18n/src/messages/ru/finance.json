@@ -363,5 +363,6 @@
     "income": "Доход",
     "opening": "Корректировка остатка",
     "transfer": "Перевод"
-  }
+  },
+  "accountNamePlaceholder": "Kaspi Gold…"
 }

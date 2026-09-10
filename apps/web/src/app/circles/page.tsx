@@ -196,7 +196,7 @@ export default function CirclesPage() {
     enabled: isReady && !!activeGroup,
   });
 
-  const groups: Circle[] = useMemo(() => sortGroups(groupsQ.data ?? []), [groupsQ.data]);
+  const groups: Circle[] = useMemo(() => sortGroups(groupsQ.data ?? [], f.compare), [groupsQ.data, f.compare]);
   const incoming: IncomingInvitation[] = useMemo(
     () => incomingQ.data?.pages.flatMap((p) => p.items) ?? [],
     [incomingQ.data],
@@ -224,8 +224,8 @@ export default function CirclesPage() {
     [activeGroup, groupDetailQ.data, contacts],
   );
   const displayed = useMemo(
-    () => sortContacts(filterContacts(baseList, search), sort),
-    [baseList, search, sort],
+    () => sortContacts(filterContacts(baseList, search), sort, f.compare),
+    [baseList, search, sort, f.compare],
   );
 
   // Грид ждёт СВОЙ запрос: до гидратации авторизации запросы выключены, и в

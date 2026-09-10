@@ -104,7 +104,7 @@
     "regionLabel": "Date and number formats",
     "regionValue": "Kazakhstan — 03.09.2026, 12 500 ₸, 24-hour clock",
     "section": "Language and region",
-    "timezoneHint": "Used for the texts that reach you outside the app (push, SMS, e-mail).",
+    "timezoneHint": "Used for the texts that reach you outside the app (push, SMS, email).",
     "timezoneLabel": "Time zone"
   },
   "logout": {
@@ -208,7 +208,7 @@
         "name": "Crumpled paper"
       },
       "floral": {
-        "description": "A soft watercolour floral card with a light rain of petals.",
+        "description": "A soft watercolor floral card with a light rain of petals.",
         "name": "Floral"
       },
       "retroNeon": {

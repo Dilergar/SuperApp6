@@ -13,6 +13,7 @@ import {
   type AssetServiceInput,
   type AssetServiceRecordDto,
   type AssetsQuery,
+  type ChatterChangeRaw,
   type CreateAssetInput,
   type CursorPage,
   type FileDto,
@@ -550,12 +551,7 @@ export class AssetsService {
         actorId: userId,
         typeKey: 'asset.holding_set',
         changes: [
-          {
-            field: 'holdingKind',
-            label: this.fieldLabel('holdingKind'),
-            from: this.dictLabel('holdingKind', HOLDING_KINDS, asset.holdingKind),
-            to: this.dictLabel('holdingKind', HOLDING_KINDS, dto.holdingKind),
-          },
+          this.dictChange('holdingKind', 'holdingKind', HOLDING_KINDS, asset.holdingKind, dto.holdingKind),
         ],
       });
       return row;
@@ -601,12 +597,7 @@ export class AssetsService {
         actorId: userId,
         typeKey: 'asset.status_set',
         changes: [
-          {
-            field: 'status',
-            label: this.fieldLabel('status'),
-            from: this.dictLabel('assetStatus', ASSET_STATUS_VALUES, asset.status),
-            to: this.dictLabel('assetStatus', ASSET_STATUS_VALUES, dto.status),
-          },
+          this.dictChange('status', 'assetStatus', ASSET_STATUS_VALUES, asset.status, dto.status),
         ],
       });
       return row;
@@ -1096,6 +1087,28 @@ export class AssetsService {
   /** Слово словаря из каталога; незнакомое значение остаётся как есть. */
   private dictLabel(dict: string, known: readonly string[], value: string): string {
     return known.includes(value) ? this.i18n.translateFor(SOURCE_LOCALE, `objects.${dict}.${value}`) : value;
+  }
+
+  /**
+   * Пара «было → стало» словарным значением: снимок — в языке ИСТОЧНИКА (фолбэк),
+   * правда — в `raw` КЛЮЧОМ, поэтому запись переводится задним числом. Словом
+   * записанный «Лизинг» застыл бы в языке того, кто нажал кнопку.
+   */
+  private dictChange(
+    field: string,
+    dict: string,
+    known: readonly string[],
+    from: string,
+    to: string,
+  ): { field: string; label: string; from: string; to: string; raw: ChatterChangeRaw } {
+    const keyOf = (v: string) => (known.includes(v) ? `objects.${dict}.${v}` : v);
+    return {
+      field,
+      label: this.fieldLabel(field),
+      from: this.dictLabel(dict, known, from),
+      to: this.dictLabel(dict, known, to),
+      raw: { from: keyOf(from), to: keyOf(to), kind: 'key' },
+    };
   }
 
   private async userName(userId: string | null): Promise<string | null> {

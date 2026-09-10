@@ -252,7 +252,8 @@
     "text": "Жол",
     "textarea": "Мәтін"
   },
-  "fileStampedSuffix": "(қол қойылған)",
+  "fileName": "{base}.{ext}",
+  "fileNameStamped": "{base} (қол қойылған).{ext}",
   "filedPlace": {
     "registry": "«{typeName}» тізілімі",
     "registryAndPersonal": "«{typeName}» тізілімі және жеке іс"

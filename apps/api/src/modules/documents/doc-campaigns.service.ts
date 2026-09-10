@@ -35,7 +35,7 @@ import { FilesService } from '../../core/files/files.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { AudiencesService } from '../../core/audiences/audiences.service';
 import { withTempFile } from '../../shared/fs/temp-file.util';
-import { fullName } from '../../shared/utils/user-name';
+import { fullNameOrNull } from '../../shared/utils/user-name';
 
 const WS_CONTEXT = 'workspace';
 const CAMPAIGN_RUN_JOB = 'documents.campaign.run';
@@ -169,9 +169,9 @@ export class DocCampaignsService implements OnModuleInit {
     }
   }
 
-  private async nameOf(userId: string): Promise<string> {
+  private async nameOf(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
-    return fullName(u);
+    return fullNameOrNull(u);
   }
 
   // ============================================================

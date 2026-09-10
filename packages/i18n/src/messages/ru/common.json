@@ -11,7 +11,6 @@
   },
   "actions": {
     "add": "Добавить",
-    "apply": "Применить",
     "back": "Назад",
     "cancel": "Отмена",
     "close": "Закрыть",
@@ -32,7 +31,6 @@
     "save": "Сохранить",
     "search": "Найти",
     "select": "Выбрать",
-    "show": "Показать",
     "yes": "Да"
   },
   "audience": {
@@ -73,7 +71,7 @@
     "prevMonth": "Предыдущий месяц"
   },
   "calls": {
-    "recordingTitle": "Звонок · {date} {time}"
+    "recordingTitle": "Звонок · {at}.{ext}"
   },
   "chronicle": {
     "empty": "Пока пусто — события появятся здесь",
@@ -88,7 +86,7 @@
   "docs": {
     "bigFileHint": "Файл большой ({mb} МБ) — открытие может занять до минуты",
     "milestoneName": "{title} (в{n}).{ext}",
-    "othersEditing": "{name} и ещё {n}"
+    "othersSuffix": " и ещё {n}"
   },
   "dropzone": {
     "title": "Перетащите файлы или <pick>выберите</pick>"
@@ -161,7 +159,6 @@
     "description": "Описание",
     "item": "объект",
     "name": "Название",
-    "none": "Нет",
     "optional": "Необязательно",
     "someone": "Кто-то",
     "status": "Статус",

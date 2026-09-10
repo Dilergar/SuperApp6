@@ -2,17 +2,16 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
   DRIVE_NODE_REF_TYPE,
   DRIVE_ROLES,
-  SOURCE_LOCALE,
   WORKSPACE_ROLE_RANK,
   type DriveRole,
   type DriveShareDto,
   type AudienceKind,
+  type AudienceLabelSnapshot,
 } from '@superapp/shared';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest } from '../../shared/errors/api-error';
-import { I18nService } from '../../shared/i18n/i18n.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { PersonalGraphRegistry } from '../contacts/personal-graph.registry';
 import { NotificationsService } from '../../core/notifications/notifications.service';
@@ -41,7 +40,6 @@ export class DriveShareService implements OnModuleInit {
     private readonly chatter: ChatterService,
     private readonly chatterRegistry: ChatterRefRegistry,
     private readonly audiences: AudiencesService,
-    private readonly i18n: I18nService,
   ) {}
 
   onModuleInit(): void {
@@ -101,7 +99,7 @@ export class DriveShareService implements OnModuleInit {
     const out = new Map<string, string>();
     if (!refs.length) return out;
     const uniq = [...new Map(refs.map((r) => [`${r.type}:${r.id}`, r])).values()];
-    const labels = await this.audiences.labelMany(
+    const labels = await this.audiences.labelTexts(
       uniq.map((r) => ({ type: r.type as AudienceKind, id: r.id })),
       { workspaceId: null },
     );
@@ -131,7 +129,7 @@ export class DriveShareService implements OnModuleInit {
     }
     await this.acl.grantNode(nodeId, input.role, { type: input.principalType, id: input.principalId });
 
-    const label = await this.principalLabel(input.principalType, input.principalId);
+    const principal = await this.principalAudience(input.principalType, input.principalId);
     await this.chatter
       .log(null, {
         refType: DRIVE_NODE_REF_TYPE,
@@ -140,7 +138,7 @@ export class DriveShareService implements OnModuleInit {
         actorId: userId,
         actorName: await this.actorName(userId),
         typeKey: 'drive.shared',
-        payload: { targetName: node.name, principalLabel: label, role: input.role },
+        payload: { targetName: node.name, principalLabelAudience: principal, role: input.role },
       })
       .catch(() => undefined);
 
@@ -164,7 +162,7 @@ export class DriveShareService implements OnModuleInit {
         typeKey: 'drive.unshared',
         payload: {
           targetName: node.name,
-          principalLabel: await this.principalLabel(principalType, principalId),
+          principalLabelAudience: await this.principalAudience(principalType, principalId),
         },
       })
       .catch(() => undefined);
@@ -314,7 +312,12 @@ export class DriveShareService implements OnModuleInit {
       .send(null, {
         type: 'drive.shared',
         to: [{ userId: input.principalId }],
-        payload: { ownerName, nodeName, role: input.role, nodeId },
+        payload: {
+          ...(ownerName ? { ownerName } : { ownerNameKey: 'common.labels.someone' }),
+          nodeName,
+          role: input.role,
+          nodeId,
+        },
         ref: { type: 'drive_node', id: nodeId },
         actorId,
         reason: 'subscribed',
@@ -323,19 +326,25 @@ export class DriveShareService implements OnModuleInit {
       .catch(() => undefined);
   }
 
-  private async actorName(userId: string): Promise<string> {
+  /**
+   * Имя актора для ВЕЧНОЙ записи: снимок ИЛИ null. Слово-заглушку («Кто-то») даёт
+   * рендер при чтении — записанная здесь, она застыла бы в языке источника навсегда.
+   */
+  private async actorName(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return u
-      ? `${u.firstName}${u.lastName ? ` ${u.lastName}` : ''}`
-      : this.i18n.translateFor(SOURCE_LOCALE, 'drive.somebody');
+    return u ? `${u.firstName}${u.lastName ? ` ${u.lastName}` : ''}` : null;
   }
 
-  /** Как принципал называется в хронике («Аня Н.», «Группа Семья», «Отдел Продажи») */
-  private async principalLabel(type: string, id: string): Promise<string> {
-    return this.audiences.label({ type: type as AudienceKind, id }, { workspaceId: null });
+  /**
+   * Принципал для ВЕЧНОЙ записи — снимком структуры, а не фразой: «Отдел «Продажи»»,
+   * записанное словом, застыло бы в языке того, кто открыл доступ. Подпись собирает
+   * читающий (`resolveAudienceLabels` в renderChatter).
+   */
+  private async principalAudience(type: string, id: string): Promise<AudienceLabelSnapshot> {
+    return this.audiences.labelSnapshot({ type: type as AudienceKind, id }, { workspaceId: null });
   }
 
   /** Отношение принципала в tuple — общая карта движка Диска */

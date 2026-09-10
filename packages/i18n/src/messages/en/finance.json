@@ -20,7 +20,7 @@
     "currency": "Currency",
     "currentBalance": "Now on the account",
     "currentBalanceHint": "Optional — you can set it later",
-    "debtSubtitle": "Instalments and loans — the Debts section",
+    "debtSubtitle": "Installments and loans — the Debts section",
     "debtTitle": "Debt accounts",
     "description": "Where the money sits: cash, cards, deposits and debt accounts",
     "emptyDescription": "Add the first one and you can start recording expenses.",
@@ -128,7 +128,7 @@
     "goToMyBook": "Go to my book",
     "loadMore": "Show more",
     "moreCurrencies": "More currencies",
-    "ownBookOnlyDescription": "The coin feed shows your personal SuperApp6 economy and is not part of access to someone else's book.",
+    "ownBookOnlyDescription": "The coin feed shows your personal SuperApp6 economy and is not part of access to someone else’s book.",
     "ownBookOnlyTitle": "Coins live in your own book only",
     "title": "Coins",
     "toTasks": "To tasks",
@@ -146,21 +146,21 @@
     "creditAccount": "Where to credit the money",
     "description": "How much is left to pay and when the next payment is due",
     "dueDayField": "Payment day",
-    "emptyDescription": "Keep it up. An instalment or a loan can be recorded at any time.",
+    "emptyDescription": "Keep it up. An installment or a loan can be recorded at any time.",
     "emptyTitle": "There are no debts",
     "forMyself": "For myself",
     "forPerson": "For {name}",
     "forWhom": "For whom",
     "fromAccount": "From the account",
-    "kindInstallment": "Instalment (a purchase)",
+    "kindInstallment": "Installment (purchase)",
     "kindLabel": "Debt kind",
-    "kindLoan": "A cash loan",
+    "kindLoan": "Cash loan",
     "monthlyField": "Payment/mo",
     "monthlyLabel": "Payment per month",
     "monthsField": "Months",
-    "namePlaceholderInstallment": "Cookware in instalments",
+    "namePlaceholderInstallment": "Cookware in installments",
     "namePlaceholderLoan": "Cash loan",
-    "newSubtitle": "An instalment is a purchase: the expense is recorded at once in full",
+    "newSubtitle": "An installment is a purchase: the expense is recorded at once in full",
     "newTitle": "New debt",
     "noAccountIn": "There is no account in {symbol}",
     "openLabel": "Open debts",
@@ -177,7 +177,7 @@
     "receivedPlaceholder": "by default — the whole total",
     "remainingLabel": "Left to pay",
     "rowSubtitle": "{paid} of {months} · {monthly} each · by the {day}th",
-    "subtitle": "Instalments and loans: «Pay» takes the payment from the account",
+    "subtitle": "Installments and loans: «Pay» takes the payment from the account",
     "title": "Debts",
     "totalLabel": "Total debt:"
   },
@@ -231,12 +231,12 @@
     "noBudgetsHint": "Set a category budget in «Reports» — we warn at 80% and 100%.",
     "noBudgetsViewer": "The owner of the book has not set budgets yet.",
     "noUpcoming": "No payments are coming up",
-    "noUpcomingHint": "Instalments and subscriptions will show up here — from «Debts» and «Recurring».",
+    "noUpcomingHint": "Installments and subscriptions will show up here — from «Debts» and «Recurring».",
     "openReports": "Open the reports",
     "recent": "Recent transactions",
     "title": "Overview",
     "upcoming": "Upcoming payments",
-    "wholeFeed": "The whole feed"
+    "wholeFeed": "Whole feed"
   },
   "people": {
     "description": "Who the money most often goes to and for — for the «who» field",
@@ -351,7 +351,7 @@
   "subtype": {
     "card": "Card",
     "cash": "Cash",
-    "installment": "Instalment",
+    "installment": "Installment",
     "loan": "Loan",
     "other": "Other",
     "savings": "Deposit"
@@ -363,5 +363,6 @@
     "income": "Income",
     "opening": "Balance adjustment",
     "transfer": "Transfer"
-  }
+  },
+  "accountNamePlaceholder": "Kaspi Gold…"
 }

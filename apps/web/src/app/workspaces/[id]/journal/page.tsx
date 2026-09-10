@@ -30,16 +30,24 @@ import {
 // в журнале за полгода практически нельзя.
 // Ключ `null` — «Все»; слово к каждой категории даёт каталог
 // (`workspaces.journal.category.*`), реестр несёт только состав фильтра.
+// Место категории в ряду. Тип `Record<ChatterCategory, …>` делает полноту
+// обязанностью КОМПИЛЯТОРА: категория, заведённая в реестре и забытая здесь,
+// роняет сборку, а не прячет молча полгода записей.
+const CATEGORY_ORDER: Record<ChatterCategory, number> = {
+  staff: 1,
+  hr: 2,
+  tasks: 3,
+  documents: 4,
+  drive: 5,
+  share: 6,
+  processes: 7,
+  objects: 8,
+  notes: 9,
+};
+
 const CATEGORY_CHIPS: (ChatterCategory | null)[] = [
   null,
-  'staff',
-  'hr',
-  'tasks',
-  'documents',
-  'drive',
-  'share',
-  'processes',
-  'objects',
+  ...(Object.keys(CATEGORY_ORDER) as ChatterCategory[]).sort((a, b) => CATEGORY_ORDER[a] - CATEGORY_ORDER[b]),
 ];
 
 export default function WorkspaceJournalPage() {

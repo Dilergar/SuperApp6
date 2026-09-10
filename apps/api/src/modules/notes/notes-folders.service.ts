@@ -242,7 +242,12 @@ export class NotesFoldersService {
       throw badRequest('notes.folderTooDeep');
     }
     const oldPrefixLen = folder.ancestorIds.length; // сколько элементов заменить у потомков
-    const targetName = newParentId ? (await this.db.noteFolder.findUnique({ where: { id: newParentId }, select: { name: true } }))?.name ?? '' : this.i18n.translateFor(SOURCE_LOCALE, 'notes.rootName');
+    // Куда переехала папка: имя родителя — ДАННЫЕ, «Корень» — СЛОВО продукта.
+    // Слово едет в вечную запись ключом (`toKey` → `to` при чтении, docs/i18n.md):
+    // записанное фразой, оно застыло бы в языке того, кто перетащил папку.
+    const target: Record<string, string> = newParentId
+      ? { to: (await this.db.noteFolder.findUnique({ where: { id: newParentId }, select: { name: true } }))?.name ?? '' }
+      : { toKey: 'notes.rootName' };
 
     await this.db.$transaction(async (tx) => {
       await tx.noteFolder.update({
@@ -262,7 +267,7 @@ export class NotesFoldersService {
           FROM "note_folders" f
          WHERE n."folder_id" = f."id"
            AND (f."id" = ${folder.id} OR f."ancestor_ids" @> ARRAY[${folder.id}]::text[])`;
-      await this.log(tx, scope, folder.id, 'note.folder.moved', { targetName: folder.name, to: targetName });
+      await this.log(tx, scope, folder.id, 'note.folder.moved', { targetName: folder.name, ...target });
     });
   }
 
@@ -386,7 +391,9 @@ export class NotesFoldersService {
       refId: folderId,
       workspaceId: scope.space.ownerType === 'workspace' ? scope.space.ownerId : null,
       actorId: scope.userId,
-      actorName: fullName(actor),
+      // Имени нет (аккаунт исчез) → null: слово-заглушку подставит рендер в языке
+      // зрителя. Записанное здесь, оно застыло бы английским навсегда.
+      actorName: actor ? fullName(actor) : null,
       typeKey,
       payload,
       changes: changes ?? null,

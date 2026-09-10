@@ -17,7 +17,7 @@
     "tags": "Tags"
   },
   "color": {
-    "blue": "Blue",
+    "blue": "Light blue",
     "green": "Green",
     "label": "Color",
     "lilac": "Lilac",
@@ -79,7 +79,7 @@
     "strike": "Struck through",
     "suggestAria": "Suggestions",
     "table": "Table",
-    "table33": "A 3×3 table",
+    "table33": "3×3 table",
     "tableActions": "Table actions",
     "task": "Checkboxes",
     "titlePlaceholder": "Untitled",
@@ -113,7 +113,7 @@
   "history": {
     "current": "now",
     "emptyHint": "Versions show up after the first saves",
-    "emptyNote": "An empty note",
+    "emptyNote": "Empty note",
     "emptyTitle": "The history is empty",
     "restore": "Restore",
     "restoreConfirm": {
@@ -170,7 +170,7 @@
     "pickPersonal": "Someone from your circle…",
     "revoke": "Revoke the access",
     "roleLabel": "Right",
-    "wholeOrg": "The whole organization"
+    "wholeOrg": "Whole organization"
   },
   "space": {
     "org": "Organization",
@@ -183,7 +183,7 @@
     "expand": "Expand",
     "history": "Version history",
     "openInNotes": "Open in the Notes",
-    "placeholder": "A sticky…",
+    "placeholder": "Sticky note…",
     "purge": "Delete for good",
     "purgeConfirm": {
       "message": "The note cannot be restored afterwards",

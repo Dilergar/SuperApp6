@@ -111,14 +111,13 @@
     "inherited": "Inherited from folders",
     "inheritedHint": "Such access is removed where it was granted — in the folder itself.",
     "nobody": "Nobody yet.",
-    "person": "A person",
+    "person": "Person",
     "pickPerson": "Who to open the access to",
     "publicLinks": "Access by an outside link",
     "revoke": "Close",
     "role": "Role",
     "title": "Access to «{name}»"
   },
-  "somebody": "Somebody",
   "spaceTitle": "Drive · {name}",
   "systemFolder": {
     "chat_uploads": "Files from chats",

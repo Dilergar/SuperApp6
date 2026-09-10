@@ -96,11 +96,28 @@ export class DriveService implements OnModuleInit {
    * Имя узла для ЧТЕНИЯ. Корень и системные папки названы платформой, а не человеком:
    * их слово даёт каталог в языке зрителя. Всё остальное набрал человек — его не трогаем.
    */
-  displayName(row: { name: string; parentId: string | null; systemKey: string | null }): string {
+  displayName(row: {
+    name: string;
+    parentId: string | null;
+    systemKey: string | null;
+    autoNameKey?: string | null;
+    autoNameParams?: unknown;
+  }): string {
     if (row.systemKey && row.systemKey in DRIVE_SYSTEM_FOLDERS) {
       return this.i18n.translate(`drive.systemFolder.${row.systemKey}`);
     }
     if (!row.parentId) return this.i18n.translate('drive.rootName');
+    // Имя собрала платформа («ДОГ-2026-001 Договор (с печатью).pdf»): номер и название —
+    // данные организации, а приписка — слово продукта. Собираем при чтении, в языке
+    // зрителя; переименовал человек — ключ погашен, и дальше это его имя.
+    if (row.autoNameKey && this.i18n.has(row.autoNameKey)) {
+      const raw = (row.autoNameParams ?? {}) as Record<string, unknown>;
+      const values: Record<string, string | number> = {};
+      for (const [k, v] of Object.entries(raw)) {
+        if (typeof v === 'string' || typeof v === 'number') values[k] = v;
+      }
+      return this.i18n.translate(row.autoNameKey, values);
+    }
     return row.name;
   }
 
@@ -659,6 +676,8 @@ export class DriveService implements OnModuleInit {
       parentId: string;
       fileId: string;
       name?: string;
+      /** Имя собрала ПЛАТФОРМА: ключ каталога и его параметры (см. `displayName`) */
+      autoName?: { key: string; params?: Record<string, string | number> };
       parentAncestors: string[];
       depth: number;
       tx?: Tx;
@@ -732,6 +751,10 @@ export class DriveService implements OnModuleInit {
           parentId: opts.parentId,
           name,
           nameKey: driveNameKey(name),
+          // Автоимя платформы: `name` остаётся снимком языка-источника (поиск,
+          // сортировка, уникальность), а читателю имя собирается по ключу.
+          autoNameKey: opts.autoName?.key ?? null,
+          autoNameParams: opts.autoName?.params ?? undefined,
           fileId: file.id,
           createdById: userId,
           ancestorIds: opts.parentAncestors,
@@ -785,7 +808,9 @@ export class DriveService implements OnModuleInit {
       const free = await this.freeName(tx, node.parentId as string, name);
       return tx.driveNode.update({
         where: { id: node.id },
-        data: { name: free, nameKey: driveNameKey(free) },
+        // Человек назвал сам — автоимя гаснет: дальше это ЕГО имя, и мы его не трогаем
+        // (правило: переводим только то, что придумала система).
+        data: { name: free, nameKey: driveNameKey(free), autoNameKey: null, autoNameParams: Prisma.DbNull },
       });
     });
     await this.search.index(updated);

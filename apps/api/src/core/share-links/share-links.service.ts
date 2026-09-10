@@ -662,7 +662,9 @@ export class ShareLinksService {
         actorName: user ? `${user.firstName}${user.lastName ? ` ${user.lastName}` : ''}` : null,
         typeKey,
         payload: {
-          targetName: link.refTitle ?? this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.item'),
+          // Название — снимок со строки ссылки (ДАННЫЕ); его отсутствие заменяет
+          // слово продукта, и оно едет КЛЮЧОМ: фраза застыла бы в языке автора.
+          ...(link.refTitle ? { targetName: link.refTitle } : { targetNameKey: 'common.labels.item' }),
           // Суффикс собирается здесь, а не в шаблоне: шаблонизатор реестра не умеет
           // условий, и «ссылка ()» с пустыми скобками была бы видна человеку.
           labelSuffix: link.label ? ` («${link.label}»)` : '',

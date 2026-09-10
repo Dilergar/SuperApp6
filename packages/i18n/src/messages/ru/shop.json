@@ -100,7 +100,7 @@
     "confirmDeleteShowcaseOf": "Удалить витрину «{name}»?",
     "deleteShowcase": "Удалить витрину",
     "listing": "Товар",
-    "listingCount": "{count, plural, one {# товар} few {# товара} other {# товаров}}",
+    "listingCount": "{count, plural, one {# товар} few {# товара} many {# товаров} other {# товара}}",
     "listings": "Товары",
     "myDescription": "Витрины подарков за коины и списки желаний",
     "myShop": "Мой магазин",

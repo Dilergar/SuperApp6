@@ -367,6 +367,8 @@ export class ShopService implements OnModuleInit {
     const { ownerType, ownerId } = this.resolveOwner(viewerId);
     const currencies = await this.ownerPriceableCurrencies(ownerType, ownerId);
     const issuers = await this.userMinis(currencies.map((c) => c.issuerId));
+    // Алфавит — ЗРИТЕЛЯ: в казахском Ә, Ғ, Қ, Ң, Ө, Ұ, Ү, Һ, І стоят своими местами.
+    const compare = this.i18n.format().compare;
     return currencies
       .map((c) => {
         const u = issuers.get(c.issuerId);
@@ -386,7 +388,7 @@ export class ShopService implements OnModuleInit {
         };
       })
       .sort((a, b) =>
-        a.isOwn === b.isOwn ? a.name.localeCompare(b.name, this.i18n.locale) : a.isOwn ? -1 : 1,
+        a.isOwn === b.isOwn ? compare(a.name, b.name) : a.isOwn ? -1 : 1,
       );
   }
 

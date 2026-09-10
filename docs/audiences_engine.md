@@ -15,10 +15,11 @@
 ```ts
 AudiencesService.resolve(refs, ctx, { max, onOverflow: 'throw'|'truncate', allowedKinds? })  // → userId[] живых
 AudiencesService.resolveOne(ref, ctx, limit)        // сырой разворот одного
-AudiencesService.label(ref, ctx) / labelMany(refs, ctx)   // «Отдел «Продажи»», «Руководитель инициатора»
+AudiencesService.labelSnapshot(ref, ctx) / labelSnapshots(refs, ctx)  // СНИМОК подписи: {kind,id,key,name}
+AudiencesService.labelText(ref, ctx) / labelTexts(refs, ctx)          // текст ВИТРИНЫ в языке запроса
 AudiencesService.belongsToWorkspace(type, id, wsId)
 AudiencesService.principalsFor(refs)               // форма субъекта ребра прав для grantable-видов
-AudiencesRegistry.register(kind, { resolve(id, ctx, limit), label?(id, ctx) })  // владелец данных
+AudiencesRegistry.register(kind, { resolve(id, ctx, limit), label?(id, ctx) })  // label → {key, name}, НЕ строка
 ```
 
 `AudienceContext = { workspaceId, initiatorId?, subjectId?, selfId?, branchId? }`.
@@ -32,16 +33,44 @@ AudiencesRegistry.register(kind, { resolve(id, ctx, limit), label?(id, ctx) })  
 - `branch_head_of` принимает id ОБЪЕКТА (→ его руководитель) либо id ЧЕЛОВЕКА/якорь (→ руководитель объекта его основного места или `ctx.branchId`).
 - Движок не пишет гранты: шаблоны и Диск по-прежнему пишут рёбра сами через `principalSubjectRelation`; `grantable:false` механически прячет относительные виды из диалогов шеринга.
 
+## Подпись адресата: снимок структуры, слово при чтении
+
+Подпись — два сорта текста в одной фразе: «Отдел» — СЛОВО ПРОДУКТА (у каждого
+читателя своё), «Продажи» — ДАННЫЕ (имя справочника на момент записи). Движок не
+отдаёт готовых фраз никому, кроме витрин: `labelSnapshot` возвращает
+`AudienceLabelSnapshot = { kind, id, key, name }` — ключ каталога формы плюс имя
+данными. Слово собирает читающий (`renderAudienceLabel` из `@superapp/i18n`) в языке
+ЗРИТЕЛЯ; якорь (`$initiator`) остаётся якорем и разворачивается словом там же.
+
+- **Вечная запись** (payload хроники и уведомления) несёт снимок под именем с
+  суффиксом `Audience`: `principalLabelAudience`, `assigneeLabelAudience`. При чтении
+  `resolveAudienceLabels` кладёт подпись под именем БЕЗ суффикса (`principalLabel`) —
+  тем же приёмом, что `<имя>Key` и `<имя>Iso` ([i18n.md](i18n.md)). Уже заданное имя
+  (снимок записи, сделанной до правила) не перебивается: старые строки читаются как есть.
+- **Шаг согласования** держит снимок колонками `assignee_label_key` /
+  `assignee_label_name` (вид и id уже есть в строке); наследный `assignee_label` —
+  последняя ступень чтения.
+- **Витрина** (панель доступа, список шагов, отказ) зовёт `labelText`/`labelTexts` —
+  текст в языке запроса. В payload его класть нельзя: держит `lint:guard`
+  (`i18n/no-viewer-text-in-payload`).
+- **Формы** объявлены в `AUDIENCE_LABEL_FORMS` (`packages/shared`), их две последних
+  принадлежат модулям (`circles.groupNamed` — ContactsModule, `siteHeadOfSite` —
+  StaffModule). `check:i18n` собирает весь набор (формы + ключи видов +
+  ключи якорей) прямо из `constants/audiences.ts` и сверяет с тремя каталогами: ключ,
+  собранный на лету, другие стражи не видят.
+- Имя — СНИМКОМ, а не ссылкой: справочник переименуют, отдел расформируют, а история
+  решений обязана остаться читаемой («Согласовал Главный бухгалтер» — тот, что был тогда).
+
 ## Потребители
 
 | Кто | Как |
 |---|---|
-| `core/approvals` `resolveAssignees` | снимок при активации; `$initiator` = автор заявки; вершина → владелец; подпись шага — `label` |
+| `core/approvals` `resolveAssignees` | снимок при активации; `$initiator` = автор заявки; вершина → владелец; подпись шага — `labelSnapshot` в колонки |
 | `core/approvals` эскалация | `approval.overdue` дополнительно — `manager_of` каждого просрочившего |
 | Кампании ознакомления (`doc-campaigns`) | `resolve(audience, {selfId: creator}, truncate campaignMaxTargets)` |
 | Массовые кадровые действия (`hr-actions`) | то же + ранг-фильтр `canManageHrSubject` |
 | Процессы | `human.task` `initiator_manager` — первый из `manager_of`; `human.approval` — относительные адресаты в шаг |
-| Диск (`drive-share`) | подписи получателей — `labelMany` |
+| Диск (`drive-share`), Заметки (`notes-share`) | витрина — `labelTexts`; хроника шеринга — `labelSnapshot` в `principalLabelAudience` |
 | Гранты бланков | `docTemplateGrantSchema` — `DOC_TEMPLATE_GRANT_KINDS` |
 
 Миграции данных не было: каждый прежний enum — подмножество, снимки уже `[{type,id}]`.
@@ -52,7 +81,7 @@ AudiencesRegistry.register(kind, { resolve(id, ctx, limit), label?(id, ctx) })  
 
 ## Проверка
 
-`verify-audiences.cjs`: один `[{type:'department',id}]` даёт одинаковый состав у движка и в снимке шага; голова снаружи отдела — в составе; `manager_of/$initiator` садится в `awaitingUserIds`; корень → владелец; чужой отдел → пусто и `approval_empty_assignees`; переполнение/обрезка/якорь без контекста кодами; `subordinates_of/$self`; `branch_head_of` по человеку и по объекту; паспорта нод Процессов; маршрут заявления библиотеки; поля «Руководитель».
+`verify-audiences.cjs`: один `[{type:'department',id}]` даёт одинаковый состав у движка и в снимке шага; голова снаружи отдела — в составе; `manager_of/$initiator` садится в `awaitingUserIds`; корень → владелец; чужой отдел → пусто и `approval_empty_assignees`; переполнение/обрезка/якорь без контекста кодами; `subordinates_of/$self`; `branch_head_of` по человеку и по объекту; паспорта нод Процессов; маршрут заявления библиотеки; поля «Руководитель»; подпись не застывает — в строке шага лежат ключ и имя (не фраза), одна заявка читается «Department «Продажи»» / «Отдел «Продажи»» / ««Продажи» бөлімі», payload хроники несёт снимок, а не слово.
 
 ## Связанные доки
 

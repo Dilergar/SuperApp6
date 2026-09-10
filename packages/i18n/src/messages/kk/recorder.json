@@ -52,7 +52,7 @@
     "copy": "Мәтінді көшіру",
     "seek": "Осы жерге өту",
     "speaker": "{n}-сөйлеуші",
-    "title": "Transcript"
+    "title": "Транскрипт"
   },
   "upload": {
     "hint": "mp3 / m4a / wav / ogg / webm / flac · {size} дейін",

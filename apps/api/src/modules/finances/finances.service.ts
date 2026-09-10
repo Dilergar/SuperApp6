@@ -1272,7 +1272,10 @@ export class FinancesService implements OnModuleInit {
           type: 'finance.book.shared',
           to: [{ userId: dto.principalId }],
           payload: {
-            ownerName: me ? `${me.firstName} ${me.lastName ?? ''}`.trim() : this.i18n.translate('common.labels.someone'),
+            ...(me
+              ? { ownerName: `${me.firstName} ${me.lastName ?? ''}`.trim() }
+              : // Имени нет — слово продукта, и оно едет ключом (`ownerNameKey` → `ownerName`).
+                { ownerNameKey: 'common.labels.someone' }),
             // «Ключ вместо слова»: роль в ВЕЧНОМ payload не вправе застыть в
             // языке того, кто поделился книгой (docs/i18n.md, render-at-read).
             roleLabelKey: dto.role === 'editor' ? 'finance.role.editor' : 'finance.role.viewer',

@@ -74,6 +74,7 @@
       "documents": "Құжаттар",
       "drive": "Диск",
       "hr": "Кадрлар",
+      "notes": "Жазбалар",
       "objects": "Нысандар",
       "processes": "Процестер",
       "share": "Сыртқа сілтемелер",
@@ -314,7 +315,8 @@
     "vatPayerToggle": "ҚҚС төлеушісі",
     "vatPayerWithCert": "төлеуші (куәлік {cert})",
     "vatSeries": "Куәлік сериясы",
-    "viewSubtitle": "Шарттар мен шоттар үшін"
+    "viewSubtitle": "Шарттар мен шоттар үшін",
+    "bankPlaceholder": "Kaspi Bank"
   },
   "taxRegime": {
     "astana_hub": "Astana Hub",

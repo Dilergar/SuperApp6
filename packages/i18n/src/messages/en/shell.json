@@ -99,7 +99,7 @@
     "digest": "Error code: {digest}",
     "goHome": "Go home",
     "goTasks": "Go to tasks",
-    "appTitle": "The app crashed",
+    "appTitle": "App crashed",
     "appText": "Reload the page. If it happens again, tell us what you were doing.",
     "reload": "Reload"
   },
@@ -157,7 +157,7 @@
       "h1": "1 hour",
       "h3": "3 hours",
       "morning": "Until morning",
-      "week": "A week"
+      "week": "1 week"
     },
     "targetGone": "This item no longer exists",
     "pushCard": {
