@@ -139,9 +139,18 @@ export class HrActionsService {
     return role;
   }
 
-  private async nameOf(userId: string): Promise<string> {
+  /** Имя в payload: данные под своим именем либо слово ключом */
+  private namePayload(name: string | null): Record<string, string> {
+    return name ? { targetName: name } : { targetNameKey: 'common.labels.someone' };
+  }
+
+  /**
+   * Имя для ВЕЧНОЙ записи: снимок ИЛИ null. Слово вместо пропавшего имени кладут
+   * ключом (`<имя>Key`) — фраза застыла бы в языке того, кто нажал кнопку.
+   */
+  private async nameOf(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
-    return u ? fullName(u) : this.src('common.labels.someone');
+    return u ? fullName(u) : null;
   }
 
   private async logMember(
@@ -875,9 +884,11 @@ export class HrActionsService {
     type: 'hr.action.applied' | 'hr.action.failed',
     extra: Record<string, unknown>,
   ): Promise<void> {
+    const targetName = await this.nameOf(action.userId);
     const payload = {
       kindLabelKey: `hr.actionKind.${action.kind}`,
-      targetName: await this.nameOf(action.userId),
+      // Имя — данные; его отсутствие — слово продукта, и оно едет ключом.
+      ...(targetName ? { targetName } : { targetNameKey: 'common.labels.someone' }),
       effectiveAt: dateStr(action.effectiveAt),
       workspaceId: action.workspaceId,
       hrActionId: action.id,
@@ -950,15 +961,18 @@ export class HrActionsService {
     // полуручной путь: срок, напоминания и приёмка у задачи уже есть).
     const issued = await this.documents.systemCancelForHrAction(action.id, actorId);
     if (issued.issuedLeft > 0) {
-      // Задача ложится в БД и живёт своей жизнью — язык ИСТОЧНИКА
-      const kindLabel = this.src(`hr.actionKind.${action.kind}`);
-      const targetName = await this.nameOf(action.userId);
+      // Задача ложится в БД и живёт своей жизнью как данные — собираем её в языке
+      // ИСПОЛНИТЕЛЯ: читать её будет он (docs/i18n.md).
+      const locale = await this.i18n.localeOf(action.createdById);
+      const t = (key: string, values?: Record<string, string | number>) => this.i18n.translateFor(locale, key, values);
+      const kindLabel = t(`hr.actionKind.${action.kind}`);
+      const targetName = (await this.nameOf(action.userId)) ?? t('common.labels.someone');
       await this.tasks
         .createTask(
           actorId,
           {
-            title: this.src('hr.cancelTask.title', { kind: kindLabel, name: targetName }),
-            description: this.src('hr.cancelTask.description', {
+            title: t('hr.cancelTask.title', { kind: kindLabel, name: targetName }),
+            description: t('hr.cancelTask.description', {
               kind: kindLabel,
               withdrawn: isOwnApplication ? 'yes' : 'no',
               href: hrMemberHref(workspaceId, action.userId),
@@ -978,7 +992,7 @@ export class HrActionsService {
           type: 'hr.action.withdrawn',
           to: [{ userId: action.createdById }],
           payload: {
-            targetName: await this.nameOf(action.userId),
+            ...this.namePayload(await this.nameOf(action.userId)),
             ...(issued.issuedLeft > 0 ? { noteKey: 'hr.withdrawn.orderIssued' } : {}),
             workspaceId,
           },

@@ -444,12 +444,13 @@ export class HrService implements HrPort, HrNodesPort {
     }
   }
 
-  async nameOf(userId: string): Promise<string> {
+  async nameOf(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    return u ? fullName(u) : this.src('common.labels.someone');
+    // Имени нет → null: слово кладут ключом (`<имя>Key`), иначе оно застынет.
+    return u ? fullName(u) : null;
   }
 
   /** Запись в хронику человека (workspaceId заполнен → видна и в журнале организации) */
