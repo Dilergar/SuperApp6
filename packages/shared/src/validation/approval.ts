@@ -46,6 +46,13 @@ export const approvalStepInputSchema = z
     order: z.coerce.number().int().min(0).max(APPROVAL_LIMITS.maxSteps),
     kind: z.enum(APPROVAL_STEP_KINDS),
     title: title.optional(),
+    /**
+     * АВТОзаголовок шага: ключ каталога и параметры. Ставит платформа, когда маршрут
+     * собрала она сама (готовый бланк из библиотеки), — заявку читают все участники,
+     * каждый в своём языке. `title` при этом остаётся снимком языка-источника.
+     */
+    titleKey: z.string().max(120).optional(),
+    titleParams: z.record(z.union([z.string().max(200), z.number()])).optional(),
     assigneeType: z.enum(APPROVAL_ASSIGNEE_TYPES),
     /** uuid; у относительных адресатов (manager_of / branch_head_of) — также якорь `$initiator` */
     assigneeId: z.string().min(1).max(64),

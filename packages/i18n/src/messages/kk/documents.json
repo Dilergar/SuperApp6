@@ -107,6 +107,7 @@
     "inboxSubtitleSms": "Танысып, SMS кодымен растаңыз",
     "kindLabel": "Танысу"
   },
+  "campaignTitleNumbered": "{title} № {number}",
   "campaigns": {
     "andMore": "және тағы {count} — толық тізім тізілім экспортында",
     "audience": "Аудитория (мердігерлер қосылмайды)",

@@ -219,7 +219,11 @@ export class ProcessTriggerRouter implements OnModuleInit {
       text,
       chatId: String(chat.id),
       fromId: from.id != null ? String(from.id) : '',
-      fromName: [first, last].filter(Boolean).join(' ') || uname || this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone'),
+      // Имя пришло из ЧУЖОЙ системы (Telegram) — это данные. Его отсутствие —
+      // слово продукта, и оно едет КЛЮЧОМ: фраза застыла бы в языке вебхука.
+      ...(([first, last].filter(Boolean).join(' ') || uname)
+        ? { fromName: [first, last].filter(Boolean).join(' ') || uname }
+        : { fromNameKey: 'common.labels.someone' }),
       messageId: msg.message_id != null ? String(msg.message_id) : '',
     };
     const nodeId = ((trigger.config ?? {}) as { nodeId?: string }).nodeId;

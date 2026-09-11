@@ -1283,6 +1283,9 @@ export class StaffService {
       // Имя объекта ложится в БД навсегда — фолбэк пишем в языке ИСТОЧНИКА.
       data: {
         workspaceId,
+        // Автоимя основного объекта читается сравнением с эталоном
+        // (`ObjectsService.displayName`), поэтому в колонке лежит слово, а не ключ.
+        // eslint-disable-next-line i18n/no-translated-text-in-column
         name: ws?.name || this.i18n.translateFor(SOURCE_LOCALE, 'staff.member.defaultBranch'),
         isDefault: true,
       },

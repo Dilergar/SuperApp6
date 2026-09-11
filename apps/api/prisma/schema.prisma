@@ -3696,6 +3696,11 @@ model ApprovalStep {
   order     Int
   kind      String // approval | signature | acknowledgement
   title     String
+  // Заголовок собрала ПЛАТФОРМА (маршрут из библиотеки бланков): ключ каталога и его
+  // параметры. `title` — снимок в языке источника (фолбэк старых заявок), а читателю
+  // заголовок собирается на его языке. Набранный человеком заголовок ключа не имеет.
+  titleKey    String? @map("title_key")
+  titleParams Json?   @map("title_params")
   status    String @default("waiting") // waiting | active | approved | rejected | returned | skipped
 
   assigneeType  String  @map("assignee_type") // user | position | department
@@ -4541,6 +4546,11 @@ model DocCampaign {
   workspaceId String @map("workspace_id")
 
   title         String
+  // Заголовок собрала ПЛАТФОРМА (человек своего не задал): ключ каталога и параметры.
+  // `title` — снимок в языке источника (поиск, фолбэк старых кампаний), читателю
+  // заголовок собирается на его языке. Набранный человеком заголовок ключа не имеет.
+  titleKey      String? @map("title_key")
+  titleParams   Json?   @map("title_params")
   orgDocumentId String @map("org_document_id") // без FK: предмет заморожен своей копией
 
   // Заморозка предмета кампании: что видел каждый адресат (профиль sign_subject)

@@ -1,4 +1,6 @@
 type NameParts = { firstName: string; lastName: string | null };
+/** Строка пользователя может нести «надгробие» удалённого аккаунта */
+type MaybeDeleted = NameParts & { deletedAt?: Date | null };
 
 /**
  * Имя человека из строки пользователя. Единственный источник правды — сервисы
@@ -12,8 +14,12 @@ type NameParts = { firstName: string; lastName: string | null };
  * Запечённое в базу «Someone» осталось бы английским у казахоязычного читателя
  * навсегда — миграции для этого не существует.
  */
-export function fullNameOrNull(u: NameParts | null | undefined): string | null {
+export function fullNameOrNull(u: MaybeDeleted | null | undefined): string | null {
   if (!u) return null;
+  // Аккаунт удалён: в колонке лежит «надгробие» в языке ИСТОЧНИКА (PII вычищено).
+  // Наружу отдаём null — слово («Удалённый пользователь») подставит каталог в языке
+  // того, кто смотрит.
+  if (u.deletedAt) return null;
   return [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.firstName || null;
 }
 

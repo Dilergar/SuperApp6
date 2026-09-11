@@ -21,6 +21,14 @@ export interface ProcessNode {
   /** Тип из реестра нод ('start' | 'human.task' | 'condition' | 'notify' | 'end' | …). */
   type: string;
   label?: string;
+  /**
+   * АВТОподпись узла: ключ каталога и его параметры. Ставит ПЛАТФОРМА, когда
+   * собирает маршрут сама (установка бланка из библиотеки). `label` при этом
+   * остаётся снимком в языке источника, а человек читает подпись на своём;
+   * правка подписи руками гасит ключ — дальше это текст организации (docs/i18n.md).
+   */
+  labelKey?: string;
+  labelParams?: Record<string, string | number>;
   note?: string;
   config: Record<string, unknown>;
   /** Только для канваса; движок и валидация позиции игнорируют. */

@@ -38,7 +38,7 @@ export class ProcessEngineService {
   private readonly planCache = new Map<string, CompiledPlan>();
   /** instanceId → стабильные имена (инициатор/процесс): buildContext не делает 2 запроса
    *  на КАЖДУЮ ноду (P1). Имена на жизнь инстанса неизменны (display-only). Cap как у planCache. */
-  private readonly instanceMetaCache = new Map<string, { initiatorName: string; definitionName: string }>();
+  private readonly instanceMetaCache = new Map<string, { initiatorName: string; definitionName: string; words: { yes: string; no: string } }>();
 
   // Инстанс-лок держится ТОЛЬКО поверх bookkeeping (выбор/коммит шага) — не поверх I/O
   // (P3), поэтому TTL короткий. Внешний I/O (HTTP/LLM) идёт БЕЗ лока под арендой шага.
@@ -1150,16 +1150,25 @@ export class ProcessEngineService {
   }
 
   /** Стабильные имена инициатора/процесса (кэш на инстанс) — P1: не по 2 запроса на ноду. */
-  private async getInstanceMeta(instance: { id: string; startedById: string; definitionId: string }): Promise<{ initiatorName: string; definitionName: string }> {
+  private async getInstanceMeta(
+    instance: { id: string; startedById: string; definitionId: string },
+  ): Promise<{ initiatorName: string; definitionName: string; words: { yes: string; no: string } }> {
     const cached = this.instanceMetaCache.get(instance.id);
     if (cached) return cached;
     const [starter, definition] = await Promise.all([
       this.db.user.findUnique({ where: { id: instance.startedById }, select: { firstName: true, lastName: true } }),
       this.db.processDefinition.findUnique({ where: { id: instance.definitionId }, select: { name: true } }),
     ]);
+    // Слова и запасное имя — в языке ИНИЦИАТОРА: собранный текст становится
+    // заголовком его задачи и живёт дальше как данные (docs/i18n.md).
+    const locale = await this.i18n.localeOf(instance.startedById);
     const meta = {
       initiatorName: [starter?.firstName, starter?.lastName].filter(Boolean).join(' '),
-      definitionName: definition?.name ?? this.i18n.translateFor(SOURCE_LOCALE, 'processes.defaults.processName'),
+      definitionName: definition?.name ?? this.i18n.translateFor(locale, 'processes.defaults.processName'),
+      words: {
+        yes: this.i18n.translateFor(locale, 'common.actions.yes'),
+        no: this.i18n.translateFor(locale, 'common.actions.no'),
+      },
     };
     if (this.instanceMetaCache.size >= 200) {
       const oldest = this.instanceMetaCache.keys().next().value;
@@ -1203,7 +1212,7 @@ export class ProcessEngineService {
       variables,
       step: { id: step.id, nodeId: step.nodeId, label: node.label },
       config: node.config,
-      render: (text: string) => renderTemplate(text, renderCtx),
+      render: (text: string) => renderTemplate(text, renderCtx, meta.words),
       resolveValue: (expr: string) => resolveExpr(renderCtx, expr),
       deps: {
         tasks: this.tasks,
@@ -1244,15 +1253,16 @@ function resolveExpr(ctx: Record<string, unknown>, raw: string): unknown {
   }
 }
 
-/** Подстановки `{{form.budget}}` / `{{ item.sum * 1.12 }}` → текст (объект/массив → JSON). */
-function renderTemplate(text: string, ctx: Record<string, unknown>): string {
+/**
+ * Подстановки `{{form.budget}}` / `{{ item.sum * 1.12 }}` → текст (объект/массив → JSON).
+ * `words` — слова «Да»/«Нет» в языке того, КТО ПРОЧТЁТ результат: собранный текст
+ * ложится в заголовок задачи и в уведомление, то есть живёт как данные.
+ */
+function renderTemplate(text: string, ctx: Record<string, unknown>, words: { yes: string; no: string }): string {
   return text.replace(/\{\{([^}]*)\}\}/g, (_m, inner: string) => {
     const value = resolveExpr(ctx, inner);
     if (value === null || value === undefined) return '';
-    // Значение подстановки ложится в текст задачи/уведомления, а тот — в БД:
-    // пишем в языке ИСТОЧНИКА, как всякий снимок.
-    if (typeof value === 'boolean')
-      return this.i18n.translateFor(SOURCE_LOCALE, value ? 'common.actions.yes' : 'common.actions.no');
+    if (typeof value === 'boolean') return value ? words.yes : words.no;
     // Объект/массив (напр. {{steps.fetch.body}}) — сериализуем в JSON, чтобы AI-промпт
     // мог сослаться на целый результат прошлого шага.
     if (typeof value === 'object') {

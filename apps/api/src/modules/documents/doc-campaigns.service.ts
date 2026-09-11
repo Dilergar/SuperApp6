@@ -229,12 +229,16 @@ export class DocCampaignsService implements OnModuleInit {
     const campaign = await this.db.docCampaign.create({
       data: {
         workspaceId,
-        // Имя кампании ЛОЖИТСЯ в БД — снимок в языке ИСТОЧНИКА (docs/i18n.md)
+        // Название набрал человек — берём как есть. Не набрал — его собирает
+        // ПЛАТФОРМА, и рядом со снимком языка-источника ложатся ключ и параметры:
+        // читатель увидит заголовок на своём языке («№ 12» вместо «No. 12»).
         title:
           dto.title ??
           (doc.number
             ? `${doc.title} ${this.i18n.translateFor(SOURCE_LOCALE, 'documents.numberLabel', { number: doc.number })}`
             : doc.title),
+        titleKey: dto.title ? null : doc.number ? 'documents.campaignTitleNumbered' : null,
+        titleParams: dto.title || !doc.number ? undefined : { title: doc.title, number: doc.number },
         orgDocumentId: doc.id,
         subjectFileId: frozen.id,
         subjectSha256: sha256,
@@ -511,11 +515,13 @@ export class DocCampaignsService implements OnModuleInit {
           data: {
             userId,
             workspaceId: campaign.workspaceId,
-            // Личная запись переживает организацию — снимок в языке ИСТОЧНИКА
-            workspaceName: ws?.name ?? this.i18n.translateFor(SOURCE_LOCALE, 'documents.external.orgFallback'),
+            // Личная запись переживает организацию: имя — данные, а его отсутствие —
+            // слово продукта. В колонке тогда лежит КЛЮЧ каталога, и читающий путь
+            // собирает слово в своём языке (`nameOrKey` в HrService).
+            workspaceName: ws?.name ?? 'documents.external.orgFallback',
             orgDocumentId: campaign.orgDocumentId,
             title: campaign.title,
-            docTypeName: this.i18n.translateFor(SOURCE_LOCALE, 'documents.campaign.kindLabel'),
+            docTypeName: 'documents.campaign.kindLabel',
             fileId: campaign.subjectFileId,
             signRequestId: campaign.signRequestId,
             kind: 'acknowledged',
@@ -664,10 +670,26 @@ export class DocCampaignsService implements OnModuleInit {
     };
   }
 
+  /**
+   * Заголовок кампании для ЧТЕНИЯ: собрала платформа — берём из каталога в языке
+   * запроса; набрал человек — отдаём как есть.
+   */
+  private campaignTitle(row: { title: string; titleKey?: string | null; titleParams?: unknown }): string {
+    if (!row.titleKey || !this.i18n.has(row.titleKey)) return row.title;
+    const raw = (row.titleParams ?? {}) as Record<string, unknown>;
+    const values: Record<string, string | number> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string' || typeof v === 'number') values[k] = v;
+    }
+    return this.i18n.translate(row.titleKey, values);
+  }
+
   private async serialize(row: {
     id: string;
     workspaceId: string;
     title: string;
+    titleKey?: string | null;
+    titleParams?: unknown;
     orgDocumentId: string;
     mode: string;
     fixMode: string;
@@ -691,7 +713,7 @@ export class DocCampaignsService implements OnModuleInit {
     return {
       id: row.id,
       workspaceId: row.workspaceId,
-      title: row.title,
+      title: this.campaignTitle(row),
       orgDocumentId: row.orgDocumentId,
       mode: row.mode as DocCampaignDto['mode'],
       fixMode: row.fixMode as DocCampaignDto['fixMode'],
@@ -743,7 +765,7 @@ export class DocCampaignsService implements OnModuleInit {
       return {
         sourceKey: 'hr_campaign',
         id: c.id,
-        title: c.title,
+        title: this.campaignTitle(c),
         subtitle: this.i18n.translate(sms ? 'documents.campaign.inboxSubtitleSms' : 'documents.campaign.inboxSubtitle'),
         icon: 'eye',
         href:

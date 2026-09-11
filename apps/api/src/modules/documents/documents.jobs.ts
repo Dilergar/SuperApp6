@@ -737,10 +737,12 @@ export class DocumentsJobs implements OnModuleInit {
       where: { id: subjectUserId },
       select: { firstName: true, lastName: true },
     });
-    // Имя папки ЛОЖИТСЯ в базу и переживает смену языка зрителя — язык источника
-    const label =
-      [person?.lastName, person?.firstName].filter(Boolean).join(' ') ||
-      this.i18n.translateFor(SOURCE_LOCALE, 'documents.personalFolderFallback');
+    // Имя папки — ФИО человека (данные). Имени нет (аккаунт исчез) → имя даёт
+    // ПЛАТФОРМА: в базу ложится снимок языка-источника, а рядом — пометка автоимени,
+    // и читатель увидит его на своём языке (docs/i18n.md).
+    const own = [person?.lastName, person?.firstName].filter(Boolean).join(' ');
+    const label = own || this.i18n.translateFor(SOURCE_LOCALE, 'documents.personalFolderFallback');
+    const autoName = own ? undefined : { key: 'documents.personalFolderFallback' };
 
     // Имя занято ЧУЖИМ делом (у папки уже есть личный доступ другого человека) —
     // берём имя с меткой, а не подселяем двоих в одну папку.
@@ -763,7 +765,7 @@ export class DocumentsJobs implements OnModuleInit {
         return this.drive.systemEnsureFolder(spaceId, personalRootId, `${label} · ${subjectUserId.slice(0, 4)}`);
       }
     }
-    return this.drive.systemEnsureFolder(spaceId, personalRootId, label);
+    return this.drive.systemEnsureFolder(spaceId, personalRootId, label, undefined, autoName);
   }
 
   private async wantsPersonal(docTypeId: string): Promise<boolean> {

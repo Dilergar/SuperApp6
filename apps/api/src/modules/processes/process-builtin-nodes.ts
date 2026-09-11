@@ -473,6 +473,8 @@ export const approvalNode: ProcessNodeProvider = {
       branchId?: string;
       rule?: 'any' | 'all';
       dueInHours?: number;
+      titleKey?: string;
+      titleParams?: Record<string, string | number>;
     };
     const title = ctx.render(cfg.title);
 
@@ -530,6 +532,10 @@ export const approvalNode: ProcessNodeProvider = {
             order: 0,
             kind: cfg.kind ?? 'approval',
             title,
+            // Заголовок собрала ПЛАТФОРМА (готовый маршрут из библиотеки) — ключ едет
+            // рядом со снимком, и участник прочитает шаг на своём языке.
+            titleKey: typeof cfg.titleKey === 'string' ? cfg.titleKey : undefined,
+            titleParams: (cfg.titleParams as Record<string, string | number> | undefined) ?? undefined,
             assigneeType: assignee.type,
             assigneeId: assignee.id,
             rule: assignee.type === 'user' ? 'any' : (cfg.rule ?? 'any'),

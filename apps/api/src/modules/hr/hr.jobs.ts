@@ -83,9 +83,19 @@ export class HrJobs implements OnModuleInit {
     return [...new Set(rows.map((r) => r.userId))];
   }
 
-  private async nameOf(userId: string): Promise<string> {
+  /**
+   * Имя для ВЕЧНОГО payload: снимок ИЛИ null. Слово вместо пропавшего имени кладут
+   * ключом (`<имя>Key`) — фраза застыла бы в языке джоба, а не читателя.
+   */
+  private async nameOf(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({ where: { id: userId }, select: { firstName: true, lastName: true } });
-    return u ? fullName(u) : this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone');
+    return u ? fullName(u) : null;
+  }
+
+  /** Имя в payload: данные под своим именем либо слово ключом */
+  private async namePayload(userId: string): Promise<Record<string, string>> {
+    const name = await this.nameOf(userId);
+    return name ? { targetName: name } : { targetNameKey: 'common.labels.someone' };
   }
 
   /** ЕСУТД: осталось ≤ 2 рабочих дней (или просрочено) — управляющим */
@@ -115,7 +125,7 @@ export class HrJobs implements OnModuleInit {
             // Не слово, а КЛЮЧ каталога: вид сведений переводится при чтении,
             // иначе он застыл бы в языке того, кто засеял очередь.
             kindLabelKey: `hr.esutdKind.${r.kind}`,
-            targetName: await this.nameOf(r.userId),
+            ...(await this.namePayload(r.userId)),
             state,
             days: Math.abs(left),
             workspaceId: r.workspaceId,
@@ -194,7 +204,7 @@ export class HrJobs implements OnModuleInit {
           to: (await this.managersOf(r.workspaceId)).map((uid) => ({ userId: uid })),
           // Дата уезжает МАШИННОЙ: рубеж читает руководитель, а формат и слова
           // месяца принадлежат ему, а не тому, в чьём языке крон её записал.
-          payload: { targetName: await this.nameOf(r.userId), untilIso, workspaceId: r.workspaceId },
+          payload: { ...(await this.namePayload(r.userId)), untilIso, workspaceId: r.workspaceId },
           ref: { type: 'employment', id: r.id },
           workspaceId: r.workspaceId,
           reason: 'manager',
@@ -227,7 +237,7 @@ export class HrJobs implements OnModuleInit {
           to: (await this.managersOf(r.workspaceId)).map((uid) => ({ userId: uid })),
           // Дата уезжает МАШИННОЙ: рубеж читает руководитель, а формат и слова
           // месяца принадлежат ему, а не тому, в чьём языке крон её записал.
-          payload: { targetName: await this.nameOf(r.userId), untilIso, workspaceId: r.workspaceId },
+          payload: { ...(await this.namePayload(r.userId)), untilIso, workspaceId: r.workspaceId },
           ref: { type: 'employment', id: r.id },
           workspaceId: r.workspaceId,
           reason: 'manager',

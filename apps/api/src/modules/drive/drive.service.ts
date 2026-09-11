@@ -955,7 +955,17 @@ export class DriveService implements OnModuleInit {
     await this.db.driveNode.updateMany({ where: { id: nodeId, restricted: false }, data: { restricted: true } });
   }
 
-  async systemEnsureFolder(spaceId: string, parentId: string, name: string, tx?: Tx): Promise<NodeRow> {
+  /**
+   * Системная папка по имени. `autoName` — пометка «имя дала ПЛАТФОРМА»: читателю
+   * оно соберётся из каталога на его языке (см. `displayName`).
+   */
+  async systemEnsureFolder(
+    spaceId: string,
+    parentId: string,
+    name: string,
+    tx?: Tx,
+    autoName?: { key: string; params?: Record<string, string | number> },
+  ): Promise<NodeRow> {
     const client = tx ?? this.db;
     const nameKey = driveNameKey(name);
     const existing = await client.driveNode.findFirst({
@@ -975,6 +985,8 @@ export class DriveService implements OnModuleInit {
           parentId,
           name,
           nameKey,
+          autoNameKey: autoName?.key ?? null,
+          autoNameParams: autoName?.params ?? undefined,
           createdById: 'system',
           ancestorIds: [...parent.ancestorIds, parent.id],
           depth: parent.depth + 1,

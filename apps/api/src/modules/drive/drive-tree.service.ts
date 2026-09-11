@@ -5,7 +5,7 @@ import {
   DRIVE_NODE_REF_TYPE,
   SOURCE_LOCALE,
   WORKSPACE_ROLE_RANK,
-  driveNameKey,
+  driveNameKey, driveNameWithSuffix,
 } from '@superapp/shared';
 import { FilesService } from '../../core/files/files.service';
 import { ShareLinksService } from '../../core/share-links/share-links.service';
@@ -330,12 +330,12 @@ export class DriveTreeService {
         const alive = parent && !parent.trashedAt ? parent : null;
         const home = alive ?? (await tx.driveNode.findUniqueOrThrow({ where: { id: space.rootId as string } }));
 
-        const name = await this.drive.freeName(
-          tx,
-          home.id,
-          node.name,
-          this.i18n.translateFor(SOURCE_LOCALE, 'drive.restoredSuffix'),
-        );
+        // Приписка «(восстановлен)» — слово ПЛАТФОРМЫ внутри имени человека. В базу
+        // ложится снимок языка-источника, а рядом — автоимя: читатель увидит приписку
+        // на своём языке, а переименование её погасит (docs/i18n.md).
+        const restoredSuffix = this.i18n.translateFor(SOURCE_LOCALE, 'drive.restoredSuffix');
+        const name = await this.drive.freeName(tx, home.id, node.name, restoredSuffix);
+        const renamedByUs = name === driveNameWithSuffix(node.name, 1, restoredSuffix);
         const newAnc = [...home.ancestorIds, home.id];
         const delta = newAnc.length - node.depth;
         await tx.driveNode.update({
@@ -348,6 +348,8 @@ export class DriveTreeService {
             depth: newAnc.length,
             name,
             nameKey: driveNameKey(name),
+            autoNameKey: renamedByUs ? 'drive.restoredName' : null,
+            autoNameParams: renamedByUs ? { base: node.name } : Prisma.DbNull,
           },
         });
         await tx.driveNode.updateMany({

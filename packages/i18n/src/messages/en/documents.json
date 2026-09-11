@@ -107,6 +107,7 @@
     "inboxSubtitleSms": "Read it and confirm with a code from an SMS",
     "kindLabel": "Acknowledgement"
   },
+  "campaignTitleNumbered": "{title} No. {number}",
   "campaigns": {
     "andMore": "and {count} more — the whole list is in the export of the registry",
     "audience": "The audience (contractors are excluded)",

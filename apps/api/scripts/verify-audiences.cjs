@@ -142,6 +142,19 @@ async function main() {
     const procId = install?.processId ?? null;
     const def = procId ? (await call('GET', `/workspaces/${wsId}/processes/${procId}`, t1)).json?.data : null;
     const approveNode = (def?.document?.nodes ?? []).find((n) => n.id === 'approve');
+    // ===== Подписи готового маршрута читаются в языке ЗРИТЕЛЯ =====
+    // Маршрут собрала ПЛАТФОРМА (установка бланка из библиотеки), поэтому подписи
+    // узлов и заголовок шага в стопке — слова продукта, а не текст организации.
+    const defIn = async (locale) =>
+      (await call('GET', `/workspaces/${wsId}/processes/${procId}`, t1, undefined, { 'X-Locale': locale })).json?.data;
+    const [defRu, defEn] = [await defIn('ru'), await defIn('en')];
+    const labelOf = (d) => (d?.document?.nodes ?? []).find((n) => n.id === 'approve')?.label;
+    check(
+      'подпись шага маршрута собирается в языке зрителя',
+      labelOf(defRu) === 'Согласование руководителя' && labelOf(defEn) === 'Approval by the manager',
+      `${labelOf(defRu)} / ${labelOf(defEn)}`,
+    );
+
     check('маршрут заявления: шаг согласования адресован subject_manager', approveNode?.config?.assigneeMode === 'subject_manager', JSON.stringify(approveNode?.config ?? def?.document?.nodes?.map((n) => n.id)));
 
     // ===== Шаблонные поля «Руководитель» =====
@@ -196,6 +209,17 @@ async function main() {
       where: { id: stepDep?.id },
       data: { assigneeLabelKey: 'common.audience.label.department', assigneeLabelName: 'Продажи' },
     });
+
+    // ===== Заголовок шага, который дала ПЛАТФОРМА, тоже читается в языке зрителя =====
+    const stepTitleIn = async (locale) =>
+      (await call('GET', `/approvals/${ap.json?.data?.id}`, t1, undefined, { 'X-Locale': locale })).json?.data?.steps?.[0]
+        ?.title;
+    const [titleRu, titleEn] = [await stepTitleIn('ru'), await stepTitleIn('en')];
+    check(
+      'заголовок шага без своего названия собирается из каталога у каждого читателя',
+      !!titleRu && !!titleEn && titleRu !== titleEn,
+      `${titleRu} / ${titleEn}`,
+    );
 
     // ===== То же в ХРОНИКЕ: payload несёт снимок, а не фразу =====
     const wsNote = (await call('POST', '/notes', t1, { workspaceId: wsId, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'aud: подпись' }] }] } })).json?.data;

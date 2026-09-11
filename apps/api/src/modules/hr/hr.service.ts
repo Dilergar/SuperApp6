@@ -71,6 +71,16 @@ export class HrService implements HrPort, HrNodesPort {
   ) {}
 
   /** Слово в языке ИСТОЧНИКА — для снимков, которые ложатся в БД навсегда */
+  /**
+   * Значение колонки, где может лежать И имя (данные), И КЛЮЧ каталога (слово,
+   * которое подставила платформа): ключ переводим в языке запроса, имя отдаём как
+   * есть. Записи, заведённые до перехода на ключи, читаются как есть.
+   */
+  private nameOrKey(value: string | null): string | null {
+    if (!value) return null;
+    return this.i18n.has(value) ? this.i18n.translate(value) : value;
+  }
+
   private src(key: string, values?: Record<string, string | number>): string {
     return this.i18n.translateFor(SOURCE_LOCALE, key, values);
   }
@@ -1184,9 +1194,11 @@ export class HrService implements HrPort, HrNodesPort {
           data: {
             userId: opts.userId,
             workspaceId: opts.workspaceId,
+            // Имя организации — данные; его отсутствие — слово продукта, и в колонку
+            // тогда ложится КЛЮЧ каталога (слово соберёт `nameOrKey` при чтении).
             workspaceName:
               (await tx.workspace.findUnique({ where: { id: opts.workspaceId }, select: { name: true } }))?.name ??
-              this.src('hr.personalDoc.organizationFallback'),
+              'hr.personalDoc.organizationFallback',
             orgDocumentId: opts.orgDocumentId,
             title: opts.title,
             number: opts.number ?? null,
@@ -1274,12 +1286,12 @@ export class HrService implements HrPort, HrNodesPort {
       items.push({
         id: r.id,
         workspaceId: r.workspaceId,
-        workspaceName: r.workspaceName,
+        workspaceName: this.nameOrKey(r.workspaceName) ?? '',
         orgDocumentId: r.orgDocumentId,
         workspaceAlive: aliveWs.has(r.workspaceId),
         title: r.title,
         number: r.number,
-        docTypeName: r.docTypeName,
+        docTypeName: this.nameOrKey(r.docTypeName),
         kind: r.kind as PersonalDocRecordDto['kind'],
         reachedAt: r.reachedAt.toISOString(),
         downloadUrl,

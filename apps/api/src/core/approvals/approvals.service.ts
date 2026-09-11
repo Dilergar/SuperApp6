@@ -29,7 +29,7 @@ import {
   type InboxPageDto,
   type InboxCountDto,
 } from '@superapp/shared';
-import { renderAudienceLabel } from '@superapp/i18n';
+import { renderAudienceLabel, resolveLabelKeys } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { ApiError, badRequest, forbidden, notFound, type ErrorParams } from '../../shared/errors/api-error';
@@ -207,9 +207,13 @@ export class ApprovalsService implements OnModuleInit {
             requestId: request.id,
             order: step.order,
             kind: step.kind,
-            // Заголовок шага ложится В БД: если маршрут его не назвал, пишем
-            // подпись вида шага в языке ИСТОЧНИКА.
+            // Заголовок шага ложится В БД. Назвала его ПЛАТФОРМА (маршрут из
+            // библиотеки или подпись вида шага) — рядом со снимком ложится ключ
+            // каталога, и читатель увидит заголовок на СВОЁМ языке. Набранный
+            // человеком заголовок ключа не имеет и не трогается.
             title: step.title ?? this.src(`approvals.kind.${step.kind}.action`),
+            titleKey: step.title ? (step.titleKey ?? null) : `approvals.kind.${step.kind}.action`,
+            titleParams: step.title ? (step.titleParams ?? undefined) : undefined,
             assigneeType: step.assigneeType,
             assigneeId: step.assigneeId,
             ...this.labelColumns(await this.assigneeSnapshotOf(step.assigneeType, step.assigneeId, ctx.workspaceId)),
@@ -373,7 +377,7 @@ export class ApprovalsService implements OnModuleInit {
                 to: [{ userId: step.request.createdById }],
                 payload: {
                   refTitle: step.request.refTitle,
-                  stepTitle: step.title,
+                  ...this.stepTitlePayload(step),
                   ...this.assigneeLabelPayload(step, 'approvals.toAssignee'),
                 },
                 ref: { type: 'approval_request', id: step.requestId },
@@ -522,6 +526,22 @@ export class ApprovalsService implements OnModuleInit {
   }
 
   /**
+   * Заголовок шага для ЧТЕНИЯ. Ключ есть — собираем в языке запроса (это заголовок,
+   * который дала платформа); ключа нет — заголовок набрал человек, отдаём как есть.
+   */
+  private titleOf(step: { title: string; titleKey: string | null; titleParams: unknown }): string {
+    if (!step.titleKey || !this.i18n.has(step.titleKey)) return step.title;
+    const raw = (step.titleParams ?? {}) as Record<string, unknown>;
+    const values: Record<string, string | number> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string' || typeof v === 'number') values[k] = v;
+    }
+    // Параметр сам может быть КЛЮЧОМ («название бланка»): `resolveLabelKeys`
+    // разворачивает `<имя>Key` → `<имя>` до подстановки в заголовок.
+    return this.i18n.translate(step.titleKey, resolveLabelKeys(this.i18n.t, values));
+  }
+
+  /**
    * Подпись адресата шага для ВИТРИНЫ, в языке запроса. Ступени: снимок структуры →
    * наследная фраза (заявки до перехода на структуру читаются как есть) → ничего
    * (человек: в стопке он карточка, а не подпись).
@@ -535,6 +555,22 @@ export class ApprovalsService implements OnModuleInit {
   }): string | null {
     const snap = this.snapshotOfStep(step);
     return snap ? renderAudienceLabel(this.i18n.t, snap) : step.assigneeLabel;
+  }
+
+  /**
+   * Заголовок шага в payload ВЕЧНОГО уведомления: ключ платформы (собирается у
+   * читателя) либо снимок, если заголовок набрал человек.
+   */
+  private stepTitlePayload(step: { title: string; titleKey: string | null; titleParams: unknown }): Record<string, unknown> {
+    if (!step.titleKey) return { stepTitle: step.title };
+    const raw = (step.titleParams ?? {}) as Record<string, unknown>;
+    const values: Record<string, string | number> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v === 'string' || typeof v === 'number') values[k] = v;
+    }
+    // Параметры идут ПЕРЕД ключом заголовка: рендер разворачивает значения по
+    // порядку, и `nameKey` должен стать `name` раньше, чем соберётся заголовок.
+    return { ...values, stepTitleKey: step.titleKey };
   }
 
   /**
@@ -1002,6 +1038,8 @@ export class ApprovalsService implements OnModuleInit {
       id: string;
       kind: string;
       title: string;
+      titleKey: string | null;
+      titleParams: unknown;
       awaitingUserIds: string[];
       assigneeType: string;
       assigneeId: string;
@@ -1025,7 +1063,7 @@ export class ApprovalsService implements OnModuleInit {
             to: [{ userId: request.createdById }],
             payload: {
               refTitle,
-              stepTitle: step.title,
+              ...this.stepTitlePayload(step),
               ...this.assigneeLabelPayload(step, 'approvals.toSelectedGroup'),
             },
             ref: { type: 'approval_request', id: step.requestId },
@@ -1049,7 +1087,7 @@ export class ApprovalsService implements OnModuleInit {
         // Снимок словом застыл бы в языке того, кто завёл заявку.
         payload: {
           refTitle,
-          stepTitle: step.title,
+          ...this.stepTitlePayload(step),
           actionLabelKey: `approvals.kind.${step.kind}.action`,
         },
         ref: { type: 'approval_request', id: step.requestId },
@@ -1193,7 +1231,7 @@ export class ApprovalsService implements OnModuleInit {
         sourceKey: INBOX_SOURCE_KEYS.approval,
         id: step.id,
         title: step.request.refTitle,
-        subtitle: step.title,
+        subtitle: this.titleOf(step),
         icon: step.request.refIcon ?? APPROVAL_STEP_KIND_META[step.kind as ApprovalStepKind].icon,
         href: this.hrefFor(step.request.workspaceId, step.requestId),
         stepKind: step.kind as ApprovalStepKind,
@@ -1306,7 +1344,7 @@ export class ApprovalsService implements OnModuleInit {
       id: s.id,
       order: s.order,
       kind: s.kind as ApprovalStepKind,
-      title: s.title,
+      title: this.titleOf(s),
       status: s.status as ApprovalStepDto['status'],
       assigneeType: s.assigneeType as ApprovalStepDto['assigneeType'],
       assigneeId: s.assigneeId,

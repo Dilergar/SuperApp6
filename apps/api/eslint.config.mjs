@@ -2,6 +2,7 @@ import tsParser from '@typescript-eslint/parser';
 import tsPlugin from '@typescript-eslint/eslint-plugin';
 import noCyrillicLiteral from '../../scripts/eslint-rules/no-cyrillic-literal.cjs';
 import noViewerTextInPayload from '../../scripts/eslint-rules/no-viewer-text-in-payload.cjs';
+import noTranslatedTextInColumn from '../../scripts/eslint-rules/no-translated-text-in-column.cjs';
 
 // ============================================================
 // МЕХАНИЧЕСКИЙ СТРАЖ ИСХОДЯЩИХ ЗАПРОСОВ.
@@ -146,6 +147,7 @@ export default [
         rules: {
           'no-cyrillic-literal': noCyrillicLiteral,
           'no-viewer-text-in-payload': noViewerTextInPayload,
+          'no-translated-text-in-column': noTranslatedTextInColumn,
         },
       },
     },
@@ -154,6 +156,9 @@ export default [
       // зрителя, положенный в payload, застывает в языке нажавшего кнопку навсегда.
       // Литерала в коде при этом нет — страж кириллицы такое не видит.
       'i18n/no-viewer-text-in-payload': 'error',
+      // Третья дверь: слово, записанное прямо в колонку-имя, живёт как данные и
+      // читается всеми в языке того, кто его записал. Требуем пометку автоимени.
+      'i18n/no-translated-text-in-column': 'error',
       'i18n/no-cyrillic-literal': [
         'error',
         {

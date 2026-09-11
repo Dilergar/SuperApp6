@@ -248,10 +248,13 @@ export class HrLibraryService {
       ? { assigneeMode: 'member', assigneeUserId: signer.signerUserId }
       : { assigneeMode: 'position', positionId: signer.signerPositionId, rule: 'any' };
 
+    // Локальная форма узла — подмножество ProcessNode (@superapp/shared), включая
+    // автоподпись платформы (`labelKey`).
     interface Node {
       id: string;
       type: string;
       label?: string;
+      labelKey?: string;
       config: Record<string, unknown>;
       position?: { x: number; y: number };
     }
@@ -264,8 +267,20 @@ export class HrLibraryService {
     const link = (to: string) => {
       if (prev) edges.push({ id: `e${++eseq}`, from: prev.id, fromPort: prev.port, to, toPort: 'main' });
     };
-    const addHuman = (id: string, cfg: Record<string, unknown>, label: string) => {
-      nodes.push({ id, type: 'human.approval', label, config: cfg, position: { x: (x += step), y: 160 } });
+    /**
+     * Шаг готового маршрута. Подпись и заголовок придумала ПЛАТФОРМА, поэтому рядом
+     * со снимком в языке источника ложатся ключи каталога: участник прочитает шаг на
+     * СВОЁМ языке, а правка подписи руками ключ погасит (docs/i18n.md).
+     */
+    const addHuman = (id: string, cfg: Record<string, unknown>, labelKey: string) => {
+      nodes.push({
+        id,
+        type: 'human.approval',
+        label: this.src(labelKey),
+        labelKey,
+        config: cfg,
+        position: { x: (x += step), y: 160 },
+      });
       link(id);
       edges.push({ id: `e${++eseq}`, from: id, fromPort: 'rejected', to: 'refused', toPort: 'main' });
       prev = { id, port: 'approved' };
@@ -275,6 +290,7 @@ export class HrLibraryService {
       id: 'trigger',
       type: 'trigger.document',
       label: this.src('processes.node.trigger.document.title'),
+      labelKey: 'processes.node.trigger.document.title',
       config: { templateId },
       position: { x, y: 160 },
     });
@@ -290,9 +306,11 @@ export class HrLibraryService {
         {
           kind: 'approval',
           title: this.src('hr.library.step.approveTitle', { name: this.src(this.itemKey(item, 'template')) }),
+          titleKey: 'hr.library.step.approveTitle',
+          titleParams: { nameKey: this.itemKey(item, 'template') },
           assigneeMode: 'subject_manager',
         },
-        this.src('hr.library.step.managerApproval'),
+        'hr.library.step.managerApproval',
       );
     }
     if (r.employerSign) {
@@ -302,9 +320,11 @@ export class HrLibraryService {
           kind: 'signature',
           signatureLevel: item.docType.signatureLevel,
           title: this.src('hr.library.step.signTitle', { name: this.src(this.itemKey(item, 'template')) }),
+          titleKey: 'hr.library.step.signTitle',
+          titleParams: { nameKey: this.itemKey(item, 'template') },
           ...assignee,
         },
-        this.src('hr.library.step.employerSign'),
+        'hr.library.step.employerSign',
       );
     }
     if (r.subjectSign) {
@@ -314,9 +334,11 @@ export class HrLibraryService {
           kind: 'signature',
           signatureLevel: item.docType.signatureLevel,
           title: this.src('hr.library.step.signTitle', { name: this.src(this.itemKey(item, 'template')) }),
+          titleKey: 'hr.library.step.signTitle',
+          titleParams: { nameKey: this.itemKey(item, 'template') },
           assigneeMode: 'subject',
         },
-        this.src('hr.library.step.subjectSign'),
+        'hr.library.step.subjectSign',
       );
     }
     if (r.subjectAck) {
@@ -325,29 +347,31 @@ export class HrLibraryService {
         {
           kind: 'acknowledgement',
           title: this.src('hr.library.step.ackTitle', { name: this.src(this.itemKey(item, 'template')) }),
+          titleKey: 'hr.library.step.ackTitle',
+          titleParams: { nameKey: this.itemKey(item, 'template') },
           assigneeMode: 'subject',
         },
-        this.src('hr.library.step.subjectAck'),
+        'hr.library.step.subjectAck',
       );
     }
     if (r.register) {
-      nodes.push({ id: 'register', type: 'doc.register', label: this.src('processes.node.doc.register.title'), config: {}, position: { x: (x += step), y: 160 } });
+      nodes.push({ id: 'register', type: 'doc.register', label: this.src('processes.node.doc.register.title'), labelKey: 'processes.node.doc.register.title', config: {}, position: { x: (x += step), y: 160 } });
       link('register');
       prev = { id: 'register', port: 'main' };
     }
     if (r.file) {
-      nodes.push({ id: 'file', type: 'doc.file', label: this.src('processes.node.doc.file.title'), config: {}, position: { x: (x += step), y: 160 } });
+      nodes.push({ id: 'file', type: 'doc.file', label: this.src('processes.node.doc.file.title'), labelKey: 'processes.node.doc.file.title', config: {}, position: { x: (x += step), y: 160 } });
       link('file');
       prev = { id: 'file', port: 'main' };
     }
     if (r.hrApply) {
-      nodes.push({ id: 'apply', type: 'hr.apply', label: this.src('processes.node.hr.apply.title'), config: {}, position: { x: (x += step), y: 160 } });
+      nodes.push({ id: 'apply', type: 'hr.apply', label: this.src('processes.node.hr.apply.title'), labelKey: 'processes.node.hr.apply.title', config: {}, position: { x: (x += step), y: 160 } });
       link('apply');
       prev = { id: 'apply', port: 'main' };
     }
-    nodes.push({ id: 'done', type: 'end', label: this.src('hr.library.step.done'), config: {}, position: { x: (x += step), y: 160 } });
+    nodes.push({ id: 'done', type: 'end', label: this.src('hr.library.step.done'), labelKey: 'hr.library.step.done', config: {}, position: { x: (x += step), y: 160 } });
     link('done');
-    nodes.push({ id: 'refused', type: 'end', label: this.src('hr.library.step.refused'), config: {}, position: { x: 380, y: 380 } });
+    nodes.push({ id: 'refused', type: 'end', label: this.src('hr.library.step.refused'), labelKey: 'hr.library.step.refused', config: {}, position: { x: 380, y: 380 } });
 
     const surface = item.docType.category === 'hr' ? 'documents.hr' : 'documents.general';
     try {

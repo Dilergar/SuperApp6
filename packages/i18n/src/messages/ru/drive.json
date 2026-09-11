@@ -90,6 +90,7 @@
       "label": "Сохранить на Диск"
     }
   },
+  "restoredName": "{base} (восстановлен)",
   "restoredSuffix": "восстановлен",
   "role": {
     "editor": "Правит",

@@ -107,6 +107,7 @@
     "inboxSubtitleSms": "Ознакомьтесь и подтвердите кодом из SMS",
     "kindLabel": "Ознакомление"
   },
+  "campaignTitleNumbered": "{title} № {number}",
   "campaigns": {
     "andMore": "и ещё {count} — весь список в выгрузке реестра",
     "audience": "Аудитория (подрядчики исключены)",

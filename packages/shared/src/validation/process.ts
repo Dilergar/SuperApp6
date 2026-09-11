@@ -29,6 +29,10 @@ export const processNodeSchema = z.object({
   id: processIdSchema,
   type: z.string().min(1).max(60),
   label: processLabelSchema.optional(),
+  // Автоподпись платформы: ключ каталога и параметры. Человек их не набирает —
+  // они приходят из готового маршрута и гаснут, как только он правит подпись.
+  labelKey: z.string().max(120).optional(),
+  labelParams: z.record(z.union([z.string().max(200), z.number()])).optional(),
   note: z.string().max(500).refine(noHtml, 'validation.process.badCharacters').optional(),
   config: z.record(z.unknown()).default({}),
   position: z.object({ x: z.number(), y: z.number() }).optional(),

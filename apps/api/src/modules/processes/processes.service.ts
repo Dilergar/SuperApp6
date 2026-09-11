@@ -324,7 +324,10 @@ export class ProcessesService implements OnModuleInit {
       where: { id: latestMeta.id },
       select: { document: true },
     });
-    const document = (latest?.document ?? { nodes: [], edges: [], form: [] }) as unknown as ProcessDocument;
+    const stored = (latest?.document ?? { nodes: [], edges: [], form: [] }) as unknown as ProcessDocument;
+    // Подписи узлов, которые дала ПЛАТФОРМА (готовый маршрут из библиотеки), рисуем в
+    // языке зрителя; подписи, набранные человеком, не трогаем (docs/i18n.md).
+    const document = this.withNodeLabels(stored);
     const { issues } = compileProcessDocument(document, this.registry);
     // Правила профиля показываем прямо в карточке процесса — кадровик видит, чего
     // не хватает по ТК РК, ещё до попытки публикации.
@@ -430,10 +433,15 @@ export class ProcessesService implements OnModuleInit {
         orderBy: { version: 'desc' },
       });
       if (!latest) throw notFound('processes.noVersions');
+      // Подпись, которую человек переписал, перестаёт быть платформенной.
+      const doc = this.dropTouchedLabelKeys(
+        document,
+        (latest.document ?? null) as unknown as ProcessDocument | null,
+      );
       if (latest.status === 'draft') {
         await tx.processVersion.update({
           where: { id: latest.id },
-          data: { document: document as unknown as object },
+          data: { document: doc as unknown as object },
         });
         return latest.version;
       }
@@ -442,7 +450,7 @@ export class ProcessesService implements OnModuleInit {
           definitionId,
           version: latest.version + 1,
           status: 'draft',
-          document: document as unknown as object,
+          document: doc as unknown as object,
           createdById: userId,
         },
       });
@@ -1680,15 +1688,15 @@ export class ProcessesService implements OnModuleInit {
   }
 
   /** Имя актёра снимком для хроники (то же, что userName в Организациях) */
-  private async displayName(userId: string): Promise<string> {
+  private async displayName(userId: string): Promise<string | null> {
     const u = await this.db.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
     });
-    // Имя ложится снимком в журнал публикации — язык ИСТОЧНИКА.
-    return u
-      ? [u.firstName, u.lastName].filter(Boolean).join(' ')
-      : this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone');
+    // Имя ложится снимком в журнал публикации. Строки нет (аккаунт исчез) → null:
+    // слово-заглушку подставит рендер хроники в языке ЧИТАТЕЛЯ, а записанное здесь
+    // застыло бы в языке источника навсегда.
+    return u ? [u.firstName, u.lastName].filter(Boolean).join(' ') || null : null;
   }
 
   private async userMinis(ids: string[]): Promise<Map<string, ProcessUserMini>> {
@@ -1698,6 +1706,36 @@ export class ProcessesService implements OnModuleInit {
       select: { id: true, firstName: true, lastName: true },
     });
     return new Map(users.map((u) => [u.id, { id: u.id, firstName: u.firstName, lastName: u.lastName }]));
+  }
+
+  /**
+   * Подписи узлов для ЧТЕНИЯ: `labelKey` есть — слово даёт каталог в языке зрителя,
+   * нет — подпись набрал человек и отдаётся как есть.
+   */
+  private withNodeLabels(document: ProcessDocument): ProcessDocument {
+    const nodes = (document.nodes ?? []).map((n) => {
+      if (!n.labelKey || !this.i18n.has(n.labelKey)) return n;
+      return { ...n, label: this.i18n.translate(n.labelKey, n.labelParams ?? {}) };
+    });
+    return { ...document, nodes };
+  }
+
+  /**
+   * Сохранение документа человеком: подпись, которую он изменил, перестаёт быть
+   * платформенной — ключ гаснет, и дальше это текст организации.
+   */
+  private dropTouchedLabelKeys(next: ProcessDocument, prev: ProcessDocument | null): ProcessDocument {
+    const before = new Map((prev?.nodes ?? []).map((n) => [n.id, n]));
+    const nodes = (next.nodes ?? []).map((n) => {
+      if (!n.labelKey) return n;
+      const old = before.get(n.id);
+      // Сравниваем со снимком языка ИСТОЧНИКА: именно он лежит в базе.
+      const source = this.i18n.translateFor(SOURCE_LOCALE, n.labelKey, n.labelParams ?? {});
+      if (n.label === source || (old && n.label === old.label)) return n;
+      const { labelKey: _k, labelParams: _p, ...rest } = n;
+      return rest;
+    });
+    return { ...next, nodes };
   }
 
   private toDefinitionDto(

@@ -936,7 +936,12 @@ export class TasksService implements OnModuleInit {
           })
         ).map((u) => [u.id, fullName(u)]),
       );
-      const target = (uid: string) => ({ targetUserId: uid, targetName: names.get(uid) ?? this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.someone') });
+      // Имя — данные; его отсутствие (аккаунт исчез) — слово продукта, и оно едет
+      // КЛЮЧОМ: записанное фразой, застыло бы в языке того, кто правил задачу.
+      const target = (uid: string) => {
+        const name = names.get(uid);
+        return { targetUserId: uid, ...(name ? { targetName: name } : { targetNameKey: 'common.labels.someone' }) };
+      };
 
       for (const uid of removedForLog) {
         chatterEntries.push({

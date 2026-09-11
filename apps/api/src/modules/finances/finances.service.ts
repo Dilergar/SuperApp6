@@ -117,6 +117,9 @@ export class FinancesService implements OnModuleInit {
     try {
       return await this.db.$transaction(async (tx) => {
         const book = await tx.finBook.create({
+          // Имя книги читается сравнением с эталоном (`bookName`), поэтому в колонке
+          // лежит слово языка-источника, а не ключ.
+          // eslint-disable-next-line i18n/no-translated-text-in-column
           data: { ownerType, ownerId, name: this.i18n.translateFor(SOURCE_LOCALE, BOOK_NAME_KEY) },
         });
         await this.seedBook(tx, book.id);
@@ -189,6 +192,9 @@ export class FinancesService implements OnModuleInit {
         bookId,
         kind: 'asset',
         subtype: a.subtype,
+        // Имя засева читается сравнением с эталоном (`displayAccountName`), поэтому
+        // в колонке лежит слово, а не ключ.
+        // eslint-disable-next-line i18n/no-translated-text-in-column
         name: t(a.nameKey),
         icon: a.icon,
         currencyCode: FIN_DEFAULT_CURRENCY,
@@ -263,13 +269,40 @@ export class FinancesService implements OnModuleInit {
     return map;
   }
 
+  /**
+   * Имя счёта/категории для ЧТЕНИЯ. Засев книги называет их платформа («Наличные»,
+   * «Проценты по кредиту»), и слово принадлежит продукту: узнаём его по совпадению с
+   * эталоном ЛЮБОГО языка и показываем в языке зрителя. Переименовал человек —
+   * совпадения нет, и это уже его имя (docs/i18n.md).
+   */
+  private displayAccountName(name: string): string {
+    if (!this.seedNameToKey) {
+      const map = new Map<string, string>();
+      const keys = [
+        ...FIN_SEED_ACCOUNTS.map((a) => a.nameKey),
+        FinancesService.INTEREST_CATEGORY_KEY,
+        'finance.seed.cashbox',
+        'finance.seed.other',
+      ];
+      for (const key of keys) {
+        for (const locale of SUPPORTED_LOCALES) map.set(this.i18n.translateFor(locale, key), key);
+      }
+      this.seedNameToKey = map;
+    }
+    const key = this.seedNameToKey.get(name);
+    return key ? this.i18n.translate(key) : name;
+  }
+
+  /** Эталоны имён засева во всех языках → ключ каталога (считается один раз) */
+  private seedNameToKey: Map<string, string> | null = null;
+
   private serializeAccount(a: FinAccount, balance: bigint): FinAccountDto {
     return {
       id: a.id,
       kind: a.kind as FinAccountDto['kind'],
       subtype: a.subtype,
       parentId: a.parentId,
-      name: a.name,
+      name: this.displayAccountName(a.name),
       icon: a.icon,
       currencyCode: a.currencyCode,
       archived: a.archived,
@@ -1452,6 +1485,8 @@ export class FinancesService implements OnModuleInit {
       data: {
         bookId,
         kind: 'expense',
+        // Читается сравнением с эталоном (`displayAccountName`).
+        // eslint-disable-next-line i18n/no-translated-text-in-column
         name: this.i18n.translate(FinancesService.INTEREST_CATEGORY_KEY),
         icon: '🏦',
         currencyCode: FIN_DEFAULT_CURRENCY,
@@ -2286,6 +2321,8 @@ export class FinancesService implements OnModuleInit {
             bookId: book.id,
             kind: 'asset',
             subtype: 'other',
+            // Читается сравнением с эталоном (`displayAccountName`).
+            // eslint-disable-next-line i18n/no-translated-text-in-column
             name: this.i18n.translate('finance.seed.cashbox'),
             icon: '🧮',
             currencyCode: FIN_DEFAULT_CURRENCY,

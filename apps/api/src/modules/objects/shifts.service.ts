@@ -593,7 +593,8 @@ export class ShiftsService {
           workspaceId,
           actorId: userId,
           typeKey: 'shift.forced',
-          payload: { shiftLabel: dateStr(row.localDate), reason: forcedReason },
+          // Причина — КЛЮЧ каталога (`<имя>Key`): фраза соберётся при чтении у каждого.
+          payload: { shiftLabel: dateStr(row.localDate), ...(forcedReason ? { reasonKey: forcedReason } : {}) },
         });
       }
       return row;
@@ -856,9 +857,10 @@ export class ShiftsService {
     reasonKey: string,
     params: ErrorParams,
   ): string {
-    // Причина обхода ложится в ВЕЧНУЮ запись хроники — снимок в языке ИСТОЧНИКА;
-    // тот же ключ рисует отказ в языке запроса (его соберёт фильтр).
-    if (force && caps.manage) return this.i18n.translateFor(SOURCE_LOCALE, `errors.${reasonKey}`, params);
+    // Причина обхода ложится в ВЕЧНУЮ запись хроники — КЛЮЧОМ каталога, а не фразой:
+    // тот же ключ рисует и отказ в языке запроса (его соберёт фильтр), а запись
+    // переводится при чтении у каждого читателя (docs/i18n.md).
+    if (force && caps.manage) return `errors.${reasonKey}`;
     throw conflict(reasonKey, params, { code });
   }
 
@@ -934,7 +936,7 @@ export class ShiftsService {
         workspaceId,
         actorId,
         typeKey: 'shift.forced',
-        payload: { shiftLabel: label, reason: forcedReason },
+        payload: { shiftLabel: label, ...(forcedReason ? { reasonKey: forcedReason } : {}) },
       });
     }
   }

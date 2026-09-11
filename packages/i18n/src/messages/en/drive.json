@@ -90,6 +90,7 @@
       "label": "Save to Drive"
     }
   },
+  "restoredName": "{base} (restored)",
   "restoredSuffix": "restored",
   "role": {
     "editor": "Edits",
