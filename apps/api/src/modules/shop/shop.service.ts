@@ -27,6 +27,8 @@ import type {
 import { SHOP_LIMITS, publicVariantUrl, createTaskSchema, createCalendarEventSchema } from '@superapp/shared';
 import type { FileDto } from '@superapp/shared';
 import { FilesService } from '../../core/files/files.service';
+import { EntitlementsService } from '../../core/entitlements/entitlements.service';
+import { UsageProviderRegistry } from '../../core/entitlements/entitlements.registry';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { DatabaseService } from '../../shared/database/database.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
@@ -79,9 +81,15 @@ export class ShopService implements OnModuleInit {
     private readonly filesRegistry: FilesRefRegistry,
     private readonly graphHooks: PersonalGraphRegistry,
     private readonly i18n: I18nService,
+    private readonly entitlements: EntitlementsService,
+    private readonly usageProviders: UsageProviderRegistry,
   ) {}
 
   onModuleInit(): void {
+    // Расход ключа `shop.maxShowcases` — витрины магазина владельца (провайдер движка тарифов)
+    this.usageProviders.register('shop.maxShowcases', {
+      count: (subject, tx) => (tx ?? this.db).showcase.count({ where: { shop: { ownerType: subject.type, ownerId: subject.id } } }),
+    });
     // Галерея лота (движок файлов): фото публичные, но резолвер обязателен для
     // полноты матрицы (attach гейтится showcase.manage; view — видимость витрины).
     this.filesRegistry.register('listing', {
@@ -290,10 +298,12 @@ export class ShopService implements OnModuleInit {
     const shop = await this.getOrCreateShop(ownerType, ownerId);
     if (!(await this.canManageShop(viewerId, shop))) throw forbidden('shop.shopManageDenied');
     const count = await this.db.showcase.count({ where: { shopId: shop.id } });
-    if (count >= SHOP_LIMITS.maxShowcases) throw badRequest('shop.showcaseLimit');
     // Create the showcase AND its parent pointer atomically, so a transient projection failure
     // can't leave a showcase that managers/viewers can never reach.
     const row = await this.db.$transaction(async (tx) => {
+      // Потолок витрин — тариф владельца магазина (человек или организация): COUNT под
+      // advisory-локом в этой же транзакции, отказ — 402 с объяснением.
+      await this.entitlements.assertCanCreate(tx, { type: ownerType, id: ownerId }, 'shop.maxShowcases');
       const created = await tx.showcase.create({
         data: { shopId: shop.id, name: data.name.trim(), icon: data.icon ?? null, sortOrder: count },
       });

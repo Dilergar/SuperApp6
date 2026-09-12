@@ -79,6 +79,8 @@
 | [audiences_engine.md](audiences_engine.md) | Адресаты: единый словарь (человек/Группа/команда/оси/относительные), якоря, разворот в людей |
 | [notifications_engine.md](notifications_engine.md) | Уведомления: событие + строка на адресата + журнал доставки, реестр типов по сервисам, каналы in-app/push/SMS/chat, предпочтения, политика организации, тишина |
 | [realtime_engine.md](realtime_engine.md) | Один сокет платформы `/realtime`: комнаты `user:<id>`, реестр relay/хендлеров/хуков, Redis-адаптер |
+| [entitlements_engine.md](entitlements_engine.md) | Тарифы и лимиты (`core/entitlements`): реестр ключей в shared, планы с версиями, подписки/триал/грейс, гранты, оверрайды, квоты, `402 entitlement.*`, страница «Тариф и лимиты» |
+| [platform_console.md](platform_console.md) | Кабинет платформы (`core/platform`): сотрудники ≠ user_roles, токен `aud: platform`, гард deny-by-default, реестр команд с журналом/идемпотентностью/step-up/«четыре глаза», поиск и карточка 360 с масками PII |
 
 ## Сервисы (apps/api/src/modules/)
 

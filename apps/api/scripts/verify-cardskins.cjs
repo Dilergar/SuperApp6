@@ -40,7 +40,22 @@ async function main() {
   const link = await prisma.contactLink.findUnique({ where: { userAId_userBId: { userAId: a, userBId: b } }, select: { id: true } });
 
   // Clean any prior test state for u1.
-  const resetU1 = () => prisma.user.update({ where: { id: u1 }, data: { defaultSkinInstanceId: null, premiumUntil: null } });
+  // «Премиум» = грант person-ключа `skins.perGroup` (core/entitlements); прямая запись
+  // в БД сопровождается bump эпохи, иначе снимок живёт в кэше до 5 минут.
+  const bumpU1 = () => call('POST', '/entitlements/dev/bump', t1, { subject: { type: 'user', id: u1 } });
+  const setPremium = async (until) => {
+    await prisma.entitlementGrant.upsert({
+      where: { idempotencyKey: `suite:cardskins:${u1}` },
+      create: { subjectType: 'user', subjectId: u1, key: 'skins.perGroup', value: true, source: 'gift', idempotencyKey: `suite:cardskins:${u1}`, validUntil: until, reason: 'verify-cardskins' },
+      update: { validUntil: until, revokedAt: null },
+    });
+    await bumpU1();
+  };
+  const resetU1 = async () => {
+    await prisma.user.update({ where: { id: u1 }, data: { defaultSkinInstanceId: null } });
+    await prisma.entitlementGrant.deleteMany({ where: { idempotencyKey: `suite:cardskins:${u1}` } });
+    await bumpU1();
+  };
   const cleanup = async () => {
     await resetU1().catch(() => {});
     const circles = await prisma.circle.findMany({ where: { ownerId: u1, name: { startsWith: 'SKIN_TEST' } }, select: { id: true } });
@@ -121,11 +136,11 @@ async function main() {
     // --- Per-group equip is premium-gated ---
     const g1 = await prisma.circle.create({ data: { ownerId: u1, name: 'SKIN_TEST_G1', sortOrder: 10 } });
     await prisma.circleMembership.create({ data: { circleId: g1.id, contactLinkId: link.id } });
-    check('без премиума скин на группу → 403',
-      (await call('PUT', '/card-skins/equip/group', t1, { circleId: g1.id, instanceId: floralInst })).status === 403);
+    check('без премиума скин на группу → 402 feature_locked',
+      (await call('PUT', '/card-skins/equip/group', t1, { circleId: g1.id, instanceId: floralInst })).status === 402);
 
     // Grant premium → per-group equip works.
-    await prisma.user.update({ where: { id: u1 }, data: { premiumUntil: new Date(Date.now() + 864e5) } });
+    await setPremium(new Date(Date.now() + 864e5));
     const eqG1 = await call('PUT', '/card-skins/equip/group', t1, { circleId: g1.id, instanceId: floralInst });
     check('с премиумом скин на группу надет', eqG1.ok && eqG1.json.data.perGroup.some((p) => p.circleId === g1.id && p.instanceId === floralInst), `status ${eqG1.status}`);
     res = (await call('GET', `/card-skins/resolve?userIds=${u1}`, t2)).json.data;
@@ -139,7 +154,7 @@ async function main() {
     check('конфликт групп: выигрывает группа выше (sortOrder меньше)', res[u1] && res[u1].id === skinC.id, JSON.stringify(res[u1]?.id));
 
     // --- Premium lapse → per-group overrides ignored → default ---
-    await prisma.user.update({ where: { id: u1 }, data: { premiumUntil: new Date(Date.now() - 864e5) } });
+    await setPremium(new Date(Date.now() - 864e5));
     res = (await call('GET', `/card-skins/resolve?userIds=${u1}`, t2)).json.data;
     check('после истечения премиума → дефолтный скин', res[u1] && res[u1].id === paper.id, JSON.stringify(res[u1]?.id));
 

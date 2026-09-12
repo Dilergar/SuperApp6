@@ -16,7 +16,7 @@ const SECTIONS: { key: string; gate: Gate }[] = [
   { key: 'card', gate: 'all' },
   { key: 'anketa', gate: 'manage' },
   { key: 'stats', gate: 'all' },
-  { key: 'subscription', gate: 'all' },
+  { key: 'subscription', gate: 'manage' },
   { key: 'settings', gate: 'manage' },
   { key: 'notifications', gate: 'manage' },
   { key: 'security', gate: 'owner' },

@@ -15,6 +15,7 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
 import { LedgerService } from '../wallet/ledger.service';
+import { EntitlementsService } from '../../core/entitlements/entitlements.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -37,6 +38,7 @@ export class CardSkinsService {
     private readonly db: DatabaseService,
     private readonly ledger: LedgerService,
     private readonly i18n: I18nService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   /**
@@ -214,7 +216,7 @@ export class CardSkinsService {
   async getEquipState(userId: string): Promise<CardSkinEquipState> {
     const user = await this.db.user.findUnique({
       where: { id: userId },
-      select: { defaultSkinInstanceId: true, premiumUntil: true },
+      select: { defaultSkinInstanceId: true },
     });
     const circles = await this.db.circle.findMany({
       where: { ownerId: userId, equippedSkinInstanceId: { not: null } },
@@ -259,7 +261,8 @@ export class CardSkinsService {
     return {
       defaultInstanceId,
       perGroup,
-      premium: this.isPremium(user?.premiumUntil ?? null),
+      // «Премиум» = person-ключ тарифа `skins.perGroup` (core/entitlements): подписка или грант
+      premium: await this.entitlements.can(userId, 'skins.perGroup'),
     };
   }
 
@@ -270,10 +273,8 @@ export class CardSkinsService {
   }
 
   async equipForGroup(userId: string, circleId: string, instanceId: string | null): Promise<CardSkinEquipState> {
-    const user = await this.db.user.findUnique({ where: { id: userId }, select: { premiumUntil: true } });
-    if (!this.isPremium(user?.premiumUntil ?? null)) {
-      throw forbidden('cardSkin.groupSkinsPremium');
-    }
+    // Фича тарифа: отказ — 402 `entitlement.feature_locked` с подсказкой, на какой ступени доступно
+    await this.entitlements.assertFeature(userId, 'skins.perGroup');
     const circle = await this.db.circle.findUnique({ where: { id: circleId }, select: { ownerId: true } });
     if (!circle || circle.ownerId !== userId) throw notFound('contacts.circleNotFound');
     if (instanceId) await this.assertOwnsInstance(userId, instanceId);
@@ -284,10 +285,6 @@ export class CardSkinsService {
   private async assertOwnsInstance(userId: string, instanceId: string): Promise<void> {
     const inst = await this.db.cardSkinInstance.findUnique({ where: { id: instanceId }, select: { ownerId: true } });
     if (!inst || inst.ownerId !== userId) throw forbidden('cardSkin.notYours');
-  }
-
-  private isPremium(premiumUntil: Date | null): boolean {
-    return !!premiumUntil && premiumUntil.getTime() > Date.now();
   }
 
   // ============================================================
@@ -311,9 +308,11 @@ export class CardSkinsService {
 
     const owners = await this.db.user.findMany({
       where: { id: { in: ids } },
-      select: { id: true, defaultSkinInstanceId: true, premiumUntil: true },
+      select: { id: true, defaultSkinInstanceId: true },
     });
-    const premiumOwnerIds = owners.filter((o) => this.isPremium(o.premiumUntil)).map((o) => o.id);
+    // Person-ключ виден всем, кто видит карточку, — батчем через движок (S13: только person-ключи)
+    const personKeys = await this.entitlements.personKeysFor(owners.map((o) => o.id));
+    const premiumOwnerIds = owners.filter((o) => personKeys.get(o.id)?.['skins.perGroup'] === true).map((o) => o.id);
 
     // Map each premium owner → the contact link between them and the viewer.
     const linkByOwner = new Map<string, string>();

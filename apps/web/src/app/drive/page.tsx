@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, PageHeader, TickBar } from '@/components/ui';
+import { EntitlementLock } from '@/components/entitlements';
 import { driveNodeKey } from '@/lib/queries';
 import { fetchDriveNode } from '@/lib/drive-api';
 import { useDrive } from './drive-shell';
@@ -33,8 +34,8 @@ export default function DriveHomePage() {
     : [{ id: null as string | null, name: rootName }];
 
   const used = overview?.bytesUsed ?? 0;
-  const limit = overview?.limitBytes ?? 1;
-  const pct = Math.min(100, Math.round((used / limit) * 100));
+  const limit = overview?.limitBytes ?? null;
+  const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
 
   const onOpen = useCallback((id: string | null) => setFolderId(id), []);
 
@@ -55,7 +56,9 @@ export default function DriveHomePage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
           <span className="label-caps">{t('page.usedSpace')}</span>
           <span className="label-sm">
-            {t('page.usedOf', { used: humanSize(used), limit: humanSize(limit) })}
+            {limit === null ? t('page.usedNoLimit', { used: humanSize(used) }) : t('page.usedOf', { used: humanSize(used), limit: humanSize(limit) })}
+            {' '}
+            <EntitlementLock keyName="files.storageBytes" id="ent-lock-drive" />
           </span>
         </div>
         {/* Прогресс в системе только штриховой */}

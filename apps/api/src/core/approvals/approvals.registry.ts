@@ -30,6 +30,13 @@ export interface ApprovalRefContext {
  */
 export interface ApprovalRefProvider {
   /**
+   * Заявки этого предмета живут ТОЛЬКО в кабинете платформы (core/platform, four-eyes):
+   * в продуктовую витрину «Ждут решения» и в её уведомления они не попадают —
+   * сотрудник платформы решает из кабинета, а продуктовая карточка заявки таких
+   * предметов не рисует.
+   */
+  consoleOnly?: boolean;
+  /**
    * Контекст предмета при СОЗДАНИИ заявки — И ПРОВЕРКА ПРАВА на неё.
    *
    * Резолвер ОБЯЗАН вернуть null, если этот человек не вправе отправить предмет на
@@ -125,6 +132,11 @@ export class ApprovalsRegistry {
 
   get(refType: string): ApprovalRefProvider | undefined {
     return this.refs.get(refType);
+  }
+
+  /** Предметы, чьи заявки живут только в кабинете платформы (витрина продукта их не показывает). */
+  consoleOnlyTypes(): string[] {
+    return [...this.refs.entries()].filter(([, p]) => p.consoleOnly).map(([t]) => t);
   }
 
   types(): string[] {

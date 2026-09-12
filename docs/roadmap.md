@@ -15,7 +15,7 @@
 
 **Фундамент**: Circle (Окружение) · Задачник · Календарь (+Google) · Мессенджер · My Wish & Shop · Кошелёк-леджер · Организации · Сотрудники + **Орг. структура** (2026-09: вертикаль на графе должностей и объектов, заместители, областные права, канвас, мастер — [org_structure.md](org_structure.md)) · Скины карточек · Процессы (Ф1–Ф6 без RAG) · Финансы (B2C) · Диктофон · Виртуальный офис · Диск (OmniDrive).
 
-**16 движков core/**: access · rich-cards · search · quick-actions · files · voice · calls · chatter · jobs · verify · docs · share-links · approvals · sign · templates · audiences (единый словарь адресатов, 2026-09).
+**20 движков core/**: access · rich-cards · search · quick-actions · files · voice · calls · chatter · jobs · verify · docs · share-links · approvals · sign · templates · audiences (единый словарь адресатов, 2026-09) · notifications · realtime (2026-09) · entitlements (тарифы и лимиты — [entitlements_engine.md](entitlements_engine.md)) · platform (Кабинет платформы — [platform_console.md](platform_console.md)) (2026-09-12).
 
 **Документная вертикаль ЗАВЕРШЕНА** (2026-08): Диск + share-links → core/templates (+блочный конструктор) → core/sign (ЭЦП НУЦ РК + ПЭП) → ЭДО (внешний контур «Документооборота» + «Контрагенты») → КЭДО (modules/hr: трудовые карточки, кадровые действия, библиотека 11 бланков РК, кампании ознакомления, ЕСУТД-очередь, «Мои документы»).
 
@@ -52,9 +52,13 @@
 
 **Mobile-подготовка (блок 8)**: push-пайплайн — модель `NotificationDevice` (platform ios/android, provider expo/fcm), ручки регистрации и контракт `PushDriver` ГОТОВЫ в `core/notifications`; остаётся живой Expo/FCM-драйвер и `expo-notifications` в приложении · пакет `design-tokens` (будущий, в `packages/`; палитра сейчас живёт только в CSS веба) + платформо-нейтральные поля CardSkinTokens · upload-модуль mobile · мобильные роуты зеркалят веб-пути (actionUrl = deep link). После подготовки mobile ≈ 50–55% новой работы.
 
+**Кабинет платформы — решения ревью (2026-09-12, применены)**: состав штата (`platform.staff.*`) и сам тумблер four-eyes (`platform.policy.set`) идут через второго сотрудника (`dualControl` + `dualControlSoft` — пока владелец один, исполняются напрямую, иначе кабинет запирается насмерть) · `platform.pii.reveal` требует SMS-подтверждения (`stepUp`) · мёртвое право `processes.system.manage` снято (`tier: 'system'` не объявлен ни у одной ноды; когда появятся системные ноды, их откроет команда кабинета) · способности кабинета читаются только внутри `core/platform`, продуктовый путь их не спрашивает (страж `no-restricted-imports`, исключение — снятие со штата при анонимизации в `core/users`). Остаётся решить по ходу: узкие роли (`support`, `billing`, `security`) — сейчас живая роль одна, `platform_owner`.
+
+**Кабинет платформы и тарифы — отложено осознанно (2026-09-12)**: токен кабинета живёт в `localStorage` — переезд на отдельный домен `admin.<домен>` с httpOnly-cookie, CSP и IP-allowlist · WebAuthn/passkeys вторым фактором вместо SMS · роль БД без UPDATE/DELETE на журналы (сегодня неизменяемость держит триггер) · стриминг журнала во внешнее хранилище · `view_as` (смотреть глазами человека) · кастомные роли поверх `PLATFORM_ROLES` · партиционирование `platform_audit_entries` по месяцам (поля уже все) · палитра ⌘K поверх реестра команд (когда команд станет 20+), сохранённые фильтры и очереди, экспорт журнала · оплата (`source: 'payment'`) и семейный план в `core/entitlements` · перенос прочих `isSystemAdmin`-операций в команды кабинета — [platform_console.md](platform_console.md), [entitlements_engine.md](entitlements_engine.md).
+
 **Web-гигиена (остатки)**: `shop/page.tsx` на старом useState-стиле (70 useState — переводить при следующей работе над магазином) · распил >800-строчных файлов по ходу · правило кита для голых `<input>` линтером не покрыто.
 
-**Известные ограничения (осознанные)**: юнит-тестов 0 (страж — e2e-сьют) · Subscription никто не читает (биллинг-entitlements впереди) · JWT_SECRET мастер-ключ без ротации (движок ключей) · Google-токены в БД открытым текстом (тот же движок ключей) · Google Calendar live OAuth не тестирован (нужны креды) · пер-экземплярные исключения повторов синкаются на уровне master+EXDATE.
+**Известные ограничения (осознанные)**: юнит-тестов 0 (страж — e2e-сьют) · JWT_SECRET мастер-ключ без ротации (движок ключей) · Google-токены в БД открытым текстом (тот же движок ключей) · Google Calendar live OAuth не тестирован (нужны креды) · пер-экземплярные исключения повторов синкаются на уровне master+EXDATE.
 
 ## Внешние блокеры (действия пользователя, продукт не блокируют)
 

@@ -176,6 +176,58 @@
       "title": "{ownerName} gave you access"
     }
   },
+  "entitlement": {
+    "quota": {
+      "exhausted": {
+        "body": "{used} of {value}. New items cannot be added until space is freed or the plan is changed.",
+        "label": "Quota used up",
+        "title": "{keyLabel}: the quota is used up"
+      },
+      "threshold": {
+        "body": "{used} of {value}",
+        "label": "Quota almost used",
+        "title": "{keyLabel}: {percent}% used"
+      }
+    },
+    "seats": {
+      "exhausted": {
+        "body": "{used} of {value} seats are taken. New employees cannot be invited.",
+        "label": "No free seats",
+        "title": "No free seats in «{workspaceName}»"
+      }
+    },
+    "subscription": {
+      "expired": {
+        "body": "The free plan values now apply. Your data is intact.",
+        "label": "Plan expired",
+        "title": "The {plan} plan has expired"
+      },
+      "grace": {
+        "body": "Everything keeps working until then; after that the free plan values apply.",
+        "label": "Grace period",
+        "title": "The {plan} plan is unpaid — grace period until {untilDate}"
+      }
+    },
+    "support": {
+      "changed": {
+        "body": "What changed: {change}. Open “Plan and limits” to see the current values.",
+        "label": "Plan updated",
+        "title": "Your plan and limits were updated"
+      }
+    },
+    "trial": {
+      "ending": {
+        "body": "After that, the free plan values apply. Nothing is deleted.",
+        "label": "Trial ending",
+        "title": "The {plan} trial ends in {days, plural, one {# day} other {# days}}"
+      },
+      "expired": {
+        "body": "The free plan values now apply. Everything you created stays in place.",
+        "label": "Trial ended",
+        "title": "The {plan} trial has ended"
+      }
+    }
+  },
   "files": {
     "scan": {
       "infected": {
@@ -368,6 +420,27 @@
     },
     "title": "Notifications"
   },
+  "platform": {
+    "request": {
+      "pending": {
+        "body": "{reason}",
+        "label": "Request awaiting approval",
+        "title": "Request awaits your approval: {commandLabel}"
+      },
+      "resolved": {
+        "body": "{comment}",
+        "label": "Request resolved",
+        "title": "Your request «{commandLabel}» was {outcomeLabel}"
+      }
+    },
+    "security": {
+      "alert": {
+        "body": "{details}",
+        "label": "Console security",
+        "title": "Platform console: {eventLabel}"
+      }
+    }
+  },
   "policy": {
     "confirmMessage": "Employees will not be able to turn off the locked notifications.",
     "confirmTitle": "Make notifications required?",
@@ -443,12 +516,14 @@
     "contacts": "My circle",
     "documents": "Documents",
     "drive": "Drive",
+    "entitlements": "Plan and limits",
     "finances": "Finance",
     "hr": "HR (KEDO)",
     "messenger": "Messenger",
     "notes": "Notes",
     "objects": "Sites",
     "office": "Virtual office",
+    "platform": "Platform console",
     "processes": "Processes",
     "recorder": "Recorder",
     "security": "Account security",

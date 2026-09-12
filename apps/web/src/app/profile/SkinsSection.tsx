@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Input, Select } from '@/components/ui';
+import { EntitlementLock } from '@/components/entitlements';
 import { apiGet, apiPost, apiPut } from '@/lib/api';
 import {
   cardSkinsCatalogKey, cardSkinsEquipKey, cardSkinsInventoryKey, cardSkinsWalletKey,
@@ -247,8 +248,12 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
 
       {/* ===== Per-group skins (premium) ===== */}
       <h3 className="title-md" style={{ marginBottom: 'var(--spacing-2)' }}>
-        {t('skins.perGroup')} {!equip?.premium && <span className="label-sm" style={{ fontSize: '0.7rem', color: 'var(--tertiary)' }}>{t('skins.premiumBadge')}</span>}
+        {t('skins.perGroup')}
       </h3>
+      {/* Замок тарифа вместо надписи «premium»: объясняет, на какой ступени доступно */}
+      <div style={{ marginBottom: 'var(--spacing-2)' }}>
+        <EntitlementLock keyName="skins.perGroup" />
+      </div>
       <p className="label-sm" style={{ marginBottom: 'var(--spacing-3)', opacity: 0.7 }}>
         {t('skins.perGroupText')}
       </p>

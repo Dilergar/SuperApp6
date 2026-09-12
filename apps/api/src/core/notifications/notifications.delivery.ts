@@ -4,6 +4,8 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { isDevEnv } from '../../shared/config/env.validation';
+import { isApiError } from '../../shared/errors/api-error';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { VerifySmsService } from '../verify/verify.sms';
@@ -52,6 +54,7 @@ export class NotificationsDelivery implements OnModuleInit {
     private readonly channels: NotificationChannelRegistry,
     private readonly renderer: NotificationsRenderer,
     private readonly notifications: NotificationsService,
+    private readonly entitlements: EntitlementsService,
   ) {}
 
   onModuleInit(): void {
@@ -258,32 +261,65 @@ export class NotificationsDelivery implements OnModuleInit {
     if (!isKzMobilePhone(user.phone)) return skip('no_phone');
     if (!this.sms.driver.live && !isDevEnv()) return skip('driver_not_configured');
 
+    // Личный потолок — анти-абьюз (Redis, окно суток); бюджет ОРГАНИЗАЦИИ — тарифная
+    // квота `notifications.smsPerDay` (core/entitlements): РЕЗЕРВ в транзакции до
+    // отправки (fail-closed: пачка параллельных доставок не проедет потолок),
+    // ленивый суточный сброс, отказ 402 → доставка `skipped: budget`.
     const userKey = NOTIFICATION_REDIS.smsUser(d.userId);
-    const wsKey = d.event.workspaceId ? NOTIFICATION_REDIS.smsWorkspace(d.event.workspaceId) : null;
-    const [usedUser, usedWs] = await Promise.all([
-      slidingPeek(this.redis, userKey, 86_400).catch(() => 0),
-      wsKey ? slidingPeek(this.redis, wsKey, 86_400).catch(() => 0) : Promise.resolve(0),
-    ]);
-    if (usedUser >= NOTIFICATION_LIMITS.smsPerUserDaily || (wsKey && usedWs >= NOTIFICATION_LIMITS.smsPerWorkspaceDaily)) return skip('budget');
+    const usedUser = await slidingPeek(this.redis, userKey, 86_400).catch(() => 0);
+    if (usedUser >= NOTIFICATION_LIMITS.smsPerUserDaily) return skip('budget');
+    const wsId = d.event.workspaceId;
+    let reserved = false;
+    if (wsId) {
+      try {
+        await this.db.$transaction((tx) => this.entitlements.consume(tx, { type: 'workspace', id: wsId }, 'notifications.smsPerDay', 1));
+        reserved = true;
+      } catch (err) {
+        if (isApiError(err) && err.getStatus() === 402) return skip('budget');
+        throw err;
+      }
+    }
+    /**
+     * Бюджет тратится по ФАКТУ отправки (правило core/verify): всё, что кончилось БЕЗ
+     * ушедшей SMS, возвращает единицу — иначе сбой шлюза и каждый ретрей джоба
+     * сжигали бы платную квоту организации, ничего не доставив.
+     */
+    const refund = async (): Promise<void> => {
+      if (!reserved || !wsId) return;
+      reserved = false;
+      try {
+        await this.db.$transaction((tx) => this.entitlements.release(tx, { type: 'workspace', id: wsId }, 'notifications.smsPerDay', 1));
+      } catch (err) {
+        // Возврат — не security-эффект: ночная сверка и суточный сброс добьют дрейф
+        this.logger.warn(`[${d.eventId}] SMS budget refund failed: ${(err as Error).message}`);
+      }
+    };
 
-    const locale = this.i18n.negotiate(null, user.locale);
-    const text = this.renderer.render(locale, d.event.type, (d.event.payload ?? {}) as Record<string, unknown>, {
-      snapshot: d.event.snapshot as { title?: unknown; body?: unknown } | null,
-    });
-    const ref: NotificationRef | null = d.event.refType && d.event.refId ? { type: d.event.refType, id: d.event.refId } : null;
-    const href = this.notifications.hrefFor(d.event.actionUrl, ref, d.event.workspaceId);
-    const webUrl = process.env.WEB_URL || 'http://localhost:3000';
-    const body = this.i18n.translateFor(locale, 'notifications.sms.text', { title: text.title }) + (href ? ` ${webUrl}${href}` : '');
+    let body: string;
+    try {
+      const locale = this.i18n.negotiate(null, user.locale);
+      const text = this.renderer.render(locale, d.event.type, (d.event.payload ?? {}) as Record<string, unknown>, {
+        snapshot: d.event.snapshot as { title?: unknown; body?: unknown } | null,
+      });
+      const ref: NotificationRef | null = d.event.refType && d.event.refId ? { type: d.event.refType, id: d.event.refId } : null;
+      const href = this.notifications.hrefFor(d.event.actionUrl, ref, d.event.workspaceId);
+      const webUrl = process.env.WEB_URL || 'http://localhost:3000';
+      body = this.i18n.translateFor(locale, 'notifications.sms.text', { title: text.title }) + (href ? ` ${webUrl}${href}` : '');
+    } catch (e) {
+      await refund(); // текст не собрался — SMS не уйдёт, резерв возвращаем
+      throw e;
+    }
 
-    // Бюджет тратится по ФАКТУ отправки (правило core/verify)
     let res: { ok: boolean; error?: string; providerMessageId?: string | null };
     try {
       res = await this.sms.driver.send(user.phone, body);
     } catch (e) {
+      await refund();
       await this.db.notificationDelivery.update({ where: { id: deliveryId }, data: { attempts: { increment: 1 }, error: (e as Error).message.slice(0, 500) } });
-      throw e; // транзиентно — движок ретраит
+      throw e; // транзиентно — движок ретраит, резерв возьмётся заново
     }
     if (!res.ok) {
+      await refund();
       await this.db.notificationDelivery.update({
         where: { id: deliveryId },
         data: { status: 'failed', attempts: { increment: 1 }, error: (res.error ?? 'failed').slice(0, 500) },
@@ -291,10 +327,7 @@ export class NotificationsDelivery implements OnModuleInit {
       this.logger.warn(`[${d.eventId}] SMS → ${maskPhone(user.phone)} failed: ${res.error ?? 'no reason'}`);
       return;
     }
-    await Promise.all([
-      slidingRecord(this.redis, userKey, 86_400).catch(() => undefined),
-      wsKey ? slidingRecord(this.redis, wsKey, 86_400).catch(() => undefined) : Promise.resolve(),
-    ]);
+    await slidingRecord(this.redis, userKey, 86_400).catch(() => undefined);
     await this.db.notificationDelivery.update({
       where: { id: deliveryId },
       data: { status: 'sent', sentAt: new Date(), attempts: { increment: 1 }, providerMessageId: (res as { providerMessageId?: string | null }).providerMessageId ?? null },

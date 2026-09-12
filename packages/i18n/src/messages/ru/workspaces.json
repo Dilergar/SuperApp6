@@ -203,7 +203,7 @@
       "security": "Безопасность",
       "settings": "Настройки",
       "stats": "Статистика",
-      "subscription": "Подписка"
+      "subscription": "Тариф и лимиты"
     },
     "sectionTitle": {
       "anketa": "Анкета компании",
@@ -212,7 +212,7 @@
       "security": "Безопасность",
       "settings": "Настройки",
       "stats": "Статистика",
-      "subscription": "Подписка"
+      "subscription": "Тариф и лимиты"
     },
     "security": {
       "danger": {
@@ -235,12 +235,6 @@
       "subtitle": "Дополнительные настройки организации появятся позже",
       "timezone": "Часовой пояс",
       "title": "Общие настройки"
-    },
-    "subscription": {
-      "free": "Бесплатный",
-      "subtitle": "Платные планы для организаций появятся позже",
-      "title": "Текущий план организации",
-      "upgrade": "Улучшить (скоро)"
     },
     "title": "Профиль",
     "viewAs": {
@@ -275,6 +269,7 @@
       "subtitle": "Основной подставляется в счета и договоры",
       "title": "Банковские счета"
     },
+    "bankPlaceholder": "Kaspi Bank",
     "bin": "БИН",
     "binError": "Не сходится контрольная сумма",
     "binPlaceholder": "12 цифр",
@@ -315,8 +310,7 @@
     "vatPayerToggle": "Плательщик НДС",
     "vatPayerWithCert": "плательщик (св-во {cert})",
     "vatSeries": "Серия свидетельства",
-    "viewSubtitle": "Для договоров и счетов",
-    "bankPlaceholder": "Kaspi Bank"
+    "viewSubtitle": "Для договоров и счетов"
   },
   "taxRegime": {
     "astana_hub": "Astana Hub",

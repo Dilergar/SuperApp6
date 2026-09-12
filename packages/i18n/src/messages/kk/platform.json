@@ -1,0 +1,421 @@
+{
+  "audit": {
+    "after": "Кейін",
+    "approval": "Өтінім",
+    "before": "Бұрын",
+    "col": {
+      "actor": "Қызметкер",
+      "at": "Уақыты",
+      "command": "Команда",
+      "outcome": "Нәтиже",
+      "target": "Нысана"
+    },
+    "description": "Кабинеттің әр командасы, тек қосу арқылы",
+    "dryRun": "алдын ала қарау",
+    "empty": "Жазбалар жоқ",
+    "from": "Бастап",
+    "input": "Кіріс",
+    "outcome": {
+      "denied": "қабылданбады",
+      "error": "қате",
+      "ok": "ок"
+    },
+    "reason": "Себебі",
+    "stepUpAt": "{time} расталды",
+    "system": "Жүйе",
+    "ticket": "Тикет",
+    "to": "Дейін",
+    "viaRequest": "мақұлданған"
+  },
+  "card": {
+    "actions": "Әрекеттер",
+    "empty": "Бос",
+    "notFound": "Табылмады",
+    "notStaff": "Платформа қызметкері емес",
+    "panelFailed": "Панель жүктелмеді",
+    "reveal": "Ашу",
+    "show": "Көрсету",
+    "user": "Адам",
+    "workspace": "Ұйым"
+  },
+  "catalog": {
+    "archive": "Мұрағаттау",
+    "col": {
+      "diff": "Өзгеріс",
+      "free": "Тегін",
+      "plan": "Тариф",
+      "subject": "Субъект",
+      "versions": "Нұсқалар"
+    },
+    "description": "Тариф нұсқалары және субъектілердің жеке шарттары",
+    "inherit": "тегін сияқты",
+    "inherits": "тегін сияқты",
+    "keys": "Кілттер",
+    "newDraft": "Жаңа қаралама",
+    "pickVersion": "Сол жақтан тариф нұсқасын таңдаңыз",
+    "plans": "Тарифтер",
+    "publish": "Жариялау",
+    "publishedAt": "{date} жарияланды",
+    "tab": "Каталог",
+    "was": "бұрын {value}"
+  },
+  "chips": {
+    "deleted": "Жойылған аккаунт",
+    "inactive": "Мұрағатта",
+    "plan": "{plan} · {status}",
+    "staff": "Платформа қызметкері",
+    "suspended": "Тоқтатылған"
+  },
+  "commands": {
+    "entitlementsGrantCreate": {
+      "description": "Бір кілтке сыйлық, қосымша немесе қолмен берілген мән; кілт ережесі бойынша тарифпен біріктіріледі",
+      "title": "Грант қосу"
+    },
+    "entitlementsGrantRevoke": {
+      "title": "Грантты кері қайтару"
+    },
+    "entitlementsOverrideClear": {
+      "title": "Жеке шартты алып тастау"
+    },
+    "entitlementsOverrideSet": {
+      "description": "Көрсетілген күнге дейін субъект үшін бір кілттің түпкі мәнін ауыстырады; себеп міндетті",
+      "title": "Жеке шарт орнату"
+    },
+    "entitlementsPlanArchiveVersion": {
+      "title": "Тариф нұсқасын мұрағаттау"
+    },
+    "entitlementsPlanCreateVersion": {
+      "description": "Тарифтің соңғы нұсқасын өңделетін қараламаға көшіреді",
+      "title": "Тарифтің жаңа қараламасы"
+    },
+    "entitlementsPlanPublishVersion": {
+      "description": "Нұсқа өзгермейтін болады; тариф жазылушылары келесі оқығанда оның мәндерін алады",
+      "title": "Тариф нұсқасын жариялау"
+    },
+    "entitlementsPlanUpdateDraft": {
+      "title": "Тариф қараламасын өңдеу"
+    },
+    "entitlementsSubscriptionSet": {
+      "description": "Субъектіні тарифтің жарияланған нұсқасына бекітеді; нұсқасыз — субъект тегін тарифке түседі",
+      "title": "Жазылымды орнату"
+    },
+    "entitlementsTrialExtend": {
+      "title": "Сынақты ұзарту"
+    },
+    "platformPiiReveal": {
+      "description": "Адамның немесе ұйымның толық телефонын, ЖСН/БСН немесе мекенжайын көрсетеді; әр ашу журналға жазылады",
+      "title": "Жеке деректерді ашу"
+    },
+    "platformPolicySet": {
+      "description": "Төрт көз: жоғары тәуекелді командалар екінші қызметкердің мақұлдауынан өтеді",
+      "title": "Кабинет саясатын өзгерту"
+    },
+    "platformStaffAdd": {
+      "description": "Адамды платформа қызметкерлеріне қосады; рөлсіз ол ештеңе көрмейді",
+      "title": "Қызметкер қосу"
+    },
+    "platformStaffRoleGrant": {
+      "description": "Міндеттерді бөлу тексеріледі: бір адам бір нысан бойынша әрі жаза, әрі мақұлдай алмайды",
+      "title": "Рөл беру"
+    },
+    "platformStaffRoleRevoke": {
+      "title": "Рөлді алу"
+    },
+    "platformStaffSuspend": {
+      "description": "Барлық кабинет сеанстарын кері қайтарады және қалпына келгенше кіруге тыйым салады",
+      "title": "Қызметкерді тоқтата тұру"
+    }
+  },
+  "fields": {
+    "archivedAt": "Мұрағатталды",
+    "avatar": "Аватар",
+    "byRole": "Рөл бойынша",
+    "circles": "Топтар",
+    "city": "Қала",
+    "counts": "Сандар",
+    "createdAt": "Құрылды",
+    "currentPeriodEnd": "Төленген мерзім",
+    "deletedAt": "Жойылды",
+    "deletionScheduledAt": "Жою жоспарланды",
+    "documentLanguage": "Құжат тілі",
+    "dualControlEnabled": "Төрт көз мақұлдауы",
+    "effectiveFrom": "Бастап",
+    "emailMasked": "Email",
+    "entitlements": "Мәндер (JSON)",
+    "entity": "Нысан",
+    "expiresAt": "Мерзімі",
+    "fields": "Өрістер",
+    "firstName": "Аты",
+    "grantId": "Грант",
+    "id": "Идентификатор",
+    "idempotencyKey": "Идемпотенттік кілт",
+    "iinMasked": "ЖСН",
+    "industry": "Сала",
+    "isActive": "Белсенді",
+    "key": "Кілт",
+    "lastName": "Тегі",
+    "legalEntities": "Заңды тұлғалар",
+    "locale": "Тіл",
+    "logo": "Логотип",
+    "members": "Қатысушылар",
+    "middleName": "Әкесінің аты",
+    "mode": "Режим",
+    "name": "Атауы",
+    "note": "Ескертпе",
+    "ownerId": "Иесі id",
+    "pendingInvitations": "Күтудегі шақырулар",
+    "phoneMasked": "Телефон",
+    "phoneVerifiedAt": "Телефон расталды",
+    "planKey": "Тариф",
+    "planVersionId": "Тариф нұсқасы",
+    "priority": "Басымдық",
+    "reason": "Себебі",
+    "role": "Рөл",
+    "sessions": "Сеанстар",
+    "source": "Дереккөз",
+    "status": "Күйі",
+    "subject": "Субъект",
+    "subjectId": "Субъект id",
+    "timezone": "Уақыт белдеуі",
+    "trialEndsAt": "Сынақ аяқталуы",
+    "userId": "Адам id",
+    "validUntil": "Дейін",
+    "value": "Мән",
+    "website": "Сайт",
+    "workspaces": "Ұйымдар"
+  },
+  "grantSource": {
+    "addon": "қосымша",
+    "family": "отбасы",
+    "gift": "сыйлық",
+    "legacy": "мұрагерлік",
+    "manual": "қолмен",
+    "trial": "сынақ"
+  },
+  "login": {
+    "back": "Артқа",
+    "codeSubtitle": "Код {phone} нөміріне жіберілді",
+    "continue": "Жалғастыру",
+    "password": "Құпиясөз",
+    "phone": "Телефон",
+    "subtitle": "Алдымен құпиясөз, содан кейін SMS-тен код",
+    "title": "Платформа кабинеті"
+  },
+  "nav": {
+    "audit": "Журнал",
+    "entitlements": "Тарифтер",
+    "requests": "Өтінімдер",
+    "search": "Іздеу",
+    "staff": "Қызметкерлер"
+  },
+  "noAccess": {
+    "text": "Бұл аккаунт платформа қызметкері емес немесе тоқтатылған.",
+    "title": "Кабинетке қолжетімділік жоқ"
+  },
+  "overrideMode": {
+    "deny": "тыйым",
+    "set": "мән",
+    "unlimited": "шексіз"
+  },
+  "panels": {
+    "userAudit": "Кабинеттегі әрекеттер",
+    "userEntitlements": "Тариф және шектеулер",
+    "userProfile": "Профиль",
+    "userStaff": "Платформа қызметкері",
+    "userWorkspaces": "Ұйымдар",
+    "workspaceAudit": "Кабинеттегі әрекеттер",
+    "workspaceEntitlements": "Тариф және шектеулер",
+    "workspaceMembersSummary": "Қатысушылар",
+    "workspaceProfile": "Профиль"
+  },
+  "picker": {
+    "change": "өзгерту",
+    "placeholder": "Адамды табу: телефон, ЖСН, id немесе аты"
+  },
+  "requestOutcome": {
+    "approved": "мақұлданды және орындалды",
+    "failed": "мақұлданды, бірақ орындалмады",
+    "rejected": "қабылданбады"
+  },
+  "requests": {
+    "approve": "Мақұлдау",
+    "approved": "Мақұлданды және орындалды",
+    "col": {
+      "author": "Автор",
+      "status": "Күйі"
+    },
+    "confirmApprove": "Өтінімді мақұлдау керек пе?",
+    "confirmReject": "Өтінімді қабылдамау керек пе?",
+    "confirmWithdraw": "Өтінімді қайтарып алу керек пе?",
+    "description": "Екінші қызметкерді күтетін командалар",
+    "empty": "Өтінімдер жоқ",
+    "reject": "Қабылдамау",
+    "rejected": "Қабылданбады",
+    "state": {
+      "history": "Тарих",
+      "mine": "Менікі",
+      "pending": "Шешім күтуде"
+    },
+    "status": {
+      "approved": "мақұлданды",
+      "cancelled": "тоқтатылды",
+      "executed": "орындалды",
+      "failed": "сәтсіз",
+      "pending": "күтуде",
+      "rejected": "қабылданбады"
+    },
+    "withdraw": "Қайтарып алу",
+    "withdrawn": "Өтінім қайтарып алынды"
+  },
+  "risk": {
+    "critical": "аса маңызды",
+    "high": "жоғары тәуекел",
+    "low": "төмен тәуекел",
+    "medium": "орташа тәуекел"
+  },
+  "roles": {
+    "platform_owner": "Платформа иесі"
+  },
+  "runner": {
+    "badJson": "JSON оқылмайды",
+    "choose": "Таңдаңыз",
+    "done": "Орындалды",
+    "dualControl": "Екінші қызметкер мақұлдайды",
+    "idempotent": "қайта басу қауіпсіз — команда бір рет орындалады",
+    "jsonHint": "JSON",
+    "needsStepUp": "Растау",
+    "pending": "Мақұлдауға жіберілді — «Өтінімдер» бөлімін қараңыз",
+    "preview": "Алдын ала қарау",
+    "previewTitle": "Не өзгереді",
+    "reason": "Себебі",
+    "reasonHint": "Кемінде {min} таңба (терілгені {n})",
+    "reasonShort": "Кемінде {min} таңба",
+    "run": "Орындау",
+    "ticket": "Тикет",
+    "ticketPlaceholder": "Қолдау тикеті немесе тапсырма сілтемесі, міндетті емес",
+    "valueMode": {
+      "no": "Қолжетімсіз",
+      "number": "Сан",
+      "unlimited": "Шектеусіз",
+      "yes": "Қолжетімді"
+    },
+    "valueNumber": "Қанша",
+    "viaApproval": "мақұлдау арқылы"
+  },
+  "search": {
+    "description": "Толық телефон нөмірі, 12 таңбалы ЖСН немесе БСН, идентификатор немесе аты",
+    "emptyText": "Толық телефон нөмірін, 12 таңбалы ЖСН немесе БСН, идентификаторды немесе атының кемінде үш әрпін теріңіз",
+    "emptyTitle": "Адамды немесе ұйымды табыңыз",
+    "kind": {
+      "empty": "бос",
+      "idNumber": "ЖСН немесе БСН",
+      "phone": "телефонға ұқсайды",
+      "text": "аты",
+      "tooShort": "тым қысқа",
+      "uuid": "идентификатор"
+    },
+    "noResults": "Ештеңе табылмады",
+    "organizations": "Ұйымдар",
+    "people": "Адамдар",
+    "recent": "Соңғылар",
+    "searching": "Ізделуде…",
+    "title": "Іздеу",
+    "tooShortTitle": "Тым қысқа"
+  },
+  "securityEvents": {
+    "bootstrap": "платформаның алғашқы иесі тағайындалды",
+    "deniedBurst": "қабылданбаған командалар сериясы",
+    "piiRevealBurst": "жеке деректерді ашу шектен асты",
+    "policyChanged": "кабинет саясаты өзгертілді",
+    "roleGranted": "рөл берілді",
+    "roleRevoked": "рөл алынды",
+    "soloDualControl": "«екеуден» командасы жалғыз орындалды (екінші иесі жоқ)",
+    "staffAdded": "қызметкер қосылды",
+    "staffSuspended": "қызметкер тоқтатылды",
+    "stepUpBurst": "растау кезінде қате пароль сериясы"
+  },
+  "shell": {
+    "logout": "Шығу",
+    "nav": "Кабинет бөлімдері",
+    "searchPlaceholder": "Телефон, ЖСН/БСН, id немесе аты — фокус үшін /",
+    "sudoActive": "Расталды, {time}",
+    "sudoNeeded": "Растау қажет",
+    "title": "Платформа кабинеті"
+  },
+  "staff": {
+    "add": "Қызметкер қосу",
+    "col": {
+      "person": "Адам",
+      "roles": "Рөлдер",
+      "since": "Бастап",
+      "status": "Күйі"
+    },
+    "description": "Кабинетте кім және қандай рөлдермен жұмыс істейді",
+    "noRoles": "рөлдер жоқ",
+    "until": "{date} дейін"
+  },
+  "staffStatus": {
+    "active": "белсенді",
+    "suspended": "тоқтатылған"
+  },
+  "stepUp": {
+    "password": "Құпиясөз",
+    "sendCode": "Код жіберу",
+    "subtitle": "Жоғары тәуекелді әрекеттерге жаңа растау қажет: құпиясөз және SMS-тен код. Терезе 15 минут жарамды.",
+    "title": "Әрекетті растаңыз"
+  },
+  "subject": {
+    "col": {
+      "key": "Кілт",
+      "mode": "Режим",
+      "reason": "Себебі / кім",
+      "source": "Дереккөз",
+      "until": "Дейін",
+      "used": "Пайдаланылды",
+      "value": "Мән",
+      "who": "Себебі / кім"
+    },
+    "counters": "Квота есептегіштері",
+    "find": "Субъектіні табу",
+    "graceUntil": "жеңілдік {date} дейін",
+    "grants": "Гранттар",
+    "none": "Жоқ",
+    "overrides": "Жеке шарттар",
+    "periodEnd": "{date} дейін төленген",
+    "placeholder": "Телефон, ЖСН/БСН, id немесе аты",
+    "revoked": "кері қайтарылған",
+    "snapshot": "Клиент көретіндей",
+    "subscription": "Жазылым",
+    "tab": "Субъектілер",
+    "trialEndsAt": "сынақ {date} дейін"
+  },
+  "subjectTypes": {
+    "family": "Отбасы",
+    "user": "Адам",
+    "workspace": "Ұйым"
+  },
+  "subscriptionSource": {
+    "manual": "қолмен",
+    "migration": "миграция",
+    "payment": "төлем",
+    "trial": "сынақ"
+  },
+  "subscriptionStatus": {
+    "active": "белсенді",
+    "cancelled": "тоқтатылған",
+    "expired": "мерзімі өткен",
+    "past_due": "жеңілдік кезеңі",
+    "trialing": "сынақ"
+  },
+  "valueSource": {
+    "default": "тегін",
+    "grant": "грант",
+    "override": "жеке шарт",
+    "plan": "тариф"
+  },
+  "versionStatus": {
+    "archived": "мұрағатта",
+    "draft": "қаралама",
+    "published": "жарияланған"
+  }
+}

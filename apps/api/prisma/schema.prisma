@@ -52,7 +52,7 @@ model User {
   // В личном окружении (Группы) НЕ показываются вовсе; коллегам — по тумблерам
   // companyCardVisibility.extras (по умолчанию скрыты); управляющим организаций
   // (manager+) — всегда, выключить нельзя (второй уровень «Видимости в Компаниях»).
-  iin                String?   // 12 цифр, контрольная сумма проверяется схемой
+  iin                String? // 12 цифр, контрольная сумма проверяется схемой
   residentialAddress String?   @map("residential_address")
   idDocNumber        String?   @map("id_doc_number") // удостоверение личности
   idDocIssuedBy      String?   @map("id_doc_issued_by")
@@ -61,16 +61,16 @@ model User {
   // Contact card visibility — per-field flags controlling what others see on your card
   // Shape: { lastName: bool, dateOfBirth: bool, age: bool, onlineStatus: bool, maritalStatus: bool, extras: {...} }
   // null means use defaults defined in shared/constants. Always-visible (regardless of this): firstName, lastName, phone, role.
-  cardVisibility Json? @map("card_visibility")
+  cardVisibility        Json? @map("card_visibility")
   // «Видимость в Компаниях» — что видят КОЛЛЕГИ по организации на карточке в ростере
   // «Сотрудники» (та же форма флагов, что cardVisibility). null = те же дефолты.
   // Всегда видны коллегам: имя, фамилия, телефон, должность.
   companyCardVisibility Json? @map("company_card_visibility")
 
-  // Card skins (cosmetic): the equipped default skin instance + premium window
-  // (per-group skin overrides require premium). Plain id; ownership validated in service.
-  defaultSkinInstanceId String?   @map("default_skin_instance_id")
-  premiumUntil          DateTime? @map("premium_until")
+  // Card skins (cosmetic): the equipped default skin instance. Plain id; ownership
+  // validated in service. «Премиум» (скин на каждую Группу) — ключ `skins.perGroup`
+  // движка core/entitlements (грант/подписка), а не поле здесь.
+  defaultSkinInstanceId String? @map("default_skin_instance_id")
 
   // Soft-deletion in two stages:
   //   deletionScheduledAt — user requested deletion; account is in a recoverable
@@ -119,9 +119,6 @@ model User {
   notificationSubscriptions NotificationSubscription[]
   notificationDevices       NotificationDevice[]
   notificationSettings      UserNotificationSettings?
-
-  // Subscription
-  subscription Subscription?
 
   // Messenger
   chatMemberships  ChatMember[]
@@ -172,21 +169,8 @@ model Session {
   @@map("sessions")
 }
 
-model Subscription {
-  id        String   @id @default(uuid())
-  userId    String   @unique @map("user_id")
-  plan      String   @default("free") // free, personal, family, business
-  status    String   @default("trial") // active, trial, expired, cancelled
-  expiresAt DateTime @map("expires_at")
-  giftedBy  String?  @map("gifted_by") // user id who gifted
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([status, expiresAt])
-  @@map("subscriptions")
-}
+// Подписки живут в core/entitlements (`SubjectSubscription` ниже): субъект —
+// человек ИЛИ организация, значения — версиями плана, а не колонкой plan.
 
 // ============================================================
 // CONTACTS & CIRCLES: Bilateral confirmed social graph
@@ -304,21 +288,21 @@ model ContactBlock {
 }
 
 model Circle {
-  id             String   @id @default(uuid())
-  ownerId        String   @map("owner_id")
-  name           String // "Семья", "Родственники", "Работа", custom
-  icon           String?
-  color          String?
-  sortOrder      Int      @default(0) @map("sort_order")
+  id                     String   @id @default(uuid())
+  ownerId                String   @map("owner_id")
+  name                   String // "Семья", "Родственники", "Работа", custom
+  icon                   String?
+  color                  String?
+  sortOrder              Int      @default(0) @map("sort_order")
   // Per-group card visibility — what members of THIS group may see.
   // null = use the owner's default (users.card_visibility).
-  cardVisibility Json?    @map("card_visibility")
+  cardVisibility         Json?    @map("card_visibility")
   // Per-group calendar access for THIS group's members (Phase 2): none | busy | detailed.
-  calendarVisibility String @default("none") @map("calendar_visibility")
+  calendarVisibility     String   @default("none") @map("calendar_visibility")
   // Per-group equipped card skin instance (premium). null = use owner's default skin.
-  equippedSkinInstanceId String? @map("equipped_skin_instance_id")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  equippedSkinInstanceId String?  @map("equipped_skin_instance_id")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   owner         User               @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   memberships   CircleMembership[]
@@ -569,17 +553,17 @@ model UserNotificationSettings {
 // has the circle members as co_executor participants — one shared task / one chat, but each
 // participant carries their OWN status (drives "3 of 10" progress and per-person acceptance).
 model Task {
-  id          String    @id @default(uuid())
-  title       String
-  description String?
-  status      String    @default("todo") // todo, in_progress, on_review, done, cancelled
-  priority    String    @default("medium") // low, medium, high, urgent
+  id           String    @id @default(uuid())
+  title        String
+  description  String?
+  status       String    @default("todo") // todo, in_progress, on_review, done, cancelled
+  priority     String    @default("medium") // low, medium, high, urgent
   // Numeric mirror of priority for ORDER BY (the string column sorts lexicographically:
   // high < low < medium < urgent — the visible "high below low" bug). 1=low … 4=urgent.
-  priorityRank Int      @default(2) @map("priority_rank")
-  dueDate     DateTime? @map("due_date")
-  startDate   DateTime? @map("start_date")
-  allDay      Boolean   @default(false) @map("all_day")
+  priorityRank Int       @default(2) @map("priority_rank")
+  dueDate      DateTime? @map("due_date")
+  startDate    DateTime? @map("start_date")
+  allDay       Boolean   @default(false) @map("all_day")
 
   // «Входящие» (GTD inbox): quick-add без срока/исполнителя, ещё не разобрано.
   // Уточнение (срок или исполнитель через PATCH) снимает флаг автоматически.
@@ -625,8 +609,8 @@ model Task {
   workspace      Workspace? @relation(fields: [workspaceId], references: [id])
   assignedCircle Circle?    @relation("TaskAssignedCircle", fields: [assignedCircleId], references: [id], onDelete: SetNull)
 
-  participants  TaskParticipant[]
-  tags          TaskTag[]
+  participants TaskParticipant[]
+  tags         TaskTag[]
 
   @@index([creatorId])
   @@index([workspaceId])
@@ -786,14 +770,14 @@ model CalendarEventReminder {
 // Event attendees (Phase 2). The creator is the implicit organizer (event.userId);
 // rows here are invitees. One shared event → many participants (no copies).
 model EventParticipant {
-  id      String   @id @default(uuid())
-  eventId String   @map("event_id")
-  userId  String   @map("user_id")
-  role    String   @default("attendee") // organizer | attendee
-  rsvp    String   @default("pending") // pending | accepted | declined | tentative
+  id              String   @id @default(uuid())
+  eventId         String   @map("event_id")
+  userId          String   @map("user_id")
+  role            String   @default("attendee") // organizer | attendee
+  rsvp            String   @default("pending") // pending | accepted | declined | tentative
   // This participant's own reminder offsets (minutes before start). Materialized per user.
-  reminderOffsets Int[] @map("reminder_offsets")
-  addedAt DateTime @default(now()) @map("added_at")
+  reminderOffsets Int[]    @map("reminder_offsets")
+  addedAt         DateTime @default(now()) @map("added_at")
 
   event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
@@ -857,8 +841,8 @@ model Workspace {
   // язык рынка (RegionProfile.defaultLocale); у отдельного бланка язык свой.
   documentLanguage String @default("kk") @map("document_language")
 
-  ownerId  String  @map("owner_id") // founder; single owner (billing/delete/transfer)
-  isActive Boolean @default(true) @map("is_active")
+  ownerId    String    @map("owner_id") // founder; single owner (billing/delete/transfer)
+  isActive   Boolean   @default(true) @map("is_active")
   // Когда организацию деактивировали (отправили в архив). Отдельная колонка, а не
   // updatedAt: тот двигает ЛЮБАЯ правка строки, и ретеншн-крон отсчитывал бы 90 дней
   // заново после каждого касания. null у живой организации; restore обнуляет.
@@ -867,39 +851,39 @@ model Workspace {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  owner       User                  @relation(fields: [ownerId], references: [id])
-  members     WorkspaceMember[]
-  invitations WorkspaceInvitation[]
-  tasks       Task[]
+  owner                User                          @relation(fields: [ownerId], references: [id])
+  members              WorkspaceMember[]
+  invitations          WorkspaceInvitation[]
+  tasks                Task[]
   notificationPolicies WorkspaceNotificationPolicy[]
-  staffDepartments StaffDepartment[]
-  staffPositions   StaffPosition[]
-  staffBranches    StaffBranch[]
-  staffAssignments StaffAssignment[]
-  staffingPositions StaffingPosition[]
-  staffRates       StaffRate[]
-  shiftTemplates   ShiftTemplate[]
-  shiftPatterns    ShiftPattern[]
-  shifts           Shift[]
-  shiftAttendance  ShiftAttendance[]
-  assetModels      AssetModel[]
-  assets           Asset[]
-  assetMoves       AssetMove[]
-  assetServices    AssetServiceRecord[]
-  staffDeputies    StaffDeputy[]
-  officeRooms      OfficeRoom[]
-  legalEntities    LegalEntity[]
-  bankAccounts     WorkspaceBankAccount[]
-  docTypes         DocType[]
-  docTemplates     DocTemplate[]
-  orgDocuments     OrgDocument[]
-  counterparties   Counterparty[]
-  employments      Employment[]
-  hrActions        HrAction[]
-  hrActionBatches  HrActionBatch[]
-  esutdSubmissions EsutdSubmission[]
-  docCampaigns     DocCampaign[]
-  libraryInstalls  DocTemplateLibraryInstall[]
+  staffDepartments     StaffDepartment[]
+  staffPositions       StaffPosition[]
+  staffBranches        StaffBranch[]
+  staffAssignments     StaffAssignment[]
+  staffingPositions    StaffingPosition[]
+  staffRates           StaffRate[]
+  shiftTemplates       ShiftTemplate[]
+  shiftPatterns        ShiftPattern[]
+  shifts               Shift[]
+  shiftAttendance      ShiftAttendance[]
+  assetModels          AssetModel[]
+  assets               Asset[]
+  assetMoves           AssetMove[]
+  assetServices        AssetServiceRecord[]
+  staffDeputies        StaffDeputy[]
+  officeRooms          OfficeRoom[]
+  legalEntities        LegalEntity[]
+  bankAccounts         WorkspaceBankAccount[]
+  docTypes             DocType[]
+  docTemplates         DocTemplate[]
+  orgDocuments         OrgDocument[]
+  counterparties       Counterparty[]
+  employments          Employment[]
+  hrActions            HrAction[]
+  hrActionBatches      HrActionBatch[]
+  esutdSubmissions     EsutdSubmission[]
+  docCampaigns         DocCampaign[]
+  libraryInstalls      DocTemplateLibraryInstall[]
 
   @@index([ownerId])
   // Ретеншн-крон архива: выборка «что пора удалять» идёт по этой колонке.
@@ -921,26 +905,30 @@ model Workspace {
 //   CREATE UNIQUE INDEX "legal_entities_bin_live_key"
 //     ON "legal_entities"("workspace_id","bin") WHERE "bin" IS NOT NULL AND "archived_at" IS NULL;
 model LegalEntity {
-  id          String @id @default(uuid())
-  workspaceId String @map("workspace_id")
-  /** Как показывать в списках: «ТОО „Ромашка"» / «ИП Иванов» */
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  /**
+   * Как показывать в списках: «ТОО „Ромашка"» / «ИП Иванов»
+   */
   name        String
-  /** Головное — ровно одно на организацию; архивировать нельзя. */
+  /**
+   * Головное — ровно одно на организацию; архивировать нельзя.
+   */
   isHead      Boolean @default(false) @map("is_head")
 
-  orgForm        String?   @map("org_form") // ip | too | ao | kh | pk | institution | branch | other
-  taxRegime      String?   @map("tax_regime") // general | simplified | retail | patent | snr_kh | astana_hub | other
-  legalName      String?   @map("legal_name") // «ТОО „Ромашка"» — Workspace.name это бренд, в договор идёт юрформа
-  bin            String? // 12 цифр, контрольная сумма проверяется схемой
-  legalAddress   String?   @map("legal_address")
-  kbe            String? // код бенефициара, 2 цифры — без него не заполнить платёжку
-  vatPayer       Boolean   @default(false) @map("vat_payer")
-  vatSeries      String?   @map("vat_series")
-  vatNumber      String?   @map("vat_number")
-  vatDate        DateTime? @map("vat_date") @db.Date
+  orgForm         String?   @map("org_form") // ip | too | ao | kh | pk | institution | branch | other
+  taxRegime       String?   @map("tax_regime") // general | simplified | retail | patent | snr_kh | astana_hub | other
+  legalName       String?   @map("legal_name") // «ТОО „Ромашка"» — Workspace.name это бренд, в договор идёт юрформа
+  bin             String? // 12 цифр, контрольная сумма проверяется схемой
+  legalAddress    String?   @map("legal_address")
+  kbe             String? // код бенефициара, 2 цифры — без него не заполнить платёжку
+  vatPayer        Boolean   @default(false) @map("vat_payer")
+  vatSeries       String?   @map("vat_series")
+  vatNumber       String?   @map("vat_number")
+  vatDate         DateTime? @map("vat_date") @db.Date
   // Директор — выбор из СОТРУДНИКОВ (валидируется членством при записи; FK на users
   // нет намеренно — увольнение не должно рвать реквизиты, подпись сверяется на выдаче).
-  directorUserId String?   @map("director_user_id")
+  directorUserId  String?   @map("director_user_id")
   // ОСНОВАНИЕ ПОДПИСИ — структурой, а не готовой фразой: «действующего на
   // основании Приказа № 12-к от 15.01.2026» печатается ВНУТРИ договора, а
   // договор бывает на трёх языках. Слова подбираются на выходе — в языке
@@ -956,10 +944,10 @@ model LegalEntity {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  bankAccounts WorkspaceBankAccount[]
-  employments  Employment[]
-  branches     StaffBranch[]
+  workspace     Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  bankAccounts  WorkspaceBankAccount[]
+  employments   Employment[]
+  branches      StaffBranch[]
   balanceAssets Asset[]
 
   @@index([workspaceId, archivedAt])
@@ -972,15 +960,17 @@ model LegalEntity {
 // короткое окно двух основных не ломает ничего, а честный инвариант чинится следующей
 // записью.
 model WorkspaceBankAccount {
-  id          String   @id @default(uuid())
-  workspaceId String   @map("workspace_id")
-  /** Счёт принадлежит ЮРЛИЦУ (в платёжку идут его БИН/КБе), а не бренду. */
-  legalEntityId String @map("legal_entity_id")
-  iban        String // KZ + 18 знаков, контроль ISO 13616
-  bankName    String   @map("bank_name")
-  bik         String // 8 знаков SWIFT-формата
-  isPrimary   Boolean  @default(false) @map("is_primary")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid())
+  workspaceId   String   @map("workspace_id")
+  /**
+   * Счёт принадлежит ЮРЛИЦУ (в платёжку идут его БИН/КБе), а не бренду.
+   */
+  legalEntityId String   @map("legal_entity_id")
+  iban          String // KZ + 18 знаков, контроль ISO 13616
+  bankName      String   @map("bank_name")
+  bik           String // 8 знаков SWIFT-формата
+  isPrimary     Boolean  @default(false) @map("is_primary")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   legalEntity LegalEntity @relation(fields: [legalEntityId], references: [id], onDelete: Cascade)
@@ -1093,11 +1083,11 @@ model WorkspaceInvitation {
 // RelationTuple хранит только независимые от времени факты.
 
 model StaffDepartment {
-  id          String  @id @default(uuid())
-  workspaceId String  @map("workspace_id")
-  name        String
-  parentId    String? @map("parent_id") // дерево в данных
-  sortOrder   Int     @default(0) @map("sort_order")
+  id             String  @id @default(uuid())
+  workspaceId    String  @map("workspace_id")
+  name           String
+  parentId       String? @map("parent_id") // дерево в данных
+  sortOrder      Int     @default(0) @map("sort_order")
   // Руководящая должность отдела. Лежит НА ОТДЕЛЕ, а не флагом на должности:
   // должность вправе руководить отделом, находясь ВНЕ его (CFO ведёт «Финансовый»,
   // сидя вне отдела) и вести несколько отделов сразу (поэтому без @@unique).
@@ -1120,34 +1110,34 @@ model StaffDepartment {
 }
 
 model StaffPosition {
-  id           String  @id @default(uuid())
-  workspaceId  String  @map("workspace_id")
-  name         String
-  departmentId String? @map("department_id") // отдел должности (опционально)
-  description  String?
-  sortOrder    Int     @default(0) @map("sort_order")
+  id                  String  @id @default(uuid())
+  workspaceId         String  @map("workspace_id")
+  name                String
+  departmentId        String? @map("department_id") // отдел должности (опционально)
+  description         String?
+  sortOrder           Int     @default(0) @map("sort_order")
   // Точечное переопределение подчинения — сильнее дерева отделов и головы объекта.
   // Self-FK SetNull: потеря переопределения = откат к дереву, безопасно.
   // Флага «корень» нет: корень = «нет разрешимого руководителя».
   reportsToPositionId String? @map("reports_to_position_id")
   // Значок-данные для <Glyph/> (ключ реестра иконок или эмодзи) — выбирает человек.
-  glyph String?
+  glyph               String?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  department  StaffDepartment?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
-  assignments StaffAssignment[]
+  workspace         Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  department        StaffDepartment?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  assignments       StaffAssignment[]
   staffingPositions StaffingPosition[]
-  shifts      Shift[]
-  invitations WorkspaceInvitation[]
-  reportsTo   StaffPosition?        @relation("PositionReportsTo", fields: [reportsToPositionId], references: [id], onDelete: SetNull)
-  reports     StaffPosition[]       @relation("PositionReportsTo")
-  headedDepartments StaffDepartment[] @relation("DepartmentHead")
-  headedBranches    StaffBranch[]     @relation("BranchHead")
-  deputiesFor       StaffDeputy[]     @relation("DeputyForPosition")
-  deputyOf          StaffDeputy[]     @relation("DeputyPosition")
+  shifts            Shift[]
+  invitations       WorkspaceInvitation[]
+  reportsTo         StaffPosition?        @relation("PositionReportsTo", fields: [reportsToPositionId], references: [id], onDelete: SetNull)
+  reports           StaffPosition[]       @relation("PositionReportsTo")
+  headedDepartments StaffDepartment[]     @relation("DepartmentHead")
+  headedBranches    StaffBranch[]         @relation("BranchHead")
+  deputiesFor       StaffDeputy[]         @relation("DeputyForPosition")
+  deputyOf          StaffDeputy[]         @relation("DeputyPosition")
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
@@ -1166,56 +1156,56 @@ model StaffPosition {
 //   CREATE UNIQUE INDEX "staff_branches_default_per_workspace_key"
 //     ON "staff_branches"("workspace_id") WHERE "is_default";
 model StaffBranch {
-  id          String  @id @default(uuid())
-  workspaceId String  @map("workspace_id")
-  name        String
-  address     String?
-  note        String?
-  sortOrder   Int     @default(0) @map("sort_order")
-  isDefault   Boolean @default(false) @map("is_default")
+  id             String  @id @default(uuid())
+  workspaceId    String  @map("workspace_id")
+  name           String
+  address        String?
+  note           String?
+  sortOrder      Int     @default(0) @map("sort_order")
+  isDefault      Boolean @default(false) @map("is_default")
   // Руководящая должность объекта («Управляющий точкой») — та же модель, что у отдела.
   headPositionId String? @map("head_position_id")
 
   // ---- Дерево площадок (сервис «Объекты») ----
   // Self-FK Restrict: узел с детьми не удаляется (прикладной 409 object_has_children —
   // дети переносятся явно, а не осиротевают молча).
-  parentId String? @map("parent_id")
-  kind     String  @default("site") // OBJECT_KINDS: site|building|floor|room|warehouse|zone|other
+  parentId         String?   @map("parent_id")
+  kind             String    @default("site") // OBJECT_KINDS: site|building|floor|room|warehouse|zone|other
   // Юрлицо объекта. null = наследуется от ближайшего предка, иначе головное
   // (ObjectsService.effectiveLegalEntity) — сеть заводит ТОО один раз на площадку.
-  legalEntityId String? @map("legal_entity_id")
+  legalEntityId    String?   @map("legal_entity_id")
   // Смены считаются в поясе ОБЪЕКТА, не организации: «сегодня» у точки в Актау
   // наступает раньше, чем у бэк-офиса в Алматы.
-  timeZone String  @default("Asia/Almaty") @map("time_zone")
-  glyph    String?
+  timeZone         String    @default("Asia/Almaty") @map("time_zone")
+  glyph            String?
   // Материализованные предки (корень ПЕРВЫМ, без себя) + глубина. Паттерн Диска и
   // closure отделов: одно условие в SQL и для поддерева, и для прав через предков.
   // GIN объявлен НИЖЕ (@@index): пока он жил только в комментарии, следующая же
   // `prisma migrate dev` посчитала его дрейфом и вписала в чужую миграцию DROP INDEX.
-  ancestorIds String[] @default([]) @map("ancestor_ids")
-  depth       Int      @default(0)
+  ancestorIds      String[]  @default([]) @map("ancestor_ids")
+  depth            Int       @default(0)
   // Правила смен объекта = ДАННЫЕ (ObjectScheduleSettings): minRestMin, maxShiftMin,
   // lateToleranceMin, weekStartsOn, accountingPeriod.
-  scheduleSettings Json? @map("schedule_settings")
+  scheduleSettings Json?     @map("schedule_settings")
   // Закрытая точка: история, смены и активы остаются; в новых формах не предлагается.
-  archivedAt DateTime? @map("archived_at")
+  archivedAt       DateTime? @map("archived_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  workspace    Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assignments  StaffAssignment[]
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignments       StaffAssignment[]
   staffingPositions StaffingPosition[]
   shiftTemplates    ShiftTemplate[]
   shiftPatterns     ShiftPattern[]
   shifts            Shift[]
   shiftAttendance   ShiftAttendance[]
   assets            Asset[]
-  headPosition StaffPosition?    @relation("BranchHead", fields: [headPositionId], references: [id], onDelete: SetNull)
-  deputies     StaffDeputy[]
-  parent       StaffBranch?      @relation("BranchTree", fields: [parentId], references: [id], onDelete: Restrict)
-  children     StaffBranch[]     @relation("BranchTree")
-  legalEntity  LegalEntity?      @relation(fields: [legalEntityId], references: [id], onDelete: SetNull)
+  headPosition      StaffPosition?     @relation("BranchHead", fields: [headPositionId], references: [id], onDelete: SetNull)
+  deputies          StaffDeputy[]
+  parent            StaffBranch?       @relation("BranchTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children          StaffBranch[]      @relation("BranchTree")
+  legalEntity       LegalEntity?       @relation(fields: [legalEntityId], references: [id], onDelete: SetNull)
 
   // ⚠️ РУКАМИ: уникальность имени — на пару «родитель + имя» и только среди ЖИВЫХ
   // (Prisma не выражает ни COALESCE, ни партиальный уникум):
@@ -1255,25 +1245,29 @@ model StaffAssignment {
   // ---- Датирование (сервис «Объекты») ----
   // Закрытое назначение ОСТАЁТСЯ: на него ссылаются ставки, смены и история.
   // null у starts_on = «с сотворения», null у ends_on = бессрочно.
-  startsOn DateTime? @map("starts_on") @db.Date
-  endsOn   DateTime? @map("ends_on") @db.Date
-  /** Доля ставки: два человека по 0.5 закрывают одну штатную единицу */
-  rateShare Float @default(1) @map("rate_share")
-  /** К какой штатной единице отнесено (FK SetNull — единицу можно убрать из штатки) */
-  staffingPositionId String? @map("staffing_position_id")
+  startsOn           DateTime? @map("starts_on") @db.Date
+  endsOn             DateTime? @map("ends_on") @db.Date
+  /**
+   * Доля ставки: два человека по 0.5 закрывают одну штатную единицу
+   */
+  rateShare          Float     @default(1) @map("rate_share")
+  /**
+   * К какой штатной единице отнесено (FK SetNull — единицу можно убрать из штатки)
+   */
+  staffingPositionId String?   @map("staffing_position_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  position  StaffPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  position         StaffPosition     @relation(fields: [positionId], references: [id], onDelete: Cascade)
   // Restrict: удаление объекта с людьми — прикладной 409 «сначала переведите».
-  branch    StaffBranch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  branch           StaffBranch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
   staffingPosition StaffingPosition? @relation(fields: [staffingPositionId], references: [id], onDelete: SetNull)
-  rates     StaffRate[]
-  shifts    Shift[]
-  shiftPatterns ShiftPattern[]
+  rates            StaffRate[]
+  shifts           Shift[]
+  shiftPatterns    ShiftPattern[]
 
   // ⚠️ РУКАМИ (Prisma не выражает ни EXCLUDE, ни CHECK, ни партиальный уникум):
   //  · staff_assignments_primary_per_user_key — UNIQUE(workspace_id, user_id) WHERE is_primary
@@ -1296,30 +1290,34 @@ model StaffAssignment {
 ///   CREATE UNIQUE INDEX "staffing_positions_live_key"
 ///     ON "staffing_positions"("branch_id","position_id") WHERE "archived_at" IS NULL;
 model StaffingPosition {
-  id          String @id @default(uuid())
-  workspaceId String @map("workspace_id")
-  branchId    String @map("branch_id")
-  positionId  String @map("position_id")
-  /** «По штату N» — целое; частичная занятость выражается rateShare назначения */
-  headcount Int @default(1)
-  /** График по умолчанию для новых назначений на эту единицу */
-  shiftTemplateId String? @map("shift_template_id")
-  sortOrder  Int       @default(0) @map("sort_order")
-  note       String?
-  archivedAt DateTime? @map("archived_at")
+  id              String    @id @default(uuid())
+  workspaceId     String    @map("workspace_id")
+  branchId        String    @map("branch_id")
+  positionId      String    @map("position_id")
+  /**
+   * «По штату N» — целое; частичная занятость выражается rateShare назначения
+   */
+  headcount       Int       @default(1)
+  /**
+   * График по умолчанию для новых назначений на эту единицу
+   */
+  shiftTemplateId String?   @map("shift_template_id")
+  sortOrder       Int       @default(0) @map("sort_order")
+  note            String?
+  archivedAt      DateTime? @map("archived_at")
 
   createdById String   @map("created_by_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  workspace   Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  branch      StaffBranch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  position    StaffPosition     @relation(fields: [positionId], references: [id], onDelete: Cascade)
-  assignments StaffAssignment[]
-  rates       StaffRate[]
-  shifts      Shift[]
+  workspace     Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  branch        StaffBranch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  position      StaffPosition     @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  assignments   StaffAssignment[]
+  rates         StaffRate[]
+  shifts        Shift[]
   shiftPatterns ShiftPattern[]
-  shiftTemplate ShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
+  shiftTemplate ShiftTemplate?    @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, branchId])
   @@index([positionId])
@@ -1407,25 +1405,29 @@ model StaffDeputy {
 /// себе: правка шаблона задним числом план не трогает (иначе «мне ставили 9:00»
 /// превращалось бы в спор без доказательств). branchId=null — шаблон организации.
 model ShiftTemplate {
-  id          String  @id @default(uuid())
-  workspaceId String  @map("workspace_id")
-  branchId    String? @map("branch_id")
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  branchId    String?   @map("branch_id")
   name        String
   glyph       String?
-  /** Цвет-ДАННЫЕ (выбирает человек) — сетка красит чип по нему */
+  /**
+   * Цвет-ДАННЫЕ (выбирает человек) — сетка красит чип по нему
+   */
   color       String?
-  /** Минуты от полуночи локального дня объекта */
-  startMin    Int @map("start_min")
-  durationMin Int @map("duration_min")
-  breakMin    Int @default(0) @map("break_min")
-  sortOrder   Int @default(0) @map("sort_order")
+  /**
+   * Минуты от полуночи локального дня объекта
+   */
+  startMin    Int       @map("start_min")
+  durationMin Int       @map("duration_min")
+  breakMin    Int       @default(0) @map("break_min")
+  sortOrder   Int       @default(0) @map("sort_order")
   archivedAt  DateTime? @map("archived_at")
-  createdById String   @map("created_by_id")
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdById String    @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
-  workspace Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  branch    StaffBranch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  shifts    Shift[]
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  branch            StaffBranch?       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  shifts            Shift[]
   staffingPositions StaffingPosition[]
 
   @@index([workspaceId, branchId])
@@ -1443,14 +1445,16 @@ model ShiftPattern {
   assignmentId       String? @map("assignment_id")
   staffingPositionId String? @map("staffing_position_id")
 
-  name       String
-  anchorDate DateTime @map("anchor_date") @db.Date
-  /** По элементу на день цикла: id шаблона или null (выходной) */
-  cycle      Json
-  activeFrom DateTime  @map("active_from") @db.Date
-  activeTo   DateTime? @map("active_to") @db.Date
-  horizonDays Int      @default(42) @map("horizon_days")
-  archivedAt DateTime? @map("archived_at")
+  name        String
+  anchorDate  DateTime  @map("anchor_date") @db.Date
+  /**
+   * По элементу на день цикла: id шаблона или null (выходной)
+   */
+  cycle       Json
+  activeFrom  DateTime  @map("active_from") @db.Date
+  activeTo    DateTime? @map("active_to") @db.Date
+  horizonDays Int       @default(42) @map("horizon_days")
+  archivedAt  DateTime? @map("archived_at")
 
   createdById String   @map("created_by_id")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -1487,7 +1491,9 @@ model Shift {
   assignmentId       String? @map("assignment_id")
   userId             String? @map("user_id")
 
-  /** День НАЧАЛА смены в поясе ОБЪЕКТА (смена через полночь — день начала) */
+  /**
+   * День НАЧАЛА смены в поясе ОБЪЕКТА (смена через полночь — день начала)
+   */
   localDate DateTime @map("local_date") @db.Date
   startsAt  DateTime @map("starts_at")
   endsAt    DateTime @map("ends_at")
@@ -1500,8 +1506,10 @@ model Shift {
   status      String    @default("draft") // draft | published | cancelled
   publishedAt DateTime? @map("published_at")
   note        String?
-  /** Оптимистичная блокировка правки сетки */
-  version     Int @default(1)
+  /**
+   * Оптимистичная блокировка правки сетки
+   */
+  version     Int       @default(1)
 
   createdById String   @map("created_by_id")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -1535,18 +1543,22 @@ model ShiftAttendance {
   id          String  @id @default(uuid())
   workspaceId String  @map("workspace_id")
   branchId    String  @map("branch_id")
-  /** null = внеплановый выход (смены в плане не было) */
+  /**
+   * null = внеплановый выход (смены в плане не было)
+   */
   shiftId     String? @map("shift_id")
   userId      String  @map("user_id")
 
-  localDate DateTime @map("local_date") @db.Date
-  outcome   String // worked | late | absent
-  lateMin   Int      @default(0) @map("late_min")
+  localDate     DateTime  @map("local_date") @db.Date
+  outcome       String // worked | late | absent
+  lateMin       Int       @default(0) @map("late_min")
   actualStartAt DateTime? @map("actual_start_at")
   actualEndAt   DateTime? @map("actual_end_at")
 
   source    String  @default("manual") @map("source") // manual | access_control | self
-  /** id события устройства — под будущую сверку и акт */
+  /**
+   * id события устройства — под будущую сверку и акт
+   */
   sourceRef String? @map("source_ref")
 
   markedById String?  @map("marked_by_id")
@@ -1573,10 +1585,10 @@ model ShiftAttendance {
 /// СПРАВОЧНИК моделей оборудования (на организацию). Инструкции и паспорт крепятся
 /// СЮДА один раз — на все двадцать одинаковых кофемашин сети.
 model AssetModel {
-  id          String  @id @default(uuid())
-  workspaceId String  @map("workspace_id")
-  kind        String  @default("equipment") // equipment | vehicle | land | other
-  name        String
+  id           String    @id @default(uuid())
+  workspaceId  String    @map("workspace_id")
+  kind         String    @default("equipment") // equipment | vehicle | land | other
+  name         String
   manufacturer String?
   category     String?
   specs        Json?
@@ -1603,12 +1615,14 @@ model AssetModel {
 ///     ON "assets"("workspace_id","inventory_number")
 ///     WHERE "inventory_number" IS NOT NULL AND "archived_at" IS NULL;
 model Asset {
-  id          String @id @default(uuid())
-  workspaceId String @map("workspace_id")
-  modelId     String @map("model_id")
-  /** Денормализовано с модели — фильтр «только транспорт» без join */
-  kind        String @default("equipment")
-  name        String
+  id              String  @id @default(uuid())
+  workspaceId     String  @map("workspace_id")
+  modelId         String  @map("model_id")
+  /**
+   * Денормализовано с модели — фильтр «только транспорт» без join
+   */
+  kind            String  @default("equipment")
+  name            String
   inventoryNumber String? @map("inventory_number")
   serialNumber    String? @map("serial_number")
 
@@ -1619,7 +1633,9 @@ model Asset {
   holdingKind           String  @default("owned") @map("holding_kind") // owned | leased | rented | third_party
   balanceLegalEntityId  String? @map("balance_legal_entity_id")
   holdingCounterpartyId String? @map("holding_counterparty_id")
-  /** Ответственный. Без FK (паттерн Employment.userId): увольнение не рвёт карточку. */
+  /**
+   * Ответственный. Без FK (паттерн Employment.userId): увольнение не рвёт карточку.
+   */
   custodianUserId       String? @map("custodian_user_id")
 
   status String @default("active") // active | in_repair | stored | written_off | disposed
@@ -1638,13 +1654,13 @@ model Asset {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  workspace           Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  model               AssetModel    @relation(fields: [modelId], references: [id], onDelete: Restrict)
-  branch              StaffBranch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  parentAsset         Asset?        @relation("AssetTree", fields: [parentAssetId], references: [id], onDelete: SetNull)
-  children            Asset[]       @relation("AssetTree")
-  balanceLegalEntity  LegalEntity?  @relation(fields: [balanceLegalEntityId], references: [id], onDelete: SetNull)
-  holdingCounterparty Counterparty? @relation(fields: [holdingCounterpartyId], references: [id], onDelete: SetNull)
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  model               AssetModel           @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  branch              StaffBranch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  parentAsset         Asset?               @relation("AssetTree", fields: [parentAssetId], references: [id], onDelete: SetNull)
+  children            Asset[]              @relation("AssetTree")
+  balanceLegalEntity  LegalEntity?         @relation(fields: [balanceLegalEntityId], references: [id], onDelete: SetNull)
+  holdingCounterparty Counterparty?        @relation(fields: [holdingCounterpartyId], references: [id], onDelete: SetNull)
   moves               AssetMove[]
   services            AssetServiceRecord[]
 
@@ -1693,7 +1709,7 @@ model AssetServiceRecord {
   workspaceId String @map("workspace_id")
   assetId     String @map("asset_id")
   kind        String @default("repair") // maintenance | repair | inspection
-  status      String @default("done")   // planned | in_progress | done | cancelled
+  status      String @default("done") // planned | in_progress | done | cancelled
 
   title       String
   description String?
@@ -1736,14 +1752,14 @@ model AssetServiceRecord {
 // ISO-4217-style minor-unit exponent (0 = whole coins; 2 = tenge/tiyin) — amounts are always
 // integer minor units. `code` is an optional fiat code (e.g. 'KZT'); null for personal coins.
 model Currency {
-  id           String @id @default(uuid())
-  issuerType   String @map("issuer_type") // 'user' | 'workspace'
-  issuerId     String @map("issuer_id")
+  id           String  @id @default(uuid())
+  issuerType   String  @map("issuer_type") // 'user' | 'workspace'
+  issuerId     String  @map("issuer_id")
   name         String
   icon         String // emoji, no ticker
   code         String? // optional ISO-4217-style code for fiat (e.g. 'KZT'); null for personal coins
-  scale        Int    @default(0) // minor-unit exponent: 0 = whole coins, 2 = tenge/tiyin
-  currencyType String @default("CUSTOM_COIN") @map("currency_type") // CUSTOM_COIN | FIAT…
+  scale        Int     @default(0) // minor-unit exponent: 0 = whole coins, 2 = tenge/tiyin
+  currencyType String  @default("CUSTOM_COIN") @map("currency_type") // CUSTOM_COIN | FIAT…
 
   // B2B hook: who may see holders' balances (role/position matrix). null = personal rule
   // (balance visible to holder + issuer only). Unused this phase.
@@ -1776,11 +1792,11 @@ model Currency {
 // spend. available = balance − held; user wallets may not go negative (allowNegative = false).
 // For system accounts (issuance/external/fee) ownerId = the currencyId (one per currency).
 model Account {
-  id         String  @id @default(uuid())
-  currencyId String  @map("currency_id")
+  id         String @id @default(uuid())
+  currencyId String @map("currency_id")
   type       String // user | issuance | escrow | fee | external
-  ownerType  String  @map("owner_type") // user | workspace | system
-  ownerId    String  @map("owner_id") // userId / workspaceId; system accounts use the currencyId
+  ownerType  String @map("owner_type") // user | workspace | system
+  ownerId    String @map("owner_id") // userId / workspaceId; system accounts use the currencyId
 
   balance       BigInt  @default(0) // posted net (credit-normal)
   held          BigInt  @default(0) // Σ unresolved pending outgoing reservations
@@ -1893,9 +1909,9 @@ model EscrowHold {
 // chokepoint; a shop is accessed by id, not as implicit "my data"). Staff are NOT here — they are
 // UserRole rows (context 'shop'/'showcase'). Buying/escrow is Phase 3; the catalog lives here.
 model Shop {
-  id        String  @id @default(uuid())
-  ownerType String  @map("owner_type") // 'user' | 'workspace'
-  ownerId   String  @map("owner_id")
+  id        String   @id @default(uuid())
+  ownerType String   @map("owner_type") // 'user' | 'workspace'
+  ownerId   String   @map("owner_id")
   name      String? // display name; null → fall back to the owner's name
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1918,7 +1934,7 @@ model Showcase {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  shop     Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop     Shop      @relation(fields: [shopId], references: [id], onDelete: Cascade)
   listings Listing[]
 
   @@index([shopId])
@@ -1932,27 +1948,27 @@ model Showcase {
 // phases: purchase/escrow (P3), task/calendar fulfilment (P4), cross-currency price (P5),
 // crowdfunding (P6), stock + time window + FOMO discount + auto-archive (P7), wishlist copy (P8).
 model Listing {
-  id          String  @id @default(uuid())
-  showcaseId  String  @map("showcase_id")
-  title       String
-  description String?
-  icon        String? // emoji from the standard set
-  itemType    String  @default("material") @map("item_type") // material | nonmaterial
-  withTask    Boolean @default(false) @map("with_task") // creates a Task/Event on purchase (P4)
-  taskDays    Int?    @map("task_days") // days to fulfil when withTask
+  id           String  @id @default(uuid())
+  showcaseId   String  @map("showcase_id")
+  title        String
+  description  String?
+  icon         String? // emoji from the standard set
+  itemType     String  @default("material") @map("item_type") // material | nonmaterial
+  withTask     Boolean @default(false) @map("with_task") // creates a Task/Event on purchase (P4)
+  taskDays     Int?    @map("task_days") // days to fulfil when withTask
   crowdfunding Boolean @default(false) // joint fundraising on the card (P6)
 
   // Availability (P7 behaviour; fields now). stockLimit null = infinite.
-  stockLimit     Int?      @map("stock_limit")
-  stockSold      Int       @default(0) @map("stock_sold")
-  availableFrom  DateTime? @map("available_from")
-  availableUntil DateTime? @map("available_until")
-  discountPercent Int?     @map("discount_percent") // FOMO discount
+  stockLimit      Int?      @map("stock_limit")
+  stockSold       Int       @default(0) @map("stock_sold")
+  availableFrom   DateTime? @map("available_from")
+  availableUntil  DateTime? @map("available_until")
+  discountPercent Int?      @map("discount_percent") // FOMO discount
   discountUntil   DateTime? @map("discount_until")
 
-  status           String  @default("active") // active | archived
-  sourceWishItemId String? @map("source_wish_item_id") // origin wishlist item when copied (P8)
-  sortOrder        Int     @default(0) @map("sort_order")
+  status           String   @default("active") // active | archived
+  sourceWishItemId String?  @map("source_wish_item_id") // origin wishlist item when copied (P8)
+  sortOrder        Int      @default(0) @map("sort_order")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
@@ -2129,10 +2145,10 @@ model Chat {
   messages          Message[]
   scheduledMessages ScheduledMessage[]
 
-  @@index([type])
   // One context chat per parent (e.g. one chat per task). Postgres treats NULLs as
   // distinct, so DM/group chats (parentType/parentId NULL) are exempt and unconstrained.
   @@unique([parentType, parentId])
+  @@index([type])
   @@index([workspaceId])
   @@map("chats")
 }
@@ -2219,7 +2235,7 @@ model ScheduledMessage {
   chatId   String @map("chat_id")
   authorId String @map("author_id")
 
-  content String
+  content   String
   // Optional quote carried into the eventual message.
   replyToId String? @map("reply_to_id")
 
@@ -2227,7 +2243,7 @@ model ScheduledMessage {
   sendAt DateTime @map("send_at")
 
   // pending | sending (claimed by a firing cron — transient) | sent | cancelled
-  status String @default("pending")
+  status        String  @default("pending")
   // The Message created when it fired (audit / dedup).
   sentMessageId String? @map("sent_message_id")
 
@@ -2386,11 +2402,11 @@ model CardSkinInstance {
   skin      CardSkin           @relation(fields: [skinId], references: [id], onDelete: Cascade)
   transfers CardSkinTransfer[]
 
-  @@index([ownerId])
-  @@index([skinId])
   // Defense-in-depth: a limited skin can't issue the same serial twice. NULL serials
   // (unlimited skins) are treated as distinct by Postgres, so they're unaffected.
   @@unique([skinId, serial], map: "card_skin_instances_skin_serial_key")
+  @@index([ownerId])
+  @@index([skinId])
   @@map("card_skin_instances")
 }
 
@@ -2416,21 +2432,21 @@ model CardSkinTransfer {
 // ============================================================
 
 model ProcessDefinition {
-  id          String  @id @default(uuid())
-  workspaceId String  @map("workspace_id")
-  name        String
-  description String?
+  id               String  @id @default(uuid())
+  workspaceId      String  @map("workspace_id")
+  name             String
+  description      String?
   // 'team' — по командным правилам (manager+ редактирует, команда видит/запускает);
   // 'admins' — виден и запускается только admin+ («процессы для разработчиков»).
-  visibility  String  @default("team")
+  visibility       String  @default("team")
   // Профиль редактора: какой НАБОР НОД показывать и какие правила предметной области
   // проверять. 'general' — полный канвас Процессов; 'documents.hr' — урезанный для
   // кадровых маршрутов (кадровик не видит ноды про счета и AI-агентов).
   // Ключ = категория вида документа, поэтому новая область — строка, а не правка палитры.
-  surface     String  @default("general")
-  status      String  @default("active") // active | archived
+  surface          String  @default("general")
+  status           String  @default("active") // active | archived
   currentVersionId String? @map("current_version_id") // активная (опубликованная) версия
-  createdById String  @map("created_by_id")
+  createdById      String  @map("created_by_id")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2448,8 +2464,8 @@ model ProcessVersion {
   definitionId String    @map("definition_id")
   version      Int
   status       String    @default("draft") // draft | published | superseded
-  document     Json      // канвас-документ (nodes/edges/form) — источник правды, канвас лишь его рисует
-  compiled     Json?     // скомпилированный план исполнения (заполняется при публикации)
+  document     Json // канвас-документ (nodes/edges/form) — источник правды, канвас лишь его рисует
+  compiled     Json? // скомпилированный план исполнения (заполняется при публикации)
   createdById  String    @map("created_by_id")
   publishedAt  DateTime? @map("published_at")
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -2494,12 +2510,12 @@ model ProcessInstance {
 }
 
 model ProcessStepRun {
-  id         String @id @default(uuid())
-  instanceId String @map("instance_id")
-  nodeId     String @map("node_id")   // id ноды в документе версии
-  nodeType   String @map("node_type") // снимок типа ноды (списки без джойна версии)
+  id         String  @id @default(uuid())
+  instanceId String  @map("instance_id")
+  nodeId     String  @map("node_id") // id ноды в документе версии
+  nodeType   String  @map("node_type") // снимок типа ноды (списки без джойна версии)
   label      String? // снимок подписи ноды (P7): журнал/детали не парсят документ версии
-  status     String @default("active") // active | done | error | cancelled
+  status     String  @default("active") // active | done | error | cancelled
 
   // Активирован = side-effect шага (создание задачи/уведомление/таймер) уже отработал.
   // kick перезапускает только НЕ активированные ожидания (auto-ноды по флагу auto).
@@ -2530,8 +2546,8 @@ model ProcessStepRun {
   departmentId String?   @map("department_id") // задача на отдел (очередь): кто может claim
   claimedById  String?   @map("claimed_by_id") // кто забрал задачу отдела из очереди
   claimedAt    DateTime? @map("claimed_at")
-  decision     String?   // одобрение: approved | rejected (снимок решения)
-  deadlineAt   DateTime? @map("deadline_at")  // SLA человеческого шага ИЛИ время побудки паузы
+  decision     String? // одобрение: approved | rejected (снимок решения)
+  deadlineAt   DateTime? @map("deadline_at") // SLA человеческого шага ИЛИ время побудки паузы
   escalatedAt  DateTime? @map("escalated_at") // когда отправлена эскалация просрочки (дедуп)
 
   instance ProcessInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
@@ -2558,23 +2574,23 @@ model ProcessStepRun {
 // ============================================================
 
 model ProcessTrigger {
-  id           String  @id @default(uuid())
-  definitionId String  @map("definition_id")
-  workspaceId  String  @map("workspace_id")
-  type         String  // event | schedule | webhook
-  enabled      Boolean @default(true)
+  id           String    @id @default(uuid())
+  definitionId String    @map("definition_id")
+  workspaceId  String    @map("workspace_id")
+  type         String // event | schedule | webhook
+  enabled      Boolean   @default(true)
   // Тип события для event-триггера (P4): денормализован из config в колонку → роутер
   // фильтрует индексом, а не JSONB-path-запросом. Заполняется при публикации.
-  eventType    String? @map("event_type")
+  eventType    String?   @map("event_type")
   // event: {nodeId, eventType}; schedule: {nodeId, everyValue, everyUnit}; webhook/telegram: {nodeId, credentialId?}
-  config       Json    @default("{}")
-  webhookToken String? @unique @map("webhook_token") // секрет публичного эндпоинта
-  runAsUserId  String  @map("run_as_user_id") // процесс запускается «от имени» этого сотрудника
+  config       Json      @default("{}")
+  webhookToken String?   @unique @map("webhook_token") // секрет публичного эндпоинта
+  runAsUserId  String    @map("run_as_user_id") // процесс запускается «от имени» этого сотрудника
   nextRunAt    DateTime? @map("next_run_at") // schedule: следующий запуск
   lastRunAt    DateTime? @map("last_run_at")
-  createdById  String  @map("created_by_id")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  createdById  String    @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   definition ProcessDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
 
@@ -2589,7 +2605,7 @@ model ProcessCredential {
   id          String   @id @default(uuid())
   workspaceId String   @map("workspace_id")
   name        String
-  type        String   // header | basic | bearer
+  type        String // header | basic | bearer
   // Шифр AES-256-GCM: base64(iv).base64(tag).base64(ciphertext) — секрет наружу не отдаётся.
   data        String
   createdById String   @map("created_by_id")
@@ -2662,9 +2678,9 @@ model FinAccount {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  book     FinBook      @relation(fields: [bookId], references: [id], onDelete: Cascade)
-  parent   FinAccount?  @relation("FinCategoryTree", fields: [parentId], references: [id])
-  children FinAccount[] @relation("FinCategoryTree")
+  book     FinBook          @relation(fields: [bookId], references: [id], onDelete: Cascade)
+  parent   FinAccount?      @relation("FinCategoryTree", fields: [parentId], references: [id])
+  children FinAccount[]     @relation("FinCategoryTree")
   txFrom   FinTransaction[] @relation("FinTxFrom")
   txTo     FinTransaction[] @relation("FinTxTo")
 
@@ -2811,11 +2827,11 @@ model ChatterEntry {
   actorId       String?   @map("actor_id") // null = система (крон/движок)
   actorName     String?   @map("actor_name") // снапшот — переживает удаление аккаунта
   typeKey       String    @map("type_key") // ключ CHATTER_REGISTRY: 'task.deadline_changed', 'staff.role_changed'…
-  changes            Json? // [{field,label,from,to}] — display-ready строки
-  payload            Json? // переменные шаблона: targetUserId, targetName, branchName…
-  needsChatPost      Boolean   @default(false) @map("needs_chat_post")
-  chatPostedAt       DateTime? @map("chat_posted_at") // терминал успешной проекции в чат (ремень идемпотентности хэндлера джоба)
-  createdAt          DateTime  @default(now()) @map("created_at")
+  changes       Json? // [{field,label,from,to}] — display-ready строки
+  payload       Json? // переменные шаблона: targetUserId, targetName, branchName…
+  needsChatPost Boolean   @default(false) @map("needs_chat_post")
+  chatPostedAt  DateTime? @map("chat_posted_at") // терминал успешной проекции в чат (ремень идемпотентности хэндлера джоба)
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   @@index([refType, refId, id]) // хроника записи (keyset DESC)
   @@index([workspaceId, id]) // журнал организации (keyset DESC)
@@ -2946,17 +2962,8 @@ model FileVariant {
 
 // Счётчик занятого места на владельца: инкременты в одной транзакции с
 // complete/softDelete, ночная сверка кроном (пересчёт от file_objects).
-model FileQuotaUsage {
-  id         String   @id @default(uuid())
-  ownerType  String   @map("owner_type") // user | workspace
-  ownerId    String   @map("owner_id")
-  bytesUsed  BigInt   @default(0) @map("bytes_used")
-  filesCount Int      @default(0) @map("files_count")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  @@unique([ownerType, ownerId])
-  @@map("file_quota_usage")
-}
+// Расход места на Диске — `QuotaCounter` движка core/entitlements (ключи
+// `files.storageBytes` и `files.count` на владельца файлов).
 
 // ============================================
 // VOICE ENGINE (core/voice) — 7-й платформенный движок: транскрипция аудио
@@ -2993,25 +3000,25 @@ model VoiceTranscript {
 // Запись Диктофона: владелец + титул; файл привязан FileLink'ом
 // refType='voice_recording' (без прямого FK — паттерн движка файлов).
 model VoiceRecording {
-  id        String   @id @default(uuid())
-  ownerId   String   @map("owner_id")
+  id              String    @id @default(uuid())
+  ownerId         String    @map("owner_id")
   // ПУСТО = названия нет, оно собирается ПРИ ЧТЕНИИ в языке зрителя («Запись 05.09.2026
   // 21:07» / «Recording …»). Хранить автоимя значило бы запереть его в языке, который
   // был у человека в момент создания: сменив язык, он остался бы со старой лентой.
   // Непустое — имя, введённое руками (его не трогаем никогда).
-  title     String?
+  title           String?
   // Момент, который НАЗЫВАЕТ автоимя. У записи звонка это начало разговора: createdAt
   // у неё — когда запись доехала из егресса, то есть уже после конца звонка. Пусто → createdAt.
-  titleAt   DateTime? @map("title_at")
-  source    String   @default("upload") // upload | web | terminal | call («Журнал звонков»)
-  language  String? // предпочтительный язык расшифровки
+  titleAt         DateTime? @map("title_at")
+  source          String    @default("upload") // upload | web | terminal | call («Журнал звонков»)
+  language        String? // предпочтительный язык расшифровки
   // «Журнал звонков»: source='call' + ссылка на запись движка звонков (без FK —
   // движок не знает потребителей). Файл ОБЩИЙ у всех клеймантов (общий транскрипт).
-  callRecordingId String? @map("call_recording_id")
+  callRecordingId String?   @map("call_recording_id")
   // длительность НЕ дублируется колонкой: источник правды — meta файла (конвейер)
   // с добором из транскрипта (STT посчитал), см. RecorderService.serialize
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@unique([callRecordingId, ownerId]) // идемпотентность доставки клейма (NULL не конфликтует)
   @@index([ownerId, createdAt])
@@ -3027,19 +3034,19 @@ model VoiceRecording {
 // ============================================
 
 model CallSession {
-  id          String    @id @default(uuid())
-  roomName    String    @unique @map("room_name") // имя комнаты LiveKit = call_<id>
-  refType     String    @map("ref_type") // office_room | chat | (будущие)
-  refId       String    @map("ref_id")
-  workspaceId String?   @map("workspace_id") // денормализация для событий/фильтров (без FK)
-  startedById String    @map("started_by_id")
-  status      String    @default("active") // active | ended
-  startedAt   DateTime  @default(now()) @map("started_at")
-  endedAt     DateTime? @map("ended_at")
+  id           String    @id @default(uuid())
+  roomName     String    @unique @map("room_name") // имя комнаты LiveKit = call_<id>
+  refType      String    @map("ref_type") // office_room | chat | (будущие)
+  refId        String    @map("ref_id")
+  workspaceId  String?   @map("workspace_id") // денормализация для событий/фильтров (без FK)
+  startedById  String    @map("started_by_id")
+  status       String    @default("active") // active | ended
+  startedAt    DateTime  @default(now()) @map("started_at")
+  endedAt      DateTime? @map("ended_at")
   // Клейм «итоговая плашка звонка уже постнута» — идемпотентность против повторной
   // доставки шины (XAUTOCLAIM): листенер постит плашку только при успешном клейме.
   summarizedAt DateTime? @map("summarized_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
 
   participants CallSessionParticipant[]
   recordings   CallRecording[]
@@ -3174,25 +3181,25 @@ model OfficeRoomParticipant {
 // ============================================
 
 model VerifyChallenge {
-  id              String    @id @default(uuid())
-  phone           String
-  purpose         String // register | password_reset | password_change | phone_change_old | phone_change_new
-  codeHash        String    @map("code_hash")
-  attempts        Int       @default(0) // неверные вводы на цепочку; 5 → цепочка сгорает
-  sendCount       Int       @default(1) @map("send_count") // отправки SMS этой цепочки (ресенды)
-  lastSentAt      DateTime  @default(now()) @map("last_sent_at")
-  expiresAt       DateTime  @map("expires_at")
-  verifiedAt      DateTime? @map("verified_at")
-  consumedAt      DateTime? @map("consumed_at")
-  verifyTokenHash String?   @unique @map("verify_token_hash")
-  requestIp       String?   @map("request_ip")
-  userId          String?   @map("user_id") // владелец цели: step-up залогиненных И password_reset (привязка к аккаунту, не только к номеру)
+  id                String    @id @default(uuid())
+  phone             String
+  purpose           String // register | password_reset | password_change | phone_change_old | phone_change_new
+  codeHash          String    @map("code_hash")
+  attempts          Int       @default(0) // неверные вводы на цепочку; 5 → цепочка сгорает
+  sendCount         Int       @default(1) @map("send_count") // отправки SMS этой цепочки (ресенды)
+  lastSentAt        DateTime  @default(now()) @map("last_sent_at")
+  expiresAt         DateTime  @map("expires_at")
+  verifiedAt        DateTime? @map("verified_at")
+  consumedAt        DateTime? @map("consumed_at")
+  verifyTokenHash   String?   @unique @map("verify_token_hash")
+  requestIp         String?   @map("request_ip")
+  userId            String?   @map("user_id") // владелец цели: step-up залогиненных И password_reset (привязка к аккаунту, не только к номеру)
   // Ответ SMS-шлюза на последнюю отправку: id сообщения у провайдера (доказательство
   // отправки для поддержки «мне не пришла SMS») и признак «код никуда не уходил»
   // (нейтральная имитация сброса по несуществующему номеру / тест-карта).
-  providerMessageId String? @map("provider_message_id")
-  delivery        String    @default("sms") // sms | simulated | test_map
-  createdAt       DateTime  @default(now()) @map("created_at")
+  providerMessageId String?   @map("provider_message_id")
+  delivery          String    @default("sms") // sms | simulated | test_map
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   // Активная цепочка ищется по (phone, purpose) среди неистёкших.
   @@index([phone, purpose, createdAt])
@@ -3372,7 +3379,7 @@ model DriveNode {
   subtreeFiles Int?    @map("subtree_files")
 
   // Системная папка пространства («Файлы из переписки») — не удаляется, не переносится.
-  systemKey String? @map("system_key")
+  systemKey      String? @map("system_key")
   // АВТОимя платформы: ключ каталога + его параметры («{base} (с печатью).{ext}»).
   // `name` при этом остаётся снимком в языке источника — по нему живут поиск,
   // сортировка и уникальность в папке, — а человек читает имя, собранное ПРИ ЧТЕНИИ
@@ -3509,65 +3516,65 @@ model DrivePhotoBucket {
 // не участвует вовсе — гость не принципал, строка ссылки И ЕСТЬ грант.
 // ============================================
 model ShareLink {
-  id           String    @id @default(uuid())
+  id                String    @id @default(uuid())
   // randomBytes(24) base64url, плейнтекстом: токен — ключ поиска, а не пароль
   // (та же модель, что у вечной публичной ссылки файла и у токена веб-хука).
-  token        String    @unique
-  refType      String    @map("ref_type") // drive_node | document | (дальше — счета, витрины, ЭДО)
-  refId        String    @map("ref_id")
-  ownerType    String    @map("owner_type") // user | workspace — владелец объекта, из резолвера
-  ownerId      String    @map("owner_id")
-  workspaceId  String?   @map("workspace_id") // денормализация под «Журнал организации»
-  createdById  String    @map("created_by_id")
-  label        String? // подпись «для кого» — видна только управляющим
+  token             String    @unique
+  refType           String    @map("ref_type") // drive_node | document | (дальше — счета, витрины, ЭДО)
+  refId             String    @map("ref_id")
+  ownerType         String    @map("owner_type") // user | workspace — владелец объекта, из резолвера
+  ownerId           String    @map("owner_id")
+  workspaceId       String?   @map("workspace_id") // денормализация под «Журнал организации»
+  createdById       String    @map("created_by_id")
+  label             String? // подпись «для кого» — видна только управляющим
   // СНИМОК названия объекта на момент выдачи. Нужен разделу «Ссылки наружу»: без него
   // список звал бы резолвер потребителя на каждую строку (N запросов на страницу),
   // показывал бы «Объект удалён» вместо имени там, где объекта уже нет, и светил бы
   // ТЕКУЩЕЕ имя тому, у кого доступ к объекту давно отобрали. Снимок честнее и дешевле:
   // в списке «что я раздал» важно, чем это было в момент раздачи.
-  refTitle     String?   @map("ref_title")
-  refIcon      String?   @map("ref_icon")
-  expiresAt    DateTime? @map("expires_at") // null = бессрочная (модель Google Drive)
-  revokedAt    DateTime? @map("revoked_at")
-  revokedById  String?   @map("revoked_by_id") // null при СИСТЕМНОМ отзыве (объект удалён)
-  passwordHash String?   @map("password_hash") // bcrypt; null = без пароля
+  refTitle          String?   @map("ref_title")
+  refIcon           String?   @map("ref_icon")
+  expiresAt         DateTime? @map("expires_at") // null = бессрочная (модель Google Drive)
+  revokedAt         DateTime? @map("revoked_at")
+  revokedById       String?   @map("revoked_by_id") // null при СИСТЕМНОМ отзыве (объект удалён)
+  passwordHash      String?   @map("password_hash") // bcrypt; null = без пароля
   // Перебор пароля считается на САМОЙ ссылке, а не по IP: троттлер платформы бьёт по
   // адресу, а адресов у распределённого перебора сколько угодно. Модель — core/verify
   // (5 попыток), но вместо гашения цепочки временная блокировка: убивать ссылку насмерть
   // значит дать любому, кто знает токен, отрезать от неё получателя.
-  pwdFailedAttempts Int      @default(0) @map("pwd_failed_attempts")
+  pwdFailedAttempts Int       @default(0) @map("pwd_failed_attempts")
   pwdLockedUntil    DateTime? @map("pwd_locked_until")
-  maxOpens     Int?      @map("max_opens") // null = без потолка открытий
-  openCount    Int       @default(0) @map("open_count")
-  lastOpenedAt DateTime? @map("last_opened_at")
+  maxOpens          Int?      @map("max_opens") // null = без потолка открытий
+  openCount         Int       @default(0) @map("open_count")
+  lastOpenedAt      DateTime? @map("last_opened_at")
   // Скачивание. ВАЖНО: это не защита от копирования — если гость видит файл, байты уже
   // у него в браузере (так же честно называют это Google Drive и Dropbox). Выключенное
   // скачивание убирает кнопки и отдаёт превью вместо оригинала.
-  allowDownload Boolean  @default(true) @map("allow_download")
+  allowDownload     Boolean   @default(true) @map("allow_download")
   // Личность гостя: перед показом содержимого гость называет имя и подтверждает номер
   // SMS-кодом (core/verify, purpose share_link_guest). Журнал визитов показывает КТО
   // открывал, а не только IP; будущие действия гостя (подпись, оплата, ответ на опрос)
   // берут личность из этой же записи. Включение тумблера на живой ссылке бампает
   // sessionEpoch — уже открытые АНОНИМНЫЕ сессии умирают (иначе настройка не делала бы
   // того, что обещает).
-  requireIdentity Boolean @default(false) @map("require_identity")
+  requireIdentity   Boolean   @default(false) @map("require_identity")
   // Уведомлять владельца об открытиях. По умолчанию ДА: самый частый случай — «отправил
   // документ человеку», и там уведомление и есть смысл. От массовых ссылок спасает
   // предохранитель ниже, а не выключенный по умолчанию тумблер.
-  notifyOnOpen  Boolean  @default(true) @map("notify_on_open")
+  notifyOnOpen      Boolean   @default(true) @map("notify_on_open")
   // Предохранитель: сутки считаем открытия, после потолка уведомления по этой ссылке
   // замолкают до следующего дня (одно прощальное «дальше сегодня тихо»). Без крона:
   // день хранится прямо здесь и сбрасывается первым открытием следующих суток.
-  notifyDay     DateTime? @map("notify_day") @db.Date
-  notifyCount   Int      @default(0) @map("notify_count")
+  notifyDay         DateTime? @map("notify_day") @db.Date
+  notifyCount       Int       @default(0) @map("notify_count")
   // Поколение гостевых пропусков. Пропуск подписан по linkId, а не по токену, поэтому
   // без этого счётчика смена адреса НЕ отрезала бы того, кто уже открыл ссылку, — то
   // есть ровно того, ради кого адрес и меняют.
-  sessionEpoch  Int      @default(0) @map("session_epoch")
-  tokenRotatedAt DateTime? @map("token_rotated_at")
-  settings     Json      @default("{}") // слот пер-refType опций (v1 пусто; ЭДО положит своё)
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  sessionEpoch      Int       @default(0) @map("session_epoch")
+  tokenRotatedAt    DateTime? @map("token_rotated_at")
+  settings          Json      @default("{}") // слот пер-refType опций (v1 пусто; ЭДО положит своё)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   visits ShareLinkVisit[]
 
@@ -3691,20 +3698,20 @@ model ApprovalRequest {
 /// «последовательно/параллельно» у заявки нет намеренно: одно поле выражает оба
 /// случая, а два способа сказать одно и то же всегда разъезжаются.
 model ApprovalStep {
-  id        String @id @default(uuid())
-  requestId String @map("request_id")
-  order     Int
-  kind      String // approval | signature | acknowledgement
-  title     String
+  id          String  @id @default(uuid())
+  requestId   String  @map("request_id")
+  order       Int
+  kind        String // approval | signature | acknowledgement
+  title       String
   // Заголовок собрала ПЛАТФОРМА (маршрут из библиотеки бланков): ключ каталога и его
   // параметры. `title` — снимок в языке источника (фолбэк старых заявок), а читателю
   // заголовок собирается на его языке. Набранный человеком заголовок ключа не имеет.
   titleKey    String? @map("title_key")
   titleParams Json?   @map("title_params")
-  status    String @default("waiting") // waiting | active | approved | rejected | returned | skipped
+  status      String  @default("waiting") // waiting | active | approved | rejected | returned | skipped
 
-  assigneeType  String  @map("assignee_type") // user | position | department
-  assigneeId    String  @map("assignee_id")
+  assigneeType      String  @map("assignee_type") // user | position | department
+  assigneeId        String  @map("assignee_id")
   // Подпись адресата шага — СНИМКОМ СТРУКТУРЫ, а не фразой (core/audiences,
   // AudienceLabelSnapshot): `assignee_label_key` — ключ каталога формы («Отдел
   // «{name}»»), `assignee_label_name` — имя справочника на момент заведения.
@@ -3715,8 +3722,8 @@ model ApprovalStep {
   assigneeLabelName String? @map("assignee_label_name")
   // Наследный снимок фразой — записи, заведённые до перехода на структуру. Новые
   // строки его не пишут; читающий путь берёт его, только если ключа и имени нет.
-  assigneeLabel String? @map("assignee_label")
-  rule          String  @default("any") // any (первый ответивший) | all (нужен каждый)
+  assigneeLabel     String? @map("assignee_label")
+  rule              String  @default("any") // any (первый ответивший) | all (нужен каждый)
 
   // ЕДИНСТВЕННОЕ, что движок решений знает про подпись (core/sign).
   // null → обычный путь: клик закрывает шаг решением `internal`.
@@ -3754,9 +3761,9 @@ model ApprovalStep {
 /// Одно решение одного человека. Неизменяемо: это запись в истории, а не состояние
 /// (модель LedgerTransfer — журнал не переписывают).
 model ApprovalDecision {
-  id       String @id @default(uuid())
-  stepId   String @map("step_id")
-  userId   String @map("user_id")
+  id       String  @id @default(uuid())
+  stepId   String  @map("step_id")
+  userId   String  @map("user_id")
   decision String // approved | rejected | returned
   comment  String?
 
@@ -3808,22 +3815,22 @@ model Counterparty {
   legalName String? @map("legal_name") // полное юрнаименование — то, что идёт в договор
 
   // БИН/ИИН: 12 цифр, контрольная сумма проверяется схемой (isValidIinOrBin)
-  bin          String?
-  orgForm      String? @map("org_form")
-  legalAddress String? @map("legal_address")
+  bin           String?
+  orgForm       String?   @map("org_form")
+  legalAddress  String?   @map("legal_address")
   // Фактический адрес; NULL = совпадает с юридическим (обычная оговорка договора)
-  actualAddress String? @map("actual_address")
-  kbe          String?
+  actualAddress String?   @map("actual_address")
+  kbe           String?
   // Налоговый режим (справочник TAX_REGIMES shared); NULL = не указан
-  taxRegime String? @map("tax_regime")
-  vatPayer     Boolean @default(false) @map("vat_payer")
-  vatSeries    String? @map("vat_series")
-  vatNumber    String? @map("vat_number")
-  vatDate      DateTime? @map("vat_date") @db.Date
+  taxRegime     String?   @map("tax_regime")
+  vatPayer      Boolean   @default(false) @map("vat_payer")
+  vatSeries     String?   @map("vat_series")
+  vatNumber     String?   @map("vat_number")
+  vatDate       DateTime? @map("vat_date") @db.Date
 
   // Руководитель — ТЕКСТ, а не user_id: человек вне платформы (паттерн
   // WorkspaceRequisites.directorUserId здесь неприменим — некого валидировать).
-  directorName String? @map("director_name")
+  directorName    String?   @map("director_name")
   // ОСНОВАНИЕ ПОДПИСИ — структурой, а не готовой фразой: «действующего на
   // основании Приказа № 12-к от 15.01.2026» печатается ВНУТРИ договора, а
   // договор бывает на трёх языках. Слова подбираются на выходе — в языке
@@ -3842,10 +3849,10 @@ model Counterparty {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  workspace    Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  contacts     CounterpartyContact[]
-  bankAccounts CounterpartyBankAccount[]
-  heldAssets   Asset[]
+  workspace     Workspace                 @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contacts      CounterpartyContact[]
+  bankAccounts  CounterpartyBankAccount[]
+  heldAssets    Asset[]
   assetServices AssetServiceRecord[]
 
   @@index([workspaceId, archivedAt])
@@ -3887,9 +3894,9 @@ model CounterpartyBankAccount {
   counterpartyId String @map("counterparty_id")
 
   iban      String
-  bankName  String  @map("bank_name")
+  bankName  String   @map("bank_name")
   bik       String
-  isPrimary Boolean @default(false) @map("is_primary")
+  isPrimary Boolean  @default(false) @map("is_primary")
   createdAt DateTime @default(now()) @map("created_at")
 
   counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
@@ -3913,33 +3920,33 @@ model CounterpartyBankAccount {
 // ============================================================
 
 model DocType {
-  id             String  @id @default(uuid())
-  workspaceId    String  @map("workspace_id")
+  id              String    @id @default(uuid())
+  workspaceId     String    @map("workspace_id")
   // Имя УНИКАЛЬНО среди живых видов организации — партиальный функциональный
   // индекс doc_types_workspace_name_live (workspace_id, lower(name)) WHERE
   // archived_at IS NULL, руками в миграции doc_type_name_unique_live: папка
   // реестра на Диске ключуется именем, и одноимённые виды делили бы одну папку
   // вместе с её грантами.
-  name           String
-  category       String  @default("general") // hr | general | external — профиль правил и редактора (external = ЭДО, контрагенты)
+  name            String
+  category        String    @default("general") // hr | general | external — профиль правил и редактора (external = ЭДО, контрагенты)
   // «ПР-{ГГГГ}-{NNN}»: номер присваивается ПРИ РЕГИСТРАЦИИ, черновики номеров не съедают
-  numberFormat   String? @map("number_format")
-  visibility     String  @default("managers") // team | department | managers
+  numberFormat    String?   @map("number_format")
+  visibility      String    @default("managers") // team | department | managers
   // Чем подписывается документ этого вида: none | pep | ecp. Вид ДИКТУЕТ уровень,
   // а не подсказывает: кадровые документы по ст. 33 ТК РК требуют именно ЭЦП, и
   // выбирать это на каждом маршруте вручную — способ однажды забыть.
-  signatureLevel String  @default("none") @map("signature_level")
-  toPersonalFile Boolean @default(false) @map("to_personal_file")
+  signatureLevel  String    @default("none") @map("signature_level")
+  toPersonalFile  Boolean   @default(false) @map("to_personal_file")
   // Режим ОБЯЗАТЕЛЬНОГО вручения (ст. 61 п. 3 / ст. 65 ТК РК — акты о прекращении
   // и взыскании): печатный комплект + фиксация способа вручения на карточке.
-  specialDelivery Boolean @default(false) @map("special_delivery")
+  specialDelivery Boolean   @default(false) @map("special_delivery")
   // Номенклатурный срок хранения (приказ № 279-НК — до 75 лет). Справочно:
   // enforcement не нужен, подписанное и так не удаляется.
-  retentionYears Int?    @map("retention_years")
+  retentionYears  Int?      @map("retention_years")
   // Откуда установлен (платформенная библиотека кадровых бланков)
-  libraryKey     String? @map("library_key")
-  sortOrder      Int     @default(0) @map("sort_order")
-  archivedAt     DateTime? @map("archived_at")
+  libraryKey      String?   @map("library_key")
+  sortOrder       Int       @default(0) @map("sort_order")
+  archivedAt      DateTime? @map("archived_at")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -3969,16 +3976,16 @@ model DocTypeCounter {
 }
 
 model DocTemplate {
-  id          String @id @default(uuid())
-  workspaceId String @map("workspace_id") // денормализован: выборки идут по организации
-  docTypeId   String @map("doc_type_id")
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id") // денормализован: выборки идут по организации
+  docTypeId   String  @map("doc_type_id")
   name        String // человеческое: «Отпуск», а не «Заявление о предоставлении…»
   description String?
 
   // Вид бланка: 'docx' — загруженный Word-файл, 'builder' — блочный конструктор
-  kind       String  @default("docx")
+  kind       String @default("docx")
   // Блоки конструктора (kind='builder'; формат BuilderDoc из shared)
-  builderDoc Json?   @map("builder_doc")
+  builderDoc Json?  @map("builder_doc")
 
   // Бланк — ОБЫЧНЫЙ документ core/docs (правится тем же редактором, что и всё остальное).
   documentId String? @map("document_id")
@@ -4001,8 +4008,8 @@ model DocTemplate {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  docType   DocType     @relation(fields: [docTypeId], references: [id], onDelete: Cascade)
-  workspace Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  docType   DocType       @relation(fields: [docTypeId], references: [id], onDelete: Cascade)
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   documents OrgDocument[]
 
   @@index([workspaceId, status])
@@ -4011,27 +4018,27 @@ model DocTemplate {
 }
 
 model OrgDocument {
-  id          String @id @default(uuid())
-  workspaceId String @map("workspace_id")
-  docTypeId   String @map("doc_type_id")
+  id          String  @id @default(uuid())
+  workspaceId String  @map("workspace_id")
+  docTypeId   String  @map("doc_type_id")
   templateId  String? @map("template_id")
 
   title  String
   // draft | in_review | signed | registered | active | rejected | cancelled | archived
   status String @default("draft")
 
-  number     String?   // присваивается при регистрации
+  number     String? // присваивается при регистрации
   numberedAt DateTime? @map("numbered_at")
 
   // Сторона документа — сотрудник (заявитель / субъект приказа). У документов
   // «С контрагентами» опциональна (внутренний куратор договора).
-  subjectUserId String? @map("subject_user_id")
+  subjectUserId         String? @map("subject_user_id")
   // ВТОРАЯ сторона — контрагент из справочника (виды категории `external`).
   // БЕЗ FK намеренно (паттерн subjectUserId): карточка документа — юридическая
   // запись, и архивация контрагента её не рвёт.
   counterpartyId        String? @map("counterparty_id")
   counterpartyContactId String? @map("counterparty_contact_id")
-  createdById   String  @map("created_by_id")
+  createdById           String  @map("created_by_id")
 
   documentId String? @map("document_id") // живой документ core/docs (правка в редакторе)
   // «Один файл — одна карточка» (правило загрузки готового файла). Уникум, а не
@@ -4048,7 +4055,7 @@ model OrgDocument {
   // шаблон потом переведут на другой язык.
   language   String  @default("kk")
 
-  fields Json @default("{}") // значения формы подачи
+  fields     Json  @default("{}") // значения формы подачи
   // Объявление полей СВОБОДНОГО документа (без шаблона): у документа по шаблону
   // форма живёт в шаблоне, здесь null — двух источников правды быть не должно.
   formFields Json? @map("form_fields")
@@ -4058,10 +4065,10 @@ model OrgDocument {
   parentDocumentId  String? @map("parent_document_id") // приказ ← заявление
 
   // КЭДО: кадровое действие, породившее документ (без FK — паттерн subjectUserId)
-  hrActionId String? @map("hr_action_id")
+  hrActionId          String?   @map("hr_action_id")
   // Гибридный режим: как документ доводится до работника. electronic — подпись/
   // ознакомление в системе; paper — печатный комплект; hybrid — и то и другое.
-  deliveryMode String @default("electronic") @map("delivery_mode")
+  deliveryMode        String    @default("electronic") @map("delivery_mode")
   // Фиксация ВРУЧЕНИЯ (specialDelivery-виды: ст. 61 п. 3 — 3 рабочих дня)
   deliveredAt         DateTime? @map("delivered_at")
   deliveryMethod      String?   @map("delivery_method") // in_person | refusal_act | registered_mail
@@ -4113,9 +4120,9 @@ model OrgDocument {
 /// Один предмет и один раунд сбора; «на доработку» закрывает заявку, повторная
 /// подача порождает новый маршрут, новый шаг и новую заявку с новым отпечатком.
 model SignRequest {
-  id      String @id @default(uuid())
-  refType String @map("ref_type") // org_document | (дальше — счета, договоры ЭДО, файлы Диска)
-  refId   String @map("ref_id")
+  id       String  @id @default(uuid())
+  refType  String  @map("ref_type") // org_document | (дальше — счета, договоры ЭДО, файлы Диска)
+  refId    String  @map("ref_id")
   // Снимок названия предмета — тот же довод, что у ApprovalRequest.refTitle и
   // ShareLink.refTitle: список не зовёт резолвер на каждую строку, переживает
   // удаление объекта и не светит ТЕКУЩЕЕ имя тому, у кого доступ отобрали.
@@ -4134,7 +4141,7 @@ model SignRequest {
   subjectFileId String @map("subject_file_id")
   subjectSha256 String @map("subject_sha256")
 
-  level   String   // ecp | pep
+  level   String // ecp | pep
   methods String[] @default([]) // qr | ncalayer | pep_otp — что разрешено этой заявкой
   status  String   @default("pending") // pending | completed | declined | cancelled | expired
 
@@ -4200,7 +4207,7 @@ model SignAct {
   signerPhone   String? @map("signer_phone") // ПЭП и гость: чем подтверждали личность
 
   method String? // qr | ncalayer | pep_otp — null, пока подписант не выбрал
-  level  String  // ecp | pep
+  level  String // ecp | pep
   status String  @default("pending") // pending | signed | declined | failed | expired
 
   // Копия отпечатка с заявки: акт не должен требовать join, чтобы ответить на
@@ -4214,13 +4221,13 @@ model SignAct {
   cmsFileId String? @map("cms_file_id")
   cmsSha256 String? @map("cms_sha256")
 
-  certSubjectCn String?   @map("cert_subject_cn")
+  certSubjectCn  String?   @map("cert_subject_cn")
   // ИИН/БИН разбираются из сертификата. Расхождение с users.iin — ОТКАЗ, а не
   // предупреждение: иначе подпись доказывает не того человека.
-  certSubjectIin String?  @map("cert_subject_iin")
-  certSubjectBin String?  @map("cert_subject_bin")
-  certSerial     String?  @map("cert_serial")
-  certIssuerCn   String?  @map("cert_issuer_cn")
+  certSubjectIin String?   @map("cert_subject_iin")
+  certSubjectBin String?   @map("cert_subject_bin")
+  certSerial     String?   @map("cert_serial")
+  certIssuerCn   String?   @map("cert_issuer_cn")
   certNotBefore  DateTime? @map("cert_not_before")
   certNotAfter   DateTime? @map("cert_not_after")
 
@@ -4228,21 +4235,21 @@ model SignAct {
   // юридически значим статус сертификата ТОГДА (приказ № 1187 требует проверки
   // цепочки, OCSP на момент подписания и метки TSP). Через год сертификат
   // истечёт, и живая проверка не докажет ничего.
-  chainValid  Boolean?  @map("chain_valid")
-  ocspStatus  String?   @map("ocsp_status") // good | revoked | unknown
-  ocspAt      DateTime? @map("ocsp_at")
-  ocspFileId  String?   @map("ocsp_file_id") // сырая квитанция для сторонней проверки
-  tspAt       DateTime? @map("tsp_at") // метка доверенного времени = юридическое время
-  tspSerial   String?   @map("tsp_serial")
-  tspFileId   String?   @map("tsp_file_id")
+  chainValid Boolean?  @map("chain_valid")
+  ocspStatus String?   @map("ocsp_status") // good | revoked | unknown
+  ocspAt     DateTime? @map("ocsp_at")
+  ocspFileId String?   @map("ocsp_file_id") // сырая квитанция для сторонней проверки
+  tspAt      DateTime? @map("tsp_at") // метка доверенного времени = юридическое время
+  tspSerial  String?   @map("tsp_serial")
+  tspFileId  String?   @map("tsp_file_id")
 
   // ---- ПЭП ----
   verifyChallengeId String? @map("verify_challenge_id") // цепочка core/verify (purpose sign_pep)
   // СНИМОК текста соглашения сторон + его версия. Ссылка на «текущую редакцию»
   // доказательством не является: доказывать придётся тот текст, который человек
   // видел (ст. 47 ЦК — ПЭП равнозначна подписи ПО СОГЛАШЕНИЮ СТОРОН).
-  consentText    String? @map("consent_text")
-  consentVersion String? @map("consent_version")
+  consentText       String? @map("consent_text")
+  consentVersion    String? @map("consent_version")
 
   // Юридическое время подписи: у ЭЦП это метка TSP, у ПЭП — время системы.
   signedAt      DateTime? @map("signed_at")
@@ -4254,12 +4261,12 @@ model SignAct {
   checkToken String @unique @map("check_token")
 
   ip        String?
-  userAgent String? @map("user_agent")
+  userAgent String?  @map("user_agent")
   createdAt DateTime @default(now()) @map("created_at")
 
-  request     SignRequest     @relation(fields: [requestId], references: [id], onDelete: Restrict)
-  events      SignActEvent[]
-  qrSessions  SignQrSession[]
+  request    SignRequest     @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  events     SignActEvent[]
+  qrSessions SignQrSession[]
 
   @@index([requestId])
   @@index([signerUserId, signedAt])
@@ -4305,7 +4312,7 @@ model SignQrSession {
   dataToken String @unique @map("data_token")
   signToken String @unique @map("sign_token")
 
-  status String @default("issued") // issued | claimed | submitted | expired
+  status      String  @default("issued") // issued | claimed | submitted | expired
   // Идентификатор процедуры на стороне моста (формат eGov mobile изолирован в драйвере)
   procedureId String? @map("procedure_id")
 
@@ -4322,6 +4329,7 @@ model SignQrSession {
   @@index([status, expiresAt])
   @@map("sign_qr_sessions")
 }
+
 // ============================================================
 // КЭДО — кадровый электронный документооборот (modules/hr, шаг 5 документной
 // вертикали). Данные о трудовых отношениях — домен «Сотрудников», бумаги о них —
@@ -4333,9 +4341,9 @@ model SignQrSession {
 /// и филиала — документ печатает то, о чём договорились, даже если справочник
 /// потом переименуют.
 model Employment {
-  id          String @id @default(uuid())
-  workspaceId String @map("workspace_id")
-  userId      String @map("user_id") // без FK (паттерн OrgDocument.subjectUserId)
+  id              String  @id @default(uuid())
+  workspaceId     String  @map("workspace_id")
+  userId          String  @map("user_id") // без FK (паттерн OrgDocument.subjectUserId)
   // РАБОТОДАТЕЛЬ по договору. Restrict: юрлицо с карточками только архивируется.
   // Совместительство внутри организации = вторая карточка в ДРУГОМ юрлице.
   legalEntityId   String  @map("legal_entity_id")
@@ -4347,13 +4355,13 @@ model Employment {
   firedAt         DateTime? @map("fired_at") @db.Date
   dismissalGround String?   @map("dismissal_ground") // код справочника статей ТК РК
 
-  contractNumber String?   @map("contract_number")
-  contractDate   DateTime? @map("contract_date") @db.Date
-  contractType   String    @default("indefinite") @map("contract_type") // indefinite | fixed_term | seasonal | task_based
-  contractEndAt  DateTime? @map("contract_end_at") @db.Date
+  contractNumber          String?   @map("contract_number")
+  contractDate            DateTime? @map("contract_date") @db.Date
+  contractType            String    @default("indefinite") @map("contract_type") // indefinite | fixed_term | seasonal | task_based
+  contractEndAt           DateTime? @map("contract_end_at") @db.Date
   // Ст. 30 ТК РК: продление срочного договора молчанием — максимум 2 раза,
   // дальше договор считается бессрочным (плашка в интерфейсе, не блок).
-  contractExtensionsCount Int @default(0) @map("contract_extensions_count")
+  contractExtensionsCount Int       @default(0) @map("contract_extensions_count")
 
   probationUntil DateTime? @map("probation_until") @db.Date
 
@@ -4469,9 +4477,9 @@ model EsutdSubmission {
   dueAt  DateTime @map("due_at") @db.Date // посчитан по производственному календарю
   status String   @default("pending") // pending | submitted | failed | not_required
 
-  submittedAt    DateTime? @map("submitted_at")
-  submittedById  String?   @map("submitted_by_id")
-  externalNumber String?   @map("external_number")
+  submittedAt     DateTime? @map("submitted_at")
+  submittedById   String?   @map("submitted_by_id")
+  externalNumber  String?   @map("external_number")
   // Окно исправления ошибочно внесённых сведений — 30 РАБОЧИХ дней без штрафа
   // (разъяснения к ст. 98 КоАП); считается при отметке о сдаче.
   correctionUntil DateTime? @map("correction_until") @db.Date
@@ -4551,7 +4559,7 @@ model DocCampaign {
   // заголовок собирается на его языке. Набранный человеком заголовок ключа не имеет.
   titleKey      String? @map("title_key")
   titleParams   Json?   @map("title_params")
-  orgDocumentId String @map("org_document_id") // без FK: предмет заморожен своей копией
+  orgDocumentId String  @map("org_document_id") // без FK: предмет заморожен своей копией
 
   // Заморозка предмета кампании: что видел каждый адресат (профиль sign_subject)
   subjectFileId String @map("subject_file_id")
@@ -4800,4 +4808,302 @@ model NoteChunk {
   @@unique([noteId, ord])
   @@index([spaceId])
   @@map("note_chunks")
+}
+
+// ============================================================
+// core/entitlements — тариф и лимиты (19-й платформенный движок)
+// ============================================================
+// План — ступень (ключ в коде); значения — версиями JSONB; подписка субъекта
+// (человек/организация/семья) указывает на версию; гранты и оверрайды — поверх;
+// расходуемые квоты — счётчиками. Free = отсутствие живой подписки.
+
+/// Тарифная ступень. Ключи и субъект — из `PLAN_DEFS` (@superapp/shared).
+model Plan {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  subjectType String   @map("subject_type") // user | workspace | family
+  status      String   @default("active") // active | archived
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  versions PlanVersion[]
+
+  @@map("plans")
+}
+
+/// Версия значений плана. Опубликованная версия НЕИЗМЕНЯЕМА (правка = новая версия);
+/// черновик правится инлайн и в продукт не попадает до публикации.
+model PlanVersion {
+  id           String    @id @default(uuid())
+  planId       String    @map("plan_id")
+  version      Int
+  status       String    @default("draft") // draft | published | archived
+  region       String    @default("KZ")
+  /// `{ "<ключ реестра>": значение }` — только ключи реестра, проверяется при публикации
+  entitlements Json      @default("{}")
+  note         String?
+  publishedAt  DateTime? @map("published_at")
+  publishedBy  String?   @map("published_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  plan          Plan                  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  subscriptions SubjectSubscription[]
+
+  @@unique([planId, version])
+  @@index([planId, status])
+  @@map("plan_versions")
+}
+
+/// Подписка субъекта на версию плана. Полиморфный субъект без FK (`forgetSubject`
+/// чистит при удалении человека / purge организации).
+/// Партиальные уникумы — РУКАМИ в миграции (Prisma не выражает):
+///   одна ЖИВАЯ подписка на субъект — UNIQUE (subject_type, subject_id)
+///     WHERE status IN ('trialing','active','past_due');
+///   один бизнес-триал на человека — UNIQUE (trial_consumed_by)
+///     WHERE subject_type = 'workspace' AND trial_consumed_by IS NOT NULL.
+model SubjectSubscription {
+  id               String    @id @default(uuid())
+  subjectType      String    @map("subject_type") // user | workspace | family
+  subjectId        String    @map("subject_id")
+  planVersionId    String    @map("plan_version_id")
+  status           String // trialing | active | past_due | expired | cancelled
+  startedAt        DateTime  @default(now()) @map("started_at")
+  trialEndsAt      DateTime? @map("trial_ends_at")
+  currentPeriodEnd DateTime? @map("current_period_end")
+  graceUntil       DateTime? @map("grace_until")
+  cancelledAt      DateTime? @map("cancelled_at")
+  source           String // trial | manual | migration | payment
+  /// Кто потратил свой единственный бизнес-триал (владелец организации)
+  trialConsumedBy  String?   @map("trial_consumed_by")
+  createdBy        String?   @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  planVersion PlanVersion @relation(fields: [planVersionId], references: [id])
+
+  @@index([subjectType, subjectId, status])
+  @@index([status, trialEndsAt])
+  @@index([status, currentPeriodEnd])
+  @@index([status, graceUntil])
+  @@map("subject_subscriptions")
+}
+
+/// Единый слой грантов: подарок, триал, семья, add-on, ручной, наследный (`premiumUntil`).
+/// Сливаются с планом по правилу ключа (feature=OR, limit=MAX, quota=SUM).
+model EntitlementGrant {
+  id             String    @id @default(uuid())
+  subjectType    String    @map("subject_type")
+  subjectId      String    @map("subject_id")
+  key            String
+  value          Json
+  source         String // gift | trial | family | addon | manual | legacy
+  priority       Int       @default(0)
+  effectiveFrom  DateTime  @default(now()) @map("effective_from")
+  validUntil     DateTime? @map("valid_until")
+  reason         String?
+  grantedBy      String?   @map("granted_by")
+  /// Идемпотентность источника (`legacy:premium:<userId>`, платёж, кампания)
+  idempotencyKey String    @unique @map("idempotency_key")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([subjectType, subjectId, key])
+  @@index([validUntil])
+  @@map("entitlement_grants")
+}
+
+/// Индивидуальное условие на субъект по ключу — ПОСЛЕДНИЙ слой резолва.
+/// Причина и срок обязательны: бессрочных ручных условий не бывает.
+model EntitlementOverride {
+  id          String   @id @default(uuid())
+  subjectType String   @map("subject_type")
+  subjectId   String   @map("subject_id")
+  key         String
+  mode        String // set | unlimited | deny
+  value       Json?
+  reason      String
+  validUntil  DateTime @map("valid_until")
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([subjectType, subjectId, key])
+  @@index([validUntil])
+  @@map("entitlement_overrides")
+}
+
+/// Счётчик расходуемой квоты (обобщение прежнего FileQuotaUsage на все ключи).
+/// Период (day/month) — ленивый сброс тем же UPDATE; без периода — навсегда (байты Диска).
+model QuotaCounter {
+  id          String    @id @default(uuid())
+  subjectType String    @map("subject_type")
+  subjectId   String    @map("subject_id")
+  key         String
+  used        BigInt    @default(0)
+  periodStart DateTime? @map("period_start")
+  periodEnd   DateTime? @map("period_end")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@unique([subjectType, subjectId, key])
+  @@map("quota_counters")
+}
+
+// ============================================================
+// core/platform — кабинет платформы (20-й платформенный движок)
+// ============================================================
+// Сотрудники платформы и их права живут ОТДЕЛЬНО от `user_roles` продукта:
+// ошибка тенантной логики не должна эскалировать на платформу. Все мутации —
+// через исполнитель команд, каждая — строкой в append-only журнале.
+
+/// Сотрудник платформы. Суспенд отзывает все сессии кабинета.
+model PlatformStaff {
+  userId      String    @id @map("user_id")
+  status      String    @default("active") // active | suspended
+  note        String?
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  suspendedAt DateTime? @map("suspended_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  roles PlatformStaffRole[]
+
+  @@map("platform_staff")
+}
+
+/// Роль сотрудника (`PLATFORM_ROLES` в @superapp/shared). Scope — задел под узкие роли.
+model PlatformStaffRole {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  role      String
+  scope     Json      @default("{\"kind\":\"global\"}")
+  grantedBy String    @map("granted_by")
+  grantedAt DateTime  @default(now()) @map("granted_at")
+  expiresAt DateTime? @map("expires_at")
+  reason    String
+
+  staff PlatformStaff @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@map("platform_staff_roles")
+}
+
+/// Сессия кабинета: токен без refresh, 8 часов, простой 20 минут (метка в Redis).
+model PlatformSession {
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  lastActiveAt DateTime  @default(now()) @map("last_active_at")
+  expiresAt    DateTime  @map("expires_at")
+  ip           String?
+  userAgent    String?   @map("user_agent")
+  revokedAt    DateTime? @map("revoked_at")
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("platform_sessions")
+}
+
+/// Политика кабинета — одна строка JSON (`dualControlEnabled`, …). Меняется командой.
+model PlatformPolicy {
+  id        String   @id @default("default")
+  policy    Json     @default("{}")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by")
+
+  @@map("platform_policy")
+}
+
+/// Журнал команд — APPEND-ONLY: триггеры в миграции роняют UPDATE/DELETE и TRUNCATE.
+/// Партиальный уникум (actor_id, command_key, idempotency_key)
+///   WHERE idempotency_key IS NOT NULL — руками в миграции.
+/// Партиционирование по месяцам — позже (конвертируемо), все поля — сейчас.
+model PlatformAuditEntry {
+  id                 String    @id @default(uuid())
+  occurredAt         DateTime  @default(now()) @map("occurred_at")
+  /// null — действие системы (bootstrap владельца скриптом)
+  actorId            String?   @map("actor_id")
+  actorRolesSnapshot Json      @default("[]") @map("actor_roles_snapshot")
+  onBehalfOfId       String?   @map("on_behalf_of_id")
+  sessionId          String?   @map("session_id")
+  requestId          String?   @map("request_id")
+  commandKey         String    @map("command_key")
+  commandVersion     Int       @default(1) @map("command_version")
+  /// Вход ПОСЛЕ маскирования (`redact[]` декларации + автоматически по имени поля)
+  input              Json?
+  inputHash          String?   @map("input_hash")
+  targetType         String?   @map("target_type")
+  targetId           String?   @map("target_id")
+  targetWorkspaceId  String?   @map("target_workspace_id")
+  before             Json?
+  after              Json?
+  outcome            String // ok | denied | error
+  errorCode          String?   @map("error_code")
+  readOnly           Boolean   @default(false) @map("read_only")
+  risk               String    @default("low")
+  reason             String?
+  ticketRef          String?   @map("ticket_ref")
+  approvalId         String?   @map("approval_id")
+  stepUpAt           DateTime? @map("step_up_at")
+  idempotencyKey     String?   @map("idempotency_key")
+  dryRun             Boolean   @default(false) @map("dry_run")
+  ip                 String?
+  userAgent          String?   @map("user_agent")
+  durationMs         Int       @default(0) @map("duration_ms")
+
+  @@index([occurredAt])
+  @@index([actorId, occurredAt])
+  @@index([targetType, targetId, occurredAt])
+  @@index([commandKey, occurredAt])
+  @@map("platform_audit_entries")
+}
+
+/// Журнал ЧТЕНИЙ кабинета (поиск, карточка, раскрытие PII) — лёгкая вставка вне транзакции.
+model PlatformAccessLog {
+  id         BigInt   @id @default(autoincrement())
+  actorId    String   @map("actor_id")
+  kind       String // search | view | reveal
+  targetType String?  @map("target_type")
+  targetId   String?  @map("target_id")
+  fields     Json?
+  requestId  String?  @map("request_id")
+  occurredAt DateTime @default(now()) @map("occurred_at")
+
+  @@index([actorId, occurredAt])
+  @@index([targetType, targetId, occurredAt])
+  @@index([occurredAt])
+  @@map("platform_access_log")
+}
+
+/// Заявка four-eyes: команда с `dualControl` при включённой политике ждёт второго
+/// сотрудника (core/approvals, refType `platform_command`), затем исполняется той же
+/// транзакцией с `approvalId` в журнале. `input` — ПОЛНЫЙ (нужен исполнению);
+/// наружу отдаётся `inputRedacted`.
+model PlatformCommandRequest {
+  id              String    @id @default(uuid())
+  commandKey      String    @map("command_key")
+  commandVersion  Int       @default(1) @map("command_version")
+  input           Json
+  inputRedacted   Json?     @map("input_redacted")
+  targetType      String?   @map("target_type")
+  targetId        String?   @map("target_id")
+  actorId         String    @map("actor_id")
+  reason          String?
+  ticketRef       String?   @map("ticket_ref")
+  idempotencyKey  String    @map("idempotency_key")
+  status          String    @default("pending") // pending | approved | rejected | executed | cancelled | failed
+  approvalId      String?   @map("approval_id")
+  decidedBy       String?   @map("decided_by")
+  decidedAt       DateTime? @map("decided_at")
+  decisionComment String?   @map("decision_comment")
+  executedAuditId String?   @map("executed_audit_id")
+  errorCode       String?   @map("error_code")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([actorId, commandKey, idempotencyKey])
+  @@index([status, createdAt])
+  @@index([actorId, createdAt])
+  @@map("platform_command_requests")
 }

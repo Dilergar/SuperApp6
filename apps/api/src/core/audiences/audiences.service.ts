@@ -43,6 +43,12 @@ export interface ResolveOptions {
   onOverflow: 'throw' | 'truncate';
   /** Какие виды допускает потребитель (иначе — все из словаря); чужой вид → 400 */
   allowedKinds?: readonly AudienceKind[];
+  /**
+   * Сузить вид `workspace` до ролей (например, `['owner', 'admin']` — «владельцу и
+   * админам» у уведомлений тарифа). Без фильтра — вся команда (`TEAM_WORKSPACE_ROLES`).
+   * На другие виды не действует: у них роли организации нет.
+   */
+  roles?: readonly string[];
 }
 
 /**
@@ -93,7 +99,7 @@ export class AudiencesService {
           kind: this.kindLabel(ref.type),
         });
       }
-      const ids = await this.resolveOne(ref, ctx, limit);
+      const ids = await this.resolveOne(ref, ctx, limit, opts.roles);
       for (const id of ids) {
         out.add(id);
         if (out.size > opts.max && opts.onOverflow === 'truncate') break;
@@ -112,7 +118,7 @@ export class AudiencesService {
   }
 
   /** Один адресат → люди (без фильтра живости и потолка — сырой разворот) */
-  async resolveOne(ref: AudienceRef, ctx: AudienceContext, limit: number): Promise<string[]> {
+  async resolveOne(ref: AudienceRef, ctx: AudienceContext, limit: number, roles?: readonly string[]): Promise<string[]> {
     const id = this.substituteAnchor(ref, ctx);
     switch (ref.type) {
       case 'user': {
@@ -121,8 +127,11 @@ export class AudiencesService {
       }
       case 'workspace': {
         if (!ctx.workspaceId || ctx.workspaceId !== id) return [];
+        // Фильтр ролей сужает команду (владелец + админы); вне команды роль не считается.
+        const allowed = roles ? TEAM_WORKSPACE_ROLES.filter((r) => roles.includes(r)) : [...TEAM_WORKSPACE_ROLES];
+        if (!allowed.length) return [];
         const rows = await this.db.userRole.findMany({
-          where: { context: WS_CONTEXT, tenantId: id, isActive: true, role: { in: [...TEAM_WORKSPACE_ROLES] } },
+          where: { context: WS_CONTEXT, tenantId: id, isActive: true, role: { in: allowed } },
           select: { userId: true },
           take: limit,
         });

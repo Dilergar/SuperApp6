@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ObjectNodeDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { Button, Card, EmptyState, LoadingBlock, PageHeader, Toggle } from '@/components/ui';
+import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 import { objectsTreeKey } from '@/lib/queries';
 import { fetchObjectTree } from './objects-api';
 import { ObjectTree } from './_components/ObjectTree';
@@ -36,6 +37,8 @@ export default function ObjectsPage() {
 
   const nodes = data?.nodes ?? [];
   const canCreate = data?.canCreate ?? false;
+  // Замок тарифа организации: на лимите создание не предлагается (сервер всё равно ответит 402)
+  const objectsGate = useEntitlementGate('objects.maxPerWorkspace', id, 'ent-lock-objects');
 
   const openCreate = (p: ObjectNodeDto | null) => {
     setParent(p);
@@ -54,9 +57,13 @@ export default function ObjectsPage() {
               {t('models.breadcrumb')}
             </Button>
             {canCreate && (
-              <Button variant="primary" icon="add" onClick={() => openCreate(null)}>
-                {t('entity')}
-              </Button>
+              <>
+                <EntitlementGauge keyName="objects.maxPerWorkspace" workspaceId={id} />
+                <EntitlementLock keyName="objects.maxPerWorkspace" workspaceId={id} id="ent-lock-objects" />
+                <Button variant="primary" icon="add" disabled={objectsGate.blocked} aria-describedby={objectsGate.describedBy} onClick={() => openCreate(null)}>
+                  {t('entity')}
+                </Button>
+              </>
             )}
           </>
         }
@@ -72,7 +79,7 @@ export default function ObjectsPage() {
             description={canCreate ? t('page.emptyHintManage') : t('page.emptyHint')}
             action={
               canCreate ? (
-                <Button variant="primary" icon="add" onClick={() => openCreate(null)}>
+                <Button variant="primary" icon="add" disabled={objectsGate.blocked} aria-describedby={objectsGate.describedBy} onClick={() => openCreate(null)}>
                   {t('page.addFirst')}
                 </Button>
               ) : undefined

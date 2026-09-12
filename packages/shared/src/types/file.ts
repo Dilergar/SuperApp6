@@ -80,7 +80,8 @@ export interface FileUsageDto {
   ownerId: string;
   bytesUsed: number;
   filesCount: number;
-  limitBytes: number;
+  /** Потолок по тарифу владельца (core/entitlements); null — без ограничения */
+  limitBytes: number | null;
 }
 
 /**

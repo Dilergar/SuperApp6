@@ -11,6 +11,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
+import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 import { contactsKey, fetchAllContacts, shopAccessibleKey, shopListingsKey, shopMineKey, shopOfKey } from '@/lib/queries';
 import { executeRichCardAction } from '@/lib/messenger-api';
 import { ShareCardModal } from '../messenger/ShareCardModal';
@@ -66,6 +67,8 @@ export default function ShopPage() {
   const shop = shopQ.data?.shop ?? null;
   const showcases: Showcase[] = shopQ.data?.showcases ?? [];
   const canManage = shop?.canManage ?? false;
+  // Замок тарифа на новую витрину (личный магазин — субъект человек)
+  const showcaseGate = useEntitlementGate('shop.maxShowcases', null, 'ent-lock-showcases');
 
   // Выбор витрины следует за списком: пропала выбранная → первая доступная
   useEffect(() => {
@@ -218,7 +221,11 @@ export default function ShopPage() {
               title={t('page.showcases')}
               actions={
                 canManage ? (
-                  <IconButton icon="add" label={t('page.newShowcase')} size={30} onClick={() => setShowcaseModal({})} />
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
+                    <EntitlementGauge keyName="shop.maxShowcases" />
+                    <EntitlementLock keyName="shop.maxShowcases" id="ent-lock-showcases" />
+                    <IconButton icon="add" label={t('page.newShowcase')} size={30} disabled={showcaseGate.blocked} aria-describedby={showcaseGate.describedBy} onClick={() => setShowcaseModal({})} />
+                  </span>
                 ) : undefined
               }
             />
@@ -229,7 +236,7 @@ export default function ShopPage() {
                 description={t(canManage ? 'page.noShowcasesOwner' : 'page.noShowcasesGuest')}
                 action={
                   canManage ? (
-                    <Button variant="matte" size="sm" icon="add" onClick={() => setShowcaseModal({})}>
+                    <Button variant="matte" size="sm" icon="add" disabled={showcaseGate.blocked} aria-describedby={showcaseGate.describedBy} onClick={() => setShowcaseModal({})}>
                       {t('page.showcase')}
                     </Button>
                   ) : undefined

@@ -72,6 +72,7 @@
     "trash": "Trash",
     "trashEmpty": "The trash is empty",
     "trashHint": "Items are kept for {days} days and take up space all that time. While an item is in the trash, a chat attachment keeps working — it stops opening only after the permanent deletion.",
+    "usedNoLimit": "{used} used · no limit",
     "usedOf": "{used} of {limit}",
     "usedSpace": "Space used"
   },

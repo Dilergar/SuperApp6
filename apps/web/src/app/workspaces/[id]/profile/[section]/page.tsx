@@ -24,6 +24,7 @@ import {
 } from '@superapp/shared';
 import { REGION_PROFILE_KZ } from '@superapp/i18n/config';
 import { useFormatters } from '@/lib/format';
+import { PlanAndLimits } from '@/components/entitlements';
 import type {
   Workspace,
   WorkspaceMember,
@@ -120,7 +121,7 @@ export default function WorkspaceSectionPage() {
   // Redirect off manage-only sections once the role is known.
   useEffect(() => {
     if (!ws) return;
-    if ((section === 'anketa' || section === 'settings' || section === 'notifications') && !canManage) {
+    if ((section === 'anketa' || section === 'settings' || section === 'notifications' || section === 'subscription') && !canManage) {
       router.replace(`/workspaces/${id}/profile/card`);
     }
     if (section === 'security' && !isOwner) {
@@ -348,15 +349,9 @@ export default function WorkspaceSectionPage() {
         </BentoGrid>
       )}
 
-      {/* ---------- Подписка ---------- */}
-      {section === 'subscription' && (
-        <BentoGrid>
-          <Card span={7}>
-            <CardHeader title={t('profile.subscription.title')} subtitle={t('profile.subscription.subtitle')} />
-            <div className="title-lg" style={{ marginBottom: 'var(--spacing-4)' }}>{t('profile.subscription.free')}</div>
-            <Button variant="primary" icon="crown" disabled>{t('profile.subscription.upgrade')}</Button>
-          </Card>
-        </BentoGrid>
+      {/* ---------- Тариф и лимиты (core/entitlements): владельцу и админам ---------- */}
+      {section === 'subscription' && canManage && (
+        <PlanAndLimits workspaceId={id} membersHref={`/workspaces/${id}/members`} />
       )}
 
       {/* ---------- Настройки ---------- */}

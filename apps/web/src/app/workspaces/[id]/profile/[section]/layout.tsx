@@ -12,5 +12,5 @@ export default function WorkspaceProfileSectionLayout({ children }: { children: 
   // понятие на обе стороны договора, и слова к нему живут в неймспейсе
   // контрагентов. Вложенный ServiceMessages ЗАМЕНЯЕТ словарь, а не дополняет:
   // не назвав его здесь, форма получила бы ключ вместо слова.
-  return <ServiceMessages ns={['workspaces', 'notifications', 'counterparties']}>{children}</ServiceMessages>;
+  return <ServiceMessages ns={['workspaces', 'notifications', 'counterparties', 'entitlements']}>{children}</ServiceMessages>;
 }

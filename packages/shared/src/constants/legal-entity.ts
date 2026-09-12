@@ -1,6 +1,5 @@
+// Потолок юрлиц у организации — ключ `legalEntities.maxPerWorkspace` реестра entitlements.
 export const LEGAL_ENTITY_LIMITS = {
-  /** Юрлиц у организации: сеть с десятком ТОО — потолок здравого смысла */
-  maxPerWorkspace: 20,
   nameMaxLength: 160,
 } as const;
 

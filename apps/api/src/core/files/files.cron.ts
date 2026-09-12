@@ -1,8 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { EVIDENCE_FILE_PROFILES, FILE_LIMITS } from '@superapp/shared';
+import { EVIDENCE_FILE_PROFILES, FILE_LIMITS, type FileOwnerType } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { EntitlementsQuotaService } from '../entitlements/entitlements.quota.service';
+import { QuotaReconcileRegistry } from '../entitlements/entitlements.registry';
 import { FilesService } from './files.service';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
 
@@ -12,7 +14,7 @@ import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
  * удаление после ретеншна, сверка квот. Ретраи медиа-конвейера и скана переехали на движок джобов core/jobs.
  */
 @Injectable()
-export class FilesCron {
+export class FilesCron implements OnModuleInit {
   private readonly logger = new Logger(FilesCron.name);
 
   constructor(
@@ -20,6 +22,8 @@ export class FilesCron {
     private readonly redis: RedisService,
     @Inject(STORAGE_DRIVER) private readonly driver: StorageDriver,
     private readonly files: FilesService,
+    private readonly quota: EntitlementsQuotaService,
+    private readonly reconcileRegistry: QuotaReconcileRegistry,
   ) {}
 
   /** Ежечасно: незавершённые загрузки старше 24ч → failed, объект/мультипарт зачищаются */
@@ -97,20 +101,20 @@ export class FilesCron {
     if (ran !== null && ran > 0) this.logger.log(`Orphaned files cleaned up: ${ran}`);
   }
 
-  /** Ежедневно 04:40: сверка квот — пересчёт от фактических ready-файлов (drift-фикс) */
-  @Cron('40 4 * * *')
-  async handleQuotaReconcile(): Promise<void> {
-    await this.redis.withLock('cron:files-quota-reconcile', 30 * 60 * 1000, () =>
-      this.reconcileQuotas(),
-    );
+  /**
+   * Сверка квот — пересчёт от фактических ready-файлов (drift-фикс). Расписание держит
+   * движок тарифов (`entitlements.quota reconcile`, 04:50): Диск регистрирует провайдер.
+   */
+  onModuleInit(): void {
+    this.reconcileRegistry.register('files.storageBytes', { reconcile: () => this.reconcileQuotas() });
   }
 
-  async reconcileQuotas(): Promise<void> {
+  async reconcileQuotas(): Promise<number> {
     const agg = await this.db.fileObject.groupBy({
       by: ['ownerType', 'ownerId'],
       // Доказательства подписания (core/sign) в квоту не входят НИГДЕ — ни при
       // загрузке, ни здесь: иначе ночная сверка вернула бы их обратно, и правило
-      // «вне квоты» продержалось бы ровно до 04:40.
+      // «вне квоты» продержалось бы ровно до сверки.
       where: { status: 'ready', profile: { notIn: [...EVIDENCE_FILE_PROFILES] } },
       _sum: { size: true },
       _count: { _all: true },
@@ -118,24 +122,17 @@ export class FilesCron {
     const seen = new Set<string>();
     for (const a of agg) {
       seen.add(`${a.ownerType}:${a.ownerId}`);
-      const bytes = a._sum.size ?? BigInt(0);
-      await this.db.fileQuotaUsage.upsert({
-        where: { ownerType_ownerId: { ownerType: a.ownerType, ownerId: a.ownerId } },
-        create: { ownerType: a.ownerType, ownerId: a.ownerId, bytesUsed: bytes, filesCount: a._count._all },
-        update: { bytesUsed: bytes, filesCount: a._count._all },
-      });
+      const subject = { type: a.ownerType as FileOwnerType, id: a.ownerId };
+      await this.quota.set(subject, 'files.storageBytes', Number(a._sum.size ?? BigInt(0)));
+      await this.quota.set(subject, 'files.count', a._count._all);
     }
     // Владельцы без ready-файлов → обнулить остатки
-    const stale = await this.db.fileQuotaUsage.findMany({
-      where: { OR: [{ bytesUsed: { gt: 0 } }, { filesCount: { gt: 0 } }] },
-      select: { id: true, ownerType: true, ownerId: true },
-    });
-    for (const u of stale) {
-      if (seen.has(`${u.ownerType}:${u.ownerId}`)) continue;
-      await this.db.fileQuotaUsage.update({
-        where: { id: u.id },
-        data: { bytesUsed: BigInt(0), filesCount: 0 },
-      });
+    for (const key of ['files.storageBytes', 'files.count'] as const) {
+      for (const s of await this.quota.subjectsWithCounter(key)) {
+        if (seen.has(`${s.type}:${s.id}`)) continue;
+        await this.quota.set(s, key, 0);
+      }
     }
+    return agg.length;
   }
 }

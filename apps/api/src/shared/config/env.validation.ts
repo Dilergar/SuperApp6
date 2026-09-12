@@ -148,6 +148,13 @@ const envSchema = z
     // позволяет ротировать её независимо. Адрес самой ссылки строится из WEB_URL.
     // Других переменных у движка нет — внешних зависимостей у него тоже нет.
     SHARE_LINK_SECRET: blank(z.string().min(32, 'at least 32 characters').optional()),
+    // --- Кабинет платформы (core/platform) ---
+    // Секрет токена КАБИНЕТА — отдельный от продуктового (утечка ключа продукта не даёт
+    // подделать токен кабинета). В production ОБЯЗАТЕЛЕН (superRefine ниже); в
+    // development пусто → производный от JWT_SECRET отдельной строкой контекста.
+    PLATFORM_JWT_SECRET: blank(z.string().min(32, 'at least 32 characters').optional()),
+    // Стоп-кран: `false` → все маршруты /platform/* отвечают 404 без деплоя кода.
+    PLATFORM_CONSOLE_ENABLED: blank(z.enum(['true', 'false']).optional()),
     // --- Движок уведомлений (core/notifications) — web push (VAPID). Пусто → push выключен:
     // тумблер «уведомления браузера» в вебе не показывается, доставки `skipped: driver_not_configured`.
     // Пара генерируется один раз: `npx web-push generate-vapid-keys`.
@@ -321,6 +328,15 @@ const envSchema = z
           code: z.ZodIssueCode.custom,
           path: ['JWT_SECRET'],
           message: 'at least 32 characters in production',
+        });
+      }
+      // Токен кабинета платформы подписывается СВОИМ секретом: производный от JWT_SECRET
+      // допустим только в development (утечка ключа продукта не должна открывать кабинет).
+      if (!env.PLATFORM_JWT_SECRET) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['PLATFORM_JWT_SECRET'],
+          message: 'is required in production (the platform console token must not derive from JWT_SECRET)',
         });
       }
     }

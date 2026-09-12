@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { EntitlementsService } from '../../core/entitlements/entitlements.service';
+import { UsageProviderRegistry } from '../../core/entitlements/entitlements.registry';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
@@ -81,13 +83,27 @@ const REQUISITE_KEYS = [
  * объекты и напечатанные документы.
  */
 @Injectable()
-export class LegalEntitiesService {
+export class LegalEntitiesService implements OnModuleInit {
   constructor(
     private db: DatabaseService,
     private roles: RolesService,
     private chatter: ChatterService,
     private i18n: I18nService,
+    private entitlements: EntitlementsService,
+    private usageProviders: UsageProviderRegistry,
   ) {}
+
+  /**
+   * Расход ключа `legalEntities.maxPerWorkspace` — ЖИВЫЕ юрлица организации (провайдер
+   * движка тарифов). Архивное юрлицо не занимает место в тарифе: в списках и пикерах
+   * его нет, и шкала не вправе считать невидимое. Симметрично возврат из архива
+   * проверяет потолок так же, как создание (`restore`).
+   */
+  onModuleInit(): void {
+    this.usageProviders.register('legalEntities.maxPerWorkspace', {
+      count: (subject, tx) => (tx ?? this.db).legalEntity.count({ where: { workspaceId: subject.id, archivedAt: null } }),
+    });
+  }
 
   // ============================================================
   // Головное юрлицо: самолечение и чтение
@@ -212,13 +228,13 @@ export class LegalEntitiesService {
   ): Promise<LegalEntityDto> {
     await this.assertCanManage(userId, workspaceId);
     await this.ensureHeadLegalEntity(workspaceId);
-    const count = await this.db.legalEntity.count({ where: { workspaceId } });
-    if (count >= LEGAL_ENTITY_LIMITS.maxPerWorkspace) {
-      throw badRequest('legalEntity.limitReached', { max: LEGAL_ENTITY_LIMITS.maxPerWorkspace });
-    }
     await this.validateDirector(workspaceId, dto.directorUserId ?? null);
 
     const created = await this.db.$transaction(async (tx) => {
+      // Потолок юрлиц — тариф организации (core/entitlements): COUNT под advisory-локом
+      // в этой же транзакции, отказ — 402 с объяснением.
+      await this.entitlements.assertCanCreate(tx, { type: 'workspace', id: workspaceId }, 'legalEntities.maxPerWorkspace');
+      const count = await tx.legalEntity.count({ where: { workspaceId } });
       const row = await tx.legalEntity
         .create({
           data: {
@@ -359,8 +375,13 @@ export class LegalEntitiesService {
     const row = await this.db.legalEntity.findFirst({ where: { id: leId, workspaceId } });
     if (!row) throw notFound('legalEntity.notFound');
     if (!row.archivedAt) return this.serialize(row);
-    const updated = await this.db.legalEntity
-      .update({ where: { id: leId }, data: { archivedAt: null } })
+    // Возврат из архива = создание с точки зрения потолка тарифа (иначе архив был бы
+    // обходом лимита): COUNT живых под advisory-локом в этой же транзакции.
+    const updated = await this.db
+      .$transaction(async (tx) => {
+        await this.entitlements.assertCanCreate(tx, { type: 'workspace', id: workspaceId }, 'legalEntities.maxPerWorkspace');
+        return tx.legalEntity.update({ where: { id: leId }, data: { archivedAt: null } });
+      })
       .catch((e: unknown) => this.rethrowBin(e));
     return this.serialize(updated);
   }

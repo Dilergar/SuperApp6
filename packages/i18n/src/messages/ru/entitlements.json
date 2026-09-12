@@ -1,0 +1,84 @@
+{
+  "chrome": {
+    "expired": "Тариф истёк — действуют значения бесплатного тарифа",
+    "grace": "Льготный период, {days, plural, one {остался # день} few {осталось # дня} many {осталось # дней} other {осталось # дня}}",
+    "link": "Тариф и лимиты",
+    "trial": "Пробный период, {days, plural, one {остался # день} few {осталось # дня} many {осталось # дней} other {осталось # дня}}"
+  },
+  "gauge": {
+    "of": "{used} из {total}",
+    "usedOf": "{used} из {total}"
+  },
+  "keys": {
+    "contactsMaxCircles": "Групп в окружении",
+    "filesCount": "Файлов на Диске",
+    "filesStorageBytes": "Место на Диске",
+    "legalEntitiesMaxPerWorkspace": "Юрлиц",
+    "notificationsSmsPerDay": "SMS в сутки",
+    "objectsMaxPerWorkspace": "Объектов",
+    "shopMaxShowcases": "Витрин",
+    "skinsPerGroup": "Свой скин на каждую Группу",
+    "workspaceSeats": "Мест в организации",
+    "workspacesMaxOwned": "Организаций во владении"
+  },
+  "lock": {
+    "quotaFull": "Место на Диске закончилось",
+    "self": "Доступно на тарифе {plan}",
+    "selfNoPlan": "Не входит в текущий тариф",
+    "workspace": "Лимит тарифа организации — решает владелец"
+  },
+  "page": {
+    "available": "Доступно",
+    "limitsTitle": "Лимиты по сервисам",
+    "orgPlanCard": "Тариф организации",
+    "periodEnd": "Оплачено до {date}",
+    "planCard": "Ваш тариф",
+    "resetAt": "Обновится {date}",
+    "seats": "Мест",
+    "subtitle": "Что входит в тариф и сколько использовано",
+    "title": "Тариф и лимиты",
+    "unavailable": "Недоступно",
+    "unlimited": "Без ограничения",
+    "usage": "{used} из {total}"
+  },
+  "plans": {
+    "business_basic": "Business Basic",
+    "business_free": "Business Free",
+    "business_pro": "Business Pro",
+    "business_standard": "Business Standard",
+    "family": "Family",
+    "free": "Бесплатный",
+    "personal": "Personal"
+  },
+  "services": {
+    "cardSkins": "Скины карточек",
+    "contacts": "Окружение",
+    "files": "Диск",
+    "legalEntities": "Юрлица",
+    "notifications": "Уведомления",
+    "objects": "Объекты",
+    "shop": "Магазин",
+    "workspaces": "Организации"
+  },
+  "source": {
+    "grant": "Подарок до {date}",
+    "grantNoEnd": "Подарок",
+    "override": "Индивидуальное условие до {date}"
+  },
+  "status": {
+    "active": "Активен",
+    "expired": "Истёк",
+    "free": "Бесплатный тариф",
+    "past_due": "Льготный период до {date}",
+    "trialing": "Пробный до {date}"
+  },
+  "supportChange": {
+    "grantCreated": "поддержка выдала дополнительную возможность",
+    "grantRevoked": "поддержка отозвала дополнительную возможность",
+    "overrideCleared": "поддержка сняла индивидуальное условие",
+    "overrideSet": "поддержка установила индивидуальное условие",
+    "subscriptionCleared": "поддержка сняла ваш тариф",
+    "subscriptionSet": "поддержка изменила ваш тариф",
+    "trialExtended": "поддержка продлила пробный период"
+  }
+}

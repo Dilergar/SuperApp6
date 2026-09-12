@@ -2,6 +2,7 @@ import { Injectable, ExecutionContext } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Reflector } from '@nestjs/core';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { IS_PLATFORM_ROUTE_KEY } from '../decorators/platform.decorator';
 import { unauthorized } from '../errors/api-error';
 
 @Injectable()
@@ -20,6 +21,14 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     if (isPublic) {
       return true;
     }
+
+    // Маршруты кабинета платформы живут под СВОИМ гардом (PlatformAuthGuard, APP_GUARD
+    // следующим): продуктовый токен туда не пускается, токен кабинета — сюда.
+    const isPlatform = this.reflector.getAllAndOverride<boolean>(IS_PLATFORM_ROUTE_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (isPlatform) return true;
 
     return super.canActivate(context);
   }

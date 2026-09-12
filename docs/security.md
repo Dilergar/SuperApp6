@@ -55,6 +55,12 @@
 - Подпись проверяется по **сырому телу** (LiveKit WebhookReceiver; точечный `express.raw` ДО body-parser, покрыты оба префикса /api и /api/v1).
 - Внешние данные вебхуков/Telegram санитайзятся (`sanitizeExternalVariables`: служебные `_*` ключи движка отбрасываются на любой глубине).
 
+## Кабинет платформы (`/platform/*`)
+
+- Отдельная личность: `PlatformStaff` ≠ `user_roles`; токен `aud: platform`, секрет `PLATFORM_JWT_SECRET` (production — обязателен и ≠ `JWT_SECRET`), сессия 8 ч с простоем 20 мин, sudo (step-up пароль + SMS) 15 мин; токены продукта и кабинета не взаимозаменяемы (`401`), `X-Workspace-Id` на `/platform/*` → `400`.
+- Закрыто по умолчанию: `PlatformAuthGuard` обслуживает только `@PlatformRoute()`, каждый маршрут объявляет доступ, `@Public()` под `/platform` запрещён, смоук на буте роняет старт при пропуске; стоп-кран `PLATFORM_CONSOLE_ENABLED=false` → `404`.
+- Каждое действие — команда: способность → step-up у high/critical → причина → «четыре глаза» (по политике) → идемпотентность → журнал append-only (триггер запрещает UPDATE/DELETE) в одной транзакции с эффектом; просмотры карточек — `PlatformAccessLog`. PII в ответах только масками, раскрытие — отдельная команда с причиной, результат в журнал не пишется. Поиск не энумерирует: только полный номер, 12-значный ИИН/БИН, uuid или ≥ 3 символов имени — [platform_console.md](platform_console.md).
+
 ## Принятые риски (не дыры; решения зафиксированы)
 
 - Токены в localStorage веба (XSS-путей в вебе нет: `dangerouslySetInnerHTML`/eval отсутствуют; refresh в httpOnly-куку — осознанно не делали).
@@ -67,4 +73,4 @@
 
 ## Связанные доки
 
-[verify_engine.md](verify_engine.md) (OTP, step-up) · [api_conventions.md](api_conventions.md) · [identity_roles.md](identity_roles.md) · [environment_variables.md](environment_variables.md).
+[verify_engine.md](verify_engine.md) (OTP, step-up) · [api_conventions.md](api_conventions.md) · [identity_roles.md](identity_roles.md) · [platform_console.md](platform_console.md) · [environment_variables.md](environment_variables.md).

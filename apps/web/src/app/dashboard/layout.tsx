@@ -5,5 +5,5 @@ import type { ReactNode } from 'react';
 import { ServiceMessages } from '@/i18n/ServiceMessages';
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  return <ServiceMessages ns={['dashboard', 'approvals', 'workspaces', 'tasks', 'finance', 'circles']}>{children}</ServiceMessages>;
+  return <ServiceMessages ns={['dashboard', 'approvals', 'workspaces', 'tasks', 'finance', 'circles', 'entitlements']}>{children}</ServiceMessages>;
 }

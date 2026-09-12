@@ -207,11 +207,6 @@ export class ProcessesService implements OnModuleInit {
     }
   }
 
-  /** Платформенная роль (Universal Identity, context='system') — открывает system-ноды. */
-  private isPlatformAdmin(userId: string): Promise<boolean> {
-    return this.roles.hasRole(userId, 'platform_admin', 'system');
-  }
-
   // ---------------------------------------------------------------
   // Палитра нод
   // ---------------------------------------------------------------
@@ -228,8 +223,12 @@ export class ProcessesService implements OnModuleInit {
     surface?: ProcessSurface,
   ): Promise<ProcessNodeTypeDto[]> {
     await this.assertTeamMember(userId, workspaceId);
-    const includeSystem = await this.isPlatformAdmin(userId);
-    const all = this.registry.listTypes(includeSystem);
+    // System-нод (`tier: 'system'`) сегодня НЕТ ни одной, и палитра их не показывает
+    // никому. Способности кабинета платформы здесь не читаются осознанно: право
+    // кабинета действует только по его собственному токену — в продуктовом запросе
+    // нет ни step-up, ни журнала кабинета. Когда системные ноды появятся, их откроет
+    // команда кабинета (`core/platform`), а не проверка права на продуктовом пути.
+    const all = this.registry.listTypes(false);
     // Нода могла объявить себя специальной («видна только в документных профилях») —
     // такие не засоряют общий канвас.
     const visible = all.filter((t) => !t.surfaces || t.surfaces.includes(surface ?? 'general'));

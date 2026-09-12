@@ -204,7 +204,9 @@ async function main() {
       const purgedRow = await prisma.fileObject.findUnique({ where: { id: purgeId } });
       check('GC: soft-deleted (8д) удалён физически', purgedRow === null);
 
-      await cron.reconcileQuotas();
+      // Сверка квот живёт у движка тарифов (core/entitlements, провайдер Диска) — зовём его дев-ручкой,
+      // а не ручным `new FilesCron`: у крона появились зависимости движка.
+      await call('POST', '/entitlements/dev/reconcile', t1, {});
       // Сверка пересчитывает квоту от ФАКТА по всем ready-файлам владельца, включая
       // те, что человек загрузил руками. Ожидание считаем от них, а не от нуля.
       const others = await prisma.fileObject.aggregate({

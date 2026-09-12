@@ -45,7 +45,6 @@ export interface UserProfile extends User {
   circlesCount: number;
   workspacesCount: number;
   contactsCount: number;
-  activeSubscription: SubscriptionInfo | null;
   /** Owner's DEFAULT card visibility — applied to contacts that are in
    *  none of the owner's groups. Per-group visibility lives on Circle. */
   cardVisibility: CardVisibility;
@@ -73,13 +72,8 @@ export interface UserLookupDto {
   avatar: string | null;
 }
 
-export interface SubscriptionInfo {
-  // `id` здесь НЕТ намеренно: select профиля его не берёт, и провод его никогда не слал.
-  plan: 'free' | 'personal' | 'family' | 'business';
-  status: 'active' | 'trial' | 'expired' | 'cancelled';
-  expiresAt: string;
-  giftedBy: string | null;
-}
+// Подписка в профиле больше не живёт: тариф и лимиты отдаёт снимок
+// `GET /entitlements/me` (core/entitlements, типы — `types/entitlements.ts`).
 
 // ============================================================
 // Contact card visibility

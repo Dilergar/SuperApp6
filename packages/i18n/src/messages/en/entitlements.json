@@ -1,0 +1,84 @@
+{
+  "chrome": {
+    "expired": "Plan expired — free plan values apply",
+    "grace": "Grace period, {days, plural, one {# day} other {# days}} left",
+    "link": "Plan and limits",
+    "trial": "Trial, {days, plural, one {# day} other {# days}} left"
+  },
+  "gauge": {
+    "of": "{used} of {total}",
+    "usedOf": "{used} of {total}"
+  },
+  "keys": {
+    "contactsMaxCircles": "Groups in your circle",
+    "filesCount": "Files on Drive",
+    "filesStorageBytes": "Drive storage",
+    "legalEntitiesMaxPerWorkspace": "Legal entities",
+    "notificationsSmsPerDay": "SMS per day",
+    "objectsMaxPerWorkspace": "Sites",
+    "shopMaxShowcases": "Showcases",
+    "skinsPerGroup": "A different skin for each Group",
+    "workspaceSeats": "Seats in the organization",
+    "workspacesMaxOwned": "Organizations you own"
+  },
+  "lock": {
+    "quotaFull": "Storage is full",
+    "self": "Available on the {plan} plan",
+    "selfNoPlan": "Not included in the current plan",
+    "workspace": "Organization plan limit — the owner decides"
+  },
+  "page": {
+    "available": "Available",
+    "limitsTitle": "Limits by service",
+    "orgPlanCard": "Organization plan",
+    "periodEnd": "Paid until {date}",
+    "planCard": "Your plan",
+    "resetAt": "Resets {date}",
+    "seats": "Seats",
+    "subtitle": "What the plan includes and how much is used",
+    "title": "Plan and limits",
+    "unavailable": "Not available",
+    "unlimited": "No limit",
+    "usage": "{used} of {total}"
+  },
+  "plans": {
+    "business_basic": "Business Basic",
+    "business_free": "Business Free",
+    "business_pro": "Business Pro",
+    "business_standard": "Business Standard",
+    "family": "Family",
+    "free": "Free",
+    "personal": "Personal"
+  },
+  "services": {
+    "cardSkins": "Card skins",
+    "contacts": "My circle",
+    "files": "Drive",
+    "legalEntities": "Legal entities",
+    "notifications": "Notifications",
+    "objects": "Sites",
+    "shop": "Shop",
+    "workspaces": "Organizations"
+  },
+  "source": {
+    "grant": "Gift until {date}",
+    "grantNoEnd": "Gift",
+    "override": "Individual terms until {date}"
+  },
+  "status": {
+    "active": "Active",
+    "expired": "Expired",
+    "free": "Free plan",
+    "past_due": "Grace period until {date}",
+    "trialing": "Trial until {date}"
+  },
+  "supportChange": {
+    "grantCreated": "support granted you an extra allowance",
+    "grantRevoked": "support revoked an extra allowance",
+    "overrideCleared": "support removed an individual condition",
+    "overrideSet": "support set an individual condition",
+    "subscriptionCleared": "support removed your plan",
+    "subscriptionSet": "support changed your plan",
+    "trialExtended": "support extended your trial"
+  }
+}

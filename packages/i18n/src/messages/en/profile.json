@@ -125,7 +125,7 @@
     "settings": "Settings",
     "skins": "Card skins",
     "stats": "Statistics",
-    "subscription": "Subscription",
+    "subscription": "Plan and limits",
     "wallet": "Wallet"
   },
   "phone": {
@@ -228,7 +228,6 @@
     "noneBought": "No skins bought yet.",
     "perGroup": "Skins per group",
     "perGroupText": "The premium plan lets you show different skins to different groups. If a person is in several groups — the group higher in the circle list wins.",
-    "premiumBadge": "🔒 premium",
     "preview": "Preview",
     "putOn": "Put on",
     "putOnDone": "The skin is on",
@@ -251,11 +250,7 @@
     "workspaces": "Organizations"
   },
   "subscription": {
-    "expires": "Expires: {date}",
-    "free": "Free plan",
-    "title": "Subscription",
-    "trial": "Trial period",
-    "upgrade": "Upgrade (soon)"
+    "title": "Plan and limits"
   },
   "title": "Profile",
   "visibility": {

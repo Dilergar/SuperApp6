@@ -216,6 +216,16 @@ export class VerifyService {
     return this.startChain(phone, 'sign_pep', userId, ip);
   }
 
+  /**
+   * Кабинет платформы (core/platform): вход (`platform_login`) и sudo (`platform_step_up`).
+   * ВЫЗЫВАЕТСЯ ТОЛЬКО контроллерами кабинета, которые уже проверили ПАРОЛЬ (правило
+   * движка: пароль до SMS) и счётчик неудач; публичный /verify/start и /verify/step-up
+   * эти цели отвергают. Номер — из аккаунта, не из body; гео-щита нет (свой номер).
+   */
+  async startForPlatform(userId: string, phone: string, purpose: 'platform_login' | 'platform_step_up', ip?: string): Promise<VerifyStartResponse> {
+    return this.startChain(phone, purpose, userId, ip);
+  }
+
   private async startChain(
     phone: string,
     purpose: VerifyPurpose,

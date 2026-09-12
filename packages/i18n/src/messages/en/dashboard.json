@@ -32,9 +32,8 @@
   "servicesTitle": "Services",
   "soon": "Soon",
   "subscription": {
-    "aria": "Subscription",
-    "none": "No plan connected",
-    "trial": " · trial"
+    "aria": "Plan and limits",
+    "none": "No plan connected"
   },
   "tiles": {
     "notifications": "Notifications",

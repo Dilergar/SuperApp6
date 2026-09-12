@@ -9,5 +9,5 @@ import type { ReactNode } from 'react';
 import { ServiceMessages } from '@/i18n/ServiceMessages';
 
 export default function CirclesLayout({ children }: { children: ReactNode }) {
-  return <ServiceMessages ns="circles">{children}</ServiceMessages>;
+  return <ServiceMessages ns={['circles', 'entitlements']}>{children}</ServiceMessages>;
 }

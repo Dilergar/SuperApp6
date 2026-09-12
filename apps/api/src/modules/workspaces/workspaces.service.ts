@@ -15,6 +15,7 @@ import { FilesService } from '../../core/files/files.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { ApprovalsService } from '../../core/approvals/approvals.service';
+import { EntitlementsService } from '../../core/entitlements/entitlements.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
@@ -98,6 +99,7 @@ export class WorkspacesService implements OnModuleInit {
     private legal: LegalEntitiesService,
     private moduleRef: ModuleRef,
     private i18n: I18nService,
+    private entitlements: EntitlementsService,
   ) {}
 
   /**
@@ -152,16 +154,11 @@ export class WorkspacesService implements OnModuleInit {
   // ============================================================
 
   async createWorkspace(userId: string, data: { name: string; logo?: string }): Promise<Workspace> {
-    const owned = await this.db.workspace.count({
-      where: { ownerId: userId, isActive: true },
-    });
-    if (owned >= WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser) {
-      throw badRequest('workspace.limitReached', {
-        max: WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser,
-      });
-    }
-
     const ws = await this.db.$transaction(async (tx) => {
+      // Потолок «сколько организаций во владении» — тариф человека (core/entitlements):
+      // COUNT под advisory-локом в этой же транзакции, два одновременных создания
+      // на пороге не проходят оба; отказ — 402 с объяснением, не 400.
+      await this.entitlements.assertCanCreate(tx, { type: 'user', id: userId }, 'workspaces.maxOwned');
       const w = await tx.workspace.create({
         data: { name: data.name, logo: data.logo ?? null, ownerId: userId },
       });
@@ -179,6 +176,9 @@ export class WorkspacesService implements OnModuleInit {
           grantedBy: userId,
         },
       });
+      // Пробный период организации (30 дней business_pro) — один на человека: второй
+      // молча не заводится (частичный уникум по trialConsumedBy), организация — free.
+      await this.entitlements.startTrial(tx, { type: 'workspace', id: w.id }, { consumedBy: userId });
       // Основной объект (StaffBranch.isDefault) заводится вместе с организацией: у
       // организации ВСЕГДА ≥1 объект, назначение всегда в объекте — малый бизнес без
       // отделов получает вертикаль «объект = отдел по умолчанию» без фиктивных сущностей.
@@ -553,18 +553,14 @@ export class WorkspacesService implements OnModuleInit {
   async restoreWorkspace(userId: string, workspaceId: string): Promise<void> {
     const ws = await this.assertOwner(userId, workspaceId);
     if (ws.isActive) return; // идемпотентно: повторный клик — не ошибка
-    // Потолок проверяем и здесь: иначе восстановлением можно обойти лимит createWorkspace.
-    const owned = await this.db.workspace.count({
-      where: { ownerId: userId, isActive: true },
-    });
-    if (owned >= WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser) {
-      throw badRequest('workspace.limitReachedRestore', {
-        max: WORKSPACE_LIMITS.maxWorkspacesOwnedPerUser,
+    // Потолок проверяем и здесь (в транзакции, под локом тарифа): иначе восстановлением
+    // можно обойти лимит createWorkspace.
+    await this.db.$transaction(async (tx) => {
+      await this.entitlements.assertCanCreate(tx, { type: 'user', id: userId }, 'workspaces.maxOwned');
+      await tx.workspace.update({
+        where: { id: workspaceId },
+        data: { isActive: true, archivedAt: null },
       });
-    }
-    await this.db.workspace.update({
-      where: { id: workspaceId },
-      data: { isActive: true, archivedAt: null },
     });
     await this.redis.invalidateUserProfile(userId);
   }
@@ -620,6 +616,8 @@ export class WorkspacesService implements OnModuleInit {
     const refIds = [workspaceId, ...taskIds];
 
     await this.db.$transaction(async (tx) => {
+      // Тариф: подписка, гранты, оверрайды и счётчики организации — строки без FK
+      await this.entitlements.forgetSubject(tx, { type: 'workspace', id: workspaceId });
       await tx.searchDocument.deleteMany({ where: { chatId: { in: chatIds } } });
       await tx.chat.deleteMany({ where: { id: { in: chatIds } } }); // каскад: сообщения, участники, отложенные
       await tx.chatterEntry.deleteMany({
@@ -1244,17 +1242,13 @@ export class WorkspacesService implements OnModuleInit {
     if (pendingCount >= WORKSPACE_LIMITS.maxPendingInvitationsPerWorkspace) {
       throw badRequest('workspace.invitationLimit');
     }
-    // Потолок состава был объявлен в shared и НЕ применялся нигде: организация росла
-    // без границы, а ростер отдаётся одним куском. Проверяем на входе (тут) и на
-    // принятии (там — авторитетно, в транзакции).
-    const membersCount = await this.db.workspaceMember.count({ where: { workspaceId } });
-    if (membersCount >= WORKSPACE_LIMITS.maxMembersPerWorkspace) {
-      throw conflict(
-        'workspace.memberLimit',
-        { max: WORKSPACE_LIMITS.maxMembersPerWorkspace },
-        { code: WORKSPACE_ERROR_CODES.memberLimit },
-      );
-    }
+    // Места организации — тариф (core/entitlements, ключ `workspace.seats`): проверяем на
+    // входе (тут, под локом строки организации) и на принятии (там — авторитетно, в
+    // транзакции членства). Отказ — 402 `entitlement.seat_required`.
+    await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM workspaces WHERE id = ${workspaceId} FOR UPDATE`);
+      await this.entitlements.assertCanCreate(tx, { type: 'workspace', id: workspaceId }, 'workspace.seats');
+    });
 
     // Должность/филиалы — из справочников ЭТОЙ организации.
     if (data.positionId) {
@@ -1410,18 +1404,13 @@ export class WorkspacesService implements OnModuleInit {
         throw badRequest('workspace.invitationHandled');
       }
 
-      // Потолок состава: считаем В ТРАНЗАКЦИИ — иначе пачка одновременных принятий
-      // проезжает мимо предпроверки приглашения.
+      // Места: считаем В ТРАНЗАКЦИИ под локом строки организации и advisory-локом
+      // тарифа — иначе пачка одновременных принятий проезжает мимо предпроверки
+      // приглашения. Место занимает член trainee+ (провайдер расхода считает роли).
       const already = await tx.workspaceMember.count({ where: { workspaceId: inv.workspaceId, userId } });
       if (already === 0) {
-        const total = await tx.workspaceMember.count({ where: { workspaceId: inv.workspaceId } });
-        if (total >= WORKSPACE_LIMITS.maxMembersPerWorkspace) {
-          throw conflict(
-            'workspace.memberLimit',
-            { max: WORKSPACE_LIMITS.maxMembersPerWorkspace },
-            { code: WORKSPACE_ERROR_CODES.memberLimit },
-          );
-        }
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM workspaces WHERE id = ${inv.workspaceId} FOR UPDATE`);
+        await this.entitlements.assertCanCreate(tx, { type: 'workspace', id: inv.workspaceId }, 'workspace.seats');
       }
       await tx.workspaceMember.upsert({
         where: { workspaceId_userId: { workspaceId: inv.workspaceId, userId } },

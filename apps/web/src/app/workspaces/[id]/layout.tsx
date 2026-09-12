@@ -34,6 +34,7 @@ export default function WorkspaceAreaLayout({ children }: { children: ReactNode 
         'office',
         'calls',
         'share',
+        'entitlements',
       ]}
     >
       <WorkspaceChrome>{children}</WorkspaceChrome>

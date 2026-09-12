@@ -45,6 +45,8 @@ export * from './types/approval';
 export * from './types/sign';
 export * from './types/common';
 export * from './types/notes';
+export * from './types/entitlements';
+export * from './types/platform';
 
 // Validation schemas
 export * from './validation/query';
@@ -88,6 +90,8 @@ export * from './validation/counterparty';
 export * from './validation/hr';
 export * from './validation/doc-builder';
 export * from './validation/notes';
+export * from './validation/entitlements';
+export * from './validation/platform';
 
 // Utils
 export * from './utils/phone';
@@ -104,6 +108,9 @@ export * from './constants/roles';
 export * from './constants/contacts';
 export * from './constants/card-visibility';
 export * from './notifications';
+// Тариф и лимиты (core/entitlements) и кабинет платформы (core/platform)
+export * from './entitlements';
+export * from './platform';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';

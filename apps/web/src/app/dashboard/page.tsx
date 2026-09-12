@@ -22,6 +22,8 @@ import { useFormatters } from '@/lib/format';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useNotificationCounts } from '@/lib/hooks/useNotificationCounts';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
+import { useEntitlements } from '@/lib/hooks/useEntitlements';
+import { PlanStatusChip } from '@/components/entitlements';
 
 // Стопка решений — лениво: она нужна только по клику по плитке.
 const DecisionStack = dynamic(
@@ -66,6 +68,8 @@ export default function DashboardPage() {
   const t = useTranslations('dashboard');
   const ta = useTranslations('approvals');
   const f = useFormatters();
+  // Чип тарифа в шапке — из снимка core/entitlements (профиль подписку больше не несёт)
+  const entitlements = useEntitlements();
   const { isReady, user: profile } = useRequireAuth();
   const period = useMemo(currentPeriod, []);
 
@@ -130,17 +134,7 @@ export default function DashboardPage() {
         {/* Тариф — в шапке справа: это статус аккаунта, а не рабочий показатель.
             Клик уводит в раздел подписки профиля. */}
         <Link href="/profile/subscription" style={{ display: 'inline-flex' }} aria-label={t('subscription.aria')}>
-          {profile.activeSubscription ? (
-            <Chip
-              tone={profile.activeSubscription.status === 'trial' ? 'warning' : 'success'}
-              icon="crown"
-            >
-              {profile.activeSubscription.plan}
-              {profile.activeSubscription.status === 'trial' ? t('subscription.trial') : ''}
-            </Chip>
-          ) : (
-            <Chip tone="neutral" icon="crown">{t('subscription.none')}</Chip>
-          )}
+          {entitlements.data ? <PlanStatusChip snapshot={entitlements.data} /> : <Chip tone="neutral" icon="crown">{t('subscription.none')}</Chip>}
         </Link>
       </div>
 

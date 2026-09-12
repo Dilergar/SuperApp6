@@ -90,6 +90,7 @@ export const ASSET_SERVICE_KINDS = ['maintenance', 'repair', 'inspection'] as co
 /** Слово статуса работ — каталог `objects.assetServiceStatus.<value>` */
 export const ASSET_SERVICE_STATUSES = ['planned', 'in_progress', 'done', 'cancelled'] as const;
 
+// Потолок узлов дерева на организацию — ключ `objects.maxPerWorkspace` реестра entitlements.
 export const OBJECT_LIMITS = {
   /** Глубина дерева объектов (площадка → здание → этаж → помещение → зона → …) */
   maxDepth: 6,
@@ -107,8 +108,6 @@ export const OBJECT_LIMITS = {
   noteMaxLength: 2000,
   /** Окно сетки смен за один запрос, дней (сетка недельная; месяц с запасом) */
   maxBoardDays: 62,
-  /** Объектов в организации (сеть) */
-  maxObjectsPerWorkspace: 2000,
   /** Смен, публикуемых за один вызов */
   maxPublishBatch: 2000,
 } as const;

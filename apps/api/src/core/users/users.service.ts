@@ -19,6 +19,8 @@ import { AccessProjectionService } from '../access/access-projection.service';
 import { FilesService } from '../files/files.service';
 import { VerifyService } from '../verify/verify.service';
 import { JobsService } from '../jobs/jobs.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
+import { PlatformAccessService } from '../platform/platform-access.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { USER_PHONE_INVITATIONS_JOB } from './user-jobs';
 import { ContactsService } from '../../modules/contacts/contacts.service';
@@ -33,7 +35,6 @@ import {
   type ChangePhoneInput,
   type SessionInfo,
   type SocialLinks,
-  type SubscriptionInfo,
   type UpdateProfileInput,
   type User,
   type UserLookupDto,
@@ -64,6 +65,8 @@ export class UsersService implements OnModuleInit {
     private workspaces: WorkspacesService,
     private notifications: NotificationsService,
     private i18n: I18nService,
+    private entitlements: EntitlementsService,
+    private platformAccess: PlatformAccessService,
   ) {}
 
   onModuleInit(): void {
@@ -109,14 +112,6 @@ export class UsersService implements OnModuleInit {
         companyCardVisibility: true,
         createdAt: true,
         updatedAt: true,
-        subscription: {
-          select: {
-            plan: true,
-            status: true,
-            expiresAt: true,
-            giftedBy: true,
-          },
-        },
         roles: {
           where: { isActive: true },
           select: {
@@ -143,7 +138,7 @@ export class UsersService implements OnModuleInit {
       throw notFound('auth.userNotFound');
     }
 
-    const { _count, subscription, cardVisibility, companyCardVisibility, dateOfBirth, phoneVerifiedAt, idDocIssuedAt, ...rest } = user;
+    const { _count, cardVisibility, companyCardVisibility, dateOfBirth, phoneVerifiedAt, idDocIssuedAt, ...rest } = user;
 
     const profile: UserProfile = {
       ...rest,
@@ -167,16 +162,6 @@ export class UsersService implements OnModuleInit {
       circlesCount: _count.ownedCircles,
       workspacesCount: _count.workspaceMembers,
       contactsCount: _count.contactLinksA + _count.contactLinksB,
-      activeSubscription: subscription
-        ? {
-            // plan/status в БД — колонки String (перечисление живёт в коде):
-            // тот же класс каста, что `status as WorkspaceInvitationStatus`.
-            plan: subscription.plan as SubscriptionInfo['plan'],
-            status: subscription.status as SubscriptionInfo['status'],
-            expiresAt: subscription.expiresAt.toISOString(),
-            giftedBy: subscription.giftedBy,
-          }
-        : null,
     };
 
     // Cache for 5 minutes
@@ -314,6 +299,9 @@ export class UsersService implements OnModuleInit {
     });
     // Log out everywhere; the account stays hidden until restored via login.
     await this.db.session.deleteMany({ where: { userId } });
+    // Кабинет платформы — отдельный контур со своими строками сессий: «выйти везде»
+    // обязано гасить и его (токен там живёт 8 часов без refresh).
+    await this.db.platformSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     await this.redis.invalidateUserProfile(userId);
     // JWT-guard кэширует «аккаунт жив» на 60с — удаление обязано сбросить кэш сразу.
     await this.redis.del(authAliveKey(userId)).catch(() => undefined);
@@ -583,10 +571,12 @@ export class UsersService implements OnModuleInit {
         where: { userId },
         data: { isActive: false },
       });
-      await tx.subscription.updateMany({
-        where: { userId },
-        data: { status: 'cancelled' },
-      });
+      // Тариф: подписки, гранты, оверрайды и счётчики — полиморфные строки без FK
+      await this.entitlements.forgetSubject(tx, { type: 'user', id: userId });
+      // Кабинет платформы: сотрудник на анонимизированном аккаунте оставался активным —
+      // он числился в штате, попадал в адресаты заявок four-eyes и в получатели
+      // security-alert. Снимаем со штата и гасим его консольные сессии.
+      await this.platformAccess.systemSuspendDeletedUser(tx, userId);
 
       // Scrub PII; keep the row so tasks/comments/workspaces stay intact.
       // (deletedAt was already set by the atomic claim above.)

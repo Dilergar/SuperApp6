@@ -22,6 +22,9 @@ export const AUDIENCE_KINDS = [
   'manager_of',
   'subordinates_of',
   'branch_head_of',
+  // Держатели права кабинета платформы (core/platform): id = capability. Адресат
+  // заявок four-eyes; автор исключается резолвером через `ctx.initiatorId`.
+  'platform_capability',
 ] as const;
 export type AudienceKind = (typeof AUDIENCE_KINDS)[number];
 
@@ -87,6 +90,8 @@ export const AUDIENCE_LABEL_FORMS = {
   siteHeadOfSite: 'common.audience.label.siteHeadOfSite',
   /** Форма модуля-владельца: «Группа «{name}»» (ContactsModule) */
   circleNamed: 'circles.groupNamed',
+  /** Форма кабинета платформы: «Держатели права «{name}»» (core/platform) */
+  platformCapability: 'common.audience.label.platformCapability',
 } as const;
 
 export interface AudienceKindDef {
@@ -112,12 +117,13 @@ export const AUDIENCE_KIND_DEFS: Record<AudienceKind, AudienceKindDef> = {
   manager_of: { relative: true, grantable: false, workspaceOnly: true },
   subordinates_of: { relative: true, grantable: false, workspaceOnly: true },
   branch_head_of: { relative: true, grantable: false, workspaceOnly: true },
+  platform_capability: { relative: false, grantable: false, workspaceOnly: false },
 };
 
 /** Наборы видов на потребителя — каждый enum ниже есть ПОДМНОЖЕСТВО AUDIENCE_KINDS */
 
 /** Шаг согласования (снимок при активации; вся команда/Группа — не адресаты решения) */
-export const APPROVAL_AUDIENCE_KINDS = ['user', 'position', 'department', 'branch', 'manager_of', 'branch_head_of'] as const;
+export const APPROVAL_AUDIENCE_KINDS = ['user', 'position', 'department', 'branch', 'manager_of', 'branch_head_of', 'platform_capability'] as const;
 /** Кампании ознакомления и массовые кадровые действия */
 export const CAMPAIGN_AUDIENCE_KINDS = [
   'user',

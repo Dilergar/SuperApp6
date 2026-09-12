@@ -21,7 +21,7 @@
 ## Контракт потребителя
 
 ```ts
-ApprovalsRegistry.register(refType, { describeForCreate, canView?, describeRef? })
+ApprovalsRegistry.register(refType, { describeForCreate, canView?, describeRef?, consoleOnly? })  // consoleOnly: заявка Кабинета платформы — не в продуктовой стопке и не в «Моих», без продуктовых уведомлений; продуктовые decide/cancel отвечают 403 approval_console_only (решают и отзывают только через /platform/requests)
 ApprovalsService.create(userId, { refType, refId, steps }, origin?)  // из СВОЕГО кода
 ApprovalsService.cancelByOrigin(type, ref)
 ApprovalsRegistry.registerOrigin(...)   // хук возврата токена ведущему (Процессы)

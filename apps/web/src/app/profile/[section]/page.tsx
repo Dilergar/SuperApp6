@@ -25,6 +25,7 @@ import { NotificationsSection } from '../NotificationsSection';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import { ChangePasswordDialog, ChangePhoneDialog } from './security-dialogs';
 import type { CardSkinRender } from '../../circles/card-skin';
+import { PlanAndLimits } from '@/components/entitlements';
 
 // ============================================================
 // Types & constants
@@ -704,23 +705,11 @@ export default function ProfileSectionPage() {
       )}
 
       {/* === Subscription === */}
+      {/* === Тариф и лимиты (core/entitlements) === */}
       {section === 'subscription' && (
         <div>
           <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>{t('subscription.title')}</h2>
-          {p.activeSubscription ? (
-            <div className="alert-accent-inline" style={{ padding: 'var(--spacing-6)', maxWidth: '400px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--spacing-3)' }}>
-                <span className="title-md" style={{ textTransform: 'capitalize' }}>{p.activeSubscription.plan}</span>
-                <span className="ui-chip ui-chip--sm">{p.activeSubscription.status === 'trial' ? t('subscription.trial') : p.activeSubscription.status}</span>
-              </div>
-              <p className="label-sm">{t('subscription.expires', { date: fmt.date(p.activeSubscription.expiresAt) })}</p>
-            </div>
-          ) : (
-            <div className="card" style={{ padding: 'var(--spacing-6)', maxWidth: '400px', textAlign: 'center' }}>
-              <p className="label-md" style={{ marginBottom: 'var(--spacing-4)' }}>{t('subscription.free')}</p>
-              <button className="btn-primary" style={{ opacity: 0.5, cursor: 'not-allowed' }}>{t('subscription.upgrade')}</button>
-            </div>
-          )}
+          <PlanAndLimits />
         </div>
       )}
 

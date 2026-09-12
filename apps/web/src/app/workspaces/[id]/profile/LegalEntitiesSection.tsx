@@ -14,6 +14,7 @@ import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LEGAL_ENTITY_LIMITS, type LegalEntityDto } from '@superapp/shared';
+import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 import { Button, Card, CardHeader, Chip, EmptyState, Input, Modal, useConfirm } from '@/components/ui';
 import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { toastError } from '@/lib/toast';
@@ -31,6 +32,8 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
   const [newName, setNewName] = useState('');
   const [names, setNames] = useState<Record<string, string>>({});
 
+  // Замок тарифа: на лимите кнопка выключена, чип объясняет (сервер всё равно ответит 402)
+  const legalGate = useEntitlementGate('legalEntities.maxPerWorkspace', workspaceId, 'ent-lock-legal');
   const { data, isPending } = useQuery({
     queryKey: legalEntitiesKey(workspaceId, showArchived),
     queryFn: async () =>
@@ -103,11 +106,14 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
               >
                 {showArchived ? t('legalEntities.hideArchive') : t('legalEntities.showArchive')}
               </Button>
+              <EntitlementGauge keyName="legalEntities.maxPerWorkspace" workspaceId={workspaceId} />
+              <EntitlementLock keyName="legalEntities.maxPerWorkspace" workspaceId={workspaceId} id="ent-lock-legal" />
               <Button
                 size="sm"
                 variant="outline"
                 icon="add"
-                disabled={list.length >= LEGAL_ENTITY_LIMITS.maxPerWorkspace}
+                disabled={legalGate.blocked}
+                aria-describedby={legalGate.describedBy}
                 onClick={() => setCreating(true)}
               >
                 {t('legalEntities.add')}

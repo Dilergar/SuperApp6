@@ -120,7 +120,8 @@ async function main() {
       }
       return last;
     };
-    check('в событии — дата, после которой не вернуть', /\d{2}\.\d{2}\.\d{4}/.test(String(warns[0]?.payload?.purgeDate || '')), String(warns[0]?.payload?.purgeDate));
+    // Дата в payload — МАШИННАЯ (`purgeDateIso`), слово зрителя собирает рендер (docs/i18n.md)
+    check('в событии — дата, после которой не вернуть', /^\d{4}-\d{2}-\d{2}$/.test(String(warns[0]?.payload?.purgeDateIso || '')), String(warns[0]?.payload?.purgeDateIso));
     check('дип-линк ведёт на дашборд', warns[0]?.actionUrl === '/dashboard');
 
     await sweep();

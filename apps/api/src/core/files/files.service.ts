@@ -8,7 +8,6 @@ import { fromBuffer as fileTypeFromBuffer, fromFile as fileTypeFromFile } from '
 import {
   FILE_LIMITS,
   FILE_PROFILES,
-  FILE_QUOTAS,
   EVIDENCE_FILE_PROFILES,
   EXEC_EXT_BLACKLIST,
   HR_ERROR_CODES,
@@ -38,6 +37,8 @@ import { FilesUrlService } from './files-url.service';
 import { FilesRefRegistry } from './files-ref.registry';
 import { FilesScanHook } from './files-scan.hook';
 import { FilesPipelineService } from './files-pipeline.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
+import { EntitlementsQuotaService } from '../entitlements/entitlements.quota.service';
 import { STORAGE_DRIVER, StorageDriver, StorageStreamResult } from './storage/storage-driver';
 
 type FileRow = NonNullable<Awaited<ReturnType<DatabaseService['fileObject']['findUnique']>>>;
@@ -82,6 +83,8 @@ export class FilesService implements OnModuleInit {
     private readonly pipeline: FilesPipelineService,
     private readonly i18n: I18nService,
     @Inject(STORAGE_DRIVER) private readonly driver: StorageDriver,
+    private readonly entitlements: EntitlementsService,
+    private readonly quota: EntitlementsQuotaService,
   ) {}
 
   onModuleInit(): void {
@@ -283,9 +286,7 @@ export class FilesService implements OnModuleInit {
     if (await this.overQuota(row.ownerType as FileOwnerType, row.ownerId, Number(finalSize))) {
       await this.driver.delete(row.storageKey).catch(() => undefined);
       await this.markFailed(fileId, 'the storage quota was exceeded');
-      throw badRequest('files.quotaExceeded', {
-        gb: (FILE_QUOTAS[row.ownerType as FileOwnerType] / (1024 * 1024 * 1024)).toFixed(0),
-      });
+      await this.assertQuota(row.ownerType as FileOwnerType, row.ownerId, Number(finalSize)); // бросает 402
     }
 
     const needsPipeline = spec.makeVariants && ['image', 'video', 'audio'].includes(row.kind);
@@ -305,11 +306,10 @@ export class FilesService implements OnModuleInit {
         },
       });
       if (res.count !== 1) return false;
-      await tx.fileQuotaUsage.upsert({
-        where: { ownerType_ownerId: { ownerType: row.ownerType, ownerId: row.ownerId } },
-        create: { ownerType: row.ownerType, ownerId: row.ownerId, bytesUsed: finalSize, filesCount: 1 },
-        update: { bytesUsed: { increment: finalSize }, filesCount: { increment: 1 } },
-      });
+      // Квота — списание в ТОЙ ЖЕ транзакции (fail-closed; гонка после предпроверки → 402 и откат)
+      const owner = { type: row.ownerType as FileOwnerType, id: row.ownerId };
+      await this.entitlements.consume(tx, owner, 'files.storageBytes', Number(finalSize));
+      await this.entitlements.consume(tx, owner, 'files.count', 1);
       // Джобы фоновой обработки — в ТОЙ ЖЕ транзакции (transactional outbox): коммит
       // ready = джоб есть, откат (проигранная гонка на клейме) не оставляет джоба-сироту.
       if (needsPipeline) await this.pipeline.enqueue(tx, fileId);
@@ -444,11 +444,8 @@ export class FilesService implements OnModuleInit {
           },
         });
         if (countsToQuota) {
-          await tx.fileQuotaUsage.upsert({
-            where: { ownerType_ownerId: { ownerType, ownerId } },
-            create: { ownerType, ownerId, bytesUsed: BigInt(stat.size), filesCount: 1 },
-            update: { bytesUsed: { increment: BigInt(stat.size) }, filesCount: { increment: 1 } },
-          });
+          await this.entitlements.consume(tx, { type: ownerType, id: ownerId }, 'files.storageBytes', stat.size);
+          await this.entitlements.consume(tx, { type: ownerType, id: ownerId }, 'files.count', 1);
         }
         // Джобы обработки/скана — в транзакции создания файла (transactional outbox).
         if (needsPipeline) await this.pipeline.enqueue(tx, id);
@@ -548,11 +545,8 @@ export class FilesService implements OnModuleInit {
             },
           },
         });
-        await tx.fileQuotaUsage.upsert({
-          where: { ownerType_ownerId: { ownerType, ownerId } },
-          create: { ownerType, ownerId, bytesUsed: src.size, filesCount: 1 },
-          update: { bytesUsed: { increment: src.size }, filesCount: { increment: 1 } },
-        });
+        await this.entitlements.consume(tx, { type: ownerType, id: ownerId }, 'files.storageBytes', Number(src.size));
+        await this.entitlements.consume(tx, { type: ownerType, id: ownerId }, 'files.count', 1);
         if (needsPipeline) await this.pipeline.enqueue(tx, id);
         await this.scanHook.enqueue(tx, id);
         return created;
@@ -652,17 +646,10 @@ export class FilesService implements OnModuleInit {
             },
           });
           if (res.count !== 1) return false;
-          if (delta !== 0) {
-            await tx.fileQuotaUsage.upsert({
-              where: { ownerType_ownerId: { ownerType: row.ownerType, ownerId: row.ownerId } },
-              create: {
-                ownerType: row.ownerType,
-                ownerId: row.ownerId,
-                bytesUsed: BigInt(Math.max(stat.size, 0)),
-                filesCount: 1,
-              },
-              update: { bytesUsed: { increment: BigInt(delta) } },
-            });
+          if (delta > 0) {
+            await this.entitlements.consume(tx, { type: row.ownerType as FileOwnerType, id: row.ownerId }, 'files.storageBytes', delta);
+          } else if (delta < 0) {
+            await this.entitlements.release(tx, { type: row.ownerType as FileOwnerType, id: row.ownerId }, 'files.storageBytes', -delta);
           }
           if (staleVariants.length) await tx.fileVariant.deleteMany({ where: { fileId: row.id } });
           await this.scanHook.enqueue(tx, row.id);
@@ -1328,10 +1315,9 @@ export class FilesService implements OnModuleInit {
       // значит и списывать при удалении нечего — иначе владелец «худеет» на байты,
       // которые ему никогда не начисляли, и учёт врёт до ночной сверки.
       if (prevStatus === 'ready' && !isEvidenceProfile(row.profile)) {
-        await tx.fileQuotaUsage.updateMany({
-          where: { ownerType: row.ownerType, ownerId: row.ownerId },
-          data: { bytesUsed: { decrement: row.size }, filesCount: { decrement: 1 } },
-        });
+        const owner = { type: row.ownerType as FileOwnerType, id: row.ownerId };
+        await this.entitlements.release(tx, owner, 'files.storageBytes', Number(row.size));
+        await this.entitlements.release(tx, owner, 'files.count', 1);
       }
     });
     this.events.emit('file.deleted', this.eventPayload(row), 'files');
@@ -1416,15 +1402,15 @@ export class FilesService implements OnModuleInit {
    * видеть расход места организации, — это решает её сервис по роли.
    */
   async getUsageFor(ownerType: FileOwnerType, ownerId: string): Promise<FileUsageDto> {
-    const usage = await this.db.fileQuotaUsage.findUnique({
-      where: { ownerType_ownerId: { ownerType, ownerId } },
-    });
+    // Счётчики и потолок — из движка тарифов: потолок зависит от ступени владельца
+    const subject = { type: ownerType, id: ownerId };
+    const [counters, limit] = await Promise.all([this.quota.peekAll(subject), this.entitlements.valueOf(subject, 'files.storageBytes')]);
     return {
       ownerType,
       ownerId,
-      bytesUsed: usage ? Number(usage.bytesUsed) : 0,
-      filesCount: usage?.filesCount ?? 0,
-      limitBytes: FILE_QUOTAS[ownerType],
+      bytesUsed: counters.get('files.storageBytes')?.used ?? 0,
+      filesCount: counters.get('files.count')?.used ?? 0,
+      limitBytes: typeof limit === 'number' ? limit : null,
     };
   }
 
@@ -1544,20 +1530,15 @@ export class FilesService implements OnModuleInit {
     return FILE_PROFILES[profile] ?? FILE_PROFILES.generic;
   }
 
+  /** Предпроверка ДО загрузки байтов (дешёвый ранний отказ 402); авторитетно — `consume` в tx. */
   private async assertQuota(ownerType: FileOwnerType, ownerId: string, addBytes: number): Promise<void> {
-    if (await this.overQuota(ownerType, ownerId, addBytes)) {
-      const limitGb = (FILE_QUOTAS[ownerType] / (1024 * 1024 * 1024)).toFixed(0);
-      throw badRequest('files.quotaExceeded', { gb: limitGb });
-    }
+    await this.entitlements.assertQuotaHeadroom({ type: ownerType, id: ownerId }, 'files.storageBytes', addBytes);
   }
 
-  /** Превысит ли добавление addBytes квоту владельца (учитывает уже занятое) */
+  /** Превысит ли добавление addBytes квоту владельца (учитывает уже занятое; null-потолок = без ограничения) */
   private async overQuota(ownerType: FileOwnerType, ownerId: string, addBytes: number): Promise<boolean> {
-    const usage = await this.db.fileQuotaUsage.findUnique({
-      where: { ownerType_ownerId: { ownerType, ownerId } },
-    });
-    const used = usage ? Number(usage.bytesUsed) : 0;
-    return used + addBytes > FILE_QUOTAS[ownerType];
+    const state = await this.entitlements.quotaState({ type: ownerType, id: ownerId }, 'files.storageBytes');
+    return state.limit !== null && state.used + addBytes > state.limit;
   }
 
   private async markFailed(fileId: string, reason: string): Promise<void> {

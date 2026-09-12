@@ -1,0 +1,421 @@
+{
+  "audit": {
+    "after": "Стало",
+    "approval": "Заявка",
+    "before": "Было",
+    "col": {
+      "actor": "Сотрудник",
+      "at": "Когда",
+      "command": "Команда",
+      "outcome": "Исход",
+      "target": "Цель"
+    },
+    "description": "Каждая команда кабинета, только дописывание",
+    "dryRun": "предпросмотр",
+    "empty": "Записей нет",
+    "from": "С",
+    "input": "Вход",
+    "outcome": {
+      "denied": "отказ",
+      "error": "ошибка",
+      "ok": "ок"
+    },
+    "reason": "Причина",
+    "stepUpAt": "Подтверждено {time}",
+    "system": "Система",
+    "ticket": "Тикет",
+    "to": "По",
+    "viaRequest": "одобрено"
+  },
+  "card": {
+    "actions": "Действия",
+    "empty": "Пусто",
+    "notFound": "Не найдено",
+    "notStaff": "Не сотрудник платформы",
+    "panelFailed": "Панель не загрузилась",
+    "reveal": "Раскрыть",
+    "show": "Показать",
+    "user": "Человек",
+    "workspace": "Организация"
+  },
+  "catalog": {
+    "archive": "В архив",
+    "col": {
+      "diff": "Изменение",
+      "free": "Бесплатно",
+      "plan": "Тариф",
+      "subject": "Субъект",
+      "versions": "Версии"
+    },
+    "description": "Версии тарифов и индивидуальные условия субъектов",
+    "inherit": "как в бесплатном",
+    "inherits": "как в бесплатном",
+    "keys": "Ключи",
+    "newDraft": "Новый черновик",
+    "pickVersion": "Выберите версию тарифа слева",
+    "plans": "Тарифы",
+    "publish": "Опубликовать",
+    "publishedAt": "Опубликована {date}",
+    "tab": "Каталог",
+    "was": "было {value}"
+  },
+  "chips": {
+    "deleted": "Удалённый аккаунт",
+    "inactive": "В архиве",
+    "plan": "{plan} · {status}",
+    "staff": "Сотрудник платформы",
+    "suspended": "Приостановлен"
+  },
+  "commands": {
+    "entitlementsGrantCreate": {
+      "description": "Подарок, дополнение или ручное значение одного ключа; сливается с тарифом по правилу ключа",
+      "title": "Добавить грант"
+    },
+    "entitlementsGrantRevoke": {
+      "title": "Отозвать грант"
+    },
+    "entitlementsOverrideClear": {
+      "title": "Снять индивидуальное условие"
+    },
+    "entitlementsOverrideSet": {
+      "description": "Переопределяет итоговое значение одного ключа субъекта до указанной даты; причина обязательна",
+      "title": "Задать индивидуальное условие"
+    },
+    "entitlementsPlanArchiveVersion": {
+      "title": "Архивировать версию тарифа"
+    },
+    "entitlementsPlanCreateVersion": {
+      "description": "Копирует последнюю версию тарифа в редактируемый черновик",
+      "title": "Новый черновик тарифа"
+    },
+    "entitlementsPlanPublishVersion": {
+      "description": "Версия становится неизменяемой; подписчики тарифа получают её значения при следующем чтении",
+      "title": "Опубликовать версию тарифа"
+    },
+    "entitlementsPlanUpdateDraft": {
+      "title": "Править черновик тарифа"
+    },
+    "entitlementsSubscriptionSet": {
+      "description": "Закрепляет субъект за опубликованной версией тарифа; без версии — субъект падает на бесплатный тариф",
+      "title": "Назначить подписку"
+    },
+    "entitlementsTrialExtend": {
+      "title": "Продлить пробный период"
+    },
+    "platformPiiReveal": {
+      "description": "Показывает полный телефон, ИИН/БИН или адрес человека или организации; каждое раскрытие пишется в журнал",
+      "title": "Раскрыть персональные данные"
+    },
+    "platformPolicySet": {
+      "description": "Четыре глаза: высокорисковые команды проходят через одобрение второго сотрудника",
+      "title": "Изменить политику кабинета"
+    },
+    "platformStaffAdd": {
+      "description": "Добавляет человека в сотрудники платформы; без роли он ничего не видит",
+      "title": "Добавить сотрудника"
+    },
+    "platformStaffRoleGrant": {
+      "description": "Проверяется разделение обязанностей: один человек не может и писать, и одобрять один объект",
+      "title": "Выдать роль"
+    },
+    "platformStaffRoleRevoke": {
+      "title": "Снять роль"
+    },
+    "platformStaffSuspend": {
+      "description": "Отзывает все сессии кабинета и закрывает вход до восстановления",
+      "title": "Приостановить сотрудника"
+    }
+  },
+  "fields": {
+    "archivedAt": "В архиве с",
+    "avatar": "Аватар",
+    "byRole": "По ролям",
+    "circles": "Группы",
+    "city": "Город",
+    "counts": "Счётчики",
+    "createdAt": "Создан",
+    "currentPeriodEnd": "Оплачено до",
+    "deletedAt": "Удалён",
+    "deletionScheduledAt": "Удаление запланировано",
+    "documentLanguage": "Язык документов",
+    "dualControlEnabled": "Одобрение в четыре глаза",
+    "effectiveFrom": "Действует с",
+    "emailMasked": "Email",
+    "entitlements": "Значения (JSON)",
+    "entity": "Сущность",
+    "expiresAt": "Срок",
+    "fields": "Поля",
+    "firstName": "Имя",
+    "grantId": "Грант",
+    "id": "Идентификатор",
+    "idempotencyKey": "Идемпотентный ключ",
+    "iinMasked": "ИИН",
+    "industry": "Отрасль",
+    "isActive": "Активна",
+    "key": "Ключ",
+    "lastName": "Фамилия",
+    "legalEntities": "Юрлица",
+    "locale": "Язык",
+    "logo": "Логотип",
+    "members": "Состав",
+    "middleName": "Отчество",
+    "mode": "Режим",
+    "name": "Название",
+    "note": "Заметка",
+    "ownerId": "Id владельца",
+    "pendingInvitations": "Приглашений ждут",
+    "phoneMasked": "Телефон",
+    "phoneVerifiedAt": "Телефон подтверждён",
+    "planKey": "Тариф",
+    "planVersionId": "Версия тарифа",
+    "priority": "Приоритет",
+    "reason": "Причина",
+    "role": "Роль",
+    "sessions": "Сеансы",
+    "source": "Источник",
+    "status": "Статус",
+    "subject": "Субъект",
+    "subjectId": "Id субъекта",
+    "timezone": "Часовой пояс",
+    "trialEndsAt": "Конец пробного",
+    "userId": "Id человека",
+    "validUntil": "Действует до",
+    "value": "Значение",
+    "website": "Сайт",
+    "workspaces": "Организации"
+  },
+  "grantSource": {
+    "addon": "дополнение",
+    "family": "семья",
+    "gift": "подарок",
+    "legacy": "наследный",
+    "manual": "вручную",
+    "trial": "пробный"
+  },
+  "login": {
+    "back": "Назад",
+    "codeSubtitle": "Код отправлен на {phone}",
+    "continue": "Продолжить",
+    "password": "Пароль",
+    "phone": "Телефон",
+    "subtitle": "Сначала пароль, затем код из SMS",
+    "title": "Кабинет платформы"
+  },
+  "nav": {
+    "audit": "Журнал",
+    "entitlements": "Тарифы",
+    "requests": "Заявки",
+    "search": "Поиск",
+    "staff": "Сотрудники"
+  },
+  "noAccess": {
+    "text": "Этот аккаунт не в сотрудниках платформы или приостановлен.",
+    "title": "Нет доступа к кабинету"
+  },
+  "overrideMode": {
+    "deny": "запрет",
+    "set": "значение",
+    "unlimited": "без ограничения"
+  },
+  "panels": {
+    "userAudit": "Действия в кабинете",
+    "userEntitlements": "Тариф и лимиты",
+    "userProfile": "Профиль",
+    "userStaff": "Сотрудник платформы",
+    "userWorkspaces": "Организации",
+    "workspaceAudit": "Действия в кабинете",
+    "workspaceEntitlements": "Тариф и лимиты",
+    "workspaceMembersSummary": "Состав",
+    "workspaceProfile": "Профиль"
+  },
+  "picker": {
+    "change": "изменить",
+    "placeholder": "Найти человека: телефон, ИИН, id или имя"
+  },
+  "requestOutcome": {
+    "approved": "одобрена и исполнена",
+    "failed": "одобрена, но не исполнилась",
+    "rejected": "отклонена"
+  },
+  "requests": {
+    "approve": "Одобрить",
+    "approved": "Одобрено и исполнено",
+    "col": {
+      "author": "Автор",
+      "status": "Статус"
+    },
+    "confirmApprove": "Одобрить заявку?",
+    "confirmReject": "Отклонить заявку?",
+    "confirmWithdraw": "Отозвать заявку?",
+    "description": "Команды, которые ждут второго сотрудника",
+    "empty": "Заявок нет",
+    "reject": "Отклонить",
+    "rejected": "Отклонено",
+    "state": {
+      "history": "История",
+      "mine": "Мои",
+      "pending": "Ждут решения"
+    },
+    "status": {
+      "approved": "одобрена",
+      "cancelled": "отменена",
+      "executed": "исполнена",
+      "failed": "не исполнилась",
+      "pending": "ждёт",
+      "rejected": "отклонена"
+    },
+    "withdraw": "Отозвать",
+    "withdrawn": "Заявка отозвана"
+  },
+  "risk": {
+    "critical": "критично",
+    "high": "высокий риск",
+    "low": "низкий риск",
+    "medium": "средний риск"
+  },
+  "roles": {
+    "platform_owner": "Владелец платформы"
+  },
+  "runner": {
+    "badJson": "JSON не разбирается",
+    "choose": "Выберите",
+    "done": "Готово",
+    "dualControl": "Одобряет второй сотрудник",
+    "idempotent": "двойной клик безопасен — команда выполнится один раз",
+    "jsonHint": "JSON",
+    "needsStepUp": "Подтверждение",
+    "pending": "Отправлено на одобрение — см. «Заявки»",
+    "preview": "Предпросмотр",
+    "previewTitle": "Что изменится",
+    "reason": "Причина",
+    "reasonHint": "Не короче {min} символов (набрано {n})",
+    "reasonShort": "Не короче {min} символов",
+    "run": "Выполнить",
+    "ticket": "Тикет",
+    "ticketPlaceholder": "Номер обращения или задачи, необязательно",
+    "valueMode": {
+      "no": "Недоступно",
+      "number": "Число",
+      "unlimited": "Без ограничения",
+      "yes": "Доступно"
+    },
+    "valueNumber": "Сколько",
+    "viaApproval": "через одобрение"
+  },
+  "search": {
+    "description": "Полный номер телефона, 12-значный ИИН или БИН, идентификатор или имя",
+    "emptyText": "Введите полный номер телефона, 12-значный ИИН или БИН, идентификатор или не меньше трёх букв имени",
+    "emptyTitle": "Найдите человека или организацию",
+    "kind": {
+      "empty": "пусто",
+      "idNumber": "ИИН или БИН",
+      "phone": "похоже на телефон",
+      "text": "имя",
+      "tooShort": "слишком коротко",
+      "uuid": "идентификатор"
+    },
+    "noResults": "Ничего не найдено",
+    "organizations": "Организации",
+    "people": "Люди",
+    "recent": "Недавние",
+    "searching": "Ищем…",
+    "title": "Поиск",
+    "tooShortTitle": "Слишком коротко"
+  },
+  "securityEvents": {
+    "bootstrap": "назначен первый владелец платформы",
+    "deniedBurst": "серия отказов в командах",
+    "piiRevealBurst": "раскрытий персональных данных сверх порога",
+    "policyChanged": "изменена политика кабинета",
+    "roleGranted": "выдана роль",
+    "roleRevoked": "снята роль",
+    "soloDualControl": "команда «вдвоём» прошла в одиночку (второго держателя нет)",
+    "staffAdded": "добавлен сотрудник",
+    "staffSuspended": "сотрудник приостановлен",
+    "stepUpBurst": "серия неверных паролей при подтверждении"
+  },
+  "shell": {
+    "logout": "Выйти",
+    "nav": "Разделы кабинета",
+    "searchPlaceholder": "Телефон, ИИН/БИН, id или имя — / для фокуса",
+    "sudoActive": "Подтверждено, {time}",
+    "sudoNeeded": "Нужно подтверждение",
+    "title": "Кабинет платформы"
+  },
+  "staff": {
+    "add": "Добавить сотрудника",
+    "col": {
+      "person": "Человек",
+      "roles": "Роли",
+      "since": "С",
+      "status": "Статус"
+    },
+    "description": "Кто работает в кабинете и с какими ролями",
+    "noRoles": "без ролей",
+    "until": "До {date}"
+  },
+  "staffStatus": {
+    "active": "активен",
+    "suspended": "приостановлен"
+  },
+  "stepUp": {
+    "password": "Пароль",
+    "sendCode": "Отправить код",
+    "subtitle": "Высокорисковые действия требуют свежего подтверждения: пароль и код из SMS. Окно действует 15 минут.",
+    "title": "Подтвердите действие"
+  },
+  "subject": {
+    "col": {
+      "key": "Ключ",
+      "mode": "Режим",
+      "reason": "Причина / кто",
+      "source": "Источник",
+      "until": "До",
+      "used": "Использовано",
+      "value": "Значение",
+      "who": "Причина / кто"
+    },
+    "counters": "Счётчики квот",
+    "find": "Найти субъект",
+    "graceUntil": "льготный до {date}",
+    "grants": "Гранты",
+    "none": "Нет",
+    "overrides": "Индивидуальные условия",
+    "periodEnd": "оплачено до {date}",
+    "placeholder": "Телефон, ИИН/БИН, id или имя",
+    "revoked": "отозван",
+    "snapshot": "Как видит клиент",
+    "subscription": "Подписка",
+    "tab": "Субъекты",
+    "trialEndsAt": "пробный до {date}"
+  },
+  "subjectTypes": {
+    "family": "Семья",
+    "user": "Человек",
+    "workspace": "Организация"
+  },
+  "subscriptionSource": {
+    "manual": "вручную",
+    "migration": "миграция",
+    "payment": "оплата",
+    "trial": "пробный"
+  },
+  "subscriptionStatus": {
+    "active": "активна",
+    "cancelled": "отменена",
+    "expired": "истекла",
+    "past_due": "льготный период",
+    "trialing": "пробный"
+  },
+  "valueSource": {
+    "default": "бесплатный",
+    "grant": "грант",
+    "override": "индивидуальное условие",
+    "plan": "тариф"
+  },
+  "versionStatus": {
+    "archived": "в архиве",
+    "draft": "черновик",
+    "published": "опубликована"
+  }
+}

@@ -77,7 +77,9 @@ export const approvalStepInputSchema = z
     (s) =>
       isAudienceAnchor(s.assigneeId)
         ? AUDIENCE_KIND_DEFS[s.assigneeType].relative || s.assigneeType === 'user'
-        : z.string().uuid().safeParse(s.assigneeId).success,
+        : s.assigneeType === 'platform_capability'
+          ? /^[a-z]+(\.[a-z]+)+$/.test(s.assigneeId) // id = capability кабинета, не uuid
+          : z.string().uuid().safeParse(s.assigneeId).success,
     { message: 'validation.approval.assigneeRef', path: ['assigneeId'] },
   );
 

@@ -187,11 +187,8 @@ export function isSystemManagedProfile(profile: string | null | undefined): bool
 
 export type FileProfileKey = keyof typeof FILE_PROFILES;
 
-/** Квоты хранилища на владельца (байты); тарифы/UI — позже, вместе с подпиской */
-export const FILE_QUOTAS: Record<FileOwnerType, number> = {
-  user: 15 * GB,
-  workspace: 100 * GB,
-};
+// Квота хранилища на владельца — ключ `files.storageBytes` реестра entitlements
+// (packages/shared/src/entitlements/files.ts); движок отдаёт потолок по тарифу субъекта.
 
 /** Исполняемые/опасные расширения — не принимаем ни под каким профилем */
 export const EXEC_EXT_BLACKLIST = [

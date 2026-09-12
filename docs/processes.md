@@ -4,7 +4,7 @@
 
 ## Реестр нод (платформенный)
 
-`ProcessNodeRegistry`: паспорт ноды = декларативный описатель (тип/категория/иконка-ключ/`tier` standard|system/типизированные выходы/`fields`-виджеты/Zod-`configSchema`/`auto`-флаг) — одна регистрация кормит палитру, валидацию и будущие AI/MCP-поверхности. `ProcessNodeOutput.optional`+`fallback` — новый исход к опубликованным нодам без инвалидации маршрутов. `ProcessDefinition.surface` + белый список `SURFACE_NODE_TYPES` (профиль `documents.hr` показывает 13 нод, `documents.general` — 11; веб передаёт surface в `GET /node-types`). system-ноды — только `platform_admin`.
+`ProcessNodeRegistry`: паспорт ноды = декларативный описатель (тип/категория/иконка-ключ/`tier` standard|system/типизированные выходы/`fields`-виджеты/Zod-`configSchema`/`auto`-флаг) — одна регистрация кормит палитру, валидацию и будущие AI/MCP-поверхности. `ProcessNodeOutput.optional`+`fallback` — новый исход к опубликованным нодам без инвалидации маршрутов. `ProcessDefinition.surface` + белый список `SURFACE_NODE_TYPES` (профиль `documents.hr` показывает 13 нод, `documents.general` — 11; веб передаёт surface в `GET /node-types`). `tier: 'system'` — задел: сегодня таких нод НЕТ ни одной, палитра их не показывает никому, и способности кабинета платформы на продуктовом пути НЕ спрашиваются (ревью 2026-09-12 сняло мёртвое право `processes.system.manage`). Когда системные ноды появятся, открывать их будет команда кабинета — [platform_console.md](platform_console.md).
 
 **Слов паспорт НЕ хранит.** Реестр несёт смысл (тип, ключи полей, значения списков), каталог — слова; ключи собираются по соглашению от типа ноды, а `listTypes()` подставляет их в языке ЗАПРОСА:
 

@@ -203,7 +203,7 @@
       "security": "Қауіпсіздік",
       "settings": "Баптаулар",
       "stats": "Статистика",
-      "subscription": "Жазылым"
+      "subscription": "Тариф және шектеулер"
     },
     "sectionTitle": {
       "anketa": "Компания сауалнамасы",
@@ -212,7 +212,7 @@
       "security": "Қауіпсіздік",
       "settings": "Баптаулар",
       "stats": "Статистика",
-      "subscription": "Жазылым"
+      "subscription": "Тариф және шектеулер"
     },
     "security": {
       "danger": {
@@ -235,12 +235,6 @@
       "subtitle": "Ұйымның қосымша баптаулары кейінірек шығады",
       "timezone": "Уақыт белдеуі",
       "title": "Жалпы баптаулар"
-    },
-    "subscription": {
-      "free": "Тегін",
-      "subtitle": "Ұйымдарға арналған ақылы жоспарлар кейінірек шығады",
-      "title": "Ұйымның ағымдағы жоспары",
-      "upgrade": "Жақсарту (жақында)"
     },
     "title": "Профиль",
     "viewAs": {
@@ -275,6 +269,7 @@
       "subtitle": "Негізгісі шоттар мен шарттарға қойылады",
       "title": "Банк шоттары"
     },
+    "bankPlaceholder": "Kaspi Bank",
     "bin": "БСН",
     "binError": "Бақылау қосындысы сәйкес келмейді",
     "binPlaceholder": "12 сан",
@@ -315,8 +310,7 @@
     "vatPayerToggle": "ҚҚС төлеушісі",
     "vatPayerWithCert": "төлеуші (куәлік {cert})",
     "vatSeries": "Куәлік сериясы",
-    "viewSubtitle": "Шарттар мен шоттар үшін",
-    "bankPlaceholder": "Kaspi Bank"
+    "viewSubtitle": "Шарттар мен шоттар үшін"
   },
   "taxRegime": {
     "astana_hub": "Astana Hub",

@@ -10,7 +10,7 @@ import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { ZodError, type ZodIssue } from 'zod';
 import { LOCALE_HEADER, type ApiError as ApiErrorEnvelope } from '@superapp/shared';
-import { countryFromHeaders, negotiateLocale, type Locale } from '@superapp/i18n';
+import { countryFromHeaders, negotiateLocale, resolveByteValues, type Locale } from '@superapp/i18n';
 import { I18nService } from '../i18n/i18n.service';
 import { ApiError } from '../errors/api-error';
 
@@ -81,13 +81,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const details = {
           code: exception.code,
           ...(exception.params ? { params: exception.params } : {}),
+          // Машинный код движка (`entitlement.limit_reached`, `approval.notAssignee`)
+          // ложится ПОВЕРХ ключа каталога: клиент ветвится по стабильному коду,
+          // фраза приходит готовой в `message` (docs/api_conventions.md).
           ...(exception.extra ?? {}),
         };
         this.setRetryAfter(res, status, details);
         res.status(status).json({
           success: false,
           statusCode: status,
-          message: t(`errors.${exception.code}`, exception.params),
+          message: t(`errors.${exception.code}`, this.humanParams(exception.params, locale)),
           details,
         });
         return;
@@ -177,6 +180,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
    * Стандартный Retry-After на 429: его понимают браузеры, http-клиенты и боты,
    * и он бесплатно достаётся всем, кто уже кладёт resendInSec в details.
    */
+  /**
+   * Параметры отказа — машинные: `<имя>Bytes` разворачивается в «4,1 ГБ» единицами и
+   * правилами ЯЗЫКА ЗАПРОСА (та же конвенция, что у уведомлений, — docs/i18n.md).
+   * Сервис не вправе собрать эту строку сам: он не знает, кто и на каком языке
+   * прочтёт отказ.
+   */
+  private humanParams(
+    params: Record<string, string | number | boolean> | undefined,
+    locale: Locale,
+  ): Record<string, string | number | boolean> | undefined {
+    if (!params) return params;
+    return resolveByteValues((v) => this.i18n.bytes(v, locale), params) as Record<string, string | number | boolean>;
+  }
+
   private setRetryAfter(res: Response, status: number, details: Record<string, unknown>): void {
     const retryAfter = details.resendInSec ?? details.retryInSec;
     if (status === 429 && typeof retryAfter === 'number' && retryAfter > 0) {

@@ -53,6 +53,7 @@ export { renderChatter, chatterFieldLabel, chatterChangeDisplay } from './chatte
 export { resolveLabelKeys } from './label-keys';
 export { renderAudienceLabel, resolveAudienceLabels, isAudienceLabelSnapshot } from './audience-label';
 export { resolveIsoValues } from './iso-values';
+export { resolveByteValues } from './byte-values';
 export type {
   ChatterRaw,
   ChatterRawKind,

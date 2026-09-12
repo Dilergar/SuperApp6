@@ -603,12 +603,17 @@ export class ApprovalsService implements OnModuleInit {
     stepId: string,
     dto: { decision: ApprovalDecisionKind; comment?: string },
     ip?: string | null,
+    opts: { fromConsole?: boolean } = {},
   ): Promise<ApprovalRequestDto> {
     const step = await this.db.approvalStep.findUnique({
       where: { id: stepId },
       include: { request: true },
     });
     if (!step) throw notFound('approval.stepNotFound');
+    // Заявка внутреннего контура решается ТОЛЬКО из кабинета платформы: там стоят
+    // step-up решающего и проверка разделения обязанностей, а продуктовая ручка
+    // знает лишь «адресат шага» — через неё four-eyes обходился бы целиком.
+    this.assertNotConsoleOnly(step.request.refType, opts.fromConsole);
     if (step.request.status !== 'pending' || step.status !== 'active') {
       throw coded('approval.stepNotActive', APPROVAL_ERROR_CODES.stepNotActive);
     }
@@ -1051,6 +1056,12 @@ export class ApprovalsService implements OnModuleInit {
   ): Promise<void> {
     const actionUrl = this.hrefFor(workspaceId, step.requestId);
 
+    // Заявка кабинета платформы: адресатов и автора уведомляет сам кабинет (свои типы,
+    // свой deep link) — продуктовое «моё решение ждут» вело бы на страницу, где такой
+    // предмет не рисуется.
+    const requestRow = await this.db.approvalRequest.findUnique({ where: { id: step.requestId }, select: { refType: true } });
+    if (requestRow && this.registry.get(requestRow.refType)?.consoleOnly) return;
+
     if (step.awaitingUserIds.length === 0) {
       const request = await this.db.approvalRequest.findUnique({
         where: { id: step.requestId },
@@ -1113,15 +1124,24 @@ export class ApprovalsService implements OnModuleInit {
   // Отмена
   // ============================================================
 
-  async cancel(userId: string, requestId: string): Promise<void> {
+  async cancel(userId: string, requestId: string, opts: { fromConsole?: boolean } = {}): Promise<void> {
     const request = await this.db.approvalRequest.findUnique({ where: { id: requestId } });
     if (!request) throw notFound('approval.requestNotFound');
+    this.assertNotConsoleOnly(request.refType, opts.fromConsole);
     if (request.createdById !== userId) throw forbidden('approval.cancelAuthorOnly');
     if (request.status !== 'pending') return;
     // Отзыв автором — ведущего БУДИМ: шаг маршрута, который ждал это решение, иначе
     // остаётся активным навсегда (решать его уже некому), а вместе с ним висит и
     // запуск процесса, и предмет с закрытой правкой.
     await this.cancelInternal(requestId, { notifyOrigin: true });
+  }
+
+  /** Продуктовая ручка не решает и не отзывает заявку внутреннего контура (`consoleOnly`). */
+  private assertNotConsoleOnly(refType: string, fromConsole?: boolean): void {
+    if (fromConsole) return;
+    if (this.registry.get(refType)?.consoleOnly) {
+      throw forbidden('approval.consoleOnly', undefined, { code: APPROVAL_ERROR_CODES.consoleOnly });
+    }
   }
 
   /**
@@ -1180,11 +1200,14 @@ export class ApprovalsService implements OnModuleInit {
    * активации шага.
    */
   private pendingWhere(userId: string, scope: InboxScope): Prisma.ApprovalStepWhereInput {
+    // Заявки кабинета платформы (four-eyes) в продуктовую стопку не попадают:
+    // сотрудник решает их из кабинета, где есть их контекст и step-up.
+    const consoleOnly = this.registry.consoleOnlyTypes();
     return {
       status: 'active',
       awaitingUserIds: { has: userId },
       decisions: { none: { userId } },
-      request: { status: 'pending', ...this.scopeWhere(scope) },
+      request: { status: 'pending', ...this.scopeWhere(scope), ...(consoleOnly.length ? { refType: { notIn: consoleOnly } } : {}) },
     };
   }
 
@@ -1406,11 +1429,15 @@ export class ApprovalsService implements OnModuleInit {
     userId: string,
     q: { workspaceId?: string; scope?: ApprovalInboxScope; archived?: boolean; cursor?: string },
   ): Promise<ApprovalMinePage> {
+    // Свои заявки кабинета платформы автор видит в кабинете, а не в продукте:
+    // у них нет ни предмета, который продукт умеет нарисовать, ни его прав.
+    const consoleOnly = this.registry.consoleOnlyTypes();
     const rows = await this.db.approvalRequest.findMany({
       where: {
         createdById: userId,
         ...this.scopeWhere(this.scopeOf(q)),
         status: q.archived ? { not: 'pending' } : 'pending',
+        ...(consoleOnly.length ? { refType: { notIn: consoleOnly } } : {}),
         ...(q.cursor ? { createdAt: { lt: new Date(q.cursor) } } : {}),
       },
       include: { steps: { orderBy: { order: 'asc' } } },

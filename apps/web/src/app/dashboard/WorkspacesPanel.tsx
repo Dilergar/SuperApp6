@@ -20,6 +20,8 @@ import {
 } from '@/lib/queries';
 import { daysUntilPurge, WORKSPACE_ARCHIVE_WARN_DAYS } from '@superapp/shared';
 import type { Workspace, WorkspaceInvitation } from '@superapp/shared';
+import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
+import { useEntitlementDenied } from '@/lib/hooks/useEntitlements';
 
 // Момент удаления и «сколько осталось» собираются В КОМПОНЕНТЕ: и формат даты,
 // и склонение дней принадлежат языку и региону зрителя (каталог + форматтеры).
@@ -36,6 +38,8 @@ const EMPTY_INVITES: WorkspaceInvitation[] = [];
 export function WorkspacesPanel() {
   const t = useTranslations('workspaces');
   const tc = useTranslations('common');
+  const ownedGate = useEntitlementGate('workspaces.maxOwned', null, 'ent-lock-workspaces');
+  const denied = useEntitlementDenied();
   const f = useFormatters();
   const purgeMoment = (iso: string) => t('panel.purgeMoment', { date: f.date(iso), time: f.time(iso) });
   const daysWord = (n: number) => (n === 0 ? t('panel.lessThanDay') : t('panel.days', { n }));
@@ -113,8 +117,9 @@ export function WorkspacesPanel() {
       setName('');
       setShowCreate(false);
       await refreshAll();
-    } catch {
-      setError(t('panel.createFailed'));
+    } catch (err) {
+      // Отказ тарифа (402) — переведённое объяснение сервера + свежий счётчик; прочее — общая фраза
+      if (!denied(err)) setError(t('panel.createFailed'));
     } finally {
       setCreating(false);
     }
@@ -132,15 +137,21 @@ export function WorkspacesPanel() {
         }}
       >
         <h2 className="title-md">{t('panel.title')}</h2>
-        <Button
-          size="sm"
-          variant={showCreate ? 'ghost' : 'primary'}
-          tone={showCreate ? 'neutral' : 'success'}
-          icon={showCreate ? 'close' : 'add'}
-          onClick={() => setShowCreate((v) => !v)}
-        >
-          {showCreate ? tc('actions.cancel') : t('panel.create')}
-        </Button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <EntitlementGauge keyName="workspaces.maxOwned" />
+          <EntitlementLock keyName="workspaces.maxOwned" id="ent-lock-workspaces" />
+          <Button
+            size="sm"
+            variant={showCreate ? 'ghost' : 'primary'}
+            tone={showCreate ? 'neutral' : 'success'}
+            icon={showCreate ? 'close' : 'add'}
+            disabled={!showCreate && ownedGate.blocked}
+            aria-describedby={ownedGate.describedBy}
+            onClick={() => setShowCreate((v) => !v)}
+          >
+            {showCreate ? tc('actions.cancel') : t('panel.create')}
+          </Button>
+        </div>
       </div>
 
       {error && (

@@ -11,16 +11,13 @@ import type { WorkspaceCardVisibility } from '../types/workspace';
 export const WORKSPACE_ERROR_CODES = {
   /** У человека действующий трудовой договор — исключать из организации нельзя */
   employmentActive: 'employment_active',
-  /** Потолок состава организации (WORKSPACE_LIMITS.maxMembersPerWorkspace) */
-  memberLimit: 'workspace_member_limit',
 } as const;
 export type WorkspaceErrorCode = (typeof WORKSPACE_ERROR_CODES)[keyof typeof WORKSPACE_ERROR_CODES];
 
+// Потолки «сколько организаций у человека» и «сколько мест в организации» —
+// ключи `workspaces.maxOwned` / `workspace.seats` реестра entitlements
+// (packages/shared/src/entitlements/workspaces.ts): тарифная сетка живёт в данных.
 export const WORKSPACE_LIMITS = {
-  // Max workspaces one user can OWN (a person may run several businesses).
-  maxWorkspacesOwnedPerUser: 20,
-  // Max members per workspace.
-  maxMembersPerWorkspace: 1000,
   // Max outstanding pending invitations per workspace. Дневных лимитов и кулдаунов
   // НЕТ намеренно (решение продукта: «нанять всех за день») — это анти-мусорный потолок.
   maxPendingInvitationsPerWorkspace: 500,

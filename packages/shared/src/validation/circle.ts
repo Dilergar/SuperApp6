@@ -37,9 +37,9 @@ export const reorderCirclesSchema = z.object({
       })
     )
     .min(1)
-    // Потолок = лимит групп на владельца: без него один запрос собирал
+    // Платформенный потолок (не тарифный): без него один запрос собирал
     // транзакцию из произвольного числа UPDATE'ов.
-    .max(CONTACT_LIMITS.maxCirclesPerUser)
+    .max(CONTACT_LIMITS.circlesHardCap)
     .refine(
       (list) => new Set(list.map((c) => c.id)).size === list.length,
       'validation.circle.duplicate'

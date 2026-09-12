@@ -26,7 +26,28 @@ export interface NotificationServerToClientEvents {
   'notification:counts': (p: WsNotificationCounts) => void;
 }
 
-export type RealtimeServerToClientEvents = MessengerServerToClientEvents & NotificationServerToClientEvents;
+/**
+ * Снимок тарифа субъекта изменился (relay `entitlements.changed`: подписка, грант,
+ * оверрайд, публикация версии). Клиент инвалидирует свой снимок и перечитывает.
+ */
+export interface WsEntitlementsChanged {
+  subjectType: 'user' | 'workspace' | 'family';
+  subjectId: string;
+}
+
+export interface EntitlementsServerToClientEvents {
+  'entitlements:changed': (p: WsEntitlementsChanged) => void;
+}
+
+export type RealtimeServerToClientEvents = MessengerServerToClientEvents &
+  NotificationServerToClientEvents &
+  EntitlementsServerToClientEvents;
+
+/** Payload шины `entitlements.changed` (движок → relay для user; workspaces подписывается для организации). */
+export interface EntitlementsChangedBusPayload {
+  subjectType: 'user' | 'workspace' | 'family';
+  subjectId: string;
+}
 export type RealtimeClientToServerEvents = MessengerClientToServerEvents;
 
 /** Payload шины `notifications.created` (фанаут → relay). */

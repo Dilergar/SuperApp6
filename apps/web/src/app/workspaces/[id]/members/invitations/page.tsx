@@ -12,6 +12,7 @@ import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
+import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 import { workspaceInvitationsKey } from '@/lib/queries';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, Chip, ConfirmDialog, EmptyState, IconButton, Input, LoadingBlock,
@@ -69,6 +70,8 @@ function InvitesSection({
   const t = useTranslations('staff');
   const tc = useTranslations('common');
   const qc = useQueryClient();
+  // Места организации (тариф): на лимите приглашение не предлагается, чип объясняет
+  const seatsGate = useEntitlementGate('workspace.seats', workspaceId, 'ent-lock-seats');
   const [phone, setPhone] = useState('+7');
   const [posId, setPosId] = useState('');
   const [branchIds, setBranchIds] = useState<string[]>([]);
@@ -196,10 +199,12 @@ function InvitesSection({
               placeholder={t('invitations.messagePlaceholder')}
             />
 
-            <div>
-              <Button type="submit" variant="primary" tone="success" icon="send" disabled={phone.length < 12} loading={invite.isPending}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
+              <Button type="submit" variant="primary" tone="success" icon="send" disabled={phone.length < 12 || seatsGate.blocked} aria-describedby={seatsGate.describedBy} loading={invite.isPending}>
                 {t('invitations.send')}
               </Button>
+              <EntitlementGauge keyName="workspace.seats" workspaceId={workspaceId} />
+              <EntitlementLock keyName="workspace.seats" workspaceId={workspaceId} id="ent-lock-seats" />
             </div>
           </form>
         </Card>

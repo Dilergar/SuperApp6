@@ -10,6 +10,7 @@ import { WorkspacesTemplateFieldsProvider } from './workspaces-template-fields.p
 import { StaffModule } from '../staff/staff.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { WorkspacesNotificationRefsProvider } from './workspaces-notification-refs.provider';
+import { WorkspacesEntitlementsProvider } from './workspaces-entitlements.provider';
 
 /**
  * WorkspacesModule — B2B organizations + membership.
@@ -34,6 +35,8 @@ import { WorkspacesNotificationRefsProvider } from './workspaces-notification-re
   providers: [
     // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
     WorkspacesNotificationRefsProvider,
+    // Движки тарифов и кабинета: провайдеры расхода мест, push снимка членам, поиск/панели организации
+    WorkspacesEntitlementsProvider,
     WorkspacesService,
     LegalEntitiesService,
     WorkspacesCron,

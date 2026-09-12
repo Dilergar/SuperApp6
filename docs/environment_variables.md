@@ -64,6 +64,8 @@
 - `VERIFY_REQUIRED` — пусто = secure-by-default (production → да); `true` форс в dev; `false` — аварийный рубильник в production (warn)
 - `VERIFY_TEST_PHONES` — тест-карта `"+7700…:111111,…"` (SMS не шлётся, фикс-код, лимиты скипаются; в production игнорируется) · `VERIFY_TEST_PHONES_ALLOW_PROD` (осознанный прод-смоук)
 - `VERIFY_SMS_HOURLY_BUDGET` (дефолт 200 = `VERIFY_LIMITS.globalHourlyBudgetDefault`) · `VERIFY_SMS_ORIGIN_DOMAIN` (origin-bound строка в SMS)
+- `PLATFORM_JWT_SECRET` — секрет токена кабинета платформы (`aud: platform`, [platform_console.md](platform_console.md)). Production → обязателен, ≥ 32 символов, НЕ равен `JWT_SECRET`; dev/test пусто → производный HMAC от `JWT_SECRET`. Токен кабинета не подходит к продуктовым ручкам и наоборот.
+- `PLATFORM_CONSOLE_ENABLED` — стоп-кран кабинета: `false` → все `/platform/*` отвечают `404` без деплоя кода; пусто/`true` — включён.
 - `SIGN_VERIFY_DRIVER` — `ncanode` | `mock`; пусто → ncanode при заданном `NCANODE_URL`, иначе mock. `ncanode` без адреса — ошибка бута. **В production с mock ЭЦП ОТВЕРГАЕТСЯ** (warn при старте; ПЭП по SMS работает)
 - `NCANODE_URL` — адрес верификатора; только из env (SSRF). Dev: профиль sign → `http://localhost:14579`
 - `SIGN_QR_DRIVER` — `smartbridge` | `mock`/пусто (QR ведёт на наш одноразовый адрес — разработчик/сьют играют за телефон). При `smartbridge` обязательны все три: `SMARTBRIDGE_URL` / `SMARTBRIDGE_CLIENT_ID` / `SMARTBRIDGE_CLIENT_SECRET` (мост eGov Mobile, сервис NITEC-S-5096)
@@ -91,6 +93,6 @@ CSP пока `Content-Security-Policy-Report-Only` (`next.config.ts`); когд�
 
 ## Сводка валидатора: условные обязательности и предупреждения
 
-Ошибки бута: `FILES_DRIVER=s3` → пять `S3_*` (кроме `S3_FORCE_PATH_STYLE`/`S3_PUBLIC_BASE_URL`) · любой `LIVEKIT_*` → все три · `LIVEKIT_EGRESS_DIR` → включённый LiveKit · `DOCS_EDITOR_URL` при пустом `API_PUBLIC_URL` → `DOCS_WOPI_PUBLIC_URL` · `SIGN_VERIFY_DRIVER=ncanode` → `NCANODE_URL` · `SIGN_QR_DRIVER=smartbridge` → три `SMARTBRIDGE_*` · `SMS_DRIVER=kazinfoteh` → три `KIT_*` · production → `REDIS_URL` и `JWT_SECRET` ≥ 32 · URL-поля обязаны быть URL, `APP_TIMEZONE` — IANA-зоной.
+Ошибки бута: `FILES_DRIVER=s3` → пять `S3_*` (кроме `S3_FORCE_PATH_STYLE`/`S3_PUBLIC_BASE_URL`) · любой `LIVEKIT_*` → все три · `LIVEKIT_EGRESS_DIR` → включённый LiveKit · `DOCS_EDITOR_URL` при пустом `API_PUBLIC_URL` → `DOCS_WOPI_PUBLIC_URL` · `SIGN_VERIFY_DRIVER=ncanode` → `NCANODE_URL` · `SIGN_QR_DRIVER=smartbridge` → три `SMARTBRIDGE_*` · `SMS_DRIVER=kazinfoteh` → три `KIT_*` · production → `REDIS_URL`, `JWT_SECRET` ≥ 32 и `PLATFORM_JWT_SECRET` ≥ 32 · URL-поля обязаны быть URL, `APP_TIMEZONE` — IANA-зоной.
 
 Только warn в production: `FILES_DRIVER=local` · пустой `TRUST_PROXY` · `VERIFY_REQUIRED=false` · `SMS_DRIVER≠kazinfoteh` · нет верификатора ЭЦП · задан `LIVEKIT_EGRESS_DIR`.

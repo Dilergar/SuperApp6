@@ -53,8 +53,10 @@ export const DEFAULT_CIRCLE_PRESETS: Array<{
 // ============================================================
 
 export const CONTACT_LIMITS = {
-  // Max groups per owner — protects against runaway UX churn.
-  maxCirclesPerUser: 50,
+  // Тарифный потолок Групп — ключ `contacts.maxCircles` реестра entitlements. Здесь —
+  // ПЛАТФОРМЕННЫЙ потолок здравого смысла поверх любого тарифа (размер одного запроса
+  // пересортировки, ширина выборки «в чьих группах я»): он не про деньги.
+  circlesHardCap: 500,
   // Max members per group.
   maxMembersPerCircle: 500,
   // Max outstanding pending invitations a user can have OUTGOING.

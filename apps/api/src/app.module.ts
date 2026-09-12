@@ -34,6 +34,9 @@ import { AudiencesModule } from './core/audiences/audiences.module';
 import { SignModule } from './core/sign/sign.module';
 import { NotificationsModule } from './core/notifications/notifications.module';
 import { RealtimeModule } from './core/realtime/realtime.module';
+import { EntitlementsModule } from './core/entitlements/entitlements.module';
+import { PlatformModule } from './core/platform/platform.module';
+import { PlatformAuthGuard } from './core/platform/platform-auth.guard';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CounterpartiesModule } from './modules/counterparties/counterparties.module';
 import { ObjectsModule } from './modules/objects/objects.module';
@@ -169,6 +172,9 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // Realtime engine — 18-й платформенный движок: один сокет платформы (/realtime),
     // личные комнаты, Redis-адаптер; relay/хендлеры регистрируют мессенджер и уведомления.
     RealtimeModule,
+    // Тариф и лимиты (19-й) и кабинет платформы (20-й) — оба @Global
+    EntitlementsModule,
+    PlatformModule,
     // Sign engine — 15-й платформенный движок: электронная подпись (шаг 3
     // документной вертикали). Акт подписи, криптография и её проверка, ВЕЧНЫЕ
     // доказательства, экспортный пакет (ст. 62 ЦК РК) и открытая страница
@@ -238,6 +244,11 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    // Кабинет платформы: свой гард на /platform/* (продуктовый гард такие маршруты пропускает)
+    {
+      provide: APP_GUARD,
+      useClass: PlatformAuthGuard,
     },
     // Establishes the active-workspace context (chokepoint) after auth runs.
     {

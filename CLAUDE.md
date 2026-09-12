@@ -43,6 +43,11 @@ Before implementing:
 - Каждый новый ключ заводить сразу в три каталога: `en`, `kk`, `ru`.
 - Детали и ловушки — `docs/i18n.md`.
 
+Cybersecurity - очень важен для такой экосистемы
+При создании новых сервисов, фукнции, фич - не забывай про Cybersecurity и планируй её сразу с высоким уровнем безопастности 
+**Увидел уязвимость, дыру — чинишь сразу, где бы она ни была.** В том же подходе, без отдельного разрешения: правка на ВСЕХ путях
+
+
 ## 3. Главный инструмент поиска: graphify
 
 В проекте развёрнут локальный индексатор и анализатор кодовой базы на основе графов — **graphify**. Этот инструмент имеет приоритет над brute-force чтением и поиском.
@@ -75,7 +80,7 @@ Before implementing:
 
 ## 6. Что уже работает
 
-**18 платформенных движков** (`apps/api/src/core/`): access (ReBAC) · rich-cards · search · quick-actions · files · voice (STT) · calls (LiveKit) · chatter · jobs (outbox) · verify (SMS-OTP) · docs (WOPI) · share-links · approvals · sign (ЭЦП+ПЭП) · templates · audiences (адресаты) · notifications (уведомления: in-app/push/SMS/chat, предпочтения, политика организации) · realtime (один сокет `/realtime`).
+**20 платформенных движков** (`apps/api/src/core/`): access (ReBAC) · rich-cards · search · quick-actions · files · voice (STT) · calls (LiveKit) · chatter · jobs (outbox) · verify (SMS-OTP) · docs (WOPI) · share-links · approvals · sign (ЭЦП+ПЭП) · templates · audiences (адресаты) · notifications (уведомления: in-app/push/SMS/chat, предпочтения, политика организации) · realtime (один сокет `/realtime`) · entitlements (тарифы и лимиты: планы с версиями, триал/грейс, гранты, оверрайды, квоты, `402 entitlement.*`) · platform (Кабинет платформы: сотрудники ≠ user_roles, команды с журналом/идемпотентностью/step-up/«четыре глаза», карточка 360).
 
 **Сервисы** (`apps/api/src/modules/`): Окружение (Circle — фундамент) · Задачник · Календарь (+Google) · Мессенджер · My Wish & Shop · Кошелёк-леджер · Скины карточек · Организации · Сотрудники + Орг. структура (вертикаль на графе должностей и объектов) · Процессы (нодовый канвас) · Финансы (B2C) · Диктофон · Виртуальный офис · Диск (OmniDrive) · Документооборот (+ЭДО) · Контрагенты · КЭДО (HR) · Объекты (дерево площадок + юрлица + штатное расписание + график смен + оборудование) · Заметки (B2C+B2B: свой формат документа, доска-вид на раздел с Alt+N на любой странице, привязка к задачам/контрагентам/объектам/документам). Документная вертикаль ЗАВЕРШЕНА; B2B-вертикаль объектов ПОСТРОЕНА; **мультиязычный фундамент построен** (kk/ru/en, render-at-read, стражи — `docs/i18n.md`), сервисы переводятся по одному за сессию.
 
@@ -115,6 +120,8 @@ Before implementing:
 | **Текст для человека (любой)** | `@superapp/i18n`: ключ каталога + `useTranslations`/`I18nService`; литерал запрещён линтером | `docs/i18n.md` |
 | Уведомления человеку | `core/notifications`: тип в реестре shared (`packages/shared/src/notifications/<сервис>.ts` + `.title/.label` в трёх каталогах) + `send(tx, …)` В транзакции мутации + `NotificationRefRegistry` (право видеть + deep link); продюсер решает КОМУ, движок — КАК (каналы, предпочтения, тишина, схлопывание) | `docs/notifications_engine.md` |
 | Событие в сокет / команда с клиента | `core/realtime`: `registerRelay` / `registerHandler` / `registerConnectionHook`; свой gateway запрещён | `docs/realtime_engine.md` |
+| Платная фича, потолок «сколько можно», расходуемая квота | `core/entitlements`: ключ в реестре shared + `assertFeature`/`assertCanCreate(tx)`/`consume(tx)` в сервисе + замок/шкала в вебе; потолки в константах и 403 «за тариф» запрещены — только `402 entitlement.*` с `unlock` | `docs/entitlements_engine.md` |
+| Операция для сотрудника платформы (поддержка, биллинг, безопасность) | `core/platform`: команда в `PlatformCommandRegistry` / панель в `PlatformPanelRegistry` (поиск — `PlatformLookupRegistry`) из своего модуля; свои контроллеры под `/platform` не заводить | `docs/platform_console.md` |
 | Деньги: оплата, заморозка, сделки | `wallet` (Ledger + Escrow) — только синхронно в одной tx | `docs/wallet_ledger.md` |
 | Записи на сетке календаря | Реестр слоёв (регистрирует ВЛАДЕЛЕЦ данных) | `docs/calendar.md` |
 | «Человек достижим?» | `ContactsService.assertReachable` (+personalOnly для личного) | `docs/contacts_circles.md` |

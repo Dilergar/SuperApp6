@@ -57,7 +57,7 @@ function DevFilesInner() {
   };
 
   const usage = usageQuery.data;
-  const usagePct = usage && usage.limitBytes > 0 ? Math.min(100, Math.round((usage.bytesUsed / usage.limitBytes) * 100)) : 0;
+  const usagePct = usage && usage.limitBytes != null && usage.limitBytes > 0 ? Math.min(100, Math.round((usage.bytesUsed / usage.limitBytes) * 100)) : 0;
 
   return (
     <div style={{ maxWidth: '56rem', margin: '0 auto', padding: '2rem 1.25rem', fontFamily: 'var(--font-body)' }}>
@@ -91,7 +91,7 @@ function DevFilesInner() {
         {usage && (
           <div style={{ flex: 1, minWidth: '14rem' }}>
             <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>
-              Хранилище: {humanSize(usage.bytesUsed)} из {humanSize(usage.limitBytes)} · файлов: {usage.filesCount}
+              Хранилище: {humanSize(usage.bytesUsed)} из {usage.limitBytes == null ? '∞' : humanSize(usage.limitBytes)} · файлов: {usage.filesCount}
             </div>
             <div style={{ marginTop: 3, height: 6, background: 'var(--surface-container-high)', borderRadius: 999, overflow: 'hidden' }}>
               <div style={{ height: '100%', width: `${usagePct}%`, background: usagePct > 90 ? 'var(--danger)' : 'var(--success)', borderRadius: 999 }} />

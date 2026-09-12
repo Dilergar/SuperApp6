@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { EntitlementsService } from '../../core/entitlements/entitlements.service';
+import { UsageProviderRegistry } from '../../core/entitlements/entitlements.registry';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { ContactsService } from '../contacts/contacts.service';
@@ -27,13 +29,22 @@ import { Prisma } from '@prisma/client';
  * All operations enforce ownerId.
  */
 @Injectable()
-export class CirclesService {
+export class CirclesService implements OnModuleInit {
   constructor(
     private db: DatabaseService,
     private contacts: ContactsService,
     private redis: RedisService,
     private accessProjection: AccessProjectionService,
+    private entitlements: EntitlementsService,
+    private usageProviders: UsageProviderRegistry,
   ) {}
+
+  /** Расход ключа `contacts.maxCircles` — живые Группы владельца (провайдер движка тарифов). */
+  onModuleInit(): void {
+    this.usageProviders.register('contacts.maxCircles', {
+      count: (subject, tx) => (tx ?? this.db).circle.count({ where: { ownerId: subject.id } }),
+    });
+  }
 
   // ============================================================
   // Group CRUD
@@ -90,10 +101,9 @@ export class CirclesService {
       await tx.$queryRaw(
         Prisma.sql`SELECT id FROM users WHERE id = ${ownerId} FOR UPDATE`,
       );
+      // Потолок Групп — тариф человека (core/entitlements): COUNT под advisory-локом в этой tx
+      await this.entitlements.assertCanCreate(tx, { type: 'user', id: ownerId }, 'contacts.maxCircles');
       const existingCount = await tx.circle.count({ where: { ownerId } });
-      if (existingCount >= CONTACT_LIMITS.maxCirclesPerUser) {
-        throw badRequest('contacts.circleLimit', { max: CONTACT_LIMITS.maxCirclesPerUser });
-      }
 
       const sortOrder =
         data.sortOrder !== undefined ? data.sortOrder : existingCount;

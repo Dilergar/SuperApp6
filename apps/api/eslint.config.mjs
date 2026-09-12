@@ -51,6 +51,26 @@ const BANNED_MODULES = [
 ];
 const BANNED_MODULES_RE = `/^(${BANNED_MODULES.map((m) => m.replace(':', '\:')).join('|')})$/`;
 
+/**
+ * Второй страж: способности КАБИНЕТА ПЛАТФОРМЫ читаются только внутри кабинета.
+ *
+ * Ревью 2026-09-12 нашло `modules/processes`, который спрашивал право кабинета на
+ * ПРОДУКТОВОМ пути: сотрудник платформы получал привилегию своим обычным токеном —
+ * без входа в кабинет, без step-up и без строки в журнале кабинета. Правило держит
+ * границу: службные действия живут командами `core/platform`, а не проверкой права
+ * в фиче. Исключение одно — `core/users`: анонимизация аккаунта СНИМАЕТ человека со
+ * штата платформы (`systemSuspendDeletedUser`), это не чтение прав.
+ */
+const CONSOLE_SCOPE_HINT =
+  'Права кабинета платформы (PlatformAccessService / PlatformAuthService) читаются только внутри core/platform: служебное действие оформляется КОМАНДОЙ кабинета (реестр core/platform), иначе привилегия сработает по продуктовому токену — без step-up и без журнала кабинета.';
+const CONSOLE_ACCESS_PATTERNS = [
+  {
+    group: ['**/platform/platform-access.service', '**/platform/platform-auth.service'],
+    message: CONSOLE_SCOPE_HINT,
+  },
+];
+const OUTBOUND_IMPORT_PATHS = BANNED_MODULES.map((name) => ({ name, message: OUTBOUND_DOOR_HINT }));
+
 export default [
   {
     ignores: ['dist/**', 'node_modules/**', 'prisma/**', 'scripts/**', 'test/**'],
@@ -123,9 +143,18 @@ export default [
       'no-restricted-imports': [
         'error',
         {
-          paths: BANNED_MODULES.map((name) => ({ name, message: OUTBOUND_DOOR_HINT })),
+          paths: OUTBOUND_IMPORT_PATHS,
+          patterns: CONSOLE_ACCESS_PATTERNS,
         },
       ],
+    },
+  },
+  {
+    // Кабинет платформы — внутри себя. И `core/users`, где анонимизация аккаунта снимает
+    // человека со штата: там правило снято ровно на импорт кабинета, дверь наружу остаётся.
+    files: ['src/core/platform/**/*.ts', 'src/core/users/users.service.ts', 'src/core/users/users.module.ts'],
+    rules: {
+      'no-restricted-imports': ['error', { paths: OUTBOUND_IMPORT_PATHS }],
     },
   },
   {

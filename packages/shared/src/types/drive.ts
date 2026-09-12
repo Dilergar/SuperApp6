@@ -164,7 +164,8 @@ export interface DriveOverviewDto {
   /** Пространства, куда зрителю дали доступ (гранты), кроме своего */
   sharedWithMe: DriveSpaceDto[];
   bytesUsed: number;
-  limitBytes: number;
+  /** Потолок по тарифу владельца (core/entitlements); null — без ограничения */
+  limitBytes: number | null;
   filesCount: number;
   trashedCount: number;
 }

@@ -1,0 +1,84 @@
+{
+  "chrome": {
+    "expired": "Тарифтің мерзімі өтті — тегін тариф мәндері қолданылады",
+    "grace": "Жеңілдік кезеңі, {days, plural, one {# күн} other {# күн}} қалды",
+    "link": "Тариф және шектеулер",
+    "trial": "Сынақ, {days, plural, one {# күн} other {# күн}} қалды"
+  },
+  "gauge": {
+    "of": "{total} ішінен {used}",
+    "usedOf": "{total} ішінен {used}"
+  },
+  "keys": {
+    "contactsMaxCircles": "Орта топтары",
+    "filesCount": "Дискідегі файлдар",
+    "filesStorageBytes": "Дискідегі орын",
+    "legalEntitiesMaxPerWorkspace": "Заңды тұлғалар",
+    "notificationsSmsPerDay": "Күніне SMS",
+    "objectsMaxPerWorkspace": "Нысандар",
+    "shopMaxShowcases": "Витриналар",
+    "skinsPerGroup": "Әр топқа бөлек скин",
+    "workspaceSeats": "Ұйымдағы орындар",
+    "workspacesMaxOwned": "Сізге тиесілі ұйымдар"
+  },
+  "lock": {
+    "quotaFull": "Дискідегі орын толды",
+    "self": "{plan} тарифінде қолжетімді",
+    "selfNoPlan": "Ағымдағы тарифке кірмейді",
+    "workspace": "Ұйым тарифінің шегі — иесі шешеді"
+  },
+  "page": {
+    "available": "Қолжетімді",
+    "limitsTitle": "Қызметтер бойынша шектеулер",
+    "orgPlanCard": "Ұйым тарифі",
+    "periodEnd": "{date} дейін төленген",
+    "planCard": "Сіздің тарифіңіз",
+    "resetAt": "{date} жаңарады",
+    "seats": "Орындар",
+    "subtitle": "Тарифке не кіреді және қанша пайдаланылды",
+    "title": "Тариф және шектеулер",
+    "unavailable": "Қолжетімсіз",
+    "unlimited": "Шексіз",
+    "usage": "{total} ішінен {used}"
+  },
+  "plans": {
+    "business_basic": "Бизнес Базалық",
+    "business_free": "Бизнес Тегін",
+    "business_pro": "Бизнес Про",
+    "business_standard": "Бизнес Стандарт",
+    "family": "Отбасылық",
+    "free": "Тегін",
+    "personal": "Жеке"
+  },
+  "services": {
+    "cardSkins": "Карточка скиндері",
+    "contacts": "Менің ортам",
+    "files": "Диск",
+    "legalEntities": "Заңды тұлғалар",
+    "notifications": "Хабарламалар",
+    "objects": "Нысандар",
+    "shop": "Дүкен",
+    "workspaces": "Ұйымдар"
+  },
+  "source": {
+    "grant": "Сыйлық {date} дейін",
+    "grantNoEnd": "Сыйлық",
+    "override": "Жеке шарт {date} дейін"
+  },
+  "status": {
+    "active": "Белсенді",
+    "expired": "Мерзімі өтті",
+    "free": "Тегін тариф",
+    "past_due": "Жеңілдік кезеңі {date} дейін",
+    "trialing": "Сынақ {date} дейін"
+  },
+  "supportChange": {
+    "grantCreated": "қолдау қызметі қосымша мүмкіндік берді",
+    "grantRevoked": "қолдау қызметі қосымша мүмкіндікті кері қайтарды",
+    "overrideCleared": "қолдау қызметі жеке шартты алып тастады",
+    "overrideSet": "қолдау қызметі жеке шарт орнатты",
+    "subscriptionCleared": "қолдау қызметі тарифіңізді алып тастады",
+    "subscriptionSet": "қолдау қызметі тарифіңізді өзгертті",
+    "trialExtended": "қолдау қызметі сынақ мерзімін ұзартты"
+  }
+}

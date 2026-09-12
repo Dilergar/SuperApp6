@@ -203,7 +203,7 @@
       "security": "Security",
       "settings": "Settings",
       "stats": "Statistics",
-      "subscription": "Subscription"
+      "subscription": "Plan and limits"
     },
     "sectionTitle": {
       "anketa": "Company details",
@@ -212,7 +212,7 @@
       "security": "Security",
       "settings": "Settings",
       "stats": "Statistics",
-      "subscription": "Subscription"
+      "subscription": "Plan and limits"
     },
     "security": {
       "danger": {
@@ -235,12 +235,6 @@
       "subtitle": "More settings of the organization will come later",
       "timezone": "Time zone",
       "title": "General settings"
-    },
-    "subscription": {
-      "free": "Free",
-      "subtitle": "Paid plans for organizations will come later",
-      "title": "Current plan of the organization",
-      "upgrade": "Upgrade (soon)"
     },
     "title": "Profile",
     "viewAs": {
@@ -275,6 +269,7 @@
       "subtitle": "The main one goes into the invoices and the contracts",
       "title": "Bank accounts"
     },
+    "bankPlaceholder": "Kaspi Bank",
     "bin": "BIN",
     "binError": "The checksum does not add up",
     "binPlaceholder": "12 digits",
@@ -315,8 +310,7 @@
     "vatPayerToggle": "VAT payer",
     "vatPayerWithCert": "a payer (certificate {cert})",
     "vatSeries": "Certificate series",
-    "viewSubtitle": "For contracts and invoices",
-    "bankPlaceholder": "Kaspi Bank"
+    "viewSubtitle": "For contracts and invoices"
   },
   "taxRegime": {
     "astana_hub": "Astana Hub",

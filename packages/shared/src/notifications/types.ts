@@ -167,6 +167,8 @@ export const NOTIFICATION_SERVICES = {
   notes: { contexts: 'both', order: 75 },
   share: { contexts: 'both', order: 78 },
   workspaces: { contexts: 'both', order: 80 },
+  /** Тариф и лимиты (core/entitlements): пробный период, льготный период, квоты, места */
+  entitlements: { contexts: 'both', order: 85 },
   staff: { contexts: 'workspace', order: 90 },
   objects: { contexts: 'workspace', order: 100 },
   documents: { contexts: 'workspace', order: 110 },
@@ -176,6 +178,8 @@ export const NOTIFICATION_SERVICES = {
   processes: { contexts: 'workspace', order: 150 },
   office: { contexts: 'workspace', order: 160 },
   security: { contexts: 'personal', order: 900 },
+  /** Кабинет платформы (core/platform): security-alert владельцам, заявки four-eyes — только сотрудникам платформы */
+  platform: { contexts: 'personal', order: 940 },
   system: { contexts: 'both', order: 950 },
 } as const satisfies Record<string, { contexts: NotificationContextScope; order: number }>;
 

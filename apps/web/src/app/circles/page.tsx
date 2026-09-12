@@ -62,12 +62,15 @@ import {
   RolePicker,
 } from './circles-ui';
 import { AcceptInvitationModal, GroupEditModal } from './circles-modals';
+import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 
 type InvitationTab = 'active' | 'history';
 
 export default function CirclesPage() {
   const t = useTranslations('circles');
   const tc = useTranslations('common');
+  // Замок тарифа на создание Группы (счётчик «N из M» рядом с кнопкой)
+  const circlesGate = useEntitlementGate('contacts.maxCircles', null, 'ent-lock-circles');
   const f = useFormatters();
   const { isReady } = useRequireAuth();
   const queryClient = useQueryClient();
@@ -865,7 +868,9 @@ export default function CirclesPage() {
           </Fragment>
         ))}
 
-        <Button size="sm" variant="outline" icon="add" onClick={() => setShowCreateGroup((v) => !v)}>
+        <EntitlementGauge keyName="contacts.maxCircles" />
+        <EntitlementLock keyName="contacts.maxCircles" id="ent-lock-circles" />
+        <Button size="sm" variant="outline" icon="add" disabled={circlesGate.blocked} aria-describedby={circlesGate.describedBy} onClick={() => setShowCreateGroup((v) => !v)}>
           {t('groups.new')}
         </Button>
       </div>

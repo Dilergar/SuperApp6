@@ -1,5 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { EntitlementsService } from '../../core/entitlements/entitlements.service';
+import { UsageProviderRegistry } from '../../core/entitlements/entitlements.registry';
 import {
   DEFAULT_SCHEDULE_SETTINGS,
   OBJECT_KINDS,
@@ -93,7 +95,7 @@ const EMPTY_CAPS: ObjectCapsDto = {
 const DEFAULT_BRANCH_NAME_KEY = 'staff.member.defaultBranch';
 
 @Injectable()
-export class ObjectsService {
+export class ObjectsService implements OnModuleInit {
   constructor(
     private readonly db: DatabaseService,
     private readonly roles: RolesService,
@@ -103,7 +105,21 @@ export class ObjectsService {
     private readonly staff: StaffService,
     private readonly legal: LegalEntitiesService,
     private readonly i18n: I18nService,
+    private readonly entitlements: EntitlementsService,
+    private readonly usageProviders: UsageProviderRegistry,
   ) {}
+
+  /**
+   * Расход ключа `objects.maxPerWorkspace` — ЖИВЫЕ узлы дерева организации (провайдер
+   * движка тарифов). Архивные не считаются: их нет ни в дереве, ни в выборках, и
+   * шкала «1998 из 2000» не вправе состоять из того, чего человек не видит. Обратная
+   * сторона — возврат из архива проверяет потолок так же, как создание (`archive`).
+   */
+  onModuleInit(): void {
+    this.usageProviders.register('objects.maxPerWorkspace', {
+      count: (subject, tx) => (tx ?? this.db).staffBranch.count({ where: { workspaceId: subject.id, archivedAt: null } }),
+    });
+  }
 
   // ============================================================
   // Права
@@ -447,10 +463,6 @@ export class ObjectsService {
       throw forbidden('objects.topLevelAdminOnly');
     }
 
-    const count = await this.db.staffBranch.count({ where: { workspaceId } });
-    if (count >= OBJECT_LIMITS.maxObjectsPerWorkspace) {
-      throw badRequest('objects.limitReached', { max: OBJECT_LIMITS.maxObjectsPerWorkspace });
-    }
     if (dto.headPositionId) await this.assertPosition(workspaceId, dto.headPositionId);
     const legalEntityId = dto.legalEntityId
       ? await this.legal.resolveLegalEntityId(workspaceId, dto.legalEntityId)
@@ -458,6 +470,10 @@ export class ObjectsService {
 
     const created = await this.db
       .$transaction(async (tx) => {
+        // Потолок узлов дерева — тариф организации (core/entitlements): COUNT под
+        // advisory-локом в этой же транзакции, отказ — 402 с объяснением.
+        await this.entitlements.assertCanCreate(tx, { type: 'workspace', id: workspaceId }, 'objects.maxPerWorkspace');
+        const count = await tx.staffBranch.count({ where: { workspaceId } });
         const row = await tx.staffBranch.create({
           data: {
             workspaceId,
@@ -704,18 +720,28 @@ export class ObjectsService {
       }
     }
     const stamp = branch.archivedAt;
+    // Архив узла закрывает и его поддерево: открытая «зона» внутри закрытого
+    // здания — состояние, которого в жизни не бывает.
+    // Архив НЕ перебивает метку у тех, кого закрыли раньше и отдельно — иначе их
+    // «своя» дата терялась бы, и возврат родителя оживлял их тоже. Возврат берёт
+    // ровно те строки, что закрывались ЭТИМ каскадом.
+    const cascadeWhere: Prisma.StaffBranchWhereInput = {
+      workspaceId,
+      OR: [{ id: branchId }, { ancestorIds: { has: branchId } }],
+      ...(restore && stamp ? { archivedAt: stamp } : { archivedAt: null }),
+    };
     const updated = await this.db.$transaction(async (tx) => {
-      // Архив узла закрывает и его поддерево: открытая «зона» внутри закрытого
-      // здания — состояние, которого в жизни не бывает.
+      // Возврат из архива — то же самое, что создание, с точки зрения потолка:
+      // иначе архив стал бы обходом тарифа (закрыть 2000, создать 2000, вернуть
+      // закрытые). Считаем ВСЁ поддерево, которое оживёт этим каскадом.
+      if (restore) {
+        const reviving = await tx.staffBranch.count({ where: cascadeWhere });
+        if (reviving > 0) {
+          await this.entitlements.assertCanCreate(tx, { type: 'workspace', id: workspaceId }, 'objects.maxPerWorkspace', reviving);
+        }
+      }
       await tx.staffBranch.updateMany({
-        where: {
-          workspaceId,
-          OR: [{ id: branchId }, { ancestorIds: { has: branchId } }],
-          // Архив НЕ перебивает метку у тех, кого закрыли раньше и отдельно —
-          // иначе их «своя» дата терялась бы, и возврат родителя оживлял их тоже.
-          // Возврат берёт ровно те строки, что закрывались ЭТИМ каскадом.
-          ...(restore && stamp ? { archivedAt: stamp } : { archivedAt: null }),
-        },
+        where: cascadeWhere,
         data: { archivedAt: restore ? null : new Date() },
       });
       await this.chatter.log(tx, {

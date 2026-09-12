@@ -37,6 +37,8 @@ import { RECORDER_NOTIFICATIONS } from './recorder';
 import { SHARE_NOTIFICATIONS } from './share';
 import { SECURITY_NOTIFICATIONS } from './security';
 import { SYSTEM_NOTIFICATIONS } from './system';
+import { ENTITLEMENTS_NOTIFICATIONS } from './entitlements';
+import { PLATFORM_NOTIFICATIONS } from './platform';
 
 export * from './types';
 
@@ -63,6 +65,8 @@ const REGISTRY_RAW = {
   ...SHARE_NOTIFICATIONS,
   ...SECURITY_NOTIFICATIONS,
   ...SYSTEM_NOTIFICATIONS,
+  ...ENTITLEMENTS_NOTIFICATIONS,
+  ...PLATFORM_NOTIFICATIONS,
 } as const satisfies Record<string, NotificationTypeDef>;
 
 /** Union типов — выводится из реестра, а не пишется руками. */
@@ -176,9 +180,11 @@ export const NOTIFICATION_LIMITS = {
   workspaceBudgetPerHour: 10_000,
   /** Snooze не дольше (дни) */
   maxSnoozeDays: 30,
-  /** SMS: суточные потолки человека и организации */
+  /**
+   * SMS: суточный потолок ЧЕЛОВЕКА — анти-абьюз, не тариф. Потолок организации —
+   * ключ `notifications.smsPerDay` реестра entitlements (квота с суточным периодом).
+   */
   smsPerUserDaily: 10,
-  smsPerWorkspaceDaily: 500,
   /** Отказов подряд до отключения устройства */
   deviceFailuresToDisable: 3,
   /** Потолок переопределений в одном PUT настроек */

@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DriveNodeDto } from '@superapp/shared';
 import { DRIVE_LIMITS } from '@superapp/shared';
 import { Alert, Button, Card, PageHeader, Tabs, TickBar, useConfirm } from '@/components/ui';
+import { EntitlementLock } from '@/components/entitlements';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiErrorMessage } from '@/lib/api';
 import { toastError } from '@/lib/toast';
@@ -82,8 +83,8 @@ export default function WorkspaceDrivePage() {
     : [{ id: null as string | null, name: rootName }];
 
   const used = overview?.bytesUsed ?? 0;
-  const limit = overview?.limitBytes ?? 1;
-  const pct = Math.min(100, Math.round((used / limit) * 100));
+  const limit = overview?.limitBytes ?? null;
+  const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const canEdit = overview ? overview.space.access !== 'viewer' : false;
 
   const trashActions = (node: DriveNodeDto) => (
@@ -166,7 +167,8 @@ export default function WorkspaceDrivePage() {
       <Card small style={{ marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
           <span className="label-caps">{t('org.usedSpace')}</span>
-          <span className="label-sm">{t('page.usedOf', { used: humanSize(used), limit: humanSize(limit) })}</span>
+          <span className="label-sm">{limit === null ? t('page.usedNoLimit', { used: humanSize(used) }) : t('page.usedOf', { used: humanSize(used), limit: humanSize(limit) })}</span>
+          <EntitlementLock keyName="files.storageBytes" workspaceId={workspaceId} id="ent-lock-drive" />
         </div>
         <TickBar value={pct} tone={pct > 90 ? 'danger' : pct > 70 ? 'warning' : 'accent'} />
       </Card>

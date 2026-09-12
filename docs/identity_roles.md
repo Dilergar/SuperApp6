@@ -34,7 +34,8 @@ contractor < trainee (Стажёр) < staff (Сотрудник) < manager < adm
 2. **Участие в сущности** (Исполнитель/Наблюдатель задачи) — доменные таблицы + проекция в core/access;
 3. **Платформенная персона** (`platform`: Продавец/Тайный Гость/UGC) — аддитивные будущие фичи;
 4. **Роль компании** (лестница выше) — `UserRole`;
-5. **Оргструктура** (должность/отдел/объект) — [staff.md](staff.md), три оси, проецируются в core/access; вертикаль «кто кому руководитель» и областные права — [org_structure.md](org_structure.md).
+5. **Оргструктура** (должность/отдел/объект) — [staff.md](staff.md), три оси, проецируются в core/access; вертикаль «кто кому руководитель» и областные права — [org_structure.md](org_structure.md);
+6. **Сотрудник платформы** (`PlatformStaff` + `PlatformStaffRole`, способности `PLATFORM_CAPABILITIES`) — НЕ `user_roles` и НЕ `isSystemAdmin`: свой вход (пароль → SMS), свой токен `aud: platform` с отдельным секретом, свои маршруты `/platform/*`; на продуктовые ручки не влияет — [platform_console.md](platform_console.md).
 
 ## B2B-изоляция данных — два законных пути
 

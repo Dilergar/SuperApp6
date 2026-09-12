@@ -398,7 +398,7 @@ export class ContactsService {
         contactLink: { OR: [{ userAId: userId }, { userBId: userId }] },
       },
       select: { circleId: true, circle: { select: { ownerId: true } } },
-      take: CONTACT_LIMITS.maxCirclesPerUser * CONTACT_LIMITS.contactsPageSize,
+      take: CONTACT_LIMITS.circlesHardCap * CONTACT_LIMITS.contactsPageSize,
     });
     // Владелец группы обязан быть ВТОРОЙ стороной связи — иначе это не «меня
     // положили в свою группу», а посторонняя строка.

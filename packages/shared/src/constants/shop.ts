@@ -1,5 +1,5 @@
+// Потолок витрин — ключ `shop.maxShowcases` реестра entitlements (человек и организация).
 export const SHOP_LIMITS = {
-  maxShowcases: 50,
   maxListingsPerShowcase: 500,
   maxNameLength: 80,
   maxTitleLength: 120,

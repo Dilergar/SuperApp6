@@ -62,6 +62,13 @@ export const conflict = make(HttpStatus.CONFLICT);
 export const tooMany = make(HttpStatus.TOO_MANY_REQUESTS);
 /** 422 — форма разобрана, но смысл недопустим. */
 export const unprocessable = make(HttpStatus.UNPROCESSABLE_ENTITY);
+/**
+ * 402 — отказ ТАРИФА (core/entitlements): фича не включена, лимит достигнут, квота
+ * исчерпана. Отдельный статус, чтобы клиент отличал «нельзя по правам» (403) от
+ * «нельзя по тарифу» и рисовал замок с объяснением; `details` несёт `code`
+ * (`entitlement.<reason>`), `key`, `value`, `used`, `contextType`, `unlock`.
+ */
+export const paymentRequired = make(HttpStatus.PAYMENT_REQUIRED);
 
 /** Это наш типизированный отказ (а не голый HttpException из прошлой эпохи)? */
 export function isApiError(err: unknown): err is ApiError {

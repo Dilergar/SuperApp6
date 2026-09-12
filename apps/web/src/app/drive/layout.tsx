@@ -13,7 +13,7 @@ import { DriveShell } from './drive-shell';
 export default function DriveLayout({ children }: { children: React.ReactNode }) {
   return (
     // `circles` рядом с `drive`: окно доступа рисует людей карточками.
-    <ServiceMessages ns={['drive', 'circles', 'share']}>
+    <ServiceMessages ns={['drive', 'circles', 'share', 'entitlements']}>
       <Suspense fallback={<RouteLoading />}>
         <DriveShell>{children}</DriveShell>
       </Suspense>

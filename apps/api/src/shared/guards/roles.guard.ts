@@ -27,8 +27,10 @@ export class RolesGuard implements CanActivate {
 
     if (!user) return false;
 
-    // System admins always pass
-    if (user.role === 'admin') return true;
+    // Системный админ проходит всегда — но по БД, а не по клейму JWT: клейм `role`
+    // чеканится при входе и живёт до 15 минут после снятия роли, а подделанный
+    // токен с `role: 'admin'` обошёл бы ВСЕ @Roles() (S19 ревью кабинета).
+    if (await this.rolesService.isSystemAdmin(user.sub)) return true;
 
     // Check if user has ANY of the required roles
     for (const required of requiredRoles) {

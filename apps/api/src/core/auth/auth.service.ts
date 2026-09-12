@@ -18,6 +18,7 @@ import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { VerifyService } from '../verify/verify.service';
 import { JobsService } from '../jobs/jobs.service';
+import { EntitlementsService } from '../entitlements/entitlements.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { USER_PHONE_INVITATIONS_JOB } from '../users/user-jobs';
 import type { AuthTokens } from '@superapp/shared';
@@ -37,6 +38,7 @@ export class AuthService {
     private verify: VerifyService,
     private jobs: JobsService,
     private wsContext: WorkspaceContextService,
+    private entitlements: EntitlementsService,
   ) {}
 
   async register(data: {
@@ -107,18 +109,9 @@ export class AuthService {
         },
       });
 
-      // Create default subscription (3 month trial)
-      const trialEnd = new Date();
-      trialEnd.setMonth(trialEnd.getMonth() + 3);
-
-      await tx.subscription.create({
-        data: {
-          userId: newUser.id,
-          plan: 'free',
-          status: 'trial',
-          expiresAt: trialEnd,
-        },
-      });
+      // Пробный период личного тарифа (core/entitlements): 30 дней `personal` в той же
+      // транзакции — аккаунт без подписки = free, триал не заводится дважды (уникум).
+      await this.entitlements.startTrial(tx, { type: 'user', id: newUser.id });
 
       // Приглашения, висевшие на этом номере, активирует ДЖОБ, поставленный в
       // ЭТОЙ ЖЕ транзакции (transactional outbox core/jobs) — тот же путь, что

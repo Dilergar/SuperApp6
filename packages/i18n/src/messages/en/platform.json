@@ -1,0 +1,421 @@
+{
+  "audit": {
+    "after": "After",
+    "approval": "Request",
+    "before": "Before",
+    "col": {
+      "actor": "Staff member",
+      "at": "When",
+      "command": "Command",
+      "outcome": "Outcome",
+      "target": "Target"
+    },
+    "description": "Every command of the console, append-only",
+    "dryRun": "preview",
+    "empty": "No entries",
+    "from": "From",
+    "input": "Input",
+    "outcome": {
+      "denied": "denied",
+      "error": "error",
+      "ok": "ok"
+    },
+    "reason": "Reason",
+    "stepUpAt": "Confirmed at {time}",
+    "system": "System",
+    "ticket": "Ticket",
+    "to": "To",
+    "viaRequest": "approved"
+  },
+  "card": {
+    "actions": "Actions",
+    "empty": "Nothing here",
+    "notFound": "Not found",
+    "notStaff": "Not a platform staff member",
+    "panelFailed": "The panel failed to load",
+    "reveal": "Reveal",
+    "show": "Show",
+    "user": "Person",
+    "workspace": "Organization"
+  },
+  "catalog": {
+    "archive": "Archive",
+    "col": {
+      "diff": "Change",
+      "free": "Free",
+      "plan": "Plan",
+      "subject": "Subject",
+      "versions": "Versions"
+    },
+    "description": "Plan versions and individual terms of subjects",
+    "inherit": "as free",
+    "inherits": "as free",
+    "keys": "Keys",
+    "newDraft": "New draft",
+    "pickVersion": "Pick a plan version on the left",
+    "plans": "Plans",
+    "publish": "Publish",
+    "publishedAt": "Published {date}",
+    "tab": "Catalog",
+    "was": "was {value}"
+  },
+  "chips": {
+    "deleted": "Deleted account",
+    "inactive": "Archived",
+    "plan": "{plan} · {status}",
+    "staff": "Platform staff",
+    "suspended": "Suspended"
+  },
+  "commands": {
+    "entitlementsGrantCreate": {
+      "description": "A gift, add-on or manual value for one key; merged with the plan by the key’s rule",
+      "title": "Add a grant"
+    },
+    "entitlementsGrantRevoke": {
+      "title": "Revoke a grant"
+    },
+    "entitlementsOverrideClear": {
+      "title": "Remove an individual term"
+    },
+    "entitlementsOverrideSet": {
+      "description": "Overrides the final value of one key for the subject until the given date; reason is mandatory",
+      "title": "Set an individual term"
+    },
+    "entitlementsPlanArchiveVersion": {
+      "title": "Archive a plan version"
+    },
+    "entitlementsPlanCreateVersion": {
+      "description": "Copies the latest version of the plan into an editable draft",
+      "title": "New plan draft"
+    },
+    "entitlementsPlanPublishVersion": {
+      "description": "The version becomes immutable; subscribers of the plan get its values on the next read",
+      "title": "Publish a plan version"
+    },
+    "entitlementsPlanUpdateDraft": {
+      "title": "Edit a plan draft"
+    },
+    "entitlementsSubscriptionSet": {
+      "description": "Pins the subject to a published version of a plan; no version — the subject falls to the free plan",
+      "title": "Set a subscription"
+    },
+    "entitlementsTrialExtend": {
+      "title": "Extend a trial"
+    },
+    "platformPiiReveal": {
+      "description": "Shows the full phone, IIN/BIN or address of a person or organization; every reveal is logged",
+      "title": "Reveal personal data"
+    },
+    "platformPolicySet": {
+      "description": "Four-eyes: high-risk commands go through a second staff member’s approval",
+      "title": "Change the console policy"
+    },
+    "platformStaffAdd": {
+      "description": "Adds a person to the platform staff; without a role they see nothing",
+      "title": "Add a staff member"
+    },
+    "platformStaffRoleGrant": {
+      "description": "Separation of duties is checked: one person cannot both write and approve one object",
+      "title": "Grant a role"
+    },
+    "platformStaffRoleRevoke": {
+      "title": "Revoke a role"
+    },
+    "platformStaffSuspend": {
+      "description": "Revokes all console sessions and blocks sign-in until reinstated",
+      "title": "Suspend a staff member"
+    }
+  },
+  "fields": {
+    "archivedAt": "Archived",
+    "avatar": "Avatar",
+    "byRole": "By role",
+    "circles": "Groups",
+    "city": "City",
+    "counts": "Counts",
+    "createdAt": "Created",
+    "currentPeriodEnd": "Paid until",
+    "deletedAt": "Deleted",
+    "deletionScheduledAt": "Deletion scheduled",
+    "documentLanguage": "Document language",
+    "dualControlEnabled": "Four-eyes approval",
+    "effectiveFrom": "Effective from",
+    "emailMasked": "Email",
+    "entitlements": "Values (JSON)",
+    "entity": "Entity",
+    "expiresAt": "Expires",
+    "fields": "Fields",
+    "firstName": "First name",
+    "grantId": "Grant",
+    "id": "Identifier",
+    "idempotencyKey": "Idempotency key",
+    "iinMasked": "IIN",
+    "industry": "Industry",
+    "isActive": "Active",
+    "key": "Key",
+    "lastName": "Last name",
+    "legalEntities": "Legal entities",
+    "locale": "Language",
+    "logo": "Logo",
+    "members": "Members",
+    "middleName": "Middle name",
+    "mode": "Mode",
+    "name": "Name",
+    "note": "Note",
+    "ownerId": "Owner id",
+    "pendingInvitations": "Pending invitations",
+    "phoneMasked": "Phone",
+    "phoneVerifiedAt": "Phone verified",
+    "planKey": "Plan",
+    "planVersionId": "Plan version",
+    "priority": "Priority",
+    "reason": "Reason",
+    "role": "Role",
+    "sessions": "Sessions",
+    "source": "Source",
+    "status": "Status",
+    "subject": "Subject",
+    "subjectId": "Subject id",
+    "timezone": "Time zone",
+    "trialEndsAt": "Trial ends",
+    "userId": "Person id",
+    "validUntil": "Valid until",
+    "value": "Value",
+    "website": "Website",
+    "workspaces": "Organizations"
+  },
+  "grantSource": {
+    "addon": "add-on",
+    "family": "family",
+    "gift": "gift",
+    "legacy": "legacy",
+    "manual": "manual",
+    "trial": "trial"
+  },
+  "login": {
+    "back": "Back",
+    "codeSubtitle": "The code was sent to {phone}",
+    "continue": "Continue",
+    "password": "Password",
+    "phone": "Phone",
+    "subtitle": "Password first, then a code from SMS",
+    "title": "Platform console"
+  },
+  "nav": {
+    "audit": "Journal",
+    "entitlements": "Plans",
+    "requests": "Requests",
+    "search": "Search",
+    "staff": "Staff"
+  },
+  "noAccess": {
+    "text": "This account is not on the platform staff, or it has been suspended.",
+    "title": "No access to the console"
+  },
+  "overrideMode": {
+    "deny": "deny",
+    "set": "set",
+    "unlimited": "no limit"
+  },
+  "panels": {
+    "userAudit": "Console activity",
+    "userEntitlements": "Plan and limits",
+    "userProfile": "Profile",
+    "userStaff": "Platform staff",
+    "userWorkspaces": "Organizations",
+    "workspaceAudit": "Console activity",
+    "workspaceEntitlements": "Plan and limits",
+    "workspaceMembersSummary": "Members",
+    "workspaceProfile": "Profile"
+  },
+  "picker": {
+    "change": "change",
+    "placeholder": "Find a person: phone, IIN, id or name"
+  },
+  "requestOutcome": {
+    "approved": "approved and executed",
+    "failed": "approved but failed to execute",
+    "rejected": "rejected"
+  },
+  "requests": {
+    "approve": "Approve",
+    "approved": "Approved and executed",
+    "col": {
+      "author": "Author",
+      "status": "Status"
+    },
+    "confirmApprove": "Approve the request?",
+    "confirmReject": "Reject the request?",
+    "confirmWithdraw": "Withdraw the request?",
+    "description": "Commands that wait for a second staff member",
+    "empty": "No requests",
+    "reject": "Reject",
+    "rejected": "Rejected",
+    "state": {
+      "history": "History",
+      "mine": "Mine",
+      "pending": "Awaiting decision"
+    },
+    "status": {
+      "approved": "approved",
+      "cancelled": "cancelled",
+      "executed": "executed",
+      "failed": "failed",
+      "pending": "pending",
+      "rejected": "rejected"
+    },
+    "withdraw": "Withdraw",
+    "withdrawn": "The request was withdrawn"
+  },
+  "risk": {
+    "critical": "critical",
+    "high": "high risk",
+    "low": "low risk",
+    "medium": "medium risk"
+  },
+  "roles": {
+    "platform_owner": "Platform owner"
+  },
+  "runner": {
+    "badJson": "The JSON does not parse",
+    "choose": "Choose",
+    "done": "Done",
+    "dualControl": "Second staff member approves",
+    "idempotent": "a double click is safe — the command runs once",
+    "jsonHint": "JSON",
+    "needsStepUp": "Confirmation",
+    "pending": "Sent for approval — see «Requests»",
+    "preview": "Preview",
+    "previewTitle": "What will change",
+    "reason": "Reason",
+    "reasonHint": "At least {min} characters ({n} typed)",
+    "reasonShort": "At least {min} characters",
+    "run": "Run",
+    "ticket": "Ticket",
+    "ticketPlaceholder": "Support ticket or task reference, optional",
+    "valueMode": {
+      "no": "Unavailable",
+      "number": "Number",
+      "unlimited": "No limit",
+      "yes": "Available"
+    },
+    "valueNumber": "Amount",
+    "viaApproval": "via approval"
+  },
+  "search": {
+    "description": "A full phone number, a 12-digit IIN or BIN, an identifier or a name",
+    "emptyText": "Type a full phone number, a 12-digit IIN or BIN, an identifier or at least three letters of a name",
+    "emptyTitle": "Find a person or an organization",
+    "kind": {
+      "empty": "empty",
+      "idNumber": "IIN or BIN",
+      "phone": "looks like a phone",
+      "text": "name",
+      "tooShort": "too short",
+      "uuid": "identifier"
+    },
+    "noResults": "Nothing found",
+    "organizations": "Organizations",
+    "people": "People",
+    "recent": "Recent",
+    "searching": "Searching…",
+    "title": "Search",
+    "tooShortTitle": "Too short"
+  },
+  "securityEvents": {
+    "bootstrap": "the first platform owner was bootstrapped",
+    "deniedBurst": "a series of denied commands",
+    "piiRevealBurst": "personal data reveals above the threshold",
+    "policyChanged": "the console policy was changed",
+    "roleGranted": "a role was granted",
+    "roleRevoked": "a role was revoked",
+    "soloDualControl": "a two-person command ran alone (no second holder)",
+    "staffAdded": "a staff member was added",
+    "staffSuspended": "a staff member was suspended",
+    "stepUpBurst": "failed step-up passwords in a row"
+  },
+  "shell": {
+    "logout": "Sign out",
+    "nav": "Console sections",
+    "searchPlaceholder": "Phone, IIN/BIN, id or name — press / to focus",
+    "sudoActive": "Confirmed, {time}",
+    "sudoNeeded": "Confirmation needed",
+    "title": "Platform console"
+  },
+  "staff": {
+    "add": "Add a staff member",
+    "col": {
+      "person": "Person",
+      "roles": "Roles",
+      "since": "Since",
+      "status": "Status"
+    },
+    "description": "Who works in the console and with which roles",
+    "noRoles": "no roles",
+    "until": "Until {date}"
+  },
+  "staffStatus": {
+    "active": "active",
+    "suspended": "suspended"
+  },
+  "stepUp": {
+    "password": "Password",
+    "sendCode": "Send the code",
+    "subtitle": "High-risk actions need a fresh confirmation: password and a code from SMS. The window lasts 15 minutes.",
+    "title": "Confirm the action"
+  },
+  "subject": {
+    "col": {
+      "key": "Key",
+      "mode": "Mode",
+      "reason": "Reason / by",
+      "source": "Source",
+      "until": "Until",
+      "used": "Used",
+      "value": "Value",
+      "who": "Reason / by"
+    },
+    "counters": "Quota counters",
+    "find": "Find a subject",
+    "graceUntil": "grace until {date}",
+    "grants": "Grants",
+    "none": "None",
+    "overrides": "Individual terms",
+    "periodEnd": "paid until {date}",
+    "placeholder": "Phone, IIN/BIN, id or name",
+    "revoked": "revoked",
+    "snapshot": "As the client sees it",
+    "subscription": "Subscription",
+    "tab": "Subjects",
+    "trialEndsAt": "trial until {date}"
+  },
+  "subjectTypes": {
+    "family": "Family",
+    "user": "Person",
+    "workspace": "Organization"
+  },
+  "subscriptionSource": {
+    "manual": "manual",
+    "migration": "migration",
+    "payment": "payment",
+    "trial": "trial"
+  },
+  "subscriptionStatus": {
+    "active": "active",
+    "cancelled": "cancelled",
+    "expired": "expired",
+    "past_due": "grace period",
+    "trialing": "trial"
+  },
+  "valueSource": {
+    "default": "free",
+    "grant": "grant",
+    "override": "individual term",
+    "plan": "plan"
+  },
+  "versionStatus": {
+    "archived": "archived",
+    "draft": "draft",
+    "published": "published"
+  }
+}

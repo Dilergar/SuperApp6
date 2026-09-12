@@ -21,6 +21,12 @@ export interface JwtPayload {
    * токены, выпущенные до появления поля, дают `isCurrent=false` до первого refresh.
    */
   sid?: string;
+  /**
+   * Аудитория токена. У продуктового токена её нет; токен КАБИНЕТА платформы несёт
+   * `aud: 'platform'` и подписан другим секретом — продуктовая стратегия отвергает
+   * его явно, а не только по подписи (S1 плана кабинета).
+   */
+  aud?: string;
 }
 
 export const CurrentUser = createParamDecorator(

@@ -222,6 +222,12 @@ export const APPROVAL_ERROR_CODES = {
    * ошибка при активации лучше вечного зависания.
    */
   emptyAssignees: 'approval_empty_assignees',
+  /**
+   * Заявка внутреннего контура (кабинет платформы, `consoleOnly`): продуктовые
+   * ручки её не решают и не отзывают — там нет ни step-up, ни разделения
+   * обязанностей, ради которых four-eyes и заводили.
+   */
+  consoleOnly: 'approval_console_only',
 } as const;
 
 export type ApprovalErrorCode = (typeof APPROVAL_ERROR_CODES)[keyof typeof APPROVAL_ERROR_CODES];
