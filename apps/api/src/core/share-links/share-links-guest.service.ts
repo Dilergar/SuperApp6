@@ -15,6 +15,7 @@ import {
 import { NotificationsService } from '../notifications/notifications.service';
 import { formatDayKey } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { ApiError } from '../../shared/errors/api-error';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { utcTs } from '../../shared/database/sql-time';
@@ -80,6 +81,7 @@ export class ShareLinksGuestService {
     private readonly notifications: NotificationsService,
     private readonly verify: VerifyService,
     private readonly i18n: I18nService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   /** Шаг 1: жива ли ссылка, нужен ли пароль и предстоит ли подтверждение номера */
@@ -188,6 +190,13 @@ export class ShareLinksGuestService {
       return { open: claimed, guest: g };
     });
 
+    // Гостевой факт — без личности (гость не принципал); контекст — организация-владелец ссылки
+    await this.analytics.track(
+      null,
+      'share.link.opened',
+      { refType: link.refType },
+      { userId: null, workspaceId: link.ownerType === 'workspace' ? link.ownerId : null },
+    );
     await this.notifyOwnerOfOpen(link, open, guest);
     const session = this.tokens.issue(link.id, link.sessionEpoch, guest?.id ?? null);
     // Ссылка с личностью: вид перечитывается УЖЕ с гостем — потребитель кладёт в

@@ -9,8 +9,9 @@
  * его приглашения» невозможно.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { analytics } from '@/lib/analytics';
 import Link from 'next/link';
 import { isAxiosError } from 'axios';
 import { normalizePhone } from '@superapp/shared';
@@ -53,8 +54,14 @@ export default function RegisterPage() {
   const [tokenStale, setTokenStale] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  // Воронка регистрации до аккаунта — анонимные события (номер и код в них не попадают)
+  useEffect(() => {
+    analytics.track('auth.registration.opened', {});
+  }, []);
+
   const requestCode = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    analytics.track('auth.registration.phone_submitted', {});
     setPhoneError('');
     setPhoneTaken(false);
     setPhoneBusy(true);
@@ -70,6 +77,7 @@ export default function RegisterPage() {
   };
 
   const submitCode = async (code: string) => {
+    analytics.track('auth.registration.code_submitted', {});
     const token = await flow.check(code);
     if (token) {
       setVerifyToken(token);

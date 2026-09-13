@@ -64,6 +64,9 @@
 - `core/entitlements` → `core/jobs` (истечение триала/грейса, «триал заканчивается», ежедневная сверка счётчиков), `core/notifications` (`entitlement.*`), `core/realtime` (relay `entitlements:changed`), Redis (снимки по эпохам), `core/platform` (регистрация команд `entitlements.*` и панелей `*.entitlements` в `entitlements.platform.provider.ts`). Потребители → `EntitlementsService` (`assertFeature`/`assertCanCreate`/`consume`/`startTrial`/`forgetSubject`): `WorkspacesModule` (+`WorkspacesEntitlementsProvider` — `countFor` организаций и мест), `core/files` (+`FilesCron`), `CirclesModule`, `ShopModule`, `ObjectsModule`, `LegalEntitiesService`, `CardSkinsModule`, `core/notifications` (квота SMS), `core/auth` (триал при регистрации), `core/users` (забыть субъект при удалении). Направление всегда «сервис → движок»; движок читает факт через `countFor`, зарегистрированный владельцем данных — [entitlements_engine.md](entitlements_engine.md).
 - `core/platform` → `core/verify` (purposes `platform_login`/`platform_step_up`), `core/approvals` (заявка «четыре глаза», провайдер `consoleOnly`), `core/audiences` (адресат `platform_capability`), `core/notifications` (`platform.*`), `core/users`/`WorkspacesModule` — только через реестры поиска/панелей/команд (`users-platform.provider.ts`, `workspaces-entitlements.provider.ts`): кабинет фичи не импортирует — [platform_console.md](platform_console.md). ОБРАТНОЕ ребро запрещено линтером: фича не читает способности кабинета (`no-restricted-imports` на `platform-access.service`/`platform-auth.service`), единственное исключение — `core/users` → `core/platform` (анонимизация аккаунта снимает человека со штата платформы). Ребро `modules/processes` → `core/platform` снято ревью 2026-09-12 вместе с мёртвым правом `processes.system.manage`.
 
+### Аналитика (движок)
+- `core/analytics` → `core/jobs` (роллапы дня, фоновые воронки, забвение), `core/entitlements` (`liveSubscriptionOf` — снимок тарифа при приёме), `core/roles` (`getRolesInContext` — членство в заявленной организации при приёме), `core/platform` (команды `analytics.*`, панели `*.analytics`, маршруты `/platform/analytics` в `analytics.platform.provider.ts`), Redis (stream `superapp:analytics`, кэши, «грязные» дни). Потребители → `AnalyticsService` (`track(tx|null, …)` / `forgetUser` / `forgetWorkspace`): `core/auth` (вход, регистрация, сброс пароля), `core/users` (забвение при анонимизации), `core/entitlements` (отказ 402, подписки; `EntitlementsLifecycle` — окончание), `core/notifications` (прочтение), `core/share-links` (открытие ссылки гостем), `WorkspacesModule` (создание, приглашения, архив, purge), `TasksModule`, `MessengerModule`, `CalendarModule`. Модуль `@Global` — импорт в потребителе не нужен. Направление всегда «сервис → движок»; движок фичи не импортирует — [analytics_engine.md](analytics_engine.md).
+
 ## Carve-out map (допустимые прямые чтения чужих таблиц)
 
 Для монолита допустимо; список — граница будущего выделения сервисов:
@@ -71,6 +74,7 @@
 - `core/quick-actions` читает `chat`.
 - Office и `OfficeRichCardsProvider` читают `call_sessions` / `call_session_participants` (живой счётчик); мессенджер читает те же таблицы для `activeCall` чатов (`chat-calls.listener.ts`, `messenger.service.ts`).
 - Мессенджер читает `officeRoom` (чат/roleLabels).
+- `core/analytics` читает `platformStaff` (внутренние аккаунты), `user` (удалён ли, телефон для префиксов внутренних) при приёме и `workspaceMember` (число участников в панели «Активность» организации).
 
 ## Проверка
 

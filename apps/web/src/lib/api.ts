@@ -1,4 +1,5 @@
 import { readLocaleCookie } from '@/i18n/locale';
+import { analytics } from '@/lib/analytics';
 import {
   createApiClient,
   ACCESS_TOKEN_KEY,
@@ -34,6 +35,8 @@ const client = createApiClient({
   // cookie — тот же источник, что у RSC, поэтому серверный и клиентский тексты на
   // одной странице совпадают. Нет выбора (гость) → заголовка нет, решает сервер.
   getLocale: () => readLocaleCookie(),
+  // Сессия и устройство аналитики → серверные события запроса ложатся в ту же сессию
+  getAnalyticsContext: () => analytics.context(),
   onAuthFailure: () => {
     if (typeof window !== 'undefined') window.location.href = '/login';
   },

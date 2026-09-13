@@ -78,6 +78,12 @@
   "calls": {
     "recordingTitle": "Call · {at}.{ext}"
   },
+  "charts": {
+    "legendHint": "Click hides the series, double click keeps only it",
+    "previous": "Previous period",
+    "showChart": "Show chart",
+    "showTable": "Show as table"
+  },
   "chronicle": {
     "empty": "Nothing has happened here yet — events will show up here",
     "emptyValue": "—",

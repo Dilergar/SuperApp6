@@ -3,6 +3,7 @@ import { SOURCE_LOCALE } from '@superapp/shared';
 import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { AnalyticsService } from '../../core/analytics/analytics.service';
 import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { RedisService } from '../../shared/redis/redis.service';
@@ -123,6 +124,7 @@ export class MessengerService implements OnModuleInit {
     private redis: RedisService,
     private i18n: I18nService,
     private notificationsRenderer: NotificationsRenderer,
+    private analytics: AnalyticsService,
   ) {}
 
   /** Снимок для БД — в языке ИСТОЧНИКА (зритель перерисует его при чтении). */
@@ -434,6 +436,7 @@ export class MessengerService implements OnModuleInit {
             })),
             skipDuplicates: true,
           });
+          await this.analytics.track(tx, 'messenger.chat.created', { kind: 'dm' }, { userId });
           return c;
         });
       } catch (e: any) {
@@ -536,6 +539,7 @@ export class MessengerService implements OnModuleInit {
       this.memberTuple(chat.id, userId),
       ...members.map((id) => this.memberTuple(chat.id, id)),
     ]);
+    await this.analytics.track(null, 'messenger.chat.created', { kind: 'group' }, { userId });
 
     const creator = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
     await this.postStructuredSystemMessage(chat.id, 'group.created', {
@@ -740,6 +744,7 @@ export class MessengerService implements OnModuleInit {
           data: { type: 'context', parentType: 'task', parentId: taskId, title: task.title },
           select: sel,
         });
+        await this.analytics.track(tx, 'messenger.chat.created', { kind: 'context' });
         await tx.relationTuple.createMany({
           data: [...roles].map((relation) => ({
             resourceType: 'chat',
@@ -919,6 +924,7 @@ export class MessengerService implements OnModuleInit {
           data: { type: 'context', parentType: 'order', parentId: orderId, title: order.titleSnapshot },
           select: sel,
         });
+        await this.analytics.track(tx, 'messenger.chat.created', { kind: 'context' });
         await tx.relationTuple.createMany({
           data: relations.map((relation) => ({
             resourceType: 'chat',
@@ -1073,6 +1079,7 @@ export class MessengerService implements OnModuleInit {
           data: { type: 'context', parentType: 'event', parentId: eventId, title: event.title },
           select: sel,
         });
+        await this.analytics.track(tx, 'messenger.chat.created', { kind: 'context' });
         await tx.relationTuple.createMany({
           data: relations.map((relation) => ({
             resourceType: 'chat',
@@ -1218,6 +1225,7 @@ export class MessengerService implements OnModuleInit {
           data: { type: 'context', parentType: 'office_room', parentId: roomId, title: room.name },
           select: sel,
         });
+        await this.analytics.track(tx, 'messenger.chat.created', { kind: 'context' });
         await tx.relationTuple.createMany({
           data: ['host', 'participant'].map((relation) => ({
             resourceType: 'chat',
@@ -1893,6 +1901,8 @@ export class MessengerService implements OnModuleInit {
       content,
       replyToId: replyToId ?? null,
     });
+    // Аналитика: факт отправки — без текста; упоминание — только признак наличия токена `@[…](id)`
+    await this.analytics.track(null, 'messenger.message.sent', { kind: 'text', hasMention: /@\[[^\]]+\]\([0-9a-f-]{36}\)/i.test(content), chatKind: chatType as ChatType });
 
     // Mentions Hub (Phase 5): record @mentions + ping the mentioned people. Best-effort
     // (MentionsService swallows errors); the extra guard ensures a throw can't break send.
@@ -1955,6 +1965,11 @@ export class MessengerService implements OnModuleInit {
       payload: payload as unknown as Prisma.InputJsonValue,
       replyToId: replyToId ?? null,
       fileIds: files.map((f) => f.id),
+    });
+    await this.analytics.track(null, 'messenger.message.sent', {
+      kind: files.length > 0 && files.every((f) => f.kind === 'audio') ? 'voice' : 'attachment',
+      hasMention: !!content && /@\[[^\]]+\]\([0-9a-f-]{36}\)/i.test(content),
+      chatKind: chatType as ChatType,
     });
 
     if (content) {

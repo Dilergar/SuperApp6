@@ -63,6 +63,11 @@
 - Мобильный веб обязан работать: 375px без горизонтального скролла; сетки модалок — `auto-fit`, не жёсткие столбцы. Запас ширины считать по kk/en: они длиннее русского до +30 %.
 - Клиентский код НЕ импортирует `@superapp/i18n` целиком — только подпути `/format` и `/locale`: пакет CommonJS, tree-shaking на него не действует, и полный импорт утащит в бандл словарь всех трёх языков.
 
+## Графики и аналитика
+
+- **Графики — только кит `apps/web/src/components/ui/charts/`** (`LineChart`, `BarChart`, `StackedBars`, `FunnelChart`, `CohortGrid`, `ScatterLabeled`, `Sparkline`; `StatTile` с `delta`/`sparkline`): SVG/HTML без зависимостей, цвета — токены `--series-1…6`, у каждой серии форма маркера, у каждого графика таблица-дублёр (`ChartFrame`), числа и даты форматирует вызывающий через `useFormatters`. Слот цвета закреплён за сущностью. Правила палитры — `/DESIGN.md` «Серии графиков».
+- **Аналитика клиента** — `apps/web/src/lib/analytics.ts` (экземпляр `@superapp/analytics`); автоматический вид — только переходы (`apps/web/src/components/analytics/AnalyticsRouteTracker.tsx`, внутри `<Suspense>`); прочее — `analytics.track('<ключ>', props)` там, где человек «увидел/попытался» (замок тарифа, шаги регистрации). Серверный факт из клиента не шлётся (страж `pnpm check:analytics`). Отказ SDK никогда не всплывает в интерфейс — [analytics_reports.md](analytics_reports.md).
+
 ## Линтер веба
 
 `apps/web/eslint.config.mjs` (flat, только стражи границы; всё — `error`): кириллица в литералах/шаблонах/тексте JSX (`i18n/no-cyrillic-literal` — ратчет `apps/web/i18n.legacy.json`, постоянное исключение `src/app/dev/**`); голый `api.get|post|patch|put|delete` — ВЕЗДЕ, включая `apps/web/src/lib/api.ts` (адаптер лишь реэкспортирует хелперы `@superapp/api-client`, override'а у него нет); распаковка конверта `res.data.data` И `data.data` после деструктуризации (два селектора); нативные `confirm`/`alert`. Единственное ослабление — `apps/web/src/lib/public-api.ts` (гостевой клиент, свой axios без перехватчиков): там разрешена распаковка `data.data` в типизированных `guestGet/guestPost`, запрет голого `api.*` действует и там. `pnpm lint` веба = `eslint src`, шаг в CI. Правила Next/react-hooks здесь не живут (их дом `next lint`).

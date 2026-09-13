@@ -47,6 +47,9 @@ model User {
   // Пояс для текстов, которые уходят ВНЕ приложения (push, SMS, почта): на вебе
   // время показывается в поясе устройства, серверу же нужен явный.
   timezone         String    @default("Asia/Almaty")
+  // Отказ от аналитики использования (core/analytics): применяется НА СЕРВЕРЕ при приёме —
+  // product/telemetry-события не пишутся, business-факты сервера пишутся всегда.
+  analyticsOptOut  Boolean   @default(false) @map("analytics_opt_out")
 
   // ---- Реквизиты («Моя Анкета» → «Для договоров и трудоустройства») ----
   // В личном окружении (Группы) НЕ показываются вовсе; коллегам — по тумблерам
@@ -5106,4 +5109,155 @@ model PlatformCommandRequest {
   @@index([status, createdAt])
   @@index([actorId, createdAt])
   @@map("platform_command_requests")
+}
+
+// ============================================================
+// core/analytics (21-й движок) — продуктовая аналитика
+// ============================================================
+// СЫРЬЁ живёт в схеме `analytics` (сырой SQL миграции core_analytics): таблица
+// `analytics.events` партиционирована по месяцу (`PARTITION BY RANGE (ts)`), партиции
+// создаёт крон, и Prisma их НЕ видит — она сравнивает только схему `public`, поэтому
+// migrate не порождает DROP по партициям. `analytics.outbox` — очередь серверных
+// событий, записанных в транзакции доменной мутации. Здесь — только `public`:
+// склейка личности, рубильник, карантин, роллапы, отчёты и дашборды.
+//
+// Уникумы роллапов с NULL-измерениями — `UNIQUE NULLS NOT DISTINCT`, дописаны руками
+// в миграции (Prisma не выражает): analytics_rollup_event_day_dims_key,
+// analytics_rollup_actor_day_dims_key, analytics_rollup_session_day_dims_key.
+
+/// Склейка «аноним → аккаунт»: append-only, ПЕРВАЯ привязка побеждает. Повторная
+/// привязка того же anonymous_id к другому аккаунту помечает строку `contested` —
+/// склейка по ней больше не применяется (общий компьютер).
+model AnalyticsIdentityLink {
+  anonymousId String   @id @map("anonymous_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  linkedAt    DateTime @default(now()) @map("linked_at")
+  contested   Boolean  @default(false)
+  contestedAt DateTime? @map("contested_at")
+  source      String // identify | login
+
+  @@index([userId])
+  @@map("analytics_identity_links")
+}
+
+/// Рубильник события без деплоя: `blocked` → отбрасывается на приёме.
+model AnalyticsEventOverride {
+  eventKey String   @id @map("event_key")
+  status   String // live | blocked
+  reason   String?
+  setBy    String?  @map("set_by")
+  setAt    DateTime @default(now()) @map("set_at")
+
+  @@map("analytics_event_overrides")
+}
+
+/// Карантин приёма: неизвестные ключи и нарушения схемы. Только ИМЕНА и ТИПЫ полей
+/// (`sampleShape`), значений нет. TTL 30 дней (крон).
+model AnalyticsQuarantine {
+  id          String   @id @default(uuid())
+  eventKey    String   @map("event_key")
+  reason      String // ANALYTICS_QUARANTINE_REASONS
+  count       Int      @default(0)
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+  sampleShape Json     @default("{}") @map("sample_shape")
+
+  @@unique([eventKey, reason])
+  @@index([lastSeenAt])
+  @@map("analytics_quarantine")
+}
+
+/// Роллап «событие × день» (день — календарный в APP_TIMEZONE). Пересчитывается
+/// джобом `analytics.rollup.day` целиком за день (DELETE + INSERT в одной транзакции).
+/// `users`/`workspaces` — различные в пределах строки. Живёт вечно.
+model AnalyticsRollupEventDay {
+  id          BigInt   @id @default(autoincrement())
+  day         DateTime @db.Date
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  service     String
+  eventKey    String   @map("event_key")
+  platform    String
+  planKey     String?  @map("plan_key")
+  /// Строки внутренних аккаунтов (сотрудники платформы, тестовые номера) — отдельным измерением
+  internal    Boolean  @default(false)
+  count       Int
+  users       Int
+  workspaces  Int
+
+  @@index([day])
+  @@index([eventKey, day])
+  @@index([workspaceId, day])
+  @@map("analytics_rollup_event_day")
+}
+
+/// Роллап «субъект × день × сервис»: основа DAU/WAU/MAU, удержания, adoption,
+/// lifecycle. `actorKind` 0 — человек, 1 — аноним (без склейки). Ретенция = сырьё.
+model AnalyticsRollupActorDay {
+  id          BigInt   @id @default(autoincrement())
+  day         DateTime @db.Date
+  actorId     String   @map("actor_id") @db.Uuid
+  actorKind   Int      @default(0) @map("actor_kind") @db.SmallInt
+  workspaceId String?  @map("workspace_id") @db.Uuid
+  service     String
+  platform    String
+  planKey     String?  @map("plan_key")
+  /// Внутренний аккаунт (свойство субъекта, не измерение уникума)
+  internal    Boolean  @default(false)
+  events      Int
+  qualifying  Boolean
+
+  @@index([day])
+  @@index([actorId, day])
+  @@index([workspaceId, day])
+  @@map("analytics_rollup_actor_day")
+}
+
+/// Роллап сессий по дню: число, медиана длительности, событий на сессию.
+model AnalyticsRollupSessionDay {
+  id               BigInt   @id @default(autoincrement())
+  day              DateTime @db.Date
+  workspaceId      String?  @map("workspace_id") @db.Uuid
+  platform         String
+  internal         Boolean  @default(false)
+  sessions         Int
+  durationP50S     Int      @map("duration_p50_s")
+  eventsPerSession Float    @map("events_per_session") @db.Real
+
+  @@index([day])
+  @@map("analytics_rollup_session_day")
+}
+
+/// Сохранённый отчёт Кабинета: запрос на языке DSL (`analyticsQuerySchema`).
+/// Общий по умолчанию; правит автор или `analytics.manage`; `systemKey` — засев из кода
+/// (`analytics.system-dashboards.ts`), такие не редактируются.
+model AnalyticsReport {
+  id         String   @id @default(uuid())
+  title      String?
+  systemKey  String?  @unique @map("system_key")
+  query      Json
+  viz        String?
+  visibility String   @default("shared") // shared | private
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([visibility, updatedAt])
+  @@index([createdBy])
+  @@map("analytics_reports")
+}
+
+/// Дашборд: УПОРЯДОЧЕННЫЙ список плиток `{ reportId, span: 4|6|12, viz? }` — порядок и
+/// ширина, без координат.
+model AnalyticsDashboard {
+  id         String   @id @default(uuid())
+  title      String?
+  systemKey  String?  @unique @map("system_key")
+  tiles      Json     @default("[]")
+  visibility String   @default("shared") // shared | private
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([visibility, updatedAt])
+  @@map("analytics_dashboards")
 }

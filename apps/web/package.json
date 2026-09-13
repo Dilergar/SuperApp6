@@ -23,6 +23,7 @@
     "@mantine/core": "^8.3.11",
     "@mantine/hooks": "^8.3.11",
     "@phosphor-icons/react": "^2.1.10",
+    "@superapp/analytics": "workspace:*",
     "@superapp/api-client": "workspace:*",
     "@superapp/i18n": "workspace:*",
     "@superapp/shared": "workspace:*",

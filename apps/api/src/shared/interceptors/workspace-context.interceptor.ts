@@ -1,16 +1,20 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { Observable } from 'rxjs';
 import {
   WorkspaceContextService,
+  type AnalyticsClientContext,
   type WorkspaceContext,
 } from '../context/workspace-context.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { forbidden } from '../errors/api-error';
 import type { JwtPayload } from '../decorators/current-user.decorator';
-import { LOCALE_HEADER, WORKSPACE_ROLE_RANK } from '@superapp/shared';
+import { DEFER_WORKSPACE_CHECK_KEY } from '../decorators/defer-workspace-check.decorator';
+import { ANALYTICS_HEADERS, LOCALE_HEADER, WORKSPACE_ROLE_RANK } from '@superapp/shared';
 import { countryFromHeaders, negotiateLocale } from '@superapp/i18n';
 
 const ROLE_RANK: Record<string, number> = WORKSPACE_ROLE_RANK;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * Establishes the request-scoped WorkspaceContext (chokepoint gate).
@@ -27,6 +31,7 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
   constructor(
     private readonly wsContext: WorkspaceContextService,
     private readonly roles: RolesService,
+    private readonly reflector: Reflector,
   ) {}
 
   async intercept(
@@ -55,9 +60,17 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
       this.readFirst(req?.headers, LOCALE_HEADER.toLowerCase()),
       { country: countryFromHeaders((name) => this.readFirst(req?.headers, name)) },
     );
-    const context: WorkspaceContext = { userId, locale };
+    const context: WorkspaceContext = { userId, locale, client: this.analyticsClient(req?.headers, req?.user?.sid) };
+    const deferCheck = this.reflector.getAllAndOverride<boolean>(DEFER_WORKSPACE_CHECK_KEY, [
+      execContext.getHandler(),
+      execContext.getClass(),
+    ]);
 
-    if (userId && headerWs) {
+    if (headerWs && deferCheck) {
+      // Маршрут без БД на пути запроса (приём аналитики): членство проверит консьюмер.
+      // activeWorkspaceId НЕ ставится — chokepoint выключен, данных организации тут не читают.
+      context.claimedWorkspaceId = headerWs;
+    } else if (userId && headerWs) {
       const roles = await this.roles.getRolesInContext(
         userId,
         'workspace',
@@ -83,6 +96,21 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
         });
       });
     });
+  }
+
+  /**
+   * Клиентский контекст серверных событий аналитики: сессия/устройство из заголовков
+   * (только uuid — прочее молча игнорируется), `sid` токена, UA, `Sec-GPC`. Без БД.
+   */
+  private analyticsClient(headers: Record<string, unknown> | undefined, sid: string | undefined): AnalyticsClientContext {
+    const uuid = (v: string | undefined) => (v && UUID_RE.test(v.trim()) ? v.trim().toLowerCase() : undefined);
+    return {
+      sessionId: uuid(this.readFirst(headers, ANALYTICS_HEADERS.session.toLowerCase())),
+      deviceId: uuid(this.readFirst(headers, ANALYTICS_HEADERS.device.toLowerCase())),
+      loginSid: uuid(sid),
+      userAgent: this.readFirst(headers, 'user-agent')?.slice(0, 512),
+      gpc: this.readFirst(headers, 'sec-gpc')?.trim() === '1',
+    };
   }
 
   /** Заголовок первой строкой (Express кладёт массив при повторе). */

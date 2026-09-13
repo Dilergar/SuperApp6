@@ -10,6 +10,7 @@
     "lint:guard": "turbo lint:guard",
     "check:docs": "node scripts/check-docs.cjs",
     "check:i18n": "node scripts/check-i18n.cjs",
+    "check:analytics": "node scripts/check-analytics.cjs",
     "i18n:gen": "pnpm --filter @superapp/i18n gen",
     "clean": "turbo clean",
     "db:generate": "turbo db:generate",

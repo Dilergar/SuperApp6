@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { Cron } from '@nestjs/schedule';
 import { GRACE_DAYS, PLAN_DEFS, type EntitlementSubjectRef, type EntitlementSubjectType, type PlanKey } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -9,6 +10,7 @@ import { ENTITLEMENT_JOBS, TRIAL_ENDING_WARN_DAYS } from './entitlements.constan
 import { EntitlementsNotifier } from './entitlements.notifications';
 import { QuotaReconcileRegistry } from './entitlements.registry';
 import { EntitlementsService } from './entitlements.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 
 const LIVE = ['trialing', 'active', 'past_due'] as const;
 
@@ -29,7 +31,18 @@ export class EntitlementsLifecycle implements OnModuleInit {
     private readonly notifier: EntitlementsNotifier,
     private readonly reconcile: QuotaReconcileRegistry,
     private readonly entitlements: EntitlementsService,
+    private readonly analytics: AnalyticsService,
   ) {}
+
+  /** Факт окончания подписки — в транзакции перехода статуса. */
+  private trackExpired(tx: Prisma.TransactionClient, subject: EntitlementSubjectRef, planKey: string): Promise<void> {
+    return this.analytics.track(
+      tx,
+      'entitlements.subscription.expired',
+      { subscriptionPlan: planKey, contextType: subject.type },
+      subject.type === 'user' ? { userId: subject.id, workspaceId: null } : { userId: null, workspaceId: subject.type === 'workspace' ? subject.id : null },
+    );
+  }
 
   onModuleInit(): void {
     this.jobs.register(ENTITLEMENT_JOBS.expiry, (payload) => this.handleExpiry(payload), { maxAttempts: 5 });
@@ -76,6 +89,7 @@ export class EntitlementsLifecycle implements OnModuleInit {
         const r = await tx.subjectSubscription.updateMany({ where: { id: sub.id, status: 'trialing' }, data: { status: 'expired' } });
         if (r.count !== 1) return false;
         await this.notifier.notify(tx, subject, 'entitlement.trial.expired', { planKey: planLabelKey }, { idempotencyKey: `ent:trial-expired:${sub.id}` });
+        await this.trackExpired(tx, subject, planKey);
         return true;
       });
       if (res) await this.cache.bump(subject);
@@ -111,6 +125,7 @@ export class EntitlementsLifecycle implements OnModuleInit {
       const r = await tx.subjectSubscription.updateMany({ where: { id: sub.id, status: 'past_due' }, data: { status: 'expired' } });
       if (r.count !== 1) return false;
       await this.notifier.notify(tx, subject, 'entitlement.subscription.expired', { planKey: planLabelKey }, { idempotencyKey: `ent:expired:${sub.id}` });
+      await this.trackExpired(tx, subject, planKey);
       return true;
     });
     if (res) await this.cache.bump(subject);

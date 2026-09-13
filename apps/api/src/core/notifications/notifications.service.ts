@@ -27,6 +27,7 @@ import {
   type RichCardRefType,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { utcTs } from '../../shared/database/sql-time';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { RedisService } from '../../shared/redis/redis.service';
@@ -91,6 +92,7 @@ export class NotificationsService {
     private readonly redis: RedisService,
     private readonly refs: NotificationRefRegistry,
     private readonly renderer: NotificationsRenderer,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // ============================================================
@@ -323,7 +325,10 @@ export class NotificationsService {
     // Прочитано ⇒ и просмотрено (seen никогда не позже read)
     const res = await this.db.notification.updateMany({ where, data: { readAt: now } });
     await this.db.notification.updateMany({ where: { ...where, readAt: now, seenAt: null }, data: { seenAt: now } });
-    if (res.count > 0) this.emitCounts(userId, 'read');
+    if (res.count > 0) {
+      this.emitCounts(userId, 'read');
+      await this.analytics.track(null, 'notifications.notification.read', { count: res.count, scope: input.ids?.length ? 'ids' : 'all' }, { userId });
+    }
     return { updated: res.count };
   }
 

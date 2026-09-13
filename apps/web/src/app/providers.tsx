@@ -1,6 +1,6 @@
 'use client';
 
-import React, { Component, type ErrorInfo } from 'react';
+import React, { Component, Suspense, type ErrorInfo } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { useEffect, useState, useRef } from 'react';
@@ -9,6 +9,7 @@ import { registerQueryClient } from '@/lib/session-reset';
 import { Toaster } from '@/lib/toast';
 import { CallsWatcher } from '@/components/calls/CallsWatcher';
 import { NotesStickyLayer } from '@/components/notes/NotesStickyLayer';
+import { AnalyticsRouteTracker } from '@/components/analytics/AnalyticsRouteTracker';
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -57,6 +58,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <NotesStickyLayer />
         {/* Сообщения об ошибках — вместо нативного alert() (см. lib/toast) */}
         <Toaster />
+        {/* Аналитика переходов: шаблон маршрута без id (core/analytics) */}
+        <Suspense fallback={null}>
+          <AnalyticsRouteTracker />
+        </Suspense>
       </ErrorBoundary>
     </QueryClientProvider>
   );

@@ -3,6 +3,7 @@ import { isAxiosError } from 'axios';
 import type { AuthTokens, RegisterInput, UserProfile } from '@superapp/shared';
 import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY, apiGet, apiPatch, apiPost } from '../api';
 import { resetSessionCaches } from '../session-reset';
+import { analytics } from '../analytics';
 import { isLocale, readLocaleCookie, writeLocaleCookie } from '@/i18n/locale';
 
 // Локального `UserProfile` здесь БОЛЬШЕ НЕТ: он был урезанной копией серверного
@@ -108,23 +109,29 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // и тогда чужой кэш дожил бы до входа следующего человека.
     resetSessionCaches();
     setTokens(tokens.accessToken, tokens.refreshToken);
+    // Склейка анонимного id устройства с аккаунтом (события до входа — этого человека)
+    void analytics.identify();
     await get().fetchProfile();
   },
 
   register: async (input) => {
     const tokens = await apiPost<AuthTokens>('/auth/register', input);
     setTokens(tokens.accessToken, tokens.refreshToken);
+    void analytics.identify();
     await get().fetchProfile();
   },
 
   applySession: async ({ accessToken, refreshToken }) => {
     resetSessionCaches();
     setTokens(accessToken, refreshToken);
+    void analytics.identify();
     await get().fetchProfile();
   },
 
   logout: async () => {
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+    // Очередь аналитики уходит ПОКА токен жив: после выхода её события приписались бы следующему
+    await analytics.flush().catch(() => undefined);
     try {
       if (refreshToken) {
         await apiPost('/auth/logout', { refreshToken });
@@ -133,6 +140,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       // Ignore — still clear local state
     } finally {
       clearTokens();
+      // Новый анонимный id и сессия: устройство после выхода — уже не этот человек
+      analytics.reset();
       set({ user: null, isAuthenticated: false });
       // Выход — клиентский переход, вкладка не перезагружается: без явного сброса
       // кэши пережили бы смену аккаунта (см. lib/session-reset).

@@ -75,6 +75,12 @@ jobs:
       - name: i18n catalogs guard
         run: node scripts/check-i18n.cjs
 
+      # Страж реестра событий аналитики: у каждого события есть название и описание в
+      # трёх каталогах, имена свойств без персональных данных (phone, iin, email, text…),
+      # владелец = первый сегмент ключа, серверные факты не шлются из клиентов.
+      - name: Analytics registry guard
+        run: node scripts/check-analytics.cjs
+
       - name: Build shared package
         run: pnpm --filter @superapp/shared build
 
@@ -87,6 +93,11 @@ jobs:
       # Собирается ПОСЛЕ shared: конверт ответа (ApiOk) он берёт оттуда.
       - name: Build api-client package
         run: pnpm --filter @superapp/api-client build
+
+      # SDK аналитики (очередь, личность устройства, транспорт keepalive). Типы берёт
+      # из shared, поэтому после него; веб импортирует его dist.
+      - name: Build analytics SDK
+        run: pnpm --filter @superapp/analytics build
 
       - name: Prisma generate + migrate
         working-directory: apps/api

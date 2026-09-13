@@ -80,7 +80,7 @@ Cybersecurity - очень важен для такой экосистемы
 
 ## 6. Что уже работает
 
-**20 платформенных движков** (`apps/api/src/core/`): access (ReBAC) · rich-cards · search · quick-actions · files · voice (STT) · calls (LiveKit) · chatter · jobs (outbox) · verify (SMS-OTP) · docs (WOPI) · share-links · approvals · sign (ЭЦП+ПЭП) · templates · audiences (адресаты) · notifications (уведомления: in-app/push/SMS/chat, предпочтения, политика организации) · realtime (один сокет `/realtime`) · entitlements (тарифы и лимиты: планы с версиями, триал/грейс, гранты, оверрайды, квоты, `402 entitlement.*`) · platform (Кабинет платформы: сотрудники ≠ user_roles, команды с журналом/идемпотентностью/step-up/«четыре глаза», карточка 360).
+**21 платформенный движок** (`apps/api/src/core/`): access (ReBAC) · rich-cards · search · quick-actions · files · voice (STT) · calls (LiveKit) · chatter · jobs (outbox) · verify (SMS-OTP) · docs (WOPI) · share-links · approvals · sign (ЭЦП+ПЭП) · templates · audiences (адресаты) · notifications (уведомления: in-app/push/SMS/chat, предпочтения, политика организации) · realtime (один сокет `/realtime`) · entitlements (тарифы и лимиты: планы с версиями, триал/грейс, гранты, оверрайды, квоты, `402 entitlement.*`) · platform (Кабинет платформы: сотрудники ≠ user_roles, команды с журналом/идемпотентностью/step-up/«четыре глаза», карточка 360) · analytics (продуктовая аналитика: реестр событий в shared, приём без БД на пути запроса, партиции PostgreSQL, роллапы, язык запросов, дашборды и конструктор отчётов в Кабинете, SDK `@superapp/analytics`).
 
 **Сервисы** (`apps/api/src/modules/`): Окружение (Circle — фундамент) · Задачник · Календарь (+Google) · Мессенджер · My Wish & Shop · Кошелёк-леджер · Скины карточек · Организации · Сотрудники + Орг. структура (вертикаль на графе должностей и объектов) · Процессы (нодовый канвас) · Финансы (B2C) · Диктофон · Виртуальный офис · Диск (OmniDrive) · Документооборот (+ЭДО) · Контрагенты · КЭДО (HR) · Объекты (дерево площадок + юрлица + штатное расписание + график смен + оборудование) · Заметки (B2C+B2B: свой формат документа, доска-вид на раздел с Alt+N на любой странице, привязка к задачам/контрагентам/объектам/документам). Документная вертикаль ЗАВЕРШЕНА; B2B-вертикаль объектов ПОСТРОЕНА; **мультиязычный фундамент построен** (kk/ru/en, render-at-read, стражи — `docs/i18n.md`), сервисы переводятся по одному за сессию.
 
@@ -121,6 +121,7 @@ Cybersecurity - очень важен для такой экосистемы
 | Уведомления человеку | `core/notifications`: тип в реестре shared (`packages/shared/src/notifications/<сервис>.ts` + `.title/.label` в трёх каталогах) + `send(tx, …)` В транзакции мутации + `NotificationRefRegistry` (право видеть + deep link); продюсер решает КОМУ, движок — КАК (каналы, предпочтения, тишина, схлопывание) | `docs/notifications_engine.md` |
 | Событие в сокет / команда с клиента | `core/realtime`: `registerRelay` / `registerHandler` / `registerConnectionHook`; свой gateway запрещён | `docs/realtime_engine.md` |
 | Платная фича, потолок «сколько можно», расходуемая квота | `core/entitlements`: ключ в реестре shared + `assertFeature`/`assertCanCreate(tx)`/`consume(tx)` в сервисе + замок/шкала в вебе; потолки в константах и 403 «за тариф» запрещены — только `402 entitlement.*` с `unlock` | `docs/entitlements_engine.md` |
+| Поведение человека / продуктовая метрика (воронка, активность, adoption) | `core/analytics`: событие в реестре shared (`packages/shared/src/analytics/<область>.ts` + `analytics.events.<ключ>.title/description` в трёх каталогах) + `track(tx, …)` В транзакции мутации (факт сервера) или `analytics.track` SDK (клиент: «увидел/попытался»); свойства — только коды и признаки, никогда текст и PII | `docs/analytics_engine.md` |
 | Операция для сотрудника платформы (поддержка, биллинг, безопасность) | `core/platform`: команда в `PlatformCommandRegistry` / панель в `PlatformPanelRegistry` (поиск — `PlatformLookupRegistry`) из своего модуля; свои контроллеры под `/platform` не заводить | `docs/platform_console.md` |
 | Деньги: оплата, заморозка, сделки | `wallet` (Ledger + Escrow) — только синхронно в одной tx | `docs/wallet_ledger.md` |
 | Записи на сетке календаря | Реестр слоёв (регистрирует ВЛАДЕЛЕЦ данных) | `docs/calendar.md` |
@@ -195,6 +196,7 @@ pnpm dev                                    # всё сразу (API :3001, Web 
 pnpm lint:guard                             # оба линт-стража (~7с, из корня)
 pnpm check:docs                             # страж документации (~2с): пути, индекс, env, рёбра модулей; --write обновляет module_graph_edges.md
 pnpm check:i18n                             # страж каталогов (~1с): паритет ключей en/kk/ru, разбор ICU, плейсхолдеры
+pnpm check:analytics                        # страж реестра событий (~1с): каталоги, PII в именах свойств, владелец ключа, серверные ключи не шлются клиентом
 node apps/api/scripts/verify-<name>.cjs     # e2e-сьют (при запущенном API)
 ```
 
@@ -214,7 +216,7 @@ Docker-профили сайдкаров (`--profile s3|scan|voice|calls|docs|pd
 
 ## 13. Новый сервис — чек-лист
 
-Грилл дизайна → модуль в `modules/` → Prisma-миграция → типы/Zod в shared (обе стороны провода!) → регистрация в app.module → **чек-лист движков** (в т.ч. уведомления: файл реестра + 3 каталога + `send(tx)` + `NotificationRefRegistry`) → веб-страница по конвенциям → `verify-<name>.cjs` → обновить `docs/` (+`docs/module_graph.md` при новом ребре, +строку в `docs/README.md`). Полный плейбук — **`docs/playbook_new_service.md`**.
+Грилл дизайна → модуль в `modules/` → Prisma-миграция → типы/Zod в shared (обе стороны провода!) → регистрация в app.module → **чек-лист движков** (в т.ч. уведомления: файл реестра + 3 каталога + `send(tx)` + `NotificationRefRegistry`; аналитика: 3–5 событий в реестре + `track(tx)` у ключевых фактов) → веб-страница по конвенциям → `verify-<name>.cjs` → обновить `docs/` (+`docs/module_graph.md` при новом ребре, +строку в `docs/README.md`). Полный плейбук — **`docs/playbook_new_service.md`**.
 
 ## 14. Дизайн-система
 

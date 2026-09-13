@@ -56,6 +56,8 @@ import type {
 
 // ---- Keys (stable, shared between pages) ----
 // Тариф и лимиты: один ключ на контекст (`personal` | id организации) = одна форма кэша (снимок)
+/** Отказ человека от аналитики использования (`GET /analytics/consent`). */
+export const analyticsConsentKey = ['analytics', 'consent'] as const;
 export const entitlementsRootKey = ['entitlements'] as const;
 export const entitlementsKey = (context: string) => ['entitlements', context] as const;
 export const contactsKey = ['contacts'] as const;

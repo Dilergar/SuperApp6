@@ -33,6 +33,12 @@ export const PLATFORM_CAPABILITIES = [
   'entitlements.override.approve',
   'entitlements.grant.write',
   'entitlements.grant.approve',
+  // Продуктовая аналитика (core/analytics): агрегаты и отчёты · панель «Активность»
+  // карточки 360 (агрегаты по одному человеку — отдельное право) · реестр событий,
+  // забвение и пересчёт роллапов
+  'analytics.read',
+  'analytics.person.read',
+  'analytics.manage',
 ] as const;
 
 export type PlatformCapability = (typeof PLATFORM_CAPABILITIES)[number];

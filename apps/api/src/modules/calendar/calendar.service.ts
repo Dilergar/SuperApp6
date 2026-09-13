@@ -4,6 +4,7 @@ import { I18nService } from '../../shared/i18n/i18n.service';
 import { RRule } from 'rrule';
 import { CalendarEvent as CalEventRow } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { AnalyticsService } from '../../core/analytics/analytics.service';
 import { fullName } from '../../shared/utils/user-name';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
@@ -83,6 +84,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     private layersRegistry: CalendarLayersRegistry,
     private graphHooks: PersonalGraphRegistry,
     private i18n: I18nService,
+    private analytics: AnalyticsService,
   ) {}
 
   onModuleInit(): void {
@@ -452,6 +454,16 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
           resourceStatus,
         },
       });
+      await this.analytics.track(
+        tx,
+        'calendar.event.created',
+        {
+          allDay: data.allDay ?? false,
+          hasParticipants: !!(data.participantUserIds?.length || data.participantCircleId),
+          recurring: !!data.recurrenceRule,
+        },
+        { userId, ref: { type: 'calendar_event', id: created.id } },
+      );
       return { event: created, booking: bookingInfo };
     });
     await this.materializeRemindersFor(event, userId, event.reminderOffsets);
@@ -721,6 +733,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       where: { eventId_userId: { eventId, userId } },
       data: { rsvp: status },
     });
+    await this.analytics.track(null, 'calendar.event.rsvp', { status }, { userId, ref: { type: 'calendar_event', id: eventId } });
     const event = await this.db.calendarEvent.findUnique({
       where: { id: eventId },
       select: { userId: true, title: true },

@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import type { EntitlementKey } from '@superapp/shared';
+import { analytics } from '@/lib/analytics';
 import { Chip } from '@/components/ui';
 import { useEntitlement, type EntitlementView } from '@/lib/hooks/useEntitlements';
 
@@ -37,7 +39,12 @@ export function EntitlementLock({
 }) {
   const view = useEntitlement(keyName, workspaceId);
   const t = useTranslations('entitlements');
-  if (view.loading || !view.blocked) return null;
+  const shown = !view.loading && view.blocked;
+  // «Где упирается тариф» глазами человека: замок показан (раз на монтирование ключа)
+  useEffect(() => {
+    if (shown) analytics.track('entitlements.paywall.shown', { key: keyName, surface: 'inline' });
+  }, [shown, keyName]);
+  if (!shown) return null;
   const lockId = id ?? `ent-lock-${keyName.replace(/\W/g, '-')}`;
   return (
     <span id={lockId} style={{ display: 'inline-flex' }}>

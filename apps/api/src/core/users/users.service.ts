@@ -20,6 +20,7 @@ import { FilesService } from '../files/files.service';
 import { VerifyService } from '../verify/verify.service';
 import { JobsService } from '../jobs/jobs.service';
 import { EntitlementsService } from '../entitlements/entitlements.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { PlatformAccessService } from '../platform/platform-access.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { USER_PHONE_INVITATIONS_JOB } from './user-jobs';
@@ -67,6 +68,7 @@ export class UsersService implements OnModuleInit {
     private i18n: I18nService,
     private entitlements: EntitlementsService,
     private platformAccess: PlatformAccessService,
+    private analytics: AnalyticsService,
   ) {}
 
   onModuleInit(): void {
@@ -573,6 +575,8 @@ export class UsersService implements OnModuleInit {
       });
       // Тариф: подписки, гранты, оверрайды и счётчики — полиморфные строки без FK
       await this.entitlements.forgetSubject(tx, { type: 'user', id: userId });
+      // Аналитика: агрегаты по человеку — сразу, сырьё и склейки анонимов — джобом
+      await this.analytics.forgetUser(tx, userId);
       // Кабинет платформы: сотрудник на анонимизированном аккаунте оставался активным —
       // он числился в штате, попадал в адресаты заявок four-eyes и в получатели
       // security-alert. Снимаем со штата и гасим его консольные сессии.

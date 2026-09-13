@@ -88,4 +88,29 @@ function makeChecker() {
   };
 }
 
-module.exports = { BASE, SUITE, SUITE_LOCALE, call, login, makeChecker };
+// ---- Кабинет платформы (core/platform): вход сотрудника и step-up в dev ----
+// Код подтверждения берётся дев-ручкой движка verify (в production её нет).
+const devCode = async (challengeId) => (await call('GET', `/verify/dev/last-code?challengeId=${challengeId}`)).json?.data?.code ?? null;
+
+/** Полный вход в кабинет: пароль → код → токен кабинета (`aud: platform`). */
+async function consoleLogin(phone, password = SUITE.password) {
+  const start = await call('POST', '/platform/auth/start', null, { phone, password });
+  if (!start.ok) return { start, token: null };
+  const code = await devCode(start.json.data.challengeId);
+  const chk = await call('POST', '/verify/check', null, { challengeId: start.json.data.challengeId, code });
+  if (!chk.ok) return { start, chk, token: null };
+  const res = await call('POST', '/platform/auth/login', null, { verifyToken: chk.json.data.verifyToken });
+  return { start, chk, login: res, token: res.json?.data?.accessToken ?? null };
+}
+
+/** Окно sudo для команд high/critical. */
+async function consoleSudo(token, password = SUITE.password) {
+  const st = await call('POST', '/platform/auth/step-up/start', token, { password });
+  if (!st.ok) return st;
+  const code = await devCode(st.json.data.challengeId);
+  const chk = await call('POST', '/verify/check', null, { challengeId: st.json.data.challengeId, code });
+  if (!chk.ok) return chk;
+  return call('POST', '/platform/auth/step-up/confirm', token, { verifyToken: chk.json.data.verifyToken });
+}
+
+module.exports = { BASE, SUITE, SUITE_LOCALE, call, login, makeChecker, devCode, consoleLogin, consoleSudo };

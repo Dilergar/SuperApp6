@@ -39,7 +39,7 @@
 
 | Файл | О чём |
 |---|---|
-| [architecture_overview.md](architecture_overview.md) | Монорепо, модульный монолит, 18 движков, стек, порты |
+| [architecture_overview.md](architecture_overview.md) | Монорепо, модульный монолит, 21 движок, стек, порты |
 | [module_graph.md](module_graph.md) | Карта синхронных рёбер модулей, DI_TOKENS, carve-outs, известные нарушения границ. **Новое ребро → сюда** |
 | [module_graph_documents.md](module_graph_documents.md) | Часть 2 карты: Диск, core/docs, ссылки, Документооборот, Контрагенты, КЭДО, подпись |
 | [module_graph_edges.md](module_graph_edges.md) | ГЕНЕРИРУЕТСЯ (`pnpm check:docs --write`): точная таблица рёбер из импортов и DI-токенов |
@@ -81,6 +81,9 @@
 | [realtime_engine.md](realtime_engine.md) | Один сокет платформы `/realtime`: комнаты `user:<id>`, реестр relay/хендлеров/хуков, Redis-адаптер |
 | [entitlements_engine.md](entitlements_engine.md) | Тарифы и лимиты (`core/entitlements`): реестр ключей в shared, планы с версиями, подписки/триал/грейс, гранты, оверрайды, квоты, `402 entitlement.*`, страница «Тариф и лимиты» |
 | [platform_console.md](platform_console.md) | Кабинет платформы (`core/platform`): сотрудники ≠ user_roles, токен `aud: platform`, гард deny-by-default, реестр команд с журналом/идемпотентностью/step-up/«четыре глаза», поиск и карточка 360 с масками PII |
+| [analytics_engine.md](analytics_engine.md) | Продуктовая аналитика (`core/analytics`): реестр событий в shared, приём без БД на пути запроса (stream + outbox), партиции PostgreSQL, консьюмер, склейка личности, согласие, забвение, стражи |
+| [analytics_ingest.md](analytics_ingest.md) | Аналитика, часть 3: приём (`/analytics/collect`), консьюмер stream + outbox, конвейер обогащения, роллапы и кроны, ловушки сырого SQL |
+| [analytics_reports.md](analytics_reports.md) | Аналитика, часть 2: семантика метрик, язык запросов и исполнитель, k-анонимность, отчёты и дашборды, раздел Кабинета, SDK клиента |
 
 ## Сервисы (apps/api/src/modules/)
 

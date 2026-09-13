@@ -39,6 +39,7 @@ import {
 } from '@superapp/shared';
 import { randomUUID } from 'crypto';
 import { DatabaseService } from '../../shared/database/database.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { utcTs } from '../../shared/database/sql-time';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { badRequest, conflict, notFound, paymentRequired } from '../../shared/errors/api-error';
@@ -96,7 +97,13 @@ export class EntitlementsService implements OnModuleInit {
     private readonly jobs: JobsService,
     private readonly notifier: EntitlementsNotifier,
     private readonly realtime: RealtimeRegistry,
+    private readonly analytics: AnalyticsService,
   ) {}
+
+  /** Опции факта аналитики для субъекта тарифа: человек — актор, организация — контекст. */
+  private analyticsSubject(subject: EntitlementSubjectRef): { userId?: string; workspaceId: string | null } {
+    return subject.type === 'user' ? { userId: subject.id, workspaceId: null } : { workspaceId: subject.type === 'workspace' ? subject.id : null };
+  }
 
   onModuleInit(): void {
     // Снимок человека изменился → его вкладки перечитывают `/entitlements/me`.
@@ -625,6 +632,9 @@ export class EntitlementsService implements OnModuleInit {
       ...(bytes ? { usedBytes: used ?? 0 } : { used: used ?? 0 }),
       ...(typeof value === 'number' ? (bytes ? { valueBytes: value } : { value }) : {}),
     };
+    // Карта «где упирается тариф»: отказ бросается и откатывает транзакцию вызывающего,
+    // поэтому факт идёт МИМО неё (буфер → stream), а не в outbox
+    await this.analytics.track(null, 'entitlements.access.denied', { key, code, contextType: subject.type }, { workspaceId: subject.type === 'workspace' ? subject.id : null });
     return paymentRequired(catalogKey, params, { code, key, value, used, contextType: subject.type, unlock });
   }
 
@@ -782,6 +792,12 @@ export class EntitlementsService implements OnModuleInit {
     if (!inserted.length) return null;
     const created = await tx.subjectSubscription.findUniqueOrThrow({ where: { id: inserted[0].id }, include: { planVersion: { include: { plan: true } } } });
     await this.scheduleExpiry(tx, created);
+    await this.analytics.track(
+      tx,
+      'entitlements.subscription.started',
+      { subscriptionPlan: created.planVersion.plan.key, subscriptionVersion: created.planVersion.version, status: 'trialing', origin: 'trial', contextType: subject.type },
+      this.analyticsSubject(subject),
+    );
     await this.cache.bump(subject);
     return this.toSubscriptionDto(created);
   }
@@ -853,6 +869,12 @@ export class EntitlementsService implements OnModuleInit {
     if (input.planVersionId === null || (!input.planVersionId && !input.planKey)) {
       if (live) {
         await tx.subjectSubscription.updateMany({ where: { id: live.id, status: { in: [...LIVE_STATUSES] } }, data: { status: 'cancelled', cancelledAt: now } });
+        await this.analytics.track(
+          tx,
+          'entitlements.subscription.changed',
+          { subscriptionPlan: 'none', subscriptionVersion: 0, previousPlan: live.planVersion.plan.key, direction: 'down', status: 'cancelled', contextType: subject.type },
+          this.analyticsSubject(subject),
+        );
       }
       await this.notifySupportChange(tx, subject, 'subscriptionCleared');
       await this.cache.bump(subject);
@@ -889,6 +911,30 @@ export class EntitlementsService implements OnModuleInit {
       include: { planVersion: { include: { plan: true } } },
     });
     await this.scheduleExpiry(tx, created);
+    if (live) {
+      const from = live.planVersion.plan.sortOrder;
+      const to = created.planVersion.plan.sortOrder;
+      await this.analytics.track(
+        tx,
+        'entitlements.subscription.changed',
+        {
+          subscriptionPlan: created.planVersion.plan.key,
+          subscriptionVersion: created.planVersion.version,
+          previousPlan: live.planVersion.plan.key,
+          direction: to > from ? 'up' : to < from ? 'down' : 'same',
+          status,
+          contextType: subject.type,
+        },
+        this.analyticsSubject(subject),
+      );
+    } else {
+      await this.analytics.track(
+        tx,
+        'entitlements.subscription.started',
+        { subscriptionPlan: created.planVersion.plan.key, subscriptionVersion: created.planVersion.version, status, origin: 'manual', contextType: subject.type },
+        this.analyticsSubject(subject),
+      );
+    }
     await this.notifySupportChange(tx, subject, 'subscriptionSet');
     await this.cache.bump(subject);
     return { before, after: this.toSubscriptionDto(created) };

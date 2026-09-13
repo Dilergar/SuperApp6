@@ -16,6 +16,7 @@ import { ChatterService } from '../../core/chatter/chatter.service';
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { ApprovalsService } from '../../core/approvals/approvals.service';
 import { EntitlementsService } from '../../core/entitlements/entitlements.service';
+import { AnalyticsService } from '../../core/analytics/analytics.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
@@ -100,6 +101,7 @@ export class WorkspacesService implements OnModuleInit {
     private moduleRef: ModuleRef,
     private i18n: I18nService,
     private entitlements: EntitlementsService,
+    private analytics: AnalyticsService,
   ) {}
 
   /**
@@ -196,6 +198,7 @@ export class WorkspacesService implements OnModuleInit {
           ...this.legal.defaultSignBasis(),
         },
       });
+      await this.analytics.track(tx, 'workspaces.workspace.created', {}, { userId, workspaceId: w.id });
       return w;
     });
 
@@ -524,6 +527,7 @@ export class WorkspacesService implements OnModuleInit {
       where: { id: workspaceId },
       data: { isActive: false, archivedAt: new Date() },
     });
+    await this.analytics.track(null, 'workspaces.workspace.archived', {}, { userId, workspaceId });
     // Счётчик «Пространств» в /users/me считает ЖИВЫЕ организации и кэшируется 5 минут —
     // без сброса человек полчаса видит «2 Пространств» над пустым списком.
     await this.redis.invalidateUserProfile(userId);
@@ -618,6 +622,8 @@ export class WorkspacesService implements OnModuleInit {
     await this.db.$transaction(async (tx) => {
       // Тариф: подписка, гранты, оверрайды и счётчики организации — строки без FK
       await this.entitlements.forgetSubject(tx, { type: 'workspace', id: workspaceId });
+      // Аналитика: роллапы с измерением организации — сразу, сырьё — джобом
+      await this.analytics.forgetWorkspace(tx, workspaceId);
       await tx.searchDocument.deleteMany({ where: { chatId: { in: chatIds } } });
       await tx.chat.deleteMany({ where: { id: { in: chatIds } } }); // каскад: сообщения, участники, отложенные
       await tx.chatterEntry.deleteMany({
@@ -1284,6 +1290,8 @@ export class WorkspacesService implements OnModuleInit {
       include: INVITATION_INCLUDE,
     });
 
+    await this.analytics.track(null, 'workspaces.invitation.sent', { role: WORKSPACE_HIRE_ROLE }, { userId, workspaceId });
+
     // Приглашённый ещё не член — строка ляжет в «Личное» (контекст по членству адресата).
     if (inv.toUserId) {
       await this.notifications.send(null, {
@@ -1427,6 +1435,7 @@ export class WorkspacesService implements OnModuleInit {
         inv.invitedBy,
       );
 
+      await this.analytics.track(tx, 'workspaces.invitation.accepted', { role: WORKSPACE_HIRE_ROLE }, { userId, workspaceId: inv.workspaceId });
       await this.chatter.log(tx, {
         refType: 'workspace',
         refId: inv.workspaceId,

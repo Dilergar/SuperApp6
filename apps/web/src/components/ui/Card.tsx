@@ -6,6 +6,7 @@
 // ============================================================
 import type { CSSProperties, ReactNode } from 'react';
 import Link from 'next/link';
+import { Chip } from './Chip';
 import { Glyph } from './Glyph';
 import { Icon, type IconName } from './Icon';
 import { cx, toneVars, type Tone } from './tones';
@@ -21,15 +22,18 @@ export interface CardProps {
   className?: string;
   style?: CSSProperties;
   onClick?: () => void;
+  /** Якорь (переход к карточке из соседней: «открыть панель тарифов») */
+  id?: string;
 }
 
-export function Card({ children, small, span, hoverable, className, style, onClick }: CardProps) {
+export function Card({ children, small, span, hoverable, className, style, onClick, id }: CardProps) {
   // Ховер — CSS-классом (.ui-card-hover в ui.css), а не записью в element.style:
   // JS-ховер на каждой карточке бенто-сетки — ровно тот антипаттерн, ради
   // устранения которого кит и заведён.
   const lift = hoverable || !!onClick;
   return (
     <div
+      id={id}
       className={cx(small ? 'card-sm' : 'card', lift && 'ui-card-hover', className)}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
@@ -106,6 +110,8 @@ export function StatTile({
   emoji,
   tone = 'accent',
   trend,
+  delta,
+  sparkline,
   href,
   onClick,
   span,
@@ -117,6 +123,13 @@ export function StatTile({
   emoji?: string | null;
   tone?: Tone;
   trend?: { text: string; direction: 'up' | 'down' };
+  /**
+   * Изменение к прошлому периоду — чип со стрелкой и числом (смысл несёт форма):
+   * `good` — рост хорош (зелёный), иначе — внимание (персиковый); `flat` — нейтральный.
+   */
+  delta?: { text: string; direction: 'up' | 'down' | 'flat'; good?: boolean; title?: string };
+  /** Мини-график под числом */
+  sparkline?: ReactNode;
   href?: string;
   onClick?: () => void;
   span?: number;
@@ -152,6 +165,18 @@ export function StatTile({
           {trend.text}
         </div>
       )}
+      {delta && (
+        <div style={{ marginTop: '0.5rem' }} title={delta.title}>
+          <Chip
+            size="sm"
+            tone={delta.direction === 'flat' ? 'neutral' : (delta.direction === 'up') === (delta.good ?? true) ? 'success' : 'warning'}
+            icon={delta.direction === 'up' ? 'arrowUp' : delta.direction === 'down' ? 'arrowDown' : 'minus'}
+          >
+            {delta.text}
+          </Chip>
+        </div>
+      )}
+      {sparkline && <div style={{ marginTop: '0.5rem' }}>{sparkline}</div>}
     </>
   );
   return (

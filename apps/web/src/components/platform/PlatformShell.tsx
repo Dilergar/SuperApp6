@@ -25,6 +25,7 @@ import { StepUpModal } from './StepUpModal';
 const NAV: { key: string; href: string; icon: IconName; exact?: boolean; capability: PlatformCapability }[] = [
   { key: 'search', href: '/platform', icon: 'search', exact: true, capability: 'platform.lookup.read' },
   { key: 'entitlements', href: '/platform/entitlements', icon: 'crown', capability: 'entitlements.catalog.read' },
+  { key: 'analytics', href: '/platform/analytics', icon: 'chart', capability: 'analytics.read' },
   { key: 'requests', href: '/platform/requests', icon: 'check', capability: 'platform.audit.read' },
   { key: 'audit', href: '/platform/audit', icon: 'file', capability: 'platform.audit.read' },
   { key: 'staff', href: '/platform/staff', icon: 'shield', capability: 'platform.staff.read' },

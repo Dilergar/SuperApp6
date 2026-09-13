@@ -187,6 +187,13 @@
     "unknownDevice": "Unknown device"
   },
   "settings": {
+    "analytics": {
+      "collect": "We record which sections you open and what you do in them — without the content.",
+      "label": "Help improve the app",
+      "notCollect": "We never record texts, files, amounts or contacts.",
+      "remains": "When it is off, only the facts the services need are kept: tasks, plan limits, payments.",
+      "title": "Usage analytics"
+    },
     "online": {
       "contacts": "Contacts only",
       "everyone": "Everyone",

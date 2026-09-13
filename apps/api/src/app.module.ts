@@ -37,6 +37,7 @@ import { RealtimeModule } from './core/realtime/realtime.module';
 import { EntitlementsModule } from './core/entitlements/entitlements.module';
 import { PlatformModule } from './core/platform/platform.module';
 import { PlatformAuthGuard } from './core/platform/platform-auth.guard';
+import { AnalyticsModule } from './core/analytics/analytics.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CounterpartiesModule } from './modules/counterparties/counterparties.module';
 import { ObjectsModule } from './modules/objects/objects.module';
@@ -175,6 +176,10 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // Тариф и лимиты (19-й) и кабинет платформы (20-й) — оба @Global
     EntitlementsModule,
     PlatformModule,
+    // Analytics engine — 21-й платформенный движок: продуктовая аналитика. Реестр событий
+    // в shared, приём без БД на пути запроса (stream + outbox), сырьё в партициях
+    // PostgreSQL, роллапы джобами, отчёты в Кабинете: docs/analytics_engine.md.
+    AnalyticsModule,
     // Sign engine — 15-й платформенный движок: электронная подпись (шаг 3
     // документной вертикали). Акт подписи, криптография и её проверка, ВЕЧНЫЕ
     // доказательства, экспортный пакет (ст. 62 ЦК РК) и открытая страница

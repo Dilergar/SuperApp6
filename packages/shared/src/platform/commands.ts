@@ -8,7 +8,7 @@ export type PlatformRisk = (typeof PLATFORM_RISKS)[number];
 export const PLATFORM_RISK_RANK: Record<PlatformRisk, number> = { low: 0, medium: 1, high: 2, critical: 3 };
 
 /** Группы команд — вкладки/разделы в UI и фильтр журнала. */
-export const PLATFORM_COMMAND_GROUPS = ['platform', 'entitlements'] as const;
+export const PLATFORM_COMMAND_GROUPS = ['platform', 'entitlements', 'analytics'] as const;
 export type PlatformCommandGroup = (typeof PLATFORM_COMMAND_GROUPS)[number];
 
 /** Исход записи аудита. */

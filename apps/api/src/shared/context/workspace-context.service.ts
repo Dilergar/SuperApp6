@@ -15,6 +15,27 @@ export interface WorkspaceContext {
    * запроса нет вовсе.
    */
   locale?: Locale;
+  /**
+   * Организация из заголовка БЕЗ проверки членства — только на маршрутах
+   * `@DeferWorkspaceCheck()` (приём аналитики). Никогда не читается как право.
+   */
+  claimedWorkspaceId?: string;
+  /** Клиентский контекст для серверных событий аналитики (core/analytics). */
+  client?: AnalyticsClientContext;
+}
+
+/**
+ * Контекст клиента: сессия и устройство из заголовков `X-Analytics-Session/Device`
+ * (uuid, иначе игнор), `sid` токена, User-Agent для грубых признаков устройства.
+ * IP сюда не кладётся: аналитика его не хранит и не использует.
+ */
+export interface AnalyticsClientContext {
+  sessionId?: string;
+  deviceId?: string;
+  loginSid?: string;
+  userAgent?: string;
+  /** Браузер прислал `Sec-GPC: 1` */
+  gpc?: boolean;
 }
 
 /**

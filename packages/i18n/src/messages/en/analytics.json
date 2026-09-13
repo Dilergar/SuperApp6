@@ -1,0 +1,613 @@
+{
+  "adoption": {
+    "activePeople": "Active people",
+    "activeWorkspaces": "Active organizations",
+    "medianDays": "Median days of use",
+    "share": "Share of active"
+  },
+  "breakdown": {
+    "denied_key": "Plan limit",
+    "event": "Event",
+    "plan": "Plan",
+    "platform": "Platform",
+    "service": "Service",
+    "workspace": "Organization"
+  },
+  "breakdownMetrics": {
+    "events": "Events",
+    "eventsPerWorkspace": "Events per active organization",
+    "users": "People",
+    "usersPerWorkspace": "People per active organization",
+    "workspaces": "Organizations",
+    "workspacesPerWorkspace": "Organizations per active organization"
+  },
+  "builder": {
+    "addStep": "Add step",
+    "allEvents": "All events",
+    "anyActivity": "Any activity",
+    "anyValue": "Any value",
+    "back": "Back to reports",
+    "breakdown": "Split by",
+    "byPlan": "Split by plan",
+    "chooseDashboard": "Dashboard",
+    "copyOf": "Copy of {name}",
+    "days": "Horizon",
+    "delete": "Delete report",
+    "deleteText": "The report disappears from the library and from every dashboard.",
+    "deleteTitle": "Delete the report?",
+    "event": "Event",
+    "findEvent": "Find an event",
+    "interval": "Step",
+    "metric": "What to count",
+    "mode": "Step order",
+    "moveDown": "Move down",
+    "moveUp": "Move up",
+    "nameLabel": "Name",
+    "noBreakdown": "No split",
+    "noData": "no data",
+    "notFound": "The report was not found",
+    "orEvent": "Or another event",
+    "orLabel": "Or",
+    "pickEvent": "Choose an event",
+    "preview": "Preview",
+    "previewHint": "Choose a question — the result appears here while you build it.",
+    "previewIncomplete": "Finish the steps on the left to see the result.",
+    "private": "Private draft",
+    "privateHint": "Only you see a draft. Shared dashboards show shared reports only.",
+    "privateOnShared": "A private draft cannot be added to a shared dashboard — switch the draft off or choose a private dashboard.",
+    "removeAlternative": "Remove this event",
+    "removeStep": "Remove step",
+    "retentionMode": "Counted as returned",
+    "returnEvent": "Returned means",
+    "save": "Save",
+    "saveAndAdd": "Save and add to dashboard",
+    "saveTitle": "Save report",
+    "saved": "Report saved",
+    "startEvent": "Cohort starts with",
+    "stepFilter": "Only when",
+    "stepN": "Step {n}",
+    "steps": {
+      "events": "Events",
+      "question": "Question",
+      "refine": "Refine",
+      "save": "Save"
+    },
+    "unit": "Count",
+    "unsaved": "Not saved",
+    "unsavedText": "The changes to the report will be lost.",
+    "unsavedTitle": "Leave without saving?",
+    "value": "Value",
+    "view": "View",
+    "volume7d": "{count, plural, one {# in 7 days} other {# in 7 days}}",
+    "willCopy": "Saving creates a copy",
+    "window": "Conversion window",
+    "windowDays": "{days, plural, one {# day} other {# days}}"
+  },
+  "catalog": {
+    "block": "Block",
+    "columns": {
+      "class": "Class",
+      "event": "Event",
+      "lastSeen": "Last seen",
+      "source": "Source",
+      "status": "Status",
+      "volume": "Last 14 days"
+    },
+    "enable": "Enable",
+    "never": "never",
+    "onlyNoData": "Only without data",
+    "tab": "Events",
+    "title": "What we measure"
+  },
+  "classes": {
+    "business": "Service fact",
+    "product": "Action",
+    "telemetry": "Background"
+  },
+  "context": {
+    "personalSpaces": "Personal spaces",
+    "workspaceShort": "Organization {id}"
+  },
+  "controls": {
+    "clearWorkspace": "Show all organizations",
+    "compare": "Compare with the previous period",
+    "context": "Context",
+    "contexts": {
+      "all": "Everything",
+      "personal": "Personal",
+      "workspace": "Organizations"
+    },
+    "from": "From",
+    "internal": "Include internal accounts",
+    "internalNote": "Platform staff and test numbers are excluded from the numbers.",
+    "notUpdated": "Not aggregated yet · {timezone}",
+    "period": "Period",
+    "platform": "Platform",
+    "presets": {
+      "12m": "12 months",
+      "28d": "28 days",
+      "7d": "7 days",
+      "90d": "90 days",
+      "custom": "Custom"
+    },
+    "to": "To",
+    "updatedHours": "Updated {hours, plural, one {# hour} other {# hours}} ago · {timezone}",
+    "updatedMinutes": "Updated {minutes, plural, one {# minute} other {# minutes}} ago · {timezone}",
+    "workspaceSearch": "Organization name, BIN or id"
+  },
+  "dashboards": {
+    "actions": "Dashboard actions",
+    "addTile": "Add tile",
+    "copyOf": "Copy of {name}",
+    "delete": "Delete dashboard",
+    "deleteText": "The reports on it stay in the library.",
+    "deleteTitle": "Delete the dashboard?",
+    "editCopy": "Edit a copy",
+    "emptyTiles": "No tiles on this dashboard yet",
+    "moveDown": "Move down",
+    "moveUp": "Move up",
+    "new": "New dashboard",
+    "newReport": "New report",
+    "notFound": "The dashboard was not found",
+    "removeTile": "Remove from dashboard",
+    "sharedOnlyHint": "A shared dashboard shows shared reports only",
+    "switcher": "Dashboards",
+    "system": "System",
+    "widthMedium": "Medium width",
+    "widthNarrow": "Narrow",
+    "widthWide": "Full width"
+  },
+  "empty": {
+    "collectingText": "Events started arriving {date}; the first dashboard will be ready by tomorrow morning.",
+    "collectingTitle": "Collection has started",
+    "noEventsText": "Nothing has been recorded yet: the numbers appear once people use the app.",
+    "noEventsTitle": "No events yet"
+  },
+  "format": {
+    "days": "{value} d",
+    "drop": "{value} dropped off",
+    "percent": "{value}%",
+    "seconds": "{value} s"
+  },
+  "funnel": {
+    "fromStart": "Of the first step",
+    "step": "Step"
+  },
+  "funnelModes": {
+    "any": "Any order",
+    "ordered": "In order",
+    "strict": "In order, nothing in between"
+  },
+  "health": {
+    "line": "Data health: {events} events in the last hour · delay {lag} s",
+    "quarantine": "{count, plural, one {# in quarantine} other {# in quarantine}}"
+  },
+  "intervals": {
+    "day": "Days",
+    "month": "Months",
+    "week": "Weeks"
+  },
+  "journeys": {
+    "moves": "Moves",
+    "pair": "{from} → {to}"
+  },
+  "library": {
+    "allTypes": "All types",
+    "author": "Author",
+    "authors": {
+      "all": "Everyone’s",
+      "mine": "Mine"
+    },
+    "empty": "No reports found",
+    "new": "New report",
+    "private": "Private",
+    "search": "Find a report",
+    "type": "Type"
+  },
+  "lifecycle": {
+    "current": "Current",
+    "dormant": "Dormant",
+    "new": "New",
+    "resurrected": "Returned"
+  },
+  "metrics": {
+    "active_workspaces": "Active organizations",
+    "dau": "Active per day",
+    "event_users": "People with the event",
+    "events": "Events",
+    "mau": "Active in 28 days",
+    "new_users": "New people",
+    "session_p50": "Median session length",
+    "sessions": "Sessions",
+    "stickiness": "Stickiness (day ÷ 28 days)",
+    "wau": "Active in 7 days"
+  },
+  "panel": {
+    "activeDays": "{days, plural, one {# active day of 28} other {# active days of 28}}",
+    "adoption": "Service usage",
+    "denied": "Hit plan limits",
+    "deniedCount": "{name} · {count, plural, one {# time} other {# times}}",
+    "lastActive": "Last activity",
+    "members": "Members",
+    "membersActive": "{active} of {total} active",
+    "never": "No activity yet",
+    "noDenied": "No limits hit",
+    "none": "No activity in 28 days",
+    "openPlans": "Open plan and limits",
+    "platforms": "Platforms",
+    "serviceDays": "{name} · {days, plural, one {# day} other {# days}}",
+    "services": "Services",
+    "subtitle": "Aggregates for 28 days — individual actions are not shown here."
+  },
+  "plans": {
+    "none": "No plan"
+  },
+  "platforms": {
+    "all": "All platforms",
+    "android": "Android",
+    "ios": "iOS",
+    "server": "Server",
+    "web": "Web"
+  },
+  "propValues": {
+    "down": "Lower plan",
+    "false": "No",
+    "same": "Same level",
+    "true": "Yes",
+    "up": "Higher plan"
+  },
+  "props": {
+    "allDay": "All day",
+    "chatKind": "Chat type",
+    "contextType": "Context",
+    "direction": "Direction",
+    "hasAssignee": "Has an assignee",
+    "hasDue": "Has a due date",
+    "hasMention": "Has a mention",
+    "hasParticipants": "Has participants",
+    "hasReward": "Has a reward",
+    "kind": "Kind",
+    "recurring": "Recurring",
+    "role": "Role",
+    "scope": "Scope",
+    "status": "Status",
+    "surface": "Where shown"
+  },
+  "quarantine": {
+    "columns": {
+      "count": "Times",
+      "key": "Key",
+      "lastSeen": "Last time",
+      "reason": "Reason",
+      "shape": "Fields"
+    },
+    "empty": "Quarantine is empty — everything sent matches the registry",
+    "hint": "Something is sent past the registry. Register the event in packages/shared/src/analytics/[service].ts (title and description in three catalogs) or fix the client that sends it.",
+    "reasons": {
+      "anon_not_allowed": "Not allowed before sign-in",
+      "blocked": "Blocked",
+      "pii": "Personal data removed",
+      "schema": "Fields do not match",
+      "server_key_from_client": "Server fact sent by a client",
+      "unknown_key": "Unknown event"
+    },
+    "tab": "Quarantine"
+  },
+  "questions": {
+    "funnel": "Where do people drop off between … and …?",
+    "retention": "Do people come back after …?",
+    "services": "Which services are used and how do people move?",
+    "trend": "How many people do …?"
+  },
+  "retention": {
+    "bracket": "Days {range}",
+    "cohort": "Cohort",
+    "curve": "Returned",
+    "day": "Day {n}"
+  },
+  "retentionModes": {
+    "bracket": "Within a range of days",
+    "n_day": "Exactly on day N",
+    "unbounded": "On day N or later"
+  },
+  "section": {
+    "description": "How the app is used: activity, funnels, retention, services and plans.",
+    "noAccess": "Analytics is available to staff with the analytics permission."
+  },
+  "series": {
+    "other": "Other",
+    "total": "Total"
+  },
+  "sources": {
+    "both": "Client and server",
+    "client": "Client",
+    "server": "Server"
+  },
+  "statuses": {
+    "blocked": "Blocked",
+    "deprecated": "Deprecated",
+    "live": "Live",
+    "planned": "Planned"
+  },
+  "system": {
+    "dashboards": {
+      "funnels": "Funnels",
+      "overview": "Overview",
+      "plans": "Plans",
+      "retention": "Retention",
+      "services": "Services"
+    },
+    "reports": {
+      "active_by_day": "Active people by day",
+      "active_workspaces": "Active organizations",
+      "adoption": "Service usage",
+      "dau": "Active per day",
+      "engagement_matrix": "Engagement matrix",
+      "funnel_first_value": "First value",
+      "funnel_monetization": "Plan offer to upgrade",
+      "funnel_registration": "Sign-up",
+      "journeys": "Moves between services",
+      "lifecycle": "People lifecycle",
+      "mau": "Active in 28 days",
+      "new_users": "New people",
+      "plan_limits": "Where plans hit limits",
+      "plans_active_workspaces": "Active organizations by plan",
+      "plans_events_per_workspace": "Events per active organization",
+      "plans_table": "Plans compared",
+      "retention_curve": "Coming back",
+      "wau": "Active in 7 days"
+    }
+  },
+  "tabs": {
+    "dashboards": "Dashboards",
+    "events": "Events",
+    "reports": "Reports"
+  },
+  "tile": {
+    "actions": "Tile actions",
+    "changePeriod": "Change period",
+    "deltaHint": "Change versus the previous period of the same length",
+    "empty": "No events for this period",
+    "failed": "This tile could not be loaded",
+    "masked": "Hidden",
+    "maskedTitle": "Too few people to show",
+    "maskedHint": "Fewer than {k} people — hidden for privacy",
+    "openReport": "Open as report",
+    "pending": "Calculating… the result will appear here",
+    "view": "View"
+  },
+  "types": {
+    "adoption": "Service usage",
+    "breakdown": "Breakdown",
+    "funnel": "Funnel",
+    "journeys": "Moves between services",
+    "lifecycle": "Lifecycle",
+    "retention": "Retention",
+    "trend": "Trend"
+  },
+  "units": {
+    "user": "People",
+    "workspace": "Organizations"
+  },
+  "viz": {
+    "bar": "Bars",
+    "cohort": "Cohort grid",
+    "curve": "Curve",
+    "line": "Line",
+    "scatter": "Matrix",
+    "stat": "Number",
+    "table": "Table"
+  },
+  "areas": {
+    "analytics": "Analytics",
+    "approvals": "Approvals",
+    "auth": "Sign-in",
+    "calendar": "Calendar",
+    "circles": "My circle",
+    "counterparties": "Counterparties",
+    "dashboard": "Home",
+    "docs": "Office documents",
+    "documents": "Documents",
+    "drive": "Drive",
+    "entitlements": "Plan and limits",
+    "finance": "Finance",
+    "hr": "HR records",
+    "landing": "Welcome page",
+    "messenger": "Messenger",
+    "navigation": "Navigation",
+    "notes": "Notes",
+    "notifications": "Notifications",
+    "objects": "Sites",
+    "office": "Virtual office",
+    "other": "Other",
+    "platform": "Platform console",
+    "processes": "Processes",
+    "profile": "Profile",
+    "recorder": "Recorder",
+    "share": "Shared links",
+    "shop": "Shop",
+    "sign": "Signature",
+    "staff": "Employees",
+    "tasks": "Tasks",
+    "wallet": "Wallet",
+    "workspaces": "Organizations"
+  },
+  "events": {
+    "analytics": {
+      "consent": {
+        "changed": {
+          "description": "A person turned usage analytics off or back on",
+          "title": "Analytics setting changed"
+        }
+      },
+      "identity": {
+        "linked": {
+          "description": "Events from before sign-in were joined to the account",
+          "title": "Device linked to an account"
+        }
+      }
+    },
+    "auth": {
+      "login": {
+        "opened": {
+          "description": "The sign-in screen was shown",
+          "title": "Sign-in opened"
+        }
+      },
+      "password": {
+        "reset": {
+          "description": "The person set a new password through recovery",
+          "title": "Password reset"
+        }
+      },
+      "registration": {
+        "code_submitted": {
+          "description": "The person entered the code from the SMS",
+          "title": "Sign-up code entered"
+        },
+        "opened": {
+          "description": "The sign-up screen was shown before an account exists",
+          "title": "Sign-up opened"
+        },
+        "phone_submitted": {
+          "description": "The person sent their number to receive a code",
+          "title": "Phone number entered at sign-up"
+        }
+      },
+      "user": {
+        "logged_in": {
+          "description": "A successful sign-in to an account",
+          "title": "Signed in"
+        },
+        "registered": {
+          "description": "The server created an account, with a confirmed number or without one",
+          "title": "Account created"
+        }
+      }
+    },
+    "calendar": {
+      "event": {
+        "created": {
+          "description": "An event was added: all-day, with participants or recurring",
+          "title": "Calendar event created"
+        },
+        "rsvp": {
+          "description": "A participant answered an event invitation",
+          "title": "Invitation answered"
+        }
+      }
+    },
+    "entitlements": {
+      "access": {
+        "denied": {
+          "description": "An action was refused because of the plan: which limit and why",
+          "title": "Plan limit reached"
+        }
+      },
+      "paywall": {
+        "clicked": {
+          "description": "The person pressed the button on a plan lock",
+          "title": "Upgrade offer opened"
+        },
+        "shown": {
+          "description": "The person saw a lock offering to change the plan",
+          "title": "Upgrade offer shown"
+        }
+      },
+      "subscription": {
+        "changed": {
+          "description": "The plan changed to a higher, lower or same-level one",
+          "title": "Subscription changed"
+        },
+        "expired": {
+          "description": "The plan ended after the trial or the grace period",
+          "title": "Subscription expired"
+        },
+        "started": {
+          "description": "A plan was switched on for a person or an organization",
+          "title": "Subscription started"
+        }
+      }
+    },
+    "messenger": {
+      "chat": {
+        "created": {
+          "description": "A private, group or context chat appeared",
+          "title": "Chat created"
+        }
+      },
+      "message": {
+        "sent": {
+          "description": "A message was sent — its content is never recorded",
+          "title": "Message sent"
+        }
+      }
+    },
+    "navigation": {
+      "page": {
+        "viewed": {
+          "description": "A person opened a section of the app (the address without identifiers)",
+          "title": "Page opened"
+        }
+      }
+    },
+    "notifications": {
+      "notification": {
+        "read": {
+          "description": "A person marked notifications as read",
+          "title": "Notifications read"
+        }
+      }
+    },
+    "share": {
+      "link": {
+        "opened": {
+          "description": "A guest without an account opened a link",
+          "title": "Shared link opened"
+        }
+      }
+    },
+    "tasks": {
+      "task": {
+        "completed": {
+          "description": "A task that needs no acceptance was finished by its own creator",
+          "title": "Task completed"
+        },
+        "accepted": {
+          "description": "The creator accepted the completed task",
+          "title": "Task accepted"
+        },
+        "created": {
+          "description": "A task was created: with an assignee, a due date or a reward",
+          "title": "Task created"
+        },
+        "submitted": {
+          "description": "The assignee handed the task over for acceptance",
+          "title": "Task submitted for review"
+        }
+      }
+    },
+    "workspaces": {
+      "invitation": {
+        "accepted": {
+          "description": "An invited person joined the organization",
+          "title": "Invitation accepted"
+        },
+        "sent": {
+          "description": "A person was invited to an organization with a role",
+          "title": "Invitation sent"
+        }
+      },
+      "workspace": {
+        "archived": {
+          "description": "The owner sent the organization to the archive",
+          "title": "Organization archived"
+        },
+        "created": {
+          "description": "A new organization appeared in the app",
+          "title": "Organization created"
+        }
+      }
+    }
+  }
+}

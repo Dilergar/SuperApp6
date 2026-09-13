@@ -155,6 +155,25 @@ const envSchema = z
     PLATFORM_JWT_SECRET: blank(z.string().min(32, 'at least 32 characters').optional()),
     // Стоп-кран: `false` → все маршруты /platform/* отвечают 404 без деплоя кода.
     PLATFORM_CONSOLE_ENABLED: blank(z.enum(['true', 'false']).optional()),
+    // --- Продуктовая аналитика (core/analytics) ---
+    // Стоп-кран движка: `false` → приём отвечает 202 без записи, `track()` молчит.
+    ANALYTICS_ENABLED: blank(z.enum(['true', 'false']).optional()),
+    // Консьюмер stream'а и outbox на ЭТОМ инстансе (выключают на инстансах только-HTTP).
+    ANALYTICS_CONSUMER_ENABLED: blank(z.enum(['true', 'false']).optional()),
+    // Ретенция сырья, дней (13 месяцев по умолчанию); роллапы живут вечно.
+    ANALYTICS_RAW_RETENTION_DAYS: blank(z.coerce.number().int().min(35).max(3650).optional()),
+    // Приблизительный потолок stream'а приёма; сброс по классам — с 80 % и 95 %.
+    ANALYTICS_STREAM_MAXLEN: blank(z.coerce.number().int().min(10_000).max(50_000_000).optional()),
+    // Порог k-анонимности ячейки разбиения (меньше людей — ячейка скрыта).
+    ANALYTICS_K_ANON: blank(z.coerce.number().int().min(2).max(1000).optional()),
+    // Префиксы номеров внутренних/тестовых аккаунтов через запятую (помечаются is_internal).
+    ANALYTICS_INTERNAL_PHONE_PREFIXES: blank(
+      z.string().regex(/^\+\d{3,15}(,\s*\+\d{3,15})*$/, 'phone prefixes like +7700999,+770012').optional(),
+    ),
+    // Реплика / роль только-чтение для запросов Кабинета (пусто → основной пул).
+    ANALYTICS_READ_DATABASE_URL: blank(z.string().min(1).optional()),
+    // statement_timeout запроса Кабинета по сырью, мс.
+    ANALYTICS_QUERY_TIMEOUT_MS: blank(z.coerce.number().int().min(500).max(120_000).optional()),
     // --- Движок уведомлений (core/notifications) — web push (VAPID). Пусто → push выключен:
     // тумблер «уведомления браузера» в вебе не показывается, доставки `skipped: driver_not_configured`.
     // Пара генерируется один раз: `npx web-push generate-vapid-keys`.

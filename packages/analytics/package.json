@@ -1,0 +1,28 @@
+{
+  "name": "@superapp/analytics",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Client SDK of the product analytics engine (core/analytics): queue, identity, transport",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "lint:guard": "eslint src",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "@superapp/shared": "workspace:*",
+    "@typescript-eslint/parser": "^8.20.0",
+    "eslint": "^9.18.0",
+    "typescript": "^5.7.0"
+  }
+}

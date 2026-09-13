@@ -11,15 +11,57 @@
 import { notFound } from 'next/navigation';
 import { useState } from 'react';
 import {
-  Alert, AvatarStack, Badge, BentoGrid, Button, Calendar, Card, CardHeader, Checkbox, Chip,
-  ConfirmDialog, DatePicker, Divider, Dropzone, EmojiIcon, EmptyState, GlyphField, GradientTickBar, Icon,
-  IconButton, ICONS, Input, Menu, Modal, PageHeader, Pagination, SearchField, SegmentedControl,
-  Select, Skeleton, Spinner, StatTile, StatusDot, Table, TableCell, TableGroupRow, TableHeader, TableRow, Tabs,
+  Alert, AvatarStack, Badge, BarChart, BentoGrid, Button, Calendar, Card, CardHeader, Checkbox, Chip, CohortGrid,
+  ConfirmDialog, DatePicker, Divider, Dropzone, EmojiIcon, EmptyState, FunnelChart, GlyphField, GradientTickBar, Icon,
+  IconButton, ICONS, Input, LineChart, Menu, Modal, PageHeader, Pagination, ScatterLabeled, SearchField, SegmentedControl,
+  Select, Skeleton, Sparkline, Spinner, StackedBars, StatTile, StatusDot, Table, TableCell, TableGroupRow, TableHeader, TableRow, Tabs,
   Textarea, TickBar, Toggle, Tooltip,
-  type IconName, type TableColumn, type Tone,
+  type BarRow, type CohortRowView, type FunnelStepView, type IconName, type LineSeries, type ScatterPoint, type StackSegment,
+  type TableColumn, type Tone,
 } from '@/components/ui';
 
 const TONES: Tone[] = ['accent', 'success', 'warning', 'danger', 'waiting', 'neutral'];
+
+// Данные витрины графиков — синтетика, детерминированная (без Math.random: гидрация)
+const fmtInt = (v: number) => String(Math.round(v));
+const fmtPct = (share: number) => `${Math.round(share * 100)}%`;
+const CHART_DAYS = Array.from({ length: 14 }, (_, i) => `${i + 1}`);
+const SPARK = [12, 14, 13, 17, 16, 19, 22, 21, 24, 23, 27, 29];
+const LINE_SERIES: LineSeries[] = [
+  { key: 'tasks', label: 'Задачник', slot: 0, values: CHART_DAYS.map((_, i) => 60 + ((i * 13) % 17)) },
+  { key: 'chat', label: 'Мессенджер', slot: 1, values: CHART_DAYS.map((_, i) => 45 + ((i * 11) % 19)) },
+  { key: 'cal', label: 'Календарь', slot: 2, values: CHART_DAYS.map((_, i) => 25 + ((i * 5) % 13)) },
+  { key: 'prev', label: 'Задачник · прошлый период', slot: 0, dashed: true, values: CHART_DAYS.map((_, i) => 52 + ((i * 7) % 15)) },
+];
+const BAR_ROWS: BarRow[] = [
+  { key: 'tasks', label: 'Задачник', text: 'Задачник', value: 412, previous: 380 },
+  { key: 'chat', label: 'Мессенджер', text: 'Мессенджер', value: 356, previous: 390 },
+  { key: 'cal', label: 'Календарь', text: 'Календарь', value: 198, previous: 150 },
+  { key: 'small', label: 'Малый сервис', text: 'Малый сервис', value: null, masked: true },
+];
+const STACK_SEGMENTS: StackSegment[] = [
+  { key: 'new', label: 'Новые', slot: 0, values: [12, 9, 14, 11, 16, 13, 10, 15] },
+  { key: 'current', label: 'Текущие', slot: 1, values: [40, 42, 41, 45, 47, 46, 49, 51] },
+  { key: 'returned', label: 'Вернувшиеся', slot: 2, values: [5, 7, 6, 4, 8, 6, 7, 9] },
+  { key: 'dormant', label: 'Уснувшие', slot: 5, negative: true, values: [6, 8, 5, 9, 7, 6, 8, 5] },
+];
+const FUNNEL_STEPS: FunnelStepView[] = [
+  { key: 's1', label: 'Открыл регистрацию', count: 1000, fromPrevious: null, fromStart: 1 },
+  { key: 's2', label: 'Ввёл номер', count: 720, fromPrevious: 0.72, fromStart: 0.72 },
+  { key: 's3', label: 'Подтвердил код', count: 610, fromPrevious: 0.85, fromStart: 0.61 },
+  { key: 's4', label: 'Создал первую задачу', count: 240, fromPrevious: 0.39, fromStart: 0.24 },
+];
+const COHORT_ROWS: CohortRowView[] = [
+  { key: 'w1', label: '1 сен', size: 120, masked: false, values: [1, 0.46, 0.31, 0.25, 0.18] },
+  { key: 'w2', label: '8 сен', size: 98, masked: false, values: [1, 0.51, 0.34, 0.27, null] },
+  { key: 'w3', label: '15 сен', size: 9, masked: true, values: [null, null, null, null, null] },
+];
+const SCATTER_POINTS: ScatterPoint[] = [
+  { key: 'tasks', label: 'Задачник', slot: 0, x: 0.62, y: 14 },
+  { key: 'chat', label: 'Мессенджер', slot: 1, x: 0.71, y: 19 },
+  { key: 'cal', label: 'Календарь', slot: 2, x: 0.34, y: 8 },
+  { key: 'drive', label: 'Диск', slot: 3, x: 0.18, y: 5 },
+];
 
 const TABLE_COLUMNS: TableColumn[] = [
   { key: 'who', label: 'Кто', width: 'minmax(160px,1fr)' },
@@ -318,6 +360,62 @@ export default function DevUiPage() {
         <StatTile span={3} label="Расходы · июль" value="244 530 ₸" icon="finance" tone="warning" trend={{ text: '+14,5% к июню', direction: 'up' }} />
         <StatTile span={3} label="Непрочитанных" value="7" icon="messenger" tone="success" />
         <StatTile span={3} label="Просрочено" value="3" icon="overdue" tone="danger" trend={{ text: '−2 за неделю', direction: 'down' }} />
+        <StatTile span={4} label="Активные за 7 дней" value="1 284" delta={{ text: '+12,4%', direction: 'up' }} sparkline={<Sparkline values={SPARK} />} />
+        <StatTile span={4} label="Отказы на оплате" value="37" delta={{ text: '+8', direction: 'up', good: false }} />
+        <StatTile span={4} label="Сессия, медиана" value="6 мин" delta={{ text: 'без изменений', direction: 'flat' }} />
+
+        {/* ---------- Графики ---------- */}
+        <Card span={12}>
+          <CardHeader title="Графики" subtitle="components/ui/charts: слоты --series-1…6, форма маркера у серии, легенда-чипы, таблица-дублёр под каждым графиком" />
+          <LineChart ariaLabel="Линии" labels={CHART_DAYS} series={LINE_SERIES} formatValue={fmtInt} integer />
+        </Card>
+        <Card span={6}>
+          <CardHeader title="Одна серия" subtitle="Заливка под линией, пропуск в данных рвёт линию" />
+          <LineChart ariaLabel="Одна серия" labels={CHART_DAYS} series={[{ key: 'gap', label: 'С пропуском', slot: 0, values: CHART_DAYS.map((_, i) => (i === 6 ? null : 40 + ((i * 7) % 23))) }]} formatValue={fmtInt} integer />
+        </Card>
+        <Card span={6}>
+          <CardHeader title="Полосы" subtitle="Скрытое k-анонимностью — «—»" />
+          <BarChart
+            ariaLabel="Полосы"
+            rows={BAR_ROWS}
+            formatValue={fmtInt}
+            maskedHint="Меньше 20 — скрыто ради приватности"
+            previousLabel="Прошлый период"
+            columns={['Сервис', 'Люди']}
+          />
+        </Card>
+        <Card span={6}>
+          <CardHeader title="Состав во времени" subtitle="Уснувшие — вниз от нуля" />
+          <StackedBars ariaLabel="Состав" labels={CHART_DAYS.slice(0, 8)} segments={STACK_SEGMENTS} formatValue={fmtInt} />
+        </Card>
+        <Card span={6}>
+          <CardHeader title="Воронка" subtitle="Самый большой отвал подсвечен" />
+          <FunnelChart
+            ariaLabel="Воронка"
+            steps={FUNNEL_STEPS}
+            biggestDropIndex={2}
+            formatNumber={fmtInt}
+            formatPercent={fmtPct}
+            dropLabel={(d) => `отвал ${fmtPct(d)}`}
+            columns={['Шаг', 'Люди', 'Конверсия']}
+          />
+        </Card>
+        <Card span={6}>
+          <CardHeader title="Когорты" subtitle="Шкала светлоты одного тона" />
+          <CohortGrid
+            ariaLabel="Когорты"
+            columns={['0', '1', '7', '14', '30']}
+            rows={COHORT_ROWS}
+            formatPercent={fmtPct}
+            formatNumber={fmtInt}
+            maskedHint="Меньше 20 — скрыто ради приватности"
+            headers={{ cohort: 'Когорта', size: 'Люди' }}
+          />
+        </Card>
+        <Card span={6}>
+          <CardHeader title="Точки с подписями" subtitle="Две величины без второй оси" />
+          <ScatterLabeled ariaLabel="Точки" points={SCATTER_POINTS} xLabel="Доля людей" yLabel="Дней в месяц" formatX={fmtPct} formatY={fmtInt} height={240} />
+        </Card>
 
         {/* ---------- Таблица ---------- */}
         <Card span={12}>

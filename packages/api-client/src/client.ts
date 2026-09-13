@@ -4,7 +4,7 @@ import axios, {
   type AxiosRequestConfig,
   type InternalAxiosRequestConfig,
 } from 'axios';
-import { LOCALE_HEADER, type ApiOk } from '@superapp/shared';
+import { ANALYTICS_HEADERS, LOCALE_HEADER, type ApiOk } from '@superapp/shared';
 
 /**
  * Хранилище токенов. Синхронное на вебе (localStorage), асинхронное на mobile
@@ -38,6 +38,13 @@ export interface ApiClientConfig {
    * подчиняется. Не задан → сервер решает сам по `Accept-Language` (гость).
    */
   getLocale?: () => string | null | undefined;
+  /**
+   * Контекст аналитики (`@superapp/analytics`): сессия и устройство клиента → заголовки
+   * `X-Analytics-Session` / `X-Analytics-Device`. Сервер кладёт их в серверные события
+   * этого запроса (создал задачу — в той же сессии, что и открыл страницу). `null` —
+   * человек отказался от аналитики, заголовков нет.
+   */
+  getAnalyticsContext?: () => { sessionId: string; deviceId: string } | null;
   /** Таймаут по умолчанию, мс (0 = без таймаута). Загрузки файлов переопределяют его в конфиге вызова. */
   timeout?: number;
 }
@@ -72,7 +79,7 @@ function withLock<T>(name: string, run: () => Promise<T>): Promise<T> {
 }
 
 export function createApiClient(config: ApiClientConfig): ApiClient {
-  const { baseURL, storage, onAuthFailure, getWorkspaceId, getLocale } = config;
+  const { baseURL, storage, onAuthFailure, getWorkspaceId, getLocale, getAnalyticsContext } = config;
 
   const api = axios.create({
     baseURL,
@@ -89,6 +96,16 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     // за него должен сервер по `Accept-Language` браузера.
     const locale = getLocale?.();
     if (locale) cfg.headers[LOCALE_HEADER] = locale;
+    // Отказ SDK аналитики не должен ломать ни один запрос — контекст best-effort
+    try {
+      const analytics = getAnalyticsContext?.();
+      if (analytics) {
+        cfg.headers[ANALYTICS_HEADERS.session] = analytics.sessionId;
+        cfg.headers[ANALYTICS_HEADERS.device] = analytics.deviceId;
+      }
+    } catch {
+      /* без заголовков аналитики */
+    }
     return cfg;
   });
 

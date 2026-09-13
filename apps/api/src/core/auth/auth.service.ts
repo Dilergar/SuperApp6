@@ -13,6 +13,7 @@ import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { AnalyticsService } from '../analytics/analytics.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -39,6 +40,7 @@ export class AuthService {
     private jobs: JobsService,
     private wsContext: WorkspaceContextService,
     private entitlements: EntitlementsService,
+    private analytics: AnalyticsService,
   ) {}
 
   async register(data: {
@@ -125,6 +127,8 @@ export class AuthService {
         payload: { userId: newUser.id, phone: newUser.phone },
         uniqueKey: `phone-invites:${newUser.id}:${newUser.phone}`,
       });
+      // Аналитика: факт регистрации — в той же транзакции (откат = события нет)
+      await this.analytics.track(tx, 'auth.user.registered', { verified: !!data.verifyToken }, { userId: newUser.id, workspaceId: null });
 
       return newUser;
     });
@@ -178,6 +182,7 @@ export class AuthService {
     const systemRole = this.getHighestSystemRole(user.roles.map((r) => r.role));
 
     const tokens = await this.generateTokens(user.id, user.phone, systemRole, user.tokenEpoch, deviceInfo);
+    await this.analytics.track(null, 'auth.user.logged_in', {}, { userId: user.id, workspaceId: null });
     return { ...tokens, restored };
   }
 
@@ -228,6 +233,7 @@ export class AuthService {
       await tx.session.deleteMany({ where: { userId: user.id } });
       // …и выданные access-токены вместе с ними (иначе жили бы ещё до 15 минут).
       const epoch = await this.bumpTokenEpochTx(tx, user.id);
+      await this.analytics.track(tx, 'auth.password.reset', {}, { userId: user.id, workspaceId: null });
       return { userId: user.id, phone: user.phone, restored: !!user.deletionScheduledAt, epoch };
     });
 

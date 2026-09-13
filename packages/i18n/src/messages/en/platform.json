@@ -67,6 +67,18 @@
     "suspended": "Suspended"
   },
   "commands": {
+    "analyticsEventSetStatus": {
+      "description": "Block an event at ingest without a deploy (or switch it back on). Every client stops recording it within half a minute.",
+      "title": "Block or enable an analytics event"
+    },
+    "analyticsRollupRebuild": {
+      "description": "Recalculate daily aggregates for a range of days — after a fix in the ingest or late events.",
+      "title": "Rebuild analytics aggregates"
+    },
+    "analyticsUserForget": {
+      "description": "Erase the person’s raw usage events, device links and personal aggregates. Anonymous totals stay.",
+      "title": "Forget a person’s usage analytics"
+    },
     "entitlementsGrantCreate": {
       "description": "A gift, add-on or manual value for one key; merged with the plan by the key’s rule",
       "title": "Add a grant"
@@ -202,6 +214,7 @@
     "title": "Platform console"
   },
   "nav": {
+    "analytics": "Analytics",
     "audit": "Journal",
     "entitlements": "Plans",
     "requests": "Requests",
@@ -218,11 +231,13 @@
     "unlimited": "no limit"
   },
   "panels": {
+    "userAnalytics": "Activity",
     "userAudit": "Console activity",
     "userEntitlements": "Plan and limits",
     "userProfile": "Profile",
     "userStaff": "Platform staff",
     "userWorkspaces": "Organizations",
+    "workspaceAnalytics": "Activity",
     "workspaceAudit": "Console activity",
     "workspaceEntitlements": "Plan and limits",
     "workspaceMembersSummary": "Members",

@@ -47,6 +47,7 @@ export * from './types/common';
 export * from './types/notes';
 export * from './types/entitlements';
 export * from './types/platform';
+export * from './types/analytics';
 
 // Validation schemas
 export * from './validation/query';
@@ -92,6 +93,7 @@ export * from './validation/doc-builder';
 export * from './validation/notes';
 export * from './validation/entitlements';
 export * from './validation/platform';
+export * from './validation/analytics';
 
 // Utils
 export * from './utils/phone';
@@ -111,6 +113,8 @@ export * from './notifications';
 // Тариф и лимиты (core/entitlements) и кабинет платформы (core/platform)
 export * from './entitlements';
 export * from './platform';
+// Продуктовая аналитика (core/analytics): реестр событий, маршруты
+export * from './analytics';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';

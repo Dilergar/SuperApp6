@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '@/lib/stores/auth';
+import { analytics } from '@/lib/analytics';
 import { Alert, Button, Input } from '@/components/ui';
 import { useTranslations } from 'next-intl';
 import { AuthLayout } from '../auth-ui';
@@ -20,6 +21,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     setDeletedNote(new URLSearchParams(window.location.search).get('deleted') === '1');
+    analytics.track('auth.login.opened', {});
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

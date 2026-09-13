@@ -66,6 +66,17 @@
 - `VERIFY_SMS_HOURLY_BUDGET` (дефолт 200 = `VERIFY_LIMITS.globalHourlyBudgetDefault`) · `VERIFY_SMS_ORIGIN_DOMAIN` (origin-bound строка в SMS)
 - `PLATFORM_JWT_SECRET` — секрет токена кабинета платформы (`aud: platform`, [platform_console.md](platform_console.md)). Production → обязателен, ≥ 32 символов, НЕ равен `JWT_SECRET`; dev/test пусто → производный HMAC от `JWT_SECRET`. Токен кабинета не подходит к продуктовым ручкам и наоборот.
 - `PLATFORM_CONSOLE_ENABLED` — стоп-кран кабинета: `false` → все `/platform/*` отвечают `404` без деплоя кода; пусто/`true` — включён.
+
+### Продуктовая аналитика (`core/analytics`)
+
+- `ANALYTICS_ENABLED` — стоп-кран движка: `false` → приём отвечает `202` без записи, `track()` молчит; пусто/`true` — включён.
+- `ANALYTICS_CONSUMER_ENABLED` — консьюмер stream'а и outbox на этом инстансе (выключают на инстансах только-HTTP); пусто/`true` — включён.
+- `ANALYTICS_RAW_RETENTION_DAYS` — ретенция сырья и роллапа «субъект × день», дней (пусто → 400 ≈ 13 месяцев); остальные роллапы вечны. Старые месячные партиции сбрасываются целиком.
+- `ANALYTICS_STREAM_MAXLEN` — приблизительный потолок stream'а приёма (пусто → 2 000 000); сброс `telemetry` с 80 %, `product` с 95 %.
+- `ANALYTICS_K_ANON` — порог k-анонимности разбиений (пусто → 20).
+- `ANALYTICS_INTERNAL_PHONE_PREFIXES` — префиксы номеров внутренних и тестовых аккаунтов через запятую (события помечаются `is_internal`; вместе с активными сотрудниками платформы исключаются из отчётов по умолчанию).
+- `ANALYTICS_READ_DATABASE_URL` — реплика или роль только на чтение для отчётов Кабинета (пусто → основной пул).
+- `ANALYTICS_QUERY_TIMEOUT_MS` — `statement_timeout` запросов по сырью, мс (пусто → 5000).
 - `SIGN_VERIFY_DRIVER` — `ncanode` | `mock`; пусто → ncanode при заданном `NCANODE_URL`, иначе mock. `ncanode` без адреса — ошибка бута. **В production с mock ЭЦП ОТВЕРГАЕТСЯ** (warn при старте; ПЭП по SMS работает)
 - `NCANODE_URL` — адрес верификатора; только из env (SSRF). Dev: профиль sign → `http://localhost:14579`
 - `SIGN_QR_DRIVER` — `smartbridge` | `mock`/пусто (QR ведёт на наш одноразовый адрес — разработчик/сьют играют за телефон). При `smartbridge` обязательны все три: `SMARTBRIDGE_URL` / `SMARTBRIDGE_CLIENT_ID` / `SMARTBRIDGE_CLIENT_SECRET` (мост eGov Mobile, сервис NITEC-S-5096)

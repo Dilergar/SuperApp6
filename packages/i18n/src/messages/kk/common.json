@@ -78,6 +78,12 @@
   "calls": {
     "recordingTitle": "Қоңырау · {at}.{ext}"
   },
+  "charts": {
+    "legendHint": "Басу серияны жасырады, екі рет басу тек соны қалдырады",
+    "previous": "Өткен кезең",
+    "showChart": "Графикпен көрсету",
+    "showTable": "Кестемен көрсету"
+  },
   "chronicle": {
     "empty": "Әзірге бос — оқиғалар осында шығады",
     "emptyValue": "—",

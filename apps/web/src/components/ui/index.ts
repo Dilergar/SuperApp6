@@ -46,4 +46,5 @@ export {
 export { Alert, type AlertProps } from './Alert';
 export { Spinner, LoadingBlock, Skeleton, AvatarStack } from './Feedback';
 export { toneVars, TONE_BASE, cx, type Tone } from './tones';
+export * from './charts';
 export { usePopover } from './usePopover';

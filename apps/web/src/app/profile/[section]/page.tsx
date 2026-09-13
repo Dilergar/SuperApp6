@@ -22,6 +22,7 @@ import { PersonCard } from '../../circles/PersonCard';
 import { WalletSection } from '../WalletSection';
 import { SkinsSection } from '../SkinsSection';
 import { NotificationsSection } from '../NotificationsSection';
+import { AnalyticsConsentSection } from '../AnalyticsConsentSection';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import { ChangePasswordDialog, ChangePhoneDialog } from './security-dialogs';
 import type { CardSkinRender } from '../../circles/card-skin';
@@ -752,6 +753,7 @@ export default function ProfileSectionPage() {
               ]}
             />
           </div>
+          <AnalyticsConsentSection />
         </div>
       )}
 

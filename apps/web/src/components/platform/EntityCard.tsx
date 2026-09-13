@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import type {
+  AnalyticsActivityPanelDto,
   EntitlementSubjectDetailDto,
   PlatformAuditPageDto,
   PlatformCommandDto,
@@ -23,6 +24,7 @@ import { useFormatters } from '@/lib/format';
 import { CommandRunner } from './CommandRunner';
 import { AuditRows } from './AuditRows';
 import { SubjectEntitlements } from './SubjectEntitlements';
+import { ActivityPanel } from './analytics/ActivityPanel';
 
 // ============================================================
 // Карточка 360: шапка + чипы состояния + меню «Действия» из команд реестра (без права —
@@ -38,6 +40,8 @@ export function EntityCard({ entity, id }: { entity: PlatformEntity; id: string 
   const q = useQuery({ queryKey: platformEntityKey(entity, id), queryFn: () => fetchPlatformEntity(entity, id) });
   const [runner, setRunner] = useState<{ command: PlatformCommandDto; input: Record<string, unknown> } | null>(null);
   const [revealed, setRevealed] = useState<Record<string, string | null>>({});
+  // Переход между панелями («упирался в тариф» → панель тарифов): счётчик — чтобы повторный клик сработал снова
+  const [focus, setFocus] = useState<{ key: string; n: number } | null>(null);
   const data = q.data;
 
   const actions: MenuAction[] = useMemo(() => {
@@ -54,6 +58,9 @@ export function EntityCard({ entity, id }: { entity: PlatformEntity; id: string 
   if (q.isError || !data) return <Alert tone="danger">{t('card.notFound')}</Alert>;
 
   const revealCommand = data.commands.find((c) => c.key === 'platform.pii.reveal') ?? null;
+  // Ссылка на панель — только если она есть в карточке (без способности панели нет и ссылки)
+  const panelOpener = (key: string) =>
+    data.panels.some((p) => p.key === key) ? () => setFocus((prev) => ({ key, n: (prev?.n ?? 0) + 1 })) : undefined;
 
   return (
     <>
@@ -78,6 +85,8 @@ export function EntityCard({ entity, id }: { entity: PlatformEntity; id: string 
             panel={p}
             revealed={revealed}
             onReveal={revealCommand ? (fields) => setRunner({ command: revealCommand, input: { entity, id, fields } }) : undefined}
+            focusSignal={focus?.key === p.key ? focus.n : 0}
+            panelOpener={panelOpener}
           />
         ))}
       </BentoGrid>
@@ -140,16 +149,26 @@ function Panel({
   panel,
   revealed,
   onReveal,
+  focusSignal,
+  panelOpener,
 }: {
   entity: PlatformEntity;
   id: string;
   panel: PlatformPanelRefDto;
   revealed: Record<string, string | null>;
   onReveal?: (fields: string[]) => void;
+  /** Растёт, когда соседняя панель просит показать эту */
+  focusSignal: number;
+  panelOpener: (key: string) => (() => void) | undefined;
 }) {
   const t = useTranslations('platform');
   const tc = useTranslations('common');
   const [expanded, setExpanded] = useState(panel.eager);
+  useEffect(() => {
+    if (!focusSignal) return;
+    setExpanded(true);
+    requestAnimationFrame(() => document.getElementById(panelDomId(panel.key))?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+  }, [focusSignal, panel.key]);
   const q = useQuery({
     queryKey: platformPanelKey(entity, id, panel.key),
     queryFn: () => fetchPlatformPanel(entity, id, panel.key),
@@ -158,7 +177,7 @@ function Panel({
   });
   const span = panel.key.endsWith('.entitlements') || panel.key.endsWith('.audit') ? 12 : 6;
   return (
-    <Card span={span}>
+    <Card span={span} id={panelDomId(panel.key)}>
       <CardHeader
         title={t(panel.titleKey.replace(/^platform\./, ''))}
         actions={
@@ -174,11 +193,13 @@ function Panel({
       ) : q.isError ? (
         <Alert tone="danger">{t('card.panelFailed')}</Alert>
       ) : (
-        <PanelBody panelKey={panel.key} data={loaded(q.data)} revealed={revealed} onReveal={onReveal} />
+        <PanelBody panelKey={panel.key} data={loaded(q.data)} revealed={revealed} onReveal={onReveal} panelOpener={panelOpener} />
       )}
     </Card>
   );
 }
+
+const panelDomId = (key: string) => `platform-panel-${key.replace(/\./g, '-')}`;
 
 /** Полезная нагрузка панели: DTO сам несёт поле `data` (это не конверт транспорта). */
 function loaded(panel: PlatformPanelDataDto): unknown {
@@ -187,7 +208,19 @@ function loaded(panel: PlatformPanelDataDto): unknown {
 
 const PII_FIELDS: Record<string, string> = { phoneMasked: 'phone', iinMasked: 'iin', emailMasked: 'email' };
 
-function PanelBody({ panelKey, data, revealed, onReveal }: { panelKey: string; data: unknown; revealed: Record<string, string | null>; onReveal?: (fields: string[]) => void }) {
+function PanelBody({
+  panelKey,
+  data,
+  revealed,
+  onReveal,
+  panelOpener,
+}: {
+  panelKey: string;
+  data: unknown;
+  revealed: Record<string, string | null>;
+  onReveal?: (fields: string[]) => void;
+  panelOpener: (key: string) => (() => void) | undefined;
+}) {
   const t = useTranslations('platform');
   // Роль в организации — продуктовая, её слово живёт в общем каталоге (`common.role.workspace.*`):
   // код роли в чипе читался бы как «staff» на любом языке
@@ -197,6 +230,9 @@ function PanelBody({ panelKey, data, revealed, onReveal }: { panelKey: string; d
 
   if (panelKey.endsWith('.entitlements')) return <SubjectEntitlements detail={data as EntitlementSubjectDetailDto} />;
   if (panelKey.endsWith('.audit')) return <AuditRows page={data as PlatformAuditPageDto} compact />;
+  if (panelKey.endsWith('.analytics')) {
+    return <ActivityPanel data={data as AnalyticsActivityPanelDto} onOpenPlans={panelOpener(panelKey.replace(/\.analytics$/, '.entitlements'))} />;
+  }
 
   if (panelKey === 'user.staff') {
     const staff = data as PlatformStaffDto | null;

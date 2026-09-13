@@ -1,4 +1,16 @@
 {
+  "analytics": {
+    "dashboard_not_found": "The dashboard was not found",
+    "disabled": "Usage analytics is turned off on this server",
+    "invalid_filter": "The step filter «{prop}» is not available for this event",
+    "not_author": "Only the author or an analytics manager can change this",
+    "payload_too_large": "The batch is too large: at most {max, number} bytes",
+    "private_tile": "A shared dashboard can only show shared reports",
+    "query_timeout": "The report took too long to compute — narrow the period or the filters",
+    "range_too_long": "The period is too long for this report",
+    "report_not_found": "The report was not found",
+    "system_read_only": "A system report cannot be changed — make a copy"
+  },
   "approval": {
     "alreadyDecided": "You have already made a decision on this step",
     "cancelAuthorOnly": "Only the author can withdraw a request",

@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { DatabaseService } from '../../shared/database/database.service';
+import { AnalyticsService } from '../../core/analytics/analytics.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
@@ -91,6 +92,7 @@ export class TasksService implements OnModuleInit {
     private chatterRegistry: ChatterRefRegistry,
     private workspaceContext: WorkspaceContextService,
     private i18n: I18nService,
+    private analytics: AnalyticsService,
   ) {}
 
   /**
@@ -459,6 +461,18 @@ export class TasksService implements OnModuleInit {
         });
       }
       await this.chatter.logMany(tx, chatterEntries);
+      // Аналитика: факт создания — в транзакции (без названия и описания: только признаки)
+      await this.analytics.track(
+        tx,
+        'tasks.task.created',
+        {
+          hasAssignee: participantsCreate.some((p) => p.userId !== userId),
+          hasDue: !!data.dueDate,
+          hasReward: (reward ?? 0) > 0 || !!data.giftRewardId,
+          contextType: created.workspaceId ? 'workspace' : 'personal',
+        },
+        { userId, workspaceId: created.workspaceId ?? null, ref: { type: 'task', id: created.id } },
+      );
 
       return created;
     });
@@ -1123,6 +1137,7 @@ export class TasksService implements OnModuleInit {
         where: { id: taskId },
         data: { status: 'done', completedAt: new Date() },
       });
+      await this.analytics.track(null, 'tasks.task.completed', {}, { userId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
       await this.chatter.log(null, {
         refType: 'task',
         refId: taskId,
@@ -1161,11 +1176,13 @@ export class TasksService implements OnModuleInit {
         where: { id: me.id },
         data: { status: 'accepted', submittedAt: new Date(), acceptedAt: new Date() },
       });
+      await this.analytics.track(null, 'tasks.task.completed', {}, { userId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
     } else {
       await this.db.taskParticipant.update({
         where: { id: me.id },
         data: { status: 'submitted', submittedAt: new Date(), returnedAt: null },
       });
+      await this.analytics.track(null, 'tasks.task.submitted', {}, { userId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
       const byName = fullName(await this.userMini(userId));
       await this.chatter.log(null, {
         refType: 'task',
@@ -1209,6 +1226,7 @@ export class TasksService implements OnModuleInit {
       if (claimed.count === 0) throw badRequest('task.workAlreadyAccepted');
       const legs = await this.escrow.capture(tx, { refType: 'task', refId: taskId, beneficiaryUserId: target.userId }); // pay out the frozen reward
       captured = legs[0] ?? null;
+      await this.analytics.track(tx, 'tasks.task.accepted', {}, { userId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
       await this.chatter.log(tx, {
         refType: 'task',
         refId: taskId,

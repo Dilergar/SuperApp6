@@ -352,6 +352,23 @@ export function compareNames(locale: Locale): (a: string, b: string) => number {
   return hit.compare;
 }
 
+// ============================================================
+// ПЕРЕЧИСЛЕНИЕ — тоже язык: «задача, событие или чат» / «a task, an event, or a chat».
+// Склейка `join(' / ')` читается схемой, а не фразой, и союз у каждого языка свой.
+// ============================================================
+const listFormats = new Map<string, Intl.ListFormat>();
+
+/** Перечисление на языке зрителя: `conjunction` — «и», `disjunction` — «или». */
+export function formatList(items: string[], locale: Locale, type: 'conjunction' | 'disjunction' = 'conjunction'): string {
+  const id = `${locale}:${type}`;
+  let hit = listFormats.get(id);
+  if (!hit) {
+    hit = new Intl.ListFormat(locale, { style: 'long', type });
+    listFormats.set(id, hit);
+  }
+  return hit.format(items);
+}
+
 /** Набор форматтеров, привязанный к языку и поясу — удобно передавать одним объектом. */
 export interface Formatters {
   locale: Locale;
@@ -372,6 +389,8 @@ export interface Formatters {
   money(minor: number, opts?: { scale?: number; symbol?: string | null }): string;
   /** Сравнение имён в алфавите зрителя — для `sort` любых человекочитаемых списков */
   compare(a: string, b: string): number;
+  /** Перечисление с союзом языка («и» / «или») */
+  list(items: string[], type?: 'conjunction' | 'disjunction'): string;
 }
 
 export function createFormatters(locale: Locale, timeZone?: string): Formatters {
@@ -391,6 +410,7 @@ export function createFormatters(locale: Locale, timeZone?: string): Formatters 
     number: (v, o) => formatNumber(v, ctx, o),
     money: (v, o) => formatMoney(v, ctx, o),
     compare: compareNames(locale),
+    list: (items, type) => formatList(items, locale, type),
   };
 }
 

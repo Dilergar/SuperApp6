@@ -38,6 +38,7 @@ import m_en_hr from './en/hr.json';
 import m_en_recorder from './en/recorder.json';
 import m_en_entitlements from './en/entitlements.json';
 import m_en_platform from './en/platform.json';
+import m_en_analytics from './en/analytics.json';
 import m_en_templates from './en/templates.json';
 import m_kk_common from './kk/common.json';
 import m_kk_shell from './kk/shell.json';
@@ -74,6 +75,7 @@ import m_kk_hr from './kk/hr.json';
 import m_kk_recorder from './kk/recorder.json';
 import m_kk_entitlements from './kk/entitlements.json';
 import m_kk_platform from './kk/platform.json';
+import m_kk_analytics from './kk/analytics.json';
 import m_kk_templates from './kk/templates.json';
 import m_ru_common from './ru/common.json';
 import m_ru_shell from './ru/shell.json';
@@ -110,6 +112,7 @@ import m_ru_hr from './ru/hr.json';
 import m_ru_recorder from './ru/recorder.json';
 import m_ru_entitlements from './ru/entitlements.json';
 import m_ru_platform from './ru/platform.json';
+import m_ru_analytics from './ru/analytics.json';
 import m_ru_templates from './ru/templates.json';
 
 /** Дерево сообщений одного неймспейса (значения — ICU-строки). */
@@ -152,6 +155,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "recorder": m_en_recorder,
     "entitlements": m_en_entitlements,
     "platform": m_en_platform,
+    "analytics": m_en_analytics,
     "templates": m_en_templates,
   },
   kk: {
@@ -190,6 +194,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "recorder": m_kk_recorder,
     "entitlements": m_kk_entitlements,
     "platform": m_kk_platform,
+    "analytics": m_kk_analytics,
     "templates": m_kk_templates,
   },
   ru: {
@@ -228,6 +233,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "recorder": m_ru_recorder,
     "entitlements": m_ru_entitlements,
     "platform": m_ru_platform,
+    "analytics": m_ru_analytics,
     "templates": m_ru_templates,
   },
 };

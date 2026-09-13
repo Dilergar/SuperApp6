@@ -638,6 +638,31 @@ textarea.ui-input { resize: vertical; min-height: 5rem; line-height: 1.55; }
    min-content. Одна длинная строка без переносов (название витрины,
    заголовок задачи) распирала колонку, сетка становилась шире экрана,
    и правые блоки уезжали за край под горизонтальный скролл. */
+/* Доступно скринридеру, невидимо глазу (таблица-дублёр графика) */
+.ui-sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Кит графиков (components/ui/charts): всплывашка значения и фокус графика */
+.ui-chart { position: relative; }
+.ui-chart:focus-visible { outline: 2px solid var(--primary); outline-offset: 4px; border-radius: var(--radius-md); }
+.ui-chart-tip {
+  position: absolute; z-index: 400; pointer-events: none; min-width: 9rem; max-width: 16rem;
+  background: var(--surface-container-lowest); border: 1px solid var(--border); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop); padding: 0.5rem 0.625rem; font-size: 0.75rem; color: var(--on-surface);
+}
+.ui-chart-tip-row { display: flex; align-items: center; gap: 0.375rem; line-height: 1.5; }
+.ui-chart-tip-row strong { font-weight: 700; font-variant-numeric: tabular-nums; }
+.ui-chart-tip-label { color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-chart-axis { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.ui-chart-label { font-size: 11px; fill: var(--on-surface); font-weight: 600; }
+.ui-chart-refetch { opacity: 0.55; transition: opacity 0.2s ease; }
+
+/* Липкая панель фильтров раздела: на телефоне НЕ липнет — многострочная панель
+   закрывала бы половину экрана и прятала под собой плитки при прокрутке */
+.ui-sticky-bar { position: sticky; top: 0; z-index: 1; background: var(--surface); }
+@media (max-width: 767px) {
+  .ui-sticky-bar { position: static; }
+}
+
 .ui-bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--gap-grid); }
 .ui-bento > * { min-width: 0; }
 
