@@ -23,6 +23,7 @@ import { WalletSection } from '../WalletSection';
 import { SkinsSection } from '../SkinsSection';
 import { NotificationsSection } from '../NotificationsSection';
 import { AnalyticsConsentSection } from '../AnalyticsConsentSection';
+import { KeysSection } from '../KeysSection';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import { ChangePasswordDialog, ChangePhoneDialog } from './security-dialogs';
 import type { CardSkinRender } from '../../circles/card-skin';
@@ -32,9 +33,9 @@ import { PlanAndLimits } from '@/components/entitlements';
 // Types & constants
 // ============================================================
 
-type Section = 'form' | 'card' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'notifications' | 'security';
+type Section = 'form' | 'card' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'notifications' | 'security' | 'keys';
 
-const KNOWN_SECTIONS: Section[] = ['form', 'card', 'skins', 'wallet', 'stats', 'roles', 'subscription', 'settings', 'notifications', 'security'];
+const KNOWN_SECTIONS: Section[] = ['form', 'card', 'skins', 'wallet', 'stats', 'roles', 'subscription', 'settings', 'notifications', 'security', 'keys'];
 
 /** Значения перечисления + ключи каталога: подписи собираются в компоненте. */
 const MARITAL_VALUES = ['', 'single', 'married', 'relationship', 'divorced', 'widowed'] as const;
@@ -669,6 +670,9 @@ export default function ProfileSectionPage() {
       {section === 'wallet' && <WalletSection />}
 
       {section === 'notifications' && <NotificationsSection />}
+
+      {/* === Ключи и приложения (core/keys): личные ключи для собственных данных === */}
+      {section === 'keys' && <KeysSection />}
 
       {/* === Stats === */}
       {section === 'stats' && (

@@ -13,6 +13,7 @@ import { LOCALE_HEADER, type ApiError as ApiErrorEnvelope } from '@superapp/shar
 import { countryFromHeaders, negotiateLocale, resolveByteValues, type Locale } from '@superapp/i18n';
 import { I18nService } from '../i18n/i18n.service';
 import { ApiError } from '../errors/api-error';
+import { redactSecrets } from '../utils/redact';
 
 /**
  * The ONE error envelope for the whole API (arch-review block 7): every failure —
@@ -164,9 +165,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     // 4) Everything else → 500, logged loudly with the stack (the client gets no internals).
+    // Текст и стек могут нести секреты (ключ API из заголовка, JWT, пароль из тела) — маскируем
     this.logger.error(
-      `Unhandled exception: ${exception instanceof Error ? exception.message : String(exception)}`,
-      exception instanceof Error ? exception.stack : undefined,
+      redactSecrets(`Unhandled exception: ${exception instanceof Error ? exception.message : String(exception)}`),
+      exception instanceof Error && exception.stack ? redactSecrets(exception.stack) : undefined,
     );
     res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       success: false,

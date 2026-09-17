@@ -6,7 +6,7 @@
 
 - `DATABASE_URL` — PostgreSQL (обязательна)
 - `REDIS_URL` — Redis; в production обязательна (без неё тихий фолбэк на localhost = отказ троттлинга/шины/локов)
-- `JWT_SECRET` — обязателен; ≥ 8 символов в dev, ≥ 32 в production. Мастер-ключ производных секретов — [security.md](security.md)
+- `JWT_SECRET` — устарел: только legacy-окно HS256 (читается как `JWT_SECRET_LEGACY`, если тот пуст). Подпись токенов — Ed25519 движка ключей, см. раздел «Движок ключей» ниже
 - `JWT_EXPIRES_IN` (дефолт `15m`) / `JWT_REFRESH_EXPIRES_IN` (дефолт `30d`) — запись jsonwebtoken/ms (`15m`, `30d`, `2 days`); дефолты в `apps/api/src/core/auth/auth.module.ts` и `auth.service.ts`
 - `PORT` (3001) · `NODE_ENV` — только `development | test | production`, иначе бут отказан (пусто = production)
 - `WEB_URL` (дефолт `http://localhost:3000`) — база веба: редирект после OAuth, PostMessageOrigin редактора документов, гостевые ссылки `/s/<токен>`, `frame-ancestors` на маршрутах выдачи байтов
@@ -48,11 +48,11 @@
 
 - `DOCS_EDITOR_URL` — адрес(а) WOPI-редактора (пусто → документы выключены). Список через запятую = БЕЛЫЙ список, база выбирается по документу (задел шардирования). Из пользовательского ввода не берётся никогда (SSRF). Dev: профиль docs → `http://localhost:9980`
 - `DOCS_WOPI_PUBLIC_URL` — адрес НАШЕГО API, каким его видит КОНТЕЙНЕР редактора (обычно `http://host.docker.internal:3001`). Обязателен только при заданном `DOCS_EDITOR_URL` и пустом `API_PUBLIC_URL` (иначе откат на него). Пропуск = классическое «WOPI::CheckFileInfo failed»
-- `DOCS_TOKEN_SECRET` — ключ WOPI-токенов, ≥ 32 символов если задан (пусто → производный от `JWT_SECRET`)
+- `DOCS_TOKEN_SECRET` — УСТАРЕЛ: прежний HMAC-ключ WOPI-токенов `v1.…`; читается только для проверки старых токенов на legacy-окне `KEYS_LEGACY_HS256_UNTIL` (пусто → производный от legacy-секрета), новые токены подписывает движок ключей (аудитория `wopi`); после окна задан → бут падает
 
 ## Гостевые ссылки / PDF / SMS / Подпись
 
-- `SHARE_LINK_SECRET` — ключ гостевых пропусков, ≥ 32 символов если задан (пусто → производный от `JWT_SECRET`). Адрес ссылки — из `WEB_URL` (`/s/<токен>`)
+- `SHARE_LINK_SECRET` — УСТАРЕЛ: прежний HMAC-ключ гостевых пропусков `v1.…`; только проверка старых пропусков на legacy-окне, новые подписывает движок ключей (`share_link`); после окна задан → бут падает. Адрес ссылки — из `WEB_URL` (`/s/<токен>`)
 - `GOTENBERG_URL` — PDF-рендер блочного конструктора (пусто → builder-документы не собираются, submit честно блокируется). Dev: профиль pdf → `http://localhost:3030`
 - `SMS_DRIVER` — `kazinfoteh` | `mock`/пусто (dev: mock; prod: warn — SMS никуда не уходят, регистрация недоступна). Тот же драйвер — канал `sms` движка уведомлений.
 
@@ -64,7 +64,7 @@
 - `VERIFY_REQUIRED` — пусто = secure-by-default (production → да); `true` форс в dev; `false` — аварийный рубильник в production (warn)
 - `VERIFY_TEST_PHONES` — тест-карта `"+7700…:111111,…"` (SMS не шлётся, фикс-код, лимиты скипаются; в production игнорируется) · `VERIFY_TEST_PHONES_ALLOW_PROD` (осознанный прод-смоук)
 - `VERIFY_SMS_HOURLY_BUDGET` (дефолт 200 = `VERIFY_LIMITS.globalHourlyBudgetDefault`) · `VERIFY_SMS_ORIGIN_DOMAIN` (origin-bound строка в SMS)
-- `PLATFORM_JWT_SECRET` — секрет токена кабинета платформы (`aud: platform`, [platform_console.md](platform_console.md)). Production → обязателен, ≥ 32 символов, НЕ равен `JWT_SECRET`; dev/test пусто → производный HMAC от `JWT_SECRET`. Токен кабинета не подходит к продуктовым ручкам и наоборот.
+- `PLATFORM_JWT_SECRET` — УСТАРЕЛ: прежний HS256-секрет токена кабинета (`aud: platform`, [platform_console.md](platform_console.md)); читается только для проверки токенов, выданных до движка ключей, на legacy-окне; новые токены кабинета подписывает своя пара Ed25519 (аудитория `platform` ≠ `product`, токены не взаимозаменяемы); после окна задан → бут падает.
 - `PLATFORM_CONSOLE_ENABLED` — стоп-кран кабинета: `false` → все `/platform/*` отвечают `404` без деплоя кода; пусто/`true` — включён.
 
 ### Продуктовая аналитика (`core/analytics`)
@@ -80,6 +80,18 @@
 - `SIGN_VERIFY_DRIVER` — `ncanode` | `mock`; пусто → ncanode при заданном `NCANODE_URL`, иначе mock. `ncanode` без адреса — ошибка бута. **В production с mock ЭЦП ОТВЕРГАЕТСЯ** (warn при старте; ПЭП по SMS работает)
 - `NCANODE_URL` — адрес верификатора; только из env (SSRF). Dev: профиль sign → `http://localhost:14579`
 - `SIGN_QR_DRIVER` — `smartbridge` | `mock`/пусто (QR ведёт на наш одноразовый адрес — разработчик/сьют играют за телефон). При `smartbridge` обязательны все три: `SMARTBRIDGE_URL` / `SMARTBRIDGE_CLIENT_ID` / `SMARTBRIDGE_CLIENT_SECRET` (мост eGov Mobile, сервис NITEC-S-5096)
+
+## Движок ключей (`core/keys`) и вебхуки (`core/webhooks`) — [keys_engine.md](keys_engine.md)
+
+- `KEYS_PROVIDER` — `software` (по умолчанию) | `pkcs11` (заглушка под HSM/СКЗИ; интерфейс `KeyProvider`)
+- `KEYS_ROOT_KEY_FILE` — файл корневого ключа (32 байта hex/base64/raw; dev-дефолт `./.keys/root.key` создаётся сам только в development). Production: обязателен, файл существует, права 0600; церемония — `node apps/api/scripts/keys-init-root.cjs`, учение — `keys-verify-root.cjs`
+- `JWT_SECRET_LEGACY` — секрет прошлой эпохи (HS256-токены, производные HMAC) на окно миграции; пусто → берётся `JWT_SECRET`
+- `KEYS_LEGACY_HS256_UNTIL` — ISO-дата конца legacy-окна; production при заданном legacy-секрете требует дату в будущем, после неё секрет удаляется из окружения (бут падает)
+- `KEYS_PII_READ_MODE` — `legacy` (по умолчанию: читаем открытые ПДн-колонки, пишем обе) | `encrypted` (читаем `_enc`, ищем по `_bi`) — [keys_pii.md](keys_pii.md)
+- `KEYS_PKCS11_MODULE`, `KEYS_PKCS11_SLOT`, `KEYS_PKCS11_PIN`, `KEYS_PKCS11_KEY_LABEL` — параметры провайдера `pkcs11` (только при `KEYS_PROVIDER=pkcs11`)
+- `WEBHOOKS_DEV_LOOPBACK` — `true` разрешает доставку вебхуков на `http://127.0.0.1` (приёмник сьюта `verify-webhooks.cjs`); только development/test, в production бут падает — [webhooks_engine.md](webhooks_engine.md)
+- `NODE_OPTIONS` — читается только стражем бута (`main.ts`): в production флаги `--inspect*`, `--heapsnapshot-*`, `--report-on-*`, `--cpu-prof`/`--heap-prof` в нём или в `execArgv` роняют старт (память процесса содержит распакованные ключи) — [security.md](security.md), «Секреты»
+- `METRICS_TOKEN` — токен скрейпера метрик `GET /metrics` (`shared/metrics`, ≥ 16 символов): задан → `Authorization: Bearer` обязателен; пусто → в production маршрут отвечает 404, в development открыт — [keys_engine.md](keys_engine.md), «Журнал и наблюдаемость»
 
 ## Web (`apps/web`)
 
@@ -104,6 +116,6 @@ CSP пока `Content-Security-Policy-Report-Only` (`next.config.ts`); когд�
 
 ## Сводка валидатора: условные обязательности и предупреждения
 
-Ошибки бута: `FILES_DRIVER=s3` → пять `S3_*` (кроме `S3_FORCE_PATH_STYLE`/`S3_PUBLIC_BASE_URL`) · любой `LIVEKIT_*` → все три · `LIVEKIT_EGRESS_DIR` → включённый LiveKit · `DOCS_EDITOR_URL` при пустом `API_PUBLIC_URL` → `DOCS_WOPI_PUBLIC_URL` · `SIGN_VERIFY_DRIVER=ncanode` → `NCANODE_URL` · `SIGN_QR_DRIVER=smartbridge` → три `SMARTBRIDGE_*` · `SMS_DRIVER=kazinfoteh` → три `KIT_*` · production → `REDIS_URL`, `JWT_SECRET` ≥ 32 и `PLATFORM_JWT_SECRET` ≥ 32 · URL-поля обязаны быть URL, `APP_TIMEZONE` — IANA-зоной.
+Ошибки бута: `FILES_DRIVER=s3` → пять `S3_*` (кроме `S3_FORCE_PATH_STYLE`/`S3_PUBLIC_BASE_URL`) · любой `LIVEKIT_*` → все три · `LIVEKIT_EGRESS_DIR` → включённый LiveKit · `DOCS_EDITOR_URL` при пустом `API_PUBLIC_URL` → `DOCS_WOPI_PUBLIC_URL` · `SIGN_VERIFY_DRIVER=ncanode` → `NCANODE_URL` · `SIGN_QR_DRIVER=smartbridge` → три `SMARTBRIDGE_*` · `SMS_DRIVER=kazinfoteh` → три `KIT_*` · production → `REDIS_URL`, `KEYS_ROOT_KEY_FILE` существует, legacy-секрет только с датой `KEYS_LEGACY_HS256_UNTIL` в будущем, `WEBHOOKS_DEV_LOOPBACK` ≠ true, флаги `--inspect*`/`--heapsnapshot-*` запрещены · `PLATFORM_JWT_SECRET`/`DOCS_TOKEN_SECRET`/`SHARE_LINK_SECRET` заданы после конца legacy-окна → ошибка · URL-поля обязаны быть URL, `APP_TIMEZONE` — IANA-зоной.
 
 Только warn в production: `FILES_DRIVER=local` · пустой `TRUST_PROXY` · `VERIFY_REQUIRED=false` · `SMS_DRIVER≠kazinfoteh` · нет верификатора ЭЦП · задан `LIVEKIT_EGRESS_DIR`.

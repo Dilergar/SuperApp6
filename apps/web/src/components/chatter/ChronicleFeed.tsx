@@ -23,6 +23,7 @@ import {
   type ChatterTypeMeta,
 } from '@superapp/shared';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
+import { BotAvatar } from '@/components/keys/BotChip';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { localDayKey } from '@/lib/day-groups';
 import { useDayLabel, useFormatters } from '@/lib/format';
@@ -179,7 +180,10 @@ function ChronicleRow({
         {meta?.icon ?? '•'}
       </span>
       <div style={{ flexShrink: 0, marginTop: '0.1rem' }}>
-        {entry.actorId ? (
+        {entry.actorId && actor?.kind === 'bot' ? (
+          // Актор-бот (core/keys): бот-чип, не карточка человека (правило платформы §7.2)
+          <BotAvatar name={actor.firstName} glyph={null} size="sm" />
+        ) : entry.actorId ? (
           <PersonAvatar
             userId={entry.actorId}
             name={actor ? `${actor.firstName} ${actor.lastName ?? ''}`.trim() : entry.actorName ?? '?'}

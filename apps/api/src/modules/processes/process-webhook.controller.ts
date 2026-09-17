@@ -1,4 +1,5 @@
-import { Body, Controller, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
+import { TELEGRAM_SECRET_HEADER } from '@superapp/shared';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { notFound } from '../../shared/errors/api-error';
 import { Public } from '../../shared/decorators/public.decorator';
@@ -17,10 +18,10 @@ export class ProcessWebhookController {
   @Post('telegram/:token')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Telegram trigger: an incoming message to the bot starts a process' })
-  async fireTelegram(@Param('token') token: string, @Body() body: unknown) {
+  async fireTelegram(@Param('token') token: string, @Body() body: unknown, @Headers(TELEGRAM_SECRET_HEADER) secret?: string) {
     // Telegram повторяет доставку при не-2xx → всегда отвечаем 200 (даже если апдейт проигнорирован).
     const update = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
-    const instanceId = await this.router.fireTelegram(token, update);
+    const instanceId = await this.router.fireTelegram(token, update, secret);
     return { success: true, instanceId: instanceId ?? null };
   }
 

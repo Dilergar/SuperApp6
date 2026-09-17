@@ -9,4 +9,7 @@ export const SECURITY_NOTIFICATIONS = defineNotifications({
   'auth.password.changed': { service: 'security', priority: 'critical', icon: 'lock', contexts: 'personal', collapse: 'none', smsEligible: true },
   'auth.phone.changed': { service: 'security', priority: 'critical', icon: 'device', contexts: 'personal', collapse: 'none' },
   'files.scan.infected': { service: 'security', priority: 'critical', icon: 'shield', contexts: 'personal', collapse: 'none' },
+  // Прокрученный refresh-токен предъявлен повторно вне окна grace (RFC 9700 §2.2.2):
+  // семейство сессии отозвано целиком — владельцу нужно знать, что токен утёк.
+  'auth.session.reuseDetected': { service: 'security', priority: 'critical', icon: 'shield', contexts: 'personal', collapse: 'none', smsEligible: true },
 });

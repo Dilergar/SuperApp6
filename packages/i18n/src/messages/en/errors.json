@@ -548,6 +548,48 @@
     "unsupportedMedia": "This file type is not supported"
   },
   "internal": "Internal server error",
+  "keys": {
+    "bot": {
+      "archived": "The bot is archived",
+      "frozen": "The bot is frozen — its keys do not work until the owner decides",
+      "notFound": "The bot was not found",
+      "notFrozen": "The bot is not frozen"
+    },
+    "expired": "The key has expired",
+    "family_full": "This key already has a second live secret — revoke one first",
+    "invalid": "The key is invalid",
+    "ip": {
+      "denied": "This key is not allowed from this address"
+    },
+    "keyNotFound": "The key was not found",
+    "key_unavailable": "The encryption key of this data is unavailable (frozen or destroyed)",
+    "no_expiry_needs_allowlist": "A key without an expiry date needs an IP allowlist",
+    "no_expiry_owner_only": "Only the owner can issue a key without an expiry date",
+    "personal_needs_workspace": "A personal key for your own data cannot be used with an organization",
+    "policy_max_days": "The organization policy allows at most {days} days",
+    "responsibleNotMember": "The responsible person must be a member of the organization",
+    "revoked": "The key was revoked",
+    "role_required": "Only the owner and admins of the organization manage its keys",
+    "root_missing": "The root key file is missing or unreadable",
+    "root_same": "The new root file is the same as the current one",
+    "scope": {
+      "denied": "This key is not allowed to access this service"
+    },
+    "step_up_required": "Confirm the action with your password and an SMS code",
+    "webhook": {
+      "disabled": "The endpoint is disabled",
+      "notFound": "The webhook endpoint was not found",
+      "not_verified": "The endpoint did not answer the verification ping correctly",
+      "url_rejected": "This address cannot receive webhooks (only public https)",
+      "unknownEvent": "Unknown webhook event: {event}",
+      "payloadTooLarge": "The event body is too large ({bytes} bytes)",
+      "deliveryNotFound": "The delivery was not found"
+    },
+    "workspace_mismatch": "The key belongs to another organization",
+    "policy_allowlist_required": "The organization policy requires an IP allowlist for every key",
+    "rate_limited": "This key makes too many requests — wait a minute",
+    "export_cap": "This key has reached its daily export limit — try again tomorrow"
+  },
   "legalEntity": {
     "archived": "The legal entity is archived — pick an active one",
     "archivedNotHead": "An archived legal entity is not made the head one",
@@ -1163,6 +1205,18 @@
       "uuid": "«{path}»: invalid identifier"
     },
     "invalidType": "«{path}»: expected {expected}, got {received}",
+    "keys": {
+      "allowlistTooLong": "Too many entries in the allowlist",
+      "badCidr": "Enter an IP address or a CIDR range",
+      "expiryConflict": "Choose either a term or «no expiry»",
+      "nameRequired": "Give the key a name",
+      "nameTooLong": "The name is too long",
+      "purposeRequired": "Say what the key is for — at least {minimum} characters",
+      "purposeTooLong": "The purpose is too long",
+      "storedHintTooLong": "The note is too long",
+      "webhookHttpsOnly": "Webhooks are delivered only over https",
+      "webhookUrl": "Enter a valid address"
+    },
     "legalEntity": {
       "badCharacters": "The characters < and > are not allowed",
       "nameRequired": "Name the legal entity",

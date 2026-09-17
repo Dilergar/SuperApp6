@@ -64,6 +64,8 @@ export interface NotificationActorDto {
   firstName: string;
   lastName: string | null;
   avatar: string | null;
+  /** `bot` — актор-бот (core/keys): BotChip вместо PersonChip */
+  kind: 'person' | 'bot';
 }
 
 /** Организация-контекст строки (логотип/имя вместо актора у системных событий). */

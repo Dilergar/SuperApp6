@@ -27,6 +27,7 @@ import {
   type AppNavConfig, type AppNavItem,
 } from '@/lib/app-nav';
 import { hrDeadlinesCountKey } from '@/lib/queries';
+import { useKeysPending } from '@/lib/hooks/useKeysPending';
 import { fetchHrDeadlinesCount } from '@/lib/hr-api';
 // Прямые импорты из файлов кита, НЕ из барабана '@/components/ui': шелл сидит
 // в корневом графе каждой страницы, а барабан утащил бы туда весь кит
@@ -128,11 +129,17 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
     retry: false,
   });
 
+  // Ключи (core/keys): «N ботов ждут решения» на пункте «Интеграции и ключи» — владельцу и админам,
+  // живёт на сокете keys:changed (без перезагрузки).
+  const canSeeKeysBadge = activeWsRole === 'admin' || activeWsRole === 'owner';
+  const keysPending = useKeysPending(activeWsId, !!profile && canSeeKeysBadge);
+
   const nav: AppNavConfig = useMemo(() => {
     if (activeWsId) {
       const ws = workspaces.find((w) => w.id === activeWsId);
       return buildWorkspaceNav(activeWsId, ws?.name ?? t('context.organization'), ws?.myRole ?? null, {
         hrDeadlines: hrDeadlines?.count || undefined,
+        keysPending: keysPending || undefined,
       });
     }
     return buildPersonalNav({
@@ -140,7 +147,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
       tasksToday: taskStats?.today,
       tasksReview: taskStats?.onReview,
     });
-  }, [activeWsId, workspaces, taskStats, hrDeadlines, t]);
+  }, [activeWsId, workspaces, taskStats, hrDeadlines, keysPending, t]);
 
   // ---- ширина экрана: <768 шторка, 768–1199 авто-рейл, ≥1200 выбор человека
   useEffect(() => {

@@ -27,6 +27,7 @@ import { USER_PHONE_INVITATIONS_JOB } from './user-jobs';
 import { ContactsService } from '../../modules/contacts/contacts.service';
 import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { KeysCascadesService } from '../keys/api-keys/keys.cascades.service';
 import {
   SOURCE_LOCALE,
   maskPhone,
@@ -69,6 +70,7 @@ export class UsersService implements OnModuleInit {
     private entitlements: EntitlementsService,
     private platformAccess: PlatformAccessService,
     private analytics: AnalyticsService,
+    private keysCascades: KeysCascadesService,
   ) {}
 
   onModuleInit(): void {
@@ -103,6 +105,7 @@ export class UsersService implements OnModuleInit {
         socialLinks: true,
         onlineStatusMode: true,
         phoneVerifiedAt: true,
+        kind: true,
         locale: true,
         timezone: true,
         iin: true,
@@ -150,6 +153,7 @@ export class UsersService implements OnModuleInit {
       updatedAt: rest.updatedAt.toISOString(),
       // Наружу — прежний boolean (веб/mobile не меняются); истина в БД — timestamp.
       isVerified: !!phoneVerifiedAt,
+      kind: rest.kind === 'bot' ? 'bot' : 'person',
       dateOfBirth: dateOfBirth ? dateOfBirth.toISOString().slice(0, 10) : null,
       idDocIssuedAt: idDocIssuedAt ? idDocIssuedAt.toISOString().slice(0, 10) : null,
       // Owner's DEFAULT visibility — applied to contacts in none of the
@@ -253,6 +257,7 @@ export class UsersService implements OnModuleInit {
         maritalStatus: true,
         socialLinks: true,
         onlineStatusMode: true,
+        kind: true,
         locale: true,
         timezone: true,
         iin: true,
@@ -274,6 +279,7 @@ export class UsersService implements OnModuleInit {
 
     return {
       ...user,
+      kind: user.kind === 'bot' ? ('bot' as const) : ('person' as const),
       socialLinks: user.socialLinks as SocialLinks | null,
       dateOfBirth: user.dateOfBirth ? user.dateOfBirth.toISOString().slice(0, 10) : null,
       idDocIssuedAt: user.idDocIssuedAt ? user.idDocIssuedAt.toISOString().slice(0, 10) : null,
@@ -301,6 +307,8 @@ export class UsersService implements OnModuleInit {
     });
     // Log out everywhere; the account stays hidden until restored via login.
     await this.db.session.deleteMany({ where: { userId } });
+    // Личные ключи API гаснут сразу: восстановление аккаунта их не вернёт (ключ = сессия без срока)
+    await this.keysCascades.onDeletionScheduled(userId);
     // Кабинет платформы — отдельный контур со своими строками сессий: «выйти везде»
     // обязано гасить и его (токен там живёт 8 часов без refresh).
     await this.db.platformSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
@@ -553,6 +561,9 @@ export class UsersService implements OnModuleInit {
       });
       if (claimed.count === 0) return false;
 
+      // Ключи API, созданные боты, KEK человека (crypto-shredding зашифрованных ПДн)
+      await this.keysCascades.onAccountAnonymize(tx, userId);
+
       // Remove from everyone's environment (bilateral); clear pending invites/blocks.
       await tx.contactLink.deleteMany({
         where: { OR: [{ userAId: userId }, { userBId: userId }] },
@@ -649,8 +660,9 @@ export class UsersService implements OnModuleInit {
    * поля, дают `isCurrent=false` до первого refresh (≤15 минут) — косметика.
    */
   async getSessions(userId: string, currentSid?: string): Promise<SessionInfo[]> {
+    // Прокрученные строки (rotatedAt) — история семейства, не устройства; в списке их нет
     const rows = await this.db.session.findMany({
-      where: { userId },
+      where: { userId, rotatedAt: null },
       select: {
         id: true,
         deviceInfo: true,
@@ -671,10 +683,11 @@ export class UsersService implements OnModuleInit {
   async deleteSession(userId: string, sessionId: string) {
     const session = await this.db.session.findUnique({
       where: { id: sessionId },
-      select: { userId: true },
+      select: { userId: true, familyId: true },
     });
     if (!session) throw notFound('auth.sessionNotFound');
     if (session.userId !== userId) throw forbidden('auth.notYourSession');
-    await this.db.session.delete({ where: { id: sessionId } });
+    // Завершить устройство = отозвать всё семейство его refresh-цепочки
+    await this.db.session.deleteMany({ where: { userId, familyId: session.familyId } });
   }
 }

@@ -126,7 +126,8 @@
     "skins": "Card skins",
     "stats": "Statistics",
     "subscription": "Plan and limits",
-    "wallet": "Wallet"
+    "wallet": "Wallet",
+    "keys": "Keys and apps"
   },
   "phone": {
     "codeToNew": "Code to the new number",

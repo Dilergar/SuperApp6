@@ -67,6 +67,7 @@ export const ENTITLEMENT_SERVICES = {
   legalEntities: { order: 60, icon: 'building' },
   cardSkins: { order: 70, icon: 'crown' },
   notifications: { order: 80, icon: 'bell' },
+  keys: { order: 90, icon: 'key' },
 } as const satisfies Record<string, { order: number; icon: string }>;
 
 export type EntitlementServiceKey = keyof typeof ENTITLEMENT_SERVICES;

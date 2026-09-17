@@ -9,6 +9,7 @@ import type {
   RealtimeServerToClientEvents,
   WsCallState,
   WsEntitlementsChanged,
+  WsKeysChanged,
   WsMessageDeleted,
   WsMessageNew,
   WsMessageUpdated,
@@ -44,6 +45,8 @@ export interface RealtimeHandlers {
   onNotificationCounts?: (p: WsNotificationCounts) => void;
   /** Тариф субъекта изменился (подписка, грант, публикация версии) — перечитать снимок. */
   onEntitlementsChanged?: (p: WsEntitlementsChanged) => void;
+  /** Реестр ключей организации изменился (бот заморожен/разморожен, ключ создан/отозван) — владельцу и админам. */
+  onKeysChanged?: (p: WsKeysChanged) => void;
   /**
    * После РЕ-коннекта (не первого connect): события за время провала потеряны —
    * подписчик догоняется (перечитывает чаты/ленту/counts).
@@ -98,6 +101,7 @@ function createSingleton(): SingletonState {
   socket.on('notification:new', (p) => dispatch((h) => h.onNotificationNew?.(p)));
   socket.on('notification:counts', (p) => dispatch((h) => h.onNotificationCounts?.(p)));
   socket.on('entitlements:changed', (p) => dispatch((h) => h.onEntitlementsChanged?.(p)));
+  socket.on('keys:changed', (p) => dispatch((h) => h.onKeysChanged?.(p)));
 
   // Heartbeat presence с visibility-гейтом: ОДИН интервал на соединение; скрытая
   // вкладка биений не шлёт (away-модель Slack) — серверный TTL переведёт в offline.

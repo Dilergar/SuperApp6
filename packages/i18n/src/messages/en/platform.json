@@ -114,6 +114,38 @@
     "entitlementsTrialExtend": {
       "title": "Extend a trial"
     },
+    "keysBotFreeze": {
+      "description": "All keys of the bot stop working until the organization owner unfreezes it.",
+      "title": "Freeze a bot"
+    },
+    "keysBotUnfreeze": {
+      "description": "Let the bot work again.",
+      "title": "Unfreeze a bot"
+    },
+    "keysKeyRevoke": {
+      "description": "The key stops working immediately; the owner and admins of the organization are notified.",
+      "title": "Revoke an API key"
+    },
+    "keysRootRotate": {
+      "description": "Re-wrap every key version under a NEW root file created by the ceremony. Every API instance must be restarted with the new file right after.",
+      "title": "Rotate the root key"
+    },
+    "keysSigningRotate": {
+      "description": "New Ed25519 version for an audience: published in JWKS, activated after the cache window; the old one keeps verifying until the longest token expires.",
+      "title": "Rotate a signing key"
+    },
+    "keysWorkspaceFreeze": {
+      "description": "Kill-switch: every key of the organization is disabled — its encrypted data becomes unreadable and its bots stop at once. Nothing is deleted.",
+      "title": "Freeze the keys of an organization"
+    },
+    "keysWorkspaceRotateKek": {
+      "description": "New KEK version; rows are re-wrapped in the background.",
+      "title": "Rotate the encryption key of an organization"
+    },
+    "keysWorkspaceUnfreeze": {
+      "description": "Re-enable the frozen keys of an organization.",
+      "title": "Unfreeze the keys of an organization"
+    },
     "platformPiiReveal": {
       "description": "Shows the full phone, IIN/BIN or address of a person or organization; every reveal is logged",
       "title": "Reveal personal data"
@@ -234,12 +266,14 @@
     "userAnalytics": "Activity",
     "userAudit": "Console activity",
     "userEntitlements": "Plan and limits",
+    "userKeys": "Personal keys",
     "userProfile": "Profile",
     "userStaff": "Platform staff",
     "userWorkspaces": "Organizations",
     "workspaceAnalytics": "Activity",
     "workspaceAudit": "Console activity",
     "workspaceEntitlements": "Plan and limits",
+    "workspaceKeys": "Keys and bots",
     "workspaceMembersSummary": "Members",
     "workspaceProfile": "Profile"
   },

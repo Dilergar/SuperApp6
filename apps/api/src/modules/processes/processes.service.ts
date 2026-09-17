@@ -26,7 +26,10 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
-import { encryptSecret, decryptSecret } from './process-crypto';
+import { decryptCredential, encryptCredential, hashWebhookToken, isHashedWebhookToken, legacyCredentialPlain, telegramSecretFor, webhookTokenCtx, PROCESS_CREDENTIAL_ENTITY } from './process-crypto';
+import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
+import { KeysMacService } from '../../core/keys/keys.mac.service';
+import { KeysFieldRegistry } from '../../core/keys/keys.registry';
 import { ProcessNodeRegistry } from './process-node.registry';
 import { ProcessEngineService } from './process-engine.service';
 import { compileProcessDocument } from './process-compiler';
@@ -132,7 +135,33 @@ export class ProcessesService implements OnModuleInit {
     private approvals: ApprovalsService,
     private chatter: ChatterService,
     private i18n: I18nService,
+    private keys: KeysEnvelopeService,
+    private mac: KeysMacService,
+    private keyFields: KeysFieldRegistry,
   ) {}
+
+  /** Колонки-шифротексты Процессов — для перешивки при ротации KEK и legacy-джоба (core/keys). */
+  private registerEncryptedColumns(): void {
+    this.keyFields.register({
+      table: 'process_credentials',
+      idColumn: 'id',
+      column: 'data',
+      scope: 'workspace',
+      scopeColumn: 'workspace_id',
+      entity: PROCESS_CREDENTIAL_ENTITY,
+      field: 'data',
+      legacyDecrypt: (stored) => legacyCredentialPlain(stored),
+    });
+    this.keyFields.register({
+      table: 'process_triggers',
+      idColumn: 'id',
+      column: 'webhook_token_enc',
+      scope: 'workspace',
+      scopeColumn: 'workspace_id',
+      entity: 'process_trigger',
+      field: 'webhook_token',
+    });
+  }
 
   /**
    * Замечания компилятора и правил приходят КЛЮЧАМИ каталога с подстановками —
@@ -148,6 +177,7 @@ export class ProcessesService implements OnModuleInit {
   }
 
   onModuleInit(): void {
+    this.registerEncryptedColumns();
     for (const provider of [
       ...BUILTIN_PROCESS_NODES,
       ...SERVICE_PROCESS_NODES,
@@ -352,23 +382,25 @@ export class ProcessesService implements OnModuleInit {
     // Вычисляем ДО сборки триггеров: URL вебхука несёт секретный токен и отдаётся
     // только тем, кто и так может править процесс.
     const canEdit = (WORKSPACE_ROLE_RANK[role] ?? 0) >= WORKSPACE_ROLE_RANK.manager;
-    const triggers = triggerRows.map((t) => {
+    const triggers = [];
+    for (const t of triggerRows) {
       const cfg = (t.config ?? {}) as { nodeId?: string };
       // Telegram-вебхук слушается на отдельном пути (там разбирается Telegram-апдейт).
       const webhookPath = t.type === 'telegram' ? 'webhook/telegram' : 'webhook';
-      return {
+      // Чтение определения открыто всей команде (assertTeamMember, стажёр+), а токен —
+      // это ключ к публичному эндпоинту, который стартует процесс ОТ ИМЕНИ сотрудника
+      // из runAsUserId. Раньше его видел любой стажёр. В БД лежит хеш; сам токен —
+      // envelope, расшифровывается только для редактора.
+      const raw = canEdit && t.webhookToken ? await this.rawWebhookToken(t) : null;
+      triggers.push({
         nodeId: cfg.nodeId ?? '',
         type: t.type as 'schedule' | 'webhook' | 'event' | 'telegram',
         enabled: t.enabled,
-        // Чтение определения открыто всей команде (assertTeamMember, стажёр+), а токен —
-        // это ключ к публичному эндпоинту, который стартует процесс ОТ ИМЕНИ сотрудника
-        // из runAsUserId. Раньше его видел любой стажёр.
-        webhookUrl:
-          canEdit && t.webhookToken ? `${base}/api/processes/${webhookPath}/${t.webhookToken}` : null,
+        webhookUrl: raw ? `${base}/api/processes/${webhookPath}/${raw}` : null,
         nextRunAt: t.nextRunAt?.toISOString() ?? null,
         lastRunAt: t.lastRunAt?.toISOString() ?? null,
-      };
-    });
+      });
+    }
 
     return {
       ...this.toDefinitionDto(
@@ -1054,7 +1086,7 @@ export class ProcessesService implements OnModuleInit {
           await tx.processTrigger.update({ where: { id: prev.id }, data: { type, config, runAsUserId, enabled: true } });
         } else {
           await tx.processTrigger.create({
-            data: { definitionId, workspaceId, type, config, runAsUserId, enabled: true, webhookToken: randomBytes(24).toString('base64url'), createdById: publishedById },
+            data: { definitionId, workspaceId, type, config, runAsUserId, enabled: true, ...(await this.newWebhookToken(workspaceId)), createdById: publishedById },
           });
         }
       } else {
@@ -1064,7 +1096,7 @@ export class ProcessesService implements OnModuleInit {
           await tx.processTrigger.update({ where: { id: prev.id }, data: { type, config, runAsUserId, enabled: true } });
         } else {
           await tx.processTrigger.create({
-            data: { definitionId, workspaceId, type, config, runAsUserId, enabled: true, webhookToken: randomBytes(24).toString('base64url'), createdById: publishedById },
+            data: { definitionId, workspaceId, type, config, runAsUserId, enabled: true, ...(await this.newWebhookToken(workspaceId)), createdById: publishedById },
           });
         }
       }
@@ -1166,6 +1198,25 @@ export class ProcessesService implements OnModuleInit {
     return issues;
   }
 
+  /** Новый токен публичного вебхука: сырой — в URL (envelope для показа), хеш — в unique-колонку. */
+  private async newWebhookToken(workspaceId: string): Promise<{ webhookToken: string; webhookTokenEnc: string }> {
+    const raw = randomBytes(24).toString('base64url');
+    return {
+      webhookToken: hashWebhookToken(raw),
+      webhookTokenEnc: await this.keys.encrypt({ type: 'workspace', id: workspaceId }, webhookTokenCtx(workspaceId), raw),
+    };
+  }
+
+  /** Сырой токен для URL: из envelope; у строк прошлой эпохи — сама колонка (до бэкфилла). */
+  async rawWebhookToken(t: { workspaceId: string; webhookToken: string | null; webhookTokenEnc: string | null }): Promise<string | null> {
+    if (t.webhookTokenEnc) {
+      const r = await this.keys.tryDecrypt({ type: 'workspace', id: t.workspaceId }, webhookTokenCtx(t.workspaceId), t.webhookTokenEnc);
+      return r.ok ? r.value : null;
+    }
+    if (t.webhookToken && !isHashedWebhookToken(t.webhookToken)) return t.webhookToken;
+    return null;
+  }
+
   /**
    * Best-effort: регистрирует вебхук Telegram-бота на наш приёмник (модель n8n: при
    * активации зовём setWebhook). На localhost пропускаем (Telegram требует публичный
@@ -1187,14 +1238,22 @@ export class ProcessesService implements OnModuleInit {
         // токен бота и переводил вебхук этого бота на свой процесс.
         // Чокпоинт DatabaseService тут не спасает — он авто-скоупит только Task.
         if (!cred || cred.workspaceId !== t.workspaceId) continue;
-        const secret = JSON.parse(decryptSecret(cred.data)) as { token?: string };
+        const secret = JSON.parse(await decryptCredential(this.keys, cred)) as { token?: string };
         if (!secret.token) continue;
-        const url = `${base}/api/processes/webhook/telegram/${t.webhookToken}`;
-        await fetchJson(`https://api.telegram.org/bot${secret.token}/setWebhook`, {
+        const raw = await this.rawWebhookToken(t);
+        if (!raw) continue;
+        const url = `${base}/api/processes/webhook/telegram/${raw}`;
+        // secret_token: Telegram шлёт его заголовком в каждом апдейте — приёмник сверяет
+        // (без него любой, кто узнал URL, слал бы «сообщения бота» от своего имени)
+        const secretToken = await telegramSecretFor(this.mac, raw);
+        const ok = await fetchJson(`https://api.telegram.org/bot${secret.token}/setWebhook`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ url, allowed_updates: ['message'] }),
-        }).catch(() => undefined);
+          body: JSON.stringify({ url, allowed_updates: ['message'], secret_token: secretToken }),
+        })
+          .then(() => true)
+          .catch(() => false);
+        if (ok) await this.db.processTrigger.update({ where: { id: t.id }, data: { webhookSecretAt: new Date() } });
       } catch {
         /* best-effort: не мешаем публикации */
       }
@@ -1224,7 +1283,7 @@ export class ProcessesService implements OnModuleInit {
           ? { username: data.username!, password: data.password! }
           : { headerName: data.headerName!, headerValue: data.headerValue! };
     const cred = await this.db.processCredential.create({
-      data: { workspaceId, name: data.name, type: data.type, data: encryptSecret(JSON.stringify(secret)), createdById: userId },
+      data: { workspaceId, name: data.name, type: data.type, data: await encryptCredential(this.keys, workspaceId, JSON.stringify(secret)), createdById: userId },
     });
     return { id: cred.id };
   }

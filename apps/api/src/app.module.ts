@@ -7,6 +7,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 // Shared infrastructure
 import { DatabaseModule } from './shared/database/database.module';
 import { RedisModule } from './shared/redis/redis.module';
+import { MetricsModule } from './shared/metrics/metrics.module';
 import { SessionValidatorModule } from './shared/auth/session-validator.module';
 import { EventBusModule } from './shared/events/event-bus.module';
 import { WorkspaceContextModule } from './shared/context/workspace-context.module';
@@ -38,6 +39,10 @@ import { EntitlementsModule } from './core/entitlements/entitlements.module';
 import { PlatformModule } from './core/platform/platform.module';
 import { PlatformAuthGuard } from './core/platform/platform-auth.guard';
 import { AnalyticsModule } from './core/analytics/analytics.module';
+import { KeysModule } from './core/keys/keys.module';
+import { WebhooksModule } from './core/webhooks/webhooks.module';
+import { KeyScopeGuard } from './core/keys/api-keys/key-scope.guard';
+import { ApiKeyAccessInterceptor } from './core/keys/api-keys/keys.usage.cron';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CounterpartiesModule } from './modules/counterparties/counterparties.module';
 import { ObjectsModule } from './modules/objects/objects.module';
@@ -98,9 +103,16 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     I18nModule,
     DatabaseModule,
     RedisModule,
+    MetricsModule,
     // Живость/отзыв сессии — общая проверка для HTTP (JwtStrategy) и рукопожатия сокета.
     SessionValidatorModule,
     EventBusModule,
+    // Keys engine — 22-й платформенный движок: keystore (KEK на организацию/человека,
+    // Ed25519-пары на аудиторию, HMAC-ключи) поверх корня вне БД, envelope-шифрование
+    // секретов и ПДн с AAD, подпись JWT + JWKS, ключи API/боты/реестр, журнал
+    // append-only. Идёт ДО auth: подпись токенов и HMAC кодов живут здесь: docs/keys_engine.md.
+    KeysModule,
+    WebhooksModule,
 
     // Core — auth, users & universal identity
     AuthModule,
@@ -255,10 +267,21 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
       provide: APP_GUARD,
       useClass: PlatformAuthGuard,
     },
+    // Ключи API (core/keys): скоуп ключа × сервис маршрута — ПОСЛЕ аутентификации,
+    // живых сессий человека не касается (deny-by-default для запросов по ключу)
+    {
+      provide: APP_GUARD,
+      useClass: KeyScopeGuard,
+    },
     // Establishes the active-workspace context (chokepoint) after auth runs.
     {
       provide: APP_INTERCEPTOR,
       useClass: WorkspaceContextInterceptor,
+    },
+    // Журнал обращений по ключу API (метод, шаблон маршрута, статус) — батчем через Redis
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ApiKeyAccessInterceptor,
     },
   ],
 })

@@ -48,6 +48,7 @@ export * from './types/notes';
 export * from './types/entitlements';
 export * from './types/platform';
 export * from './types/analytics';
+export * from './types/keys';
 
 // Validation schemas
 export * from './validation/query';
@@ -94,6 +95,7 @@ export * from './validation/notes';
 export * from './validation/entitlements';
 export * from './validation/platform';
 export * from './validation/analytics';
+export * from './validation/keys';
 
 // Utils
 export * from './utils/phone';
@@ -103,6 +105,7 @@ export * from './utils/attachments';
 export * from './utils/interpolate';
 export * from './utils/glyph';
 export * from './utils/requisites';
+export * from './utils/cidr';
 
 // Constants
 export * from './constants/i18n';
@@ -115,6 +118,9 @@ export * from './entitlements';
 export * from './platform';
 // Продуктовая аналитика (core/analytics): реестр событий, маршруты
 export * from './analytics';
+// Движок ключей (core/keys) и исходящие вебхуки (core/webhooks): словарь, скоупы, реестр событий, лимиты
+export * from './keys';
+export * from './constants/keys';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';

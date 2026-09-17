@@ -11,6 +11,7 @@ import { Chip } from '@/components/ui/Chip';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { Menu, type MenuAction } from '@/components/ui/Menu';
 import { Avatar, PersonAvatar } from '@/app/messenger/messenger-ui';
+import { BotAvatar } from '@/components/keys/BotChip';
 import { useFormatters } from '@/lib/format';
 import { toast, toastError } from '@/lib/toast';
 import { apiErrorMessage } from '@/lib/api';
@@ -136,7 +137,9 @@ export const NotificationRow = memo(function NotificationRow({ n, actors, worksp
   return (
     <div className={`ntf-row${unread ? ' ntf-row--unread' : ''}${compact ? ' ntf-row--compact' : ''}`}>
       <div className="ntf-row-avatar" aria-hidden>
-        {actor ? (
+        {actor && actor.kind === 'bot' ? (
+          <BotAvatar name={actor.firstName} glyph={null} size="sm" />
+        ) : actor ? (
           <PersonAvatar userId={actor.id} name={`${actor.firstName} ${actor.lastName ?? ''}`.trim()} avatar={actor.avatar} size="sm" />
         ) : ws ? (
           <Avatar name={ws.name} avatar={ws.logo} size="sm" />

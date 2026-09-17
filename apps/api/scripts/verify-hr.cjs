@@ -5,7 +5,7 @@
 // регистрация → подшивка → hr.apply → ЕСУТД-срок → перевод БУДУЩЕЙ датой
 // (scheduled, данные не раньше даты) → оклад → отпуск → увольнение (ст. 54,
 // отзыв ст. 56 п. 4) → запрет удаления → личный архив переживает purge.
-const { BASE, call, login, makeChecker, SUITE } = require('./_lib.cjs');
+const { BASE, call, login, makeChecker, SUITE, devCode } = require('./_lib.cjs');
 
 const { check, finish } = makeChecker();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -538,6 +538,20 @@ async function main() {
   );
   check('чужое/не-увольнение работник отменить не может', notAssignee.status === 403 || notAssignee.status === 400);
 
+  // ============ Ключи API уходящего (core/keys): увольнение по ТК гасит их «на всех путях» ============
+  // Новичок временно админ: только owner/admin создают ключи для данных организации.
+  const promoteNewbie = await call('PATCH', `/workspaces/${ws.id}/members/${newbie.id}`, owner.token, { role: 'admin' });
+  check('новичок временно повышен до admin (ключи организации — owner/admin)', promoteNewbie.ok, `${promoteNewbie.status} ${promoteNewbie.code}`);
+  const suStart = await call('POST', '/verify/step-up', newbie.token, { purpose: 'keys_manage', password: SUITE.password });
+  const suCode = suStart.ok ? await devCode(suStart.json.data.challengeId) : null;
+  const suCheck = suCode ? await call('POST', '/verify/check', null, { challengeId: suStart.json.data.challengeId, code: suCode }) : null;
+  const suConfirm = suCheck?.ok ? await call('POST', '/keys/step-up/confirm', newbie.token, { verifyToken: suCheck.json.data.verifyToken }) : null;
+  check('step-up keys_manage новичка', !!suConfirm?.ok, `${suStart.status} ${suCheck?.status} ${suConfirm?.status}`);
+  const newbieKey = await call('POST', `/workspaces/${ws.id}/keys/keys`, newbie.token, { name: 'hr-leaver', purpose: 'e2e: dismissal cascade', scopes: { tasks: 'read' } });
+  check('личный ключ новичка для данных организации создан', newbieKey.status === 201, `${newbieKey.status} ${newbieKey.code}`);
+  const newbieKeyAlive = await call('GET', '/tasks', newbieKey.json?.data?.secret ?? '');
+  check('ключ новичка работает до увольнения', newbieKeyAlive.ok, `${newbieKeyAlive.status} ${newbieKeyAlive.code}`);
+
   // ============ Увольнение НОВИЧКА по-настоящему (сегодня, ст. 50) ============
   const dismissal = await call('POST', `/workspaces/${ws.id}/hr/actions`, owner.token, {
     kind: 'dismissal',
@@ -565,6 +579,8 @@ async function main() {
     return a?.status === 'applied' ? a : null;
   }, 90000);
   check('увольнение применено', !!disApplied);
+  const newbieKeyDead = await call('GET', '/tasks', newbieKey.json?.data?.secret ?? '');
+  check('увольнение по ТК: ключ организации уволенного отозван (member_left), членство при этом не снималось', newbieKeyDead.status === 401 && newbieKeyDead.code === 'keys.revoked', `${newbieKeyDead.status} ${newbieKeyDead.code}`);
   const firedCard = await call('GET', `/workspaces/${ws.id}/hr/members/${newbie.id}`, owner.token);
   check(
     'карточка терминирована с основанием',

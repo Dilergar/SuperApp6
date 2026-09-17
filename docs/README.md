@@ -84,6 +84,10 @@
 | [analytics_engine.md](analytics_engine.md) | Продуктовая аналитика (`core/analytics`): реестр событий в shared, приём без БД на пути запроса (stream + outbox), партиции PostgreSQL, консьюмер, склейка личности, согласие, забвение, стражи |
 | [analytics_ingest.md](analytics_ingest.md) | Аналитика, часть 3: приём (`/analytics/collect`), консьюмер stream + outbox, конвейер обогащения, роллапы и кроны, ловушки сырого SQL |
 | [analytics_reports.md](analytics_reports.md) | Аналитика, часть 2: семантика метрик, язык запросов и исполнитель, k-анонимность, отчёты и дашборды, раздел Кабинета, SDK клиента |
+| [keys_engine.md](keys_engine.md) | Движок ключей (`core/keys`, 22-й): корень и keystore, envelope с AAD, слепые индексы, HMAC, Ed25519-подпись токенов и JWKS, ротации без разлогина, заморозка и crypto-shredding, журнал append-only, команды кабинета |
+| [keys_api_access.md](keys_api_access.md) | Ключи API и боты: принципал-бот (теневой `users.kind='bot'`), личные ключи, формат `sa6_…`, скоупы и `KeyScopeGuard`, контекст организации в ключе, step-up, реестр/политика/каскады, раздел «Интеграции и ключи» |
+| [keys_pii.md](keys_pii.md) | Шифрование ПДн: Prisma-расширение dual-write `_enc/_bi`, режим `KEYS_PII_READ_MODE`, backfill, `pii_access_log`, дроп открытых колонок |
+| [webhooks_engine.md](webhooks_engine.md) | Исходящие вебхуки (`core/webhooks`, 23-й): реестр событий в shared, `emit(tx)`, Standard Webhooks (HMAC/Ed25519, ротация двумя подписями), доставка с ретраями и автоотключением, пинг и аудит битой подписью |
 
 ## Сервисы (apps/api/src/modules/)
 

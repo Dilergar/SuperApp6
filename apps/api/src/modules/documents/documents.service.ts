@@ -51,6 +51,7 @@ import {
 } from '@superapp/shared';
 import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { WebhooksService } from '../../core/webhooks/webhooks.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { coerceLocale, type Locale } from '@superapp/i18n';
 import { DEFAULT_DOCUMENT_LANGUAGE, documentWords } from '../../shared/i18n/document-words';
@@ -157,6 +158,7 @@ export class DocumentsService {
     private readonly shareLinks: ShareLinksService,
     private readonly smsOutbound: SmsOutboundService,
     private readonly i18n: I18nService,
+    private readonly webhooks: WebhooksService,
   ) {}
 
   /** Ставится на bootstrap модулем — см. DocumentsModule (разрыв цикла с Процессами). */
@@ -1941,6 +1943,7 @@ export class DocumentsService {
       data: { status: 'signed', signedAt: new Date() },
     });
     if (won.count === 0) return;
+    await this.webhooks.emit(null, { workspaceId: row.workspaceId, eventKey: 'documents.document.signed', payload: documentWebhookPayload({ ...row, status: 'signed' }) });
     await this.notifications
       .send(null, {
         type: 'document.counterparty_signed',
@@ -2225,6 +2228,9 @@ export class DocumentsService {
         status: row.status === 'signed' ? 'registered' : row.status,
       },
     });
+    if (claimed.count > 0) {
+      await this.webhooks.emit(null, { workspaceId: row.workspaceId, eventKey: 'documents.document.registered', payload: documentWebhookPayload({ ...row, number, status: row.status === 'signed' ? 'registered' : row.status }) });
+    }
     if (claimed.count === 0) {
       // Гонку выиграл сосед — номер, который мы сожгли, останется дырой в книге
       // регистрации. Это честнее, чем выдать один номер двум приказам.
@@ -2388,6 +2394,7 @@ export class DocumentsService {
       where: { id: row.id, signedAt: null, status: { in: [...DOC_ROUTABLE_STATUSES] } },
       data: { signedAt: new Date(), status: row.number ? 'registered' : 'signed' },
     });
+    await this.webhooks.emit(null, { workspaceId: row.workspaceId, eventKey: 'documents.document.signed', payload: documentWebhookPayload({ ...row, status: row.number ? 'registered' : 'signed' }) });
     await this.chatter
       .log(null, {
         refType: ORG_DOCUMENT_REF_TYPE,
@@ -3283,4 +3290,7 @@ export class DocumentsService {
   }
 }
 
-
+/** Тело события вебхука о документе: id, название, номер, статус, вид — без содержимого и подписантов. */
+function documentWebhookPayload(d: { id: string; title: string; number: string | null; status: string; docTypeId: string; workspaceId: string }): Record<string, unknown> {
+  return { id: d.id, title: d.title, number: d.number, status: d.status, docTypeId: d.docTypeId, workspaceId: d.workspaceId };
+}

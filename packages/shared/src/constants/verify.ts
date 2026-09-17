@@ -32,6 +32,10 @@ export const VERIFY_PURPOSES = [
   // Step-up (sudo) внутри кабинета перед высокорисковой командой: своя цель, чтобы
   // пропуск входа не мог сойти за подтверждение действия, и наоборот.
   'platform_step_up',
+  // Управление ключами API и ботами (core/keys): «сильное подтверждение» — пароль + код
+  // на свой номер, окно 15 минут. Единая точка, куда позже встанут passkeys/ЭЦП.
+  // Старт — /verify/step-up (залогинен); гашение — POST /keys/step-up/confirm.
+  'keys_manage',
 ] as const;
 
 export type VerifyPurpose = (typeof VERIFY_PURPOSES)[number];

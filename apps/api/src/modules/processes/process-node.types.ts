@@ -12,6 +12,7 @@ import type { TasksService } from '../tasks/tasks.service';
 import type { NotificationsService } from '../../core/notifications/notifications.service';
 import type { DatabaseService } from '../../shared/database/database.service';
 import type { ApprovalsService } from '../../core/approvals/approvals.service';
+import type { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
 
 // ============================================================
 // СЛОВА паспорта ноды живут в каталоге, а не в паспорте.
@@ -115,6 +116,8 @@ export interface NodeRunDeps {
    * ровно так же, как нода «Задача человеку» заводит настоящую задачу Задачника.
    */
   approvals: ApprovalsService;
+  /** Движок ключей: расшифровка кредов сейфа организации (envelope, KEK организации) */
+  keys: KeysEnvelopeService;
   /**
    * Ленивый доступ к ЛЮБОМУ сервису платформы по токену/классу (ModuleRef, strict:false) —
    * энейблер «всё как ноды» (P0): новые ноды (Shop/Messenger/Calendar/Staff…) берут свой

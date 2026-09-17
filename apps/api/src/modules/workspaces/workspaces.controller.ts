@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { WorkspacesService } from './workspaces.service';
+import { NoApiKeys } from '../../shared/decorators/api-keys.decorator';
 import {
   CurrentUser,
   type JwtPayload,
@@ -63,6 +64,7 @@ export class WorkspacesController {
    * Только при NODE_ENV=development, как /jobs/dev/*: в любом другом окружении ручки
    * будто нет.
    */
+  @NoApiKeys()
   @Post('dev/purge-archives')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'DEV: run the archive retention right now (development only)' })
@@ -197,6 +199,7 @@ export class WorkspacesController {
     return { success: true };
   }
 
+  @NoApiKeys()
   @Post(':id/restore')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Restore a deactivated organization (owner)' })
@@ -205,6 +208,7 @@ export class WorkspacesController {
     return { success: true };
   }
 
+  @NoApiKeys()
   @Post(':id/transfer')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Transfer the ownership (owner)' })
@@ -218,6 +222,7 @@ export class WorkspacesController {
     return { success: true };
   }
 
+  @NoApiKeys()
   @Post(':id/leave')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Leave the organization (anyone but the owner)' })

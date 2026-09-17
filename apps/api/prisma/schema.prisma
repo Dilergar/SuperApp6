@@ -14,6 +14,11 @@ datasource db {
 model User {
   id               String    @id @default(uuid())
   phone            String    @unique
+  // ---- ПДн под движком ключей (core/keys, фаза D): envelope `_enc` (KEK человека, AAD)
+  // + слепой индекс `_bi` там, где ищут по равенству. Открытые колонки живут до окна
+  // dual-write (KEYS_PII_READ_MODE) и удаляются отдельной миграцией — docs/keys_pii.md.
+  phoneEnc         String?   @map("phone_enc")
+  phoneBi          String?   @unique @map("phone_bi")
   password         String // bcrypt hash
   firstName        String    @map("first_name")
   lastName         String?   @map("last_name")
@@ -21,10 +26,13 @@ model User {
   // в продуктовых карточках не показывается (там имя+фамилия)
   middleName       String?   @map("middle_name")
   dateOfBirth      DateTime? @map("date_of_birth") @db.Date
+  dateOfBirthEnc   String?   @map("date_of_birth_enc")
   avatar           String?
   bio              String?
   city             String?
   email            String?   @unique
+  emailEnc         String?   @map("email_enc")
+  emailBi          String?   @unique @map("email_bi")
   maritalStatus    String?   @map("marital_status")
   socialLinks      Json?     @map("social_links")
   onlineStatusMode String    @default("everyone") @map("online_status_mode")
@@ -50,15 +58,24 @@ model User {
   // Отказ от аналитики использования (core/analytics): применяется НА СЕРВЕРЕ при приёме —
   // product/telemetry-события не пишутся, business-факты сервера пишутся всегда.
   analyticsOptOut  Boolean   @default(false) @map("analytics_opt_out")
+  // person | bot. Бот (core/keys) — теневая строка users: все FK, хроника, уведомления и
+  // проекции core/access работают без переписывания; вход, SMS и роли системы боту закрыты.
+  // Клиент рисует `kind: 'bot'` бот-чипом, а не PersonChip. Телефон бота — `bot:<id>`.
+  kind             String    @default("person")
 
   // ---- Реквизиты («Моя Анкета» → «Для договоров и трудоустройства») ----
   // В личном окружении (Группы) НЕ показываются вовсе; коллегам — по тумблерам
   // companyCardVisibility.extras (по умолчанию скрыты); управляющим организаций
   // (manager+) — всегда, выключить нельзя (второй уровень «Видимости в Компаниях»).
   iin                String? // 12 цифр, контрольная сумма проверяется схемой
+  iinEnc             String?   @map("iin_enc")
+  iinBi              String?   @map("iin_bi")
   residentialAddress String?   @map("residential_address")
+  residentialAddressEnc String? @map("residential_address_enc")
   idDocNumber        String?   @map("id_doc_number") // удостоверение личности
+  idDocNumberEnc     String?   @map("id_doc_number_enc")
   idDocIssuedBy      String?   @map("id_doc_issued_by")
+  idDocIssuedByEnc   String?   @map("id_doc_issued_by_enc")
   idDocIssuedAt      DateTime? @map("id_doc_issued_at") @db.Date
 
   // Contact card visibility — per-field flags controlling what others see on your card
@@ -128,7 +145,10 @@ model User {
   authoredMessages Message[]
 
   scheduledMessages ScheduledMessage[]
+  bot               Bot?
 
+  @@index([iinBi])
+  @@index([kind])
   @@map("users")
 }
 
@@ -164,11 +184,19 @@ model Session {
   lastActive DateTime @default(now()) @map("last_active")
   expiresAt  DateTime @map("expires_at")
   createdAt  DateTime @default(now()) @map("created_at")
+  // Семейство refresh-цепочки одного устройства (RFC 9700 §2.2.2): вход = новое
+  // семейство, ротация наследует. Прокрученная строка НЕ удаляется — помечается
+  // rotatedAt/replacedById; её повторное предъявление вне grace 10 с = утечка →
+  // всё семейство отзывается (core/keys, docs/keys_engine.md).
+  familyId     String    @default(uuid()) @map("family_id")
+  rotatedAt    DateTime? @map("rotated_at")
+  replacedById String?   @map("replaced_by_id")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([familyId])
   @@map("sessions")
 }
 
@@ -233,6 +261,9 @@ model ContactInvitation {
   // Filled in when the phone registers → then the invitation is surfaced to them.
   toUserId   String? @map("to_user_id")
   toPhone    String  @map("to_phone") // normalized E.164
+  // ПДн под движком ключей: envelope (KEK отправителя) + слепой индекс для поиска по номеру
+  toPhoneEnc String? @map("to_phone_enc")
+  toPhoneBi  String? @map("to_phone_bi")
 
   // Roles each side proposes. Recipient can override at accept-time.
   // DB columns kept (proposed_label_*) to preserve data.
@@ -257,6 +288,10 @@ model ContactInvitation {
   toUser   User? @relation("InvitationRecipient", fields: [toUserId], references: [id], onDelete: Cascade)
 
   @@index([toPhone])
+  @@index([toPhoneBi])
+  @@index([fromUserId, toPhoneBi, status])
+  // ⚠️ ПАРТИАЛЬНЫЙ UNIQUE-двойник по слепому индексу дописан РУКАМИ в миграции keys_pii:
+  //   contact_invitations_one_pending_per_phone_bi (from_user_id, to_phone_bi) WHERE status = 'pending'
   @@index([fromUserId, status]) // leading column also serves plain fromUserId lookups
   // Курсорные списки приглашений: (…, status, createdAt, id) обслуживают и фильтр,
   // и ORDER BY createdAt DESC, id DESC.
@@ -797,6 +832,8 @@ model GoogleConnection {
   id                String    @id @default(uuid())
   userId            String    @unique @map("user_id")
   googleEmail       String    @map("google_email")
+  // Токены Google — envelope core/keys (`sa6e:`), KEK человека; строки прошлой эпохи
+  // (открытый текст) перешифровывает джоб keys.legacy.reencrypt на первом старте.
   accessToken       String    @map("access_token")
   refreshToken      String    @map("refresh_token")
   tokenExpiry       DateTime? @map("token_expiry")
@@ -887,6 +924,9 @@ model Workspace {
   esutdSubmissions     EsutdSubmission[]
   docCampaigns         DocCampaign[]
   libraryInstalls      DocTemplateLibraryInstall[]
+  bots                 Bot[]
+  keyPolicy            WorkspaceKeyPolicy?
+  webhookEndpoints     WebhookEndpoint[]
 
   @@index([ownerId])
   // Ретеншн-крон архива: выборка «что пора удалять» идёт по этой колонке.
@@ -970,6 +1010,7 @@ model WorkspaceBankAccount {
    */
   legalEntityId String   @map("legal_entity_id")
   iban          String // KZ + 18 знаков, контроль ISO 13616
+  ibanEnc       String?  @map("iban_enc") // ПДн под движком ключей (KEK организации)
   bankName      String   @map("bank_name")
   bik           String // 8 знаков SWIFT-формата
   isPrimary     Boolean  @default(false) @map("is_primary")
@@ -985,8 +1026,8 @@ model WorkspaceBankAccount {
 
 // Платёжная карта человека — РЕКВИЗИТ для выплат (зарплата, возвраты), не платёжный
 // инструмент: без CVV, платежи платформа через неё не проводит. Номер и IBAN
-// карт-счёта шифруются (AES-256-GCM, ключ выводится из JWT_SECRET отдельным
-// контекстом — паттерн сейфа кредов Процессов); last4 хранится открыто для масок.
+// карт-счёта шифруются envelope'ом core/keys (KEK человека, AAD = карта+поле);
+// last4 хранится открыто для масок.
 // Управляющим организаций основная карта отдаётся полностью — ради выплат блок и
 // существует (второй уровень «Видимости в Компаниях»).
 model UserPaymentCard {
@@ -1038,6 +1079,9 @@ model WorkspaceInvitation {
 
   toUserId String? @map("to_user_id") // null until the invited phone is on the platform
   toPhone  String  @map("to_phone") // normalized E.164
+  // ПДн под движком ключей: envelope (KEK организации) + слепой индекс
+  toPhoneEnc String? @map("to_phone_enc")
+  toPhoneBi  String? @map("to_phone_bi")
 
   role       String   @default("trainee") // всегда trainee для новых приглашений
   positionId String?  @map("position_id")
@@ -1059,6 +1103,7 @@ model WorkspaceInvitation {
   @@index([workspaceId])
   @@index([toUserId])
   @@index([toPhone])
+  @@index([toPhoneBi])
   @@index([workspaceId, status])
   @@index([toUserId, status])
   // Cleanup cron: WHERE status='pending' AND expiresAt < now.
@@ -2587,7 +2632,14 @@ model ProcessTrigger {
   eventType    String?   @map("event_type")
   // event: {nodeId, eventType}; schedule: {nodeId, everyValue, everyUnit}; webhook/telegram: {nodeId, credentialId?}
   config       Json      @default("{}")
-  webhookToken String?   @unique @map("webhook_token") // секрет публичного эндпоинта
+  // Секрет публичного эндпоинта: в колонке — SHA-256 hex сырого токена (lookup по равенству),
+  // сам токен — в webhookTokenEnc (envelope core/keys, показывается редакторам холста).
+  // Строки прошлой эпохи держат сырой токен (32 символа base64url) до бэкфилла.
+  webhookToken    String?   @unique @map("webhook_token")
+  webhookTokenEnc String?   @map("webhook_token_enc")
+  // Telegram: момент регистрации вебхука с secret_token (проверяется заголовком приёмника);
+  // NULL = зарегистрирован без секрета (до движка ключей) — крон перерегистрирует.
+  webhookSecretAt DateTime? @map("webhook_secret_at")
   runAsUserId  String    @map("run_as_user_id") // процесс запускается «от имени» этого сотрудника
   nextRunAt    DateTime? @map("next_run_at") // schedule: следующий запуск
   lastRunAt    DateTime? @map("last_run_at")
@@ -2609,7 +2661,8 @@ model ProcessCredential {
   workspaceId String   @map("workspace_id")
   name        String
   type        String // header | basic | bearer
-  // Шифр AES-256-GCM: base64(iv).base64(tag).base64(ciphertext) — секрет наружу не отдаётся.
+  // Envelope core/keys (`sa6e:`, KEK организации, AAD = строка); прошлый формат
+  // base64(iv).base64(tag).base64(ct) читается на legacy-окне и перешивается джобом.
   data        String
   createdById String   @map("created_by_id")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -3186,6 +3239,9 @@ model OfficeRoomParticipant {
 model VerifyChallenge {
   id                String    @id @default(uuid())
   phone             String
+  // ПДн под движком ключей: envelope (платформенный KEK — аккаунта ещё нет) + слепой индекс
+  phoneEnc          String?   @map("phone_enc")
+  phoneBi           String?   @map("phone_bi")
   purpose           String // register | password_reset | password_change | phone_change_old | phone_change_new
   codeHash          String    @map("code_hash")
   attempts          Int       @default(0) // неверные вводы на цепочку; 5 → цепочка сгорает
@@ -3206,9 +3262,11 @@ model VerifyChallenge {
 
   // Активная цепочка ищется по (phone, purpose) среди неистёкших.
   @@index([phone, purpose, createdAt])
+  @@index([phoneBi, purpose, createdAt])
   // Потолки SMS на номер: окно считается по времени ПОСЛЕДНЕЙ отправки, а не по
   // созданию цепочки (ресенды долгоживущей цепочки иначе выпадали бы из часового окна).
   @@index([phone, lastSentAt])
+  @@index([phoneBi, lastSentAt])
   @@index([createdAt]) // ретеншн-крон (7 дней)
   @@map("verify_challenges")
 }
@@ -3630,6 +3688,9 @@ model ShareLinkGuest {
   ownerType       String   @map("owner_type") // user | workspace — владелец объектов ссылок
   ownerId         String   @map("owner_id")
   phone           String // нормализованный, подтверждён SMS-кодом
+  // ПДн под движком ключей: envelope (KEK владельца ссылки) + слепой индекс (уникум ниже)
+  phoneEnc        String?  @map("phone_enc")
+  phoneBi         String?  @map("phone_bi")
   // Имя вводит сам гость (не подтверждается). Последнее введённое побеждает —
   // человек мог опечататься в первый раз.
   name            String
@@ -3639,6 +3700,7 @@ model ShareLinkGuest {
   visits ShareLinkVisit[]
 
   @@unique([ownerType, ownerId, phone])
+  @@unique([ownerType, ownerId, phoneBi])
   @@map("share_link_guests")
 }
 
@@ -3845,6 +3907,10 @@ model Counterparty {
 
   phone   String?
   email   String?
+  // ПДн под движком ключей (KEK организации): телефон ещё и слепым индексом (сверка ПЭП)
+  phoneEnc String? @map("phone_enc")
+  phoneBi  String? @map("phone_bi")
+  emailEnc String? @map("email_enc")
   comment String?
 
   createdById String    @map("created_by_id")
@@ -3860,6 +3926,7 @@ model Counterparty {
 
   @@index([workspaceId, archivedAt])
   @@index([workspaceId, name])
+  @@index([workspaceId, phoneBi])
   // ВНИМАНИЕ: партиальный UNIQUE (workspace_id, bin)
   // WHERE bin IS NOT NULL AND archived_at IS NULL дописан РУКАМИ в миграции
   // `counterparties_service` — Prisma такое не выражает. Дубль БИН среди живых →
@@ -3878,6 +3945,10 @@ model CounterpartyContact {
   position String?
   phone    String? // нормализованный (+7…): канал SMS и сверка ПЭП
   email    String?
+  // ПДн под движком ключей (KEK организации)
+  phoneEnc String? @map("phone_enc")
+  phoneBi  String? @map("phone_bi")
+  emailEnc String? @map("email_enc")
 
   archivedAt DateTime? @map("archived_at")
   createdAt  DateTime  @default(now()) @map("created_at")
@@ -3887,6 +3958,7 @@ model CounterpartyContact {
 
   @@index([counterpartyId, archivedAt])
   @@index([workspaceId])
+  @@index([workspaceId, phoneBi])
   @@map("counterparty_contacts")
 }
 
@@ -3895,8 +3967,11 @@ model CounterpartyContact {
 model CounterpartyBankAccount {
   id             String @id @default(uuid())
   counterpartyId String @map("counterparty_id")
+  // Денормализовано (как у CounterpartyContact): скоуп KEK шифрования IBAN — организация
+  workspaceId    String? @map("workspace_id")
 
   iban      String
+  ibanEnc   String?  @map("iban_enc") // ПДн под движком ключей (KEK организации)
   bankName  String   @map("bank_name")
   bik       String
   isPrimary Boolean  @default(false) @map("is_primary")
@@ -3905,6 +3980,7 @@ model CounterpartyBankAccount {
   counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
 
   @@index([counterpartyId])
+  @@index([workspaceId])
   @@map("counterparty_bank_accounts")
 }
 
@@ -4228,6 +4304,9 @@ model SignAct {
   // ИИН/БИН разбираются из сертификата. Расхождение с users.iin — ОТКАЗ, а не
   // предупреждение: иначе подпись доказывает не того человека.
   certSubjectIin String?   @map("cert_subject_iin")
+  // ПДн под движком ключей: ИИН подписанта — envelope (платформенный KEK) + слепой индекс «все подписи ИИН»
+  certSubjectIinEnc String? @map("cert_subject_iin_enc")
+  certSubjectIinBi  String? @map("cert_subject_iin_bi")
   certSubjectBin String?   @map("cert_subject_bin")
   certSerial     String?   @map("cert_serial")
   certIssuerCn   String?   @map("cert_issuer_cn")
@@ -4275,6 +4354,7 @@ model SignAct {
   @@index([signerUserId, signedAt])
   // «Найти все подписи этого ИИН» — запрос проверяющего и будущего аудита.
   @@index([certSubjectIin])
+  @@index([certSubjectIinBi])
   @@index([status, createdAt])
   // ВНИМАНИЕ: партиальный UNIQUE (request_id, signer_user_id)
   // WHERE status IN ('pending','signed') дописан РУКАМИ в миграции `sign_engine`
@@ -5260,4 +5340,294 @@ model AnalyticsDashboard {
 
   @@index([visibility, updatedAt])
   @@map("analytics_dashboards")
+}
+
+// ============================================================
+// core/keys (22-й платформенный движок) — keystore и журнал ключей
+// ============================================================
+// Корневой ключ живёт ВНЕ БД (файл с правами / HSM); здесь — только обёрнутые
+// им ключи (KEK на организацию и человека, пары подписи на аудиторию, HMAC-ключи).
+// Материал версии — `wrapped_material` (AES-256-GCM под корнем, AAD = kid|purpose);
+// открытый ключ Ed25519 лежит открыто (его публикует JWKS). Имена не переиспользуются,
+// версии только растут; `destroyed` = материала нет, данные под ним нечитаемы
+// (crypto-shredding организации/человека). См. docs/keys_engine.md.
+
+model CryptoKey {
+  id               String   @id @default(uuid())
+  /// platform | workspace:<id> | user:<id>
+  scope            String
+  /// kek | sign | mac — один ключ обслуживает ровно одно назначение
+  purpose          String
+  /// kek: default; sign: аудитория (product, platform, wopi, …); mac: имя (blind_index, verify_otp, …)
+  name             String
+  algorithm        String
+  provider         String
+  primaryVersionId String?  @map("primary_version_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  versions CryptoKeyVersion[]
+
+  @@unique([scope, purpose, name])
+  @@map("crypto_keys")
+}
+
+model CryptoKeyVersion {
+  /// id версии = `kid` в артефактах (JWT header, шифротекст, слепой индекс)
+  id                 String    @id @default(uuid())
+  keyId              String    @map("key_id")
+  version            Int
+  /// pending | active | disabled | destroy_scheduled | destroyed
+  state              String
+  /// Материал, обёрнутый корнем; NULL после уничтожения
+  wrappedMaterial    Bytes?    @map("wrapped_material")
+  /// Открытый ключ (SPKI DER) у пар подписи; NULL у симметричных
+  publicKey          Bytes?    @map("public_key")
+  /// Отпечаток корня, которым обёрнут материал (ротация корня перешивает всё)
+  rootKid            String    @map("root_kid")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  activatedAt        DateTime? @map("activated_at")
+  deactivatedAt      DateTime? @map("deactivated_at")
+  destroyScheduledAt DateTime? @map("destroy_scheduled_at")
+  destroyedAt        DateTime? @map("destroyed_at")
+
+  key CryptoKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
+
+  @@unique([keyId, version])
+  @@index([keyId, state])
+  @@index([state, destroyScheduledAt])
+  @@map("crypto_key_versions")
+}
+
+/// Журнал действий с ключами — append-only (триггеры immutable + no_truncate в миграции
+/// `keys_engine`): создал, ротировал, заморозил, отозвал, сменил права — кто, когда, причина.
+/// Это и есть вкладка «Журнал» реестра ключей организации.
+model KeyAuditEntry {
+  id          BigInt   @id @default(autoincrement())
+  occurredAt  DateTime @default(now()) @map("occurred_at")
+  actorId     String?  @map("actor_id")
+  /// user | bot | system | platform
+  actorKind   String   @default("user") @map("actor_kind")
+  workspaceId String?  @map("workspace_id")
+  /// crypto_key | key_version | root | bot | api_key | webhook_endpoint | policy
+  subjectType String   @map("subject_type")
+  subjectId   String   @map("subject_id")
+  /// Снимок имени — переживает удаление предмета
+  subjectName String?  @map("subject_name")
+  action      String
+  reason      String?
+  ip          String?
+  details     Json?
+
+  @@index([workspaceId, id])
+  @@index([subjectType, subjectId, id])
+  @@index([actorId, id])
+  @@map("key_audit_entries")
+}
+
+/// Журнал чтений ПДн ограниченного доступа (приказ МЦРИАП № 179/НҚ): кто, какую сущность,
+/// какие поля, сколько строк — агрегат на запрос, лёгкая вставка батчем вне транзакции.
+/// Пишет ПДн-слой движка ключей при расшифровке полей `sensitive` (ИИН, ДР, удостоверение,
+/// адрес, IBAN); телефон/e-mail — контактные, в журнал не идут. Ретеншн 365 дней.
+/// Таблица ПАРТИЦИОНИРОВАНА по месяцам `occurred_at` (миграция `keys_journal_partitions`,
+/// руками) — составной PK `(id, occurred_at)`; партиции ведёт `KeysPiiService`
+/// через `MonthlyPartitions`. Индекс `occurred_at` в БД — BRIN.
+model PiiAccessLog {
+  id          BigInt   @default(autoincrement())
+  occurredAt  DateTime @default(now()) @map("occurred_at")
+  actorId     String?  @map("actor_id")
+  /// user | system | platform | bot
+  actorKind   String   @default("user") @map("actor_kind")
+  workspaceId String?  @map("workspace_id")
+  entity      String
+  fields      String[]
+  count       Int
+  sampleIds   String[] @map("sample_ids")
+
+  @@id([id, occurredAt])
+  @@index([occurredAt])
+  @@index([actorId, occurredAt])
+  @@map("pii_access_log")
+}
+
+// ============================================================
+// core/keys — боты, ключи API, журнал обращений, политика организации
+// ============================================================
+
+/// Бот — собственность организации (решение грилла №7): отвечают владелец и админы
+/// (роль, не человек); именной ответственный — по желанию. `userId` — теневая строка
+/// users (kind='bot') с ролью user_roles(workspace, rank): так бот — полноправный актор
+/// в задачах, хронике и правах без переписывания FK. Уход создателя → `frozen`
+/// (creator_left) до решения владельца; ничего не удаляется.
+model Bot {
+  id                String    @id @default(uuid())
+  workspaceId       String    @map("workspace_id")
+  userId            String    @unique @map("user_id")
+  name              String
+  glyph             String?
+  /// active | frozen | archived
+  status            String    @default("active")
+  /// creator_left | owner | platform
+  frozenReason      String?   @map("frozen_reason")
+  frozenAt          DateTime? @map("frozen_at")
+  /// member | manager — проецируется ролью staff | manager в user_roles
+  rank              String    @default("member")
+  responsibleUserId String?   @map("responsible_user_id")
+  /// «Для чего» — обязательное поле реестра
+  purpose           String
+  /// { tasks: 'write', documents: 'read', … } — сервисы из KEY_SCOPE_SERVICES
+  scopes            Json      @default("{}")
+  /// CIDR-список; пустой = без ограничения (кроме ключей без срока — им список обязателен)
+  ipAllowlist       Json      @default("[]") @map("ip_allowlist")
+  createdById       String    @map("created_by_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  archivedAt        DateTime? @map("archived_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keys      ApiKey[]
+
+  @@index([workspaceId, status])
+  @@index([createdById])
+  @@index([responsibleUserId])
+  @@map("bots")
+}
+
+/// Ключ API: `sa6_<bot|pat>_<live|test>_<base62>_<crc>`, в БД — HMAC-SHA256 (pepper из
+/// keystore, `hashKid`) + префикс и last4 для маски; show-once. Семейство `familyId` —
+/// ротация с перекрытием (≤ 2 живых, grace старого до 7 дней). Срок обязателен, кроме
+/// ключа бота, выпущенного владельцем с IP-списком. Статус вычисляется из строки.
+model ApiKey {
+  id            String    @id @default(uuid())
+  /// bot | pat
+  kind          String
+  botId         String?   @map("bot_id")
+  userId        String?   @map("user_id")
+  /// null у личного ключа для собственных данных человека
+  workspaceId   String?   @map("workspace_id")
+  familyId      String    @map("family_id")
+  name          String
+  purpose       String
+  prefix        String
+  last4         String
+  hash          String    @unique
+  hashKid       String    @map("hash_kid")
+  scopes        Json      @default("{}")
+  ipAllowlist   Json      @default("[]") @map("ip_allowlist")
+  expiresAt     DateTime? @map("expires_at")
+  lastUsedAt    DateTime? @map("last_used_at")
+  lastUsedIp    String?   @map("last_used_ip")
+  lastUsedCountry String? @map("last_used_country")
+  useCount      Int       @default(0) @map("use_count")
+  revokedAt     DateTime? @map("revoked_at")
+  revokedReason String?   @map("revoked_reason")
+  revokedNote   String?   @map("revoked_note")
+  rotatedFromId String?   @map("rotated_from_id")
+  graceUntil    DateTime? @map("grace_until")
+  storedHint    String?   @map("stored_hint")
+  createdById   String    @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  bot Bot? @relation(fields: [botId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([botId])
+  @@index([userId, workspaceId])
+  @@index([workspaceId, revokedAt])
+  @@index([expiresAt])
+  @@map("api_keys")
+}
+
+/// Журнал обращений ключами — append-only, пишется батчем из Redis. Таблица
+/// ПАРТИЦИОНИРОВАНА по месяцам `at` (миграция `keys_journal_partitions`, руками:
+/// Prisma не выражает PARTITION BY) — отсюда составной PK `(id, at)`; партиции заводит
+/// и сбрасывает по ретеншну (90 дней) `KeysUsageCron` через `MonthlyPartitions`.
+/// Индекс `at` в БД — BRIN (зеркало: Prisma рисует btree).
+model ApiAccessLog {
+  id     BigInt   @default(autoincrement())
+  keyId  String   @map("key_id")
+  at     DateTime @default(now())
+  method String
+  route  String
+  status Int
+  ip     String?
+
+  @@id([id, at])
+  @@index([keyId, at])
+  @@index([at])
+  @@map("api_access_log")
+}
+
+/// Политика ключей организации — только потолки (кто создаёт — зашито: owner/admin).
+// ---- core/webhooks: исходящие вебхуки организации ----
+// Секреты — envelope `sa6e:` под KEK организации (реестр колонок движка ключей → rewrap).
+model WebhookEndpoint {
+  id             String    @id @default(uuid())
+  workspaceId    String    @map("workspace_id")
+  url            String
+  /// Ключи событий реестра shared (`tasks.task.created`, …)
+  events         Json      @default("[]")
+  /// hmac | ed25519
+  signing        String    @default("hmac")
+  secretEnc      String    @map("secret_enc")
+  prevSecretEnc  String?   @map("prev_secret_enc")
+  prevExpiresAt  DateTime? @map("prev_expires_at")
+  /// Ed25519: приватный ключ (pkcs8, envelope) и публичный (raw 32 байта, base64)
+  privateKeyEnc  String?   @map("private_key_enc")
+  publicKey      String?   @map("public_key")
+  /// pending_verification | active | disabled
+  status         String    @default("pending_verification")
+  /// Подряд провалов доставки (обнуляется успехом); порог — WEBHOOK_LIMITS.failuresToDisable
+  failures       Int       @default(0)
+  disabledAt     DateTime? @map("disabled_at")
+  /// failures | manual | platform | verification | signature_audit
+  disabledReason String?   @map("disabled_reason")
+  lastDeliveryAt DateTime? @map("last_delivery_at")
+  lastProbeAt    DateTime? @map("last_probe_at")
+  createdById    String    @map("created_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  workspace  Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@index([workspaceId, status])
+  @@index([status, lastProbeAt])
+  @@map("webhook_endpoints")
+}
+
+model WebhookDelivery {
+  id          String    @id @default(uuid())
+  endpointId  String    @map("endpoint_id")
+  eventKey    String    @map("event_key")
+  /// Тело события целиком (id, type, version, occurredAt, data) — подписывается как есть
+  payload     Json
+  /// pending | failed (ждёт ретрая) | delivered | exhausted
+  status      String    @default("pending")
+  attempts    Int       @default(0)
+  nextAt      DateTime? @map("next_at")
+  lastStatus  Int?      @map("last_status")
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  deliveredAt DateTime? @map("delivered_at")
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId, createdAt])
+  @@index([status, nextAt])
+  @@index([createdAt])
+  @@map("webhook_deliveries")
+}
+
+model WorkspaceKeyPolicy {
+  workspaceId        String   @id @map("workspace_id")
+  maxPatDays         Int      @default(90) @map("max_pat_days")
+  /// null — «бессрочно» разрешено владельцу с IP-списком
+  maxBotKeyDays      Int?     @default(365) @map("max_bot_key_days")
+  requireIpAllowlist Boolean  @default(false) @map("require_ip_allowlist")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_key_policies")
 }

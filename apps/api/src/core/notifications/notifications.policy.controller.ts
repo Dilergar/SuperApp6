@@ -1,12 +1,15 @@
 import { Body, Controller, Get, Param, Put } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { putWorkspaceNotificationPolicySchema } from '@superapp/shared';
+import { NoApiKeys } from '../../shared/decorators/api-keys.decorator';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { NotificationsPolicyService } from './notifications.policy.service';
 
 /** Политика организации: дефолты + замки (гейт — admin/owner, проверяет сервис). */
 @ApiTags('Notifications')
 @ApiBearerAuth()
+// Настройка организации — только живой сессией человека (ключам API закрыто)
+@NoApiKeys()
 @Controller('workspaces/:workspaceId/notification-policy')
 export class NotificationsPolicyController {
   constructor(private readonly policy: NotificationsPolicyService) {}

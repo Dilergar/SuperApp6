@@ -58,6 +58,22 @@ import type {
 // Тариф и лимиты: один ключ на контекст (`personal` | id организации) = одна форма кэша (снимок)
 /** Отказ человека от аналитики использования (`GET /analytics/consent`). */
 export const analyticsConsentKey = ['analytics', 'consent'] as const;
+// ---- core/keys: реестр ключей организации, боты, личные ключи, step-up ----
+export const keysRegistryKey = (wsId: string, kind?: string | null, filter?: string | null) => ['workspaces', wsId, 'keys', 'registry', kind ?? 'all', filter ?? 'all'] as const;
+export const keysRegistryRootKey = (wsId: string) => ['workspaces', wsId, 'keys'] as const;
+export const keysPendingKey = (wsId: string) => ['workspaces', wsId, 'keys', 'pending'] as const;
+export const keysBotsKey = (wsId: string) => ['workspaces', wsId, 'keys', 'bots'] as const;
+export const keysBotKey = (wsId: string, botId: string) => ['workspaces', wsId, 'keys', 'bots', botId] as const;
+export const keysJournalKey = (wsId: string, subjectType?: string | null, subjectId?: string | null) => ['workspaces', wsId, 'keys', 'journal', subjectType ?? 'all', subjectId ?? 'all'] as const;
+export const keysPolicyKey = (wsId: string) => ['workspaces', wsId, 'keys', 'policy'] as const;
+export const keysWorkspacePersonalKey = (wsId: string) => ['workspaces', wsId, 'keys', 'personal'] as const;
+export const keysPersonalKey = ['keys', 'personal'] as const;
+export const keysStepUpKey = ['keys', 'step-up'] as const;
+export const keysScopeMatrixKey = ['keys', 'scope-matrix'] as const;
+export const webhooksEndpointsKey = (wsId: string) => ['workspaces', wsId, 'webhooks', 'endpoints'] as const;
+export const webhooksDeliveriesKey = (wsId: string, endpointId: string) => ['workspaces', wsId, 'webhooks', 'endpoints', endpointId, 'deliveries'] as const;
+export const webhooksEventsKey = ['webhooks', 'events'] as const;
+
 export const entitlementsRootKey = ['entitlements'] as const;
 export const entitlementsKey = (context: string) => ['entitlements', context] as const;
 export const contactsKey = ['contacts'] as const;

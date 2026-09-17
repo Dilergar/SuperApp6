@@ -11,12 +11,19 @@ import { I18nService } from '../../shared/i18n/i18n.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { ProcessesService } from './processes.service';
 import { evalCondition } from './process-builtin-nodes';
+import { hashWebhookToken, isHashedWebhookToken, telegramSecretMatches, webhookTokenCtx } from './process-crypto';
+import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
+import { KeysMacService } from '../../core/keys/keys.mac.service';
+import { JobDiscardError, JobsRegistry } from '../../core/jobs/jobs.registry';
+import { JobsService } from '../../core/jobs/jobs.service';
 
 /**
  * Ф3 — роутер триггеров: ловит события платформы (EventBus) и стартует подписанные
  * процессы; добивает расписания (из крона); принимает вебхуки. Запуск процесса всегда
  * через ProcessesService.startInstanceProgrammatic (от имени runAsUserId).
  */
+const WEBHOOK_TOKENS_BACKFILL_JOB = 'processes.webhookTokens.backfill';
+
 @Injectable()
 export class ProcessTriggerRouter implements OnModuleInit {
   private readonly logger = new Logger(ProcessTriggerRouter.name);
@@ -26,9 +33,19 @@ export class ProcessTriggerRouter implements OnModuleInit {
     private events: EventBusService,
     private processes: ProcessesService,
     private i18n: I18nService,
+    private keys: KeysEnvelopeService,
+    private mac: KeysMacService,
+    private jobsRegistry: JobsRegistry,
+    private jobs: JobsService,
   ) {}
 
   onModuleInit(): void {
+    // Бэкфилл токенов вебхуков прошлой эпохи (сырой токен в unique-колонке → хеш + envelope):
+    // джоб на каждом старте, идемпотентный — без legacy-строк ничего не делает.
+    this.jobsRegistry.register(WEBHOOK_TOKENS_BACKFILL_JOB, () => this.backfillWebhookTokens(), { maxAttempts: 5 });
+    void this.jobs
+      .enqueue(null, { type: WEBHOOK_TOKENS_BACKFILL_JOB, payload: {}, uniqueKey: 'boot', runAt: new Date(Date.now() + 15_000) })
+      .catch((err) => this.logger.warn(`webhook tokens backfill enqueue failed: ${(err as Error).message}`));
     for (const evt of PROCESS_EVENT_TYPES) {
       this.events.on(evt).subscribe((event) => {
         void this.onEvent(evt, event.payload as Record<string, unknown>).catch((err) =>
@@ -188,7 +205,7 @@ export class ProcessTriggerRouter implements OnModuleInit {
 
   /** Публичный вебхук: тело запроса → анкета процесса. Возвращает id инстанса или null. */
   async fireWebhook(token: string, body: Record<string, unknown>): Promise<string | null> {
-    const trigger = await this.db.processTrigger.findUnique({ where: { webhookToken: token } });
+    const trigger = await this.findByRawToken(token);
     if (!trigger || !trigger.enabled || trigger.type !== 'webhook') return null;
     if (!(await this.runAsAllowed(trigger))) return null;
     const nodeId = ((trigger.config ?? {}) as { nodeId?: string }).nodeId;
@@ -201,9 +218,16 @@ export class ProcessTriggerRouter implements OnModuleInit {
    * Публичный приёмник Telegram-апдейтов: входящее сообщение боту → старт процесса с
    * триггер-ноды (текст/чат/отправитель → анкета). Не-текстовые апдейты тихо игнорируются.
    */
-  async fireTelegram(token: string, update: Record<string, unknown>): Promise<string | null> {
-    const trigger = await this.db.processTrigger.findUnique({ where: { webhookToken: token } });
+  async fireTelegram(token: string, update: Record<string, unknown>, secretHeader?: string): Promise<string | null> {
+    const trigger = await this.findByRawToken(token);
     if (!trigger || !trigger.enabled || trigger.type !== 'telegram') return null;
+    // Вебхук зарегистрирован с secret_token → заголовок обязан совпасть (иначе апдейт
+    // подделан). Регистрации до движка ключей (webhookSecretAt = NULL) принимаются без
+    // заголовка, пока публикация не перерегистрирует бота с секретом.
+    if (trigger.webhookSecretAt && !(await telegramSecretMatches(this.mac, token, secretHeader))) {
+      this.logger.warn(`telegram update for trigger ${trigger.id} rejected: bad secret_token`);
+      return null;
+    }
     if (!(await this.runAsAllowed(trigger))) return null;
 
     const msg = (update.message ?? update.edited_message) as Record<string, unknown> | undefined;
@@ -230,5 +254,41 @@ export class ProcessTriggerRouter implements OnModuleInit {
     const id = await this.processes.startInstanceProgrammatic(trigger.definitionId, trigger.runAsUserId, variables, 'telegram', nodeId);
     if (id) await this.db.processTrigger.update({ where: { id: trigger.id }, data: { lastRunAt: new Date() } });
     return id;
+  }
+
+  /** Триггер по сырому токену URL: сначала хеш (новые строки), затем сама строка (legacy до бэкфилла). */
+  private async findByRawToken(token: string) {
+    if (!/^[A-Za-z0-9_-]{16,128}$/.test(token)) return null;
+    const byHash = await this.db.processTrigger.findUnique({ where: { webhookToken: hashWebhookToken(token) } });
+    if (byHash) return byHash;
+    if (isHashedWebhookToken(token)) return null;
+    return this.db.processTrigger.findUnique({ where: { webhookToken: token } });
+  }
+
+  /** Legacy-строки: сырой токен → envelope + хеш (батчами, идемпотентно). */
+  async backfillWebhookTokens(): Promise<void> {
+    let done = 0;
+    for (;;) {
+      const rows = await this.db.processTrigger.findMany({
+        where: { webhookToken: { not: null }, webhookTokenEnc: null },
+        select: { id: true, workspaceId: true, webhookToken: true },
+        take: 200,
+      });
+      const legacy = rows.filter((r) => r.webhookToken && !isHashedWebhookToken(r.webhookToken));
+      if (!legacy.length) break;
+      for (const r of legacy) {
+        const raw = r.webhookToken!;
+        let enc: string;
+        try {
+          enc = await this.keys.encrypt({ type: 'workspace', id: r.workspaceId }, webhookTokenCtx(r.workspaceId), raw);
+        } catch (err) {
+          throw new JobDiscardError(`webhook token backfill ${r.id}: ${(err as Error).message}`);
+        }
+        await this.db.processTrigger.updateMany({ where: { id: r.id, webhookToken: raw }, data: { webhookToken: hashWebhookToken(raw), webhookTokenEnc: enc } });
+        done++;
+      }
+      if (legacy.length < 200) break;
+    }
+    if (done) this.logger.log(`webhook tokens backfilled: ${done}`);
   }
 }

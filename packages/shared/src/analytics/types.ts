@@ -98,6 +98,9 @@ export const ANALYTICS_AREAS = {
   entitlements: { kind: 'platform', order: 940 },
   share: { kind: 'platform', order: 950 },
   analytics: { kind: 'platform', order: 960 },
+  /** Ключи, боты, личные токены (core/keys) и исходящие вебхуки (core/webhooks) */
+  keys: { kind: 'platform', order: 970 },
+  webhooks: { kind: 'platform', order: 975 },
   platform: { kind: 'platform', order: 970 },
   other: { kind: 'platform', order: 999 },
 } as const satisfies Record<string, { kind: 'product' | 'platform'; order: number }>;

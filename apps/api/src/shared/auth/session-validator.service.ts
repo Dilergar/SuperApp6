@@ -1,8 +1,9 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { unauthorized } from '../errors/api-error';
 import { DatabaseService } from '../database/database.service';
 import { RedisService } from '../redis/redis.service';
+import { KeysSigningService } from '../../core/keys/keys.signing.service';
+import { legacySecret } from '../../core/keys/keys.legacy';
 import type { JwtPayload } from '../decorators/current-user.decorator';
 
 /**
@@ -36,7 +37,7 @@ export class SessionValidatorService {
   constructor(
     private db: DatabaseService,
     private redis: RedisService,
-    private jwt: JwtService,
+    private signing: KeysSigningService,
   ) {}
 
   /**
@@ -87,18 +88,22 @@ export class SessionValidatorService {
   }
 
   /**
-   * Подпись + срок, затем живость. Вход для НЕ-HTTP транспортов (рукопожатие сокета).
-   * Секрет читается на каждый вызов, а не на импорте модуля: модульные env-константы
-   * вычисляются ДО validateEnv() в main.ts.
+   * Подпись + срок, затем живость. Единый вход для HTTP (JwtAuthGuard) и рукопожатия
+   * сокета. Подпись — EdDSA по `kid` из keystore (аудитория `product`); HS256 прошлой
+   * эпохи принимается только на окне `KEYS_LEGACY_HS256_UNTIL`. Refresh-токен как
+   * access не проходит: новый несёт `typ: refresh+jwt`, legacy — `jti`.
    */
   async verifyAccessToken(raw: string): Promise<JwtPayload> {
-    let payload: JwtPayload;
+    let payload: JwtPayload & { jti?: string };
     try {
-      payload = this.jwt.verify<JwtPayload>(raw, { secret: process.env.JWT_SECRET });
+      payload = await this.signing.verify<JwtPayload>('product', raw, {
+        forbidTyp: ['refresh+jwt'],
+        legacy: { secret: legacySecret(), audienceOptional: true },
+      });
     } catch {
       throw unauthorized('auth.invalidToken');
     }
-    if (!payload?.sub) throw unauthorized('auth.invalidToken');
+    if (!payload?.sub || payload.jti) throw unauthorized('auth.invalidToken');
     return this.assertAlive(payload);
   }
 

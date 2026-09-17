@@ -30,6 +30,13 @@ export interface NotificationServerToClientEvents {
  * Снимок тарифа субъекта изменился (relay `entitlements.changed`: подписка, грант,
  * оверрайд, публикация версии). Клиент инвалидирует свой снимок и перечитывает.
  */
+/** `keys:changed` — реестр ключей организации изменился (бот заморожен/разморожен, ключ создан/отозван); владельцу и админам */
+export interface WsKeysChanged {
+  workspaceId: string;
+  /** Ботов, ждущих решения владельца (значок в шапке организации) */
+  frozenBots: number;
+}
+
 export interface WsEntitlementsChanged {
   subjectType: 'user' | 'workspace' | 'family';
   subjectId: string;
@@ -39,9 +46,14 @@ export interface EntitlementsServerToClientEvents {
   'entitlements:changed': (p: WsEntitlementsChanged) => void;
 }
 
+export interface KeysServerToClientEvents {
+  'keys:changed': (p: WsKeysChanged) => void;
+}
+
 export type RealtimeServerToClientEvents = MessengerServerToClientEvents &
   NotificationServerToClientEvents &
-  EntitlementsServerToClientEvents;
+  EntitlementsServerToClientEvents &
+  KeysServerToClientEvents;
 
 /** Payload шины `entitlements.changed` (движок → relay для user; workspaces подписывается для организации). */
 export interface EntitlementsChangedBusPayload {

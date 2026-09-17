@@ -67,6 +67,10 @@
 ### Аналитика (движок)
 - `core/analytics` → `core/jobs` (роллапы дня, фоновые воронки, забвение), `core/entitlements` (`liveSubscriptionOf` — снимок тарифа при приёме), `core/roles` (`getRolesInContext` — членство в заявленной организации при приёме), `core/platform` (команды `analytics.*`, панели `*.analytics`, маршруты `/platform/analytics` в `analytics.platform.provider.ts`), Redis (stream `superapp:analytics`, кэши, «грязные» дни). Потребители → `AnalyticsService` (`track(tx|null, …)` / `forgetUser` / `forgetWorkspace`): `core/auth` (вход, регистрация, сброс пароля), `core/users` (забвение при анонимизации), `core/entitlements` (отказ 402, подписки; `EntitlementsLifecycle` — окончание), `core/notifications` (прочтение), `core/share-links` (открытие ссылки гостем), `WorkspacesModule` (создание, приглашения, архив, purge), `TasksModule`, `MessengerModule`, `CalendarModule`. Модуль `@Global` — импорт в потребителе не нужен. Направление всегда «сервис → движок»; движок фичи не импортирует — [analytics_engine.md](analytics_engine.md).
 
+### Ключи и вебхуки (движки)
+- `core/keys` → `core/jobs` (ротации, rewrap, backfill ПДн, перешивка legacy), `core/verify` (step-up `keys_manage`), `core/roles` (роли бота, гейт owner/admin), `core/entitlements` (`keys.maxBots`, `keys.maxPersonalTokens`, провайдеры расхода), `core/notifications` + `core/audiences` (адресаты — владелец и админы), `core/realtime` (`keys:changed`), `core/analytics`, `core/platform` (команды `keys.*`, панели `workspace.keys`/`user.keys`), Redis (эпоха ключей, кэш снимков ключей API, step-up окно, last-used). Потребители → `KeysSigningService` (auth, platform-auth, docs, share-links, files-url), `KeysEnvelopeService`/`KeysFieldRegistry` (google-calendar, processes, wallet-cards, counterparties, webhooks), `KeysMacService` (verify, google state, api-keys), `KeysCascadesService` (workspaces: removeMember/leaveWorkspace/updateMember/purgeWorkspace; hr: применение приказа `dismissal`; users: scheduleDeletion/anonymizeAccount; auth: bumpTokenEpochTx), `ApiKeyAuthService` (`JwtAuthGuard`), `WebhooksRegistryPort` (вебхуки регистрируют строки реестра). Модуль `@Global` — [keys_engine.md](keys_engine.md), [keys_api_access.md](keys_api_access.md).
+- `core/webhooks` → `core/keys` (envelope секретов, журнал, step-up, гейт, порт реестра, уведомитель), `core/jobs` (`webhooks.deliver`, `webhooks.probe`), `core/notifications`, `core/entitlements` (`webhooks.maxEndpoints`), `core/analytics`, `shared/http` (`safeFetch`; loopback в dev — `trustedFetch`). Потребители → `WebhooksService.emit(tx, …)`: `TasksModule`, `DocumentsModule`, `WorkspacesModule`. Модуль `@Global` — [webhooks_engine.md](webhooks_engine.md).
+
 ## Carve-out map (допустимые прямые чтения чужих таблиц)
 
 Для монолита допустимо; список — граница будущего выделения сервисов:
@@ -74,6 +78,7 @@
 - `core/quick-actions` читает `chat`.
 - Office и `OfficeRichCardsProvider` читают `call_sessions` / `call_session_participants` (живой счётчик); мессенджер читает те же таблицы для `activeCall` чатов (`chat-calls.listener.ts`, `messenger.service.ts`).
 - Мессенджер читает `officeRoom` (чат/roleLabels).
+- `core/keys` читает `user` (теневые строки ботов, `kind`, `tokenEpoch`, системные роли носителя ключа) и `userRole` (роль бота, гейт owner/admin); `core/webhooks` читает только свои таблицы.
 - `core/analytics` читает `platformStaff` (внутренние аккаунты), `user` (удалён ли, телефон для префиксов внутренних) при приёме и `workspaceMember` (число участников в панели «Активность» организации).
 
 ## Проверка

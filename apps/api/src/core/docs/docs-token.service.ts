@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { DOCS_LIMITS } from '@superapp/shared';
+import { KeysSigningService } from '../keys/keys.signing.service';
+import { legacyDerivedKey, legacyOpen } from '../keys/keys.legacy';
 
 /**
  * Полезная нагрузка WOPI-токена. Короткие ключи не ради красоты: токен уходит в
@@ -33,48 +35,36 @@ export interface DocsTokenVerdict {
   reason?: string;
 }
 
+const LEGACY_CONTEXT = 'core/docs:wopi-token:v1';
+
 /**
- * Токены доступа WOPI. НЕ платформенный JWT намеренно: этот токен живёт по другим
- * правилам (привязан к паре «пользователь+документ» и к режиму, гасится бампом
+ * Токены доступа WOPI. НЕ платформенный access-токен намеренно: этот токен живёт по
+ * другим правилам (привязан к паре «пользователь+документ» и к режиму, гасится бампом
  * tokenEpoch документа, живёт 10 часов) и не должен ни при каких обстоятельствах
- * пускать предъявителя в остальное API. Формат самодостаточный — в БД не храним:
- * `v1.<payload>.<hmac>`, оба сегмента base64url.
+ * пускать предъявителя в остальное API — у него СВОЯ аудитория `wopi` в keystore
+ * (Ed25519, `kid`, `typ: wopi+jwt`), верификатор продукта её отвергает по `aud`.
  *
- * Ключ подписи — DOCS_TOKEN_SECRET; пусто → выводим из JWT_SECRET отдельной строкой
- * контекста, чтобы утечка токена документа не превращалась в оракул платформенного
- * секрета и наоборот.
+ * Прошлый формат `v1.<payload>.<hmac>` (ключ из DOCS_TOKEN_SECRET либо производный от
+ * мастер-секрета) принимается только на legacy-окне и только для проверки.
  */
 @Injectable()
 export class DocsTokenService {
-  private cachedKey: { source: string; key: Buffer } | null = null;
-
-  private get signingKey(): Buffer {
-    const source = process.env.DOCS_TOKEN_SECRET || process.env.JWT_SECRET || '';
-    if (this.cachedKey?.source === source) return this.cachedKey.key;
-    const key = process.env.DOCS_TOKEN_SECRET
-      ? Buffer.from(source, 'utf8')
-      : createHmac('sha256', source).update('core/docs:wopi-token:v1').digest();
-    this.cachedKey = { source, key };
-    return key;
-  }
-
-  private sign(body: string): string {
-    return createHmac('sha256', this.signingKey).update(body).digest('base64url');
-  }
+  constructor(private readonly signing: KeysSigningService) {}
 
   /** TTL берётся из DOCS_LIMITS: правка большого документа идёт часами (риск 6) */
-  issue(input: {
+  async issue(input: {
     documentId: string;
     userId: string;
     canWrite: boolean;
     epoch: number;
     place?: { refType: string; refId: string } | null;
-  }): {
+  }): Promise<{
     token: string;
     /** ВНИМАНИЕ: WOPI-поле access_token_ttl — это МЕТКА ВРЕМЕНИ в мс, а не длительность */
     expiresAtMs: number;
-  } {
-    const expiresAtMs = Date.now() + DOCS_LIMITS.tokenTtlHours * 60 * 60 * 1000;
+  }> {
+    const ttlSec = DOCS_LIMITS.tokenTtlHours * 60 * 60;
+    const expiresAtMs = Date.now() + ttlSec * 1000;
     const payload: DocsTokenPayload = {
       d: input.documentId,
       u: input.userId,
@@ -83,35 +73,58 @@ export class DocsTokenService {
       x: expiresAtMs,
       ...(input.place ? { p: `${input.place.refType}:${input.place.refId}` } : {}),
     };
-    const body = `v1.${Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')}`;
-    return { token: `${body}.${this.sign(body)}`, expiresAtMs };
+    const token = await this.signing.sign('wopi', { ...payload }, { ttlSec, typ: 'wopi+jwt' });
+    return { token, expiresAtMs };
   }
 
   /**
    * Разбор и проверка подписи/срока. Соответствие documentId и tokenEpoch сверяет
    * вызывающий: epoch живёт в БД, и только там видно, что документ отозвали.
    */
-  verify(token: string | undefined | null): DocsTokenVerdict {
+  async verify(token: string | undefined | null): Promise<DocsTokenVerdict> {
     if (!token) return { ok: false, reason: 'no token' };
+    if (token.startsWith('v1.')) return this.verifyLegacy(token);
+    let payload: DocsTokenPayload;
+    try {
+      payload = await this.signing.verify<DocsTokenPayload>('wopi', token, { typ: 'wopi+jwt' });
+    } catch (err) {
+      return { ok: false, reason: (err as Error).message };
+    }
+    return this.checkPayload(payload);
+  }
+
+  private checkPayload(payload: DocsTokenPayload): DocsTokenVerdict {
+    if (!payload?.d || !payload?.u || (payload.m !== 'w' && payload.m !== 'r')) {
+      return { ok: false, reason: 'payload' };
+    }
+    if (!Number.isFinite(payload.x) || payload.x <= Date.now()) return { ok: false, reason: 'expired' };
+    return { ok: true, payload: { d: payload.d, u: payload.u, m: payload.m, e: payload.e, x: payload.x, ...(payload.p ? { p: payload.p } : {}) } };
+  }
+
+  private legacyKey(): Buffer | null {
+    if (!legacyOpen()) return null;
+    const own = process.env.DOCS_TOKEN_SECRET;
+    return own ? Buffer.from(own, 'utf8') : legacyDerivedKey(LEGACY_CONTEXT);
+  }
+
+  private verifyLegacy(token: string): DocsTokenVerdict {
+    const key = this.legacyKey();
+    if (!key) return { ok: false, reason: 'legacy window closed' };
     const parts = token.split('.');
     if (parts.length !== 3 || parts[0] !== 'v1') return { ok: false, reason: 'format' };
     const body = `${parts[0]}.${parts[1]}`;
-    const expected = Buffer.from(this.sign(body), 'utf8');
-    const got = Buffer.from(parts[2], 'utf8');
+    const expected = Buffer.from(createHmac('sha256', key).update(body).digest('base64url'), 'utf8');
+    const got = Buffer.from(parts[2]!, 'utf8');
     if (expected.length !== got.length || !timingSafeEqual(expected, got)) {
       return { ok: false, reason: 'signature' };
     }
     let payload: DocsTokenPayload;
     try {
-      payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as DocsTokenPayload;
+      payload = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8')) as DocsTokenPayload;
     } catch {
       return { ok: false, reason: 'unreadable payload' };
     }
-    if (!payload?.d || !payload?.u || (payload.m !== 'w' && payload.m !== 'r')) {
-      return { ok: false, reason: 'payload' };
-    }
-    if (!Number.isFinite(payload.x) || payload.x <= Date.now()) return { ok: false, reason: 'expired' };
-    return { ok: true, payload };
+    return this.checkPayload(payload);
   }
 
   /**
@@ -121,8 +134,8 @@ export class DocsTokenService {
    */
   placeOf(payload: DocsTokenPayload): { refType: string; refId: string } | null {
     if (!payload.p) return null;
-    const at = payload.p.indexOf(':');
-    if (at <= 0 || at === payload.p.length - 1) return null;
-    return { refType: payload.p.slice(0, at), refId: payload.p.slice(at + 1) };
+    const idx = payload.p.indexOf(':');
+    if (idx <= 0 || idx === payload.p.length - 1) return null;
+    return { refType: payload.p.slice(0, idx), refId: payload.p.slice(idx + 1) };
   }
 }

@@ -430,7 +430,9 @@
     "staff": "Employees",
     "tasks": "Tasks",
     "wallet": "Wallet",
-    "workspaces": "Organizations"
+    "workspaces": "Organizations",
+    "keys": "Keys and bots",
+    "webhooks": "Webhooks"
   },
   "events": {
     "analytics": {
@@ -606,6 +608,46 @@
         "created": {
           "description": "A new organization appeared in the app",
           "title": "Organization created"
+        }
+      }
+    },
+    "keys": {
+      "bot": {
+        "created": {
+          "title": "Bot created",
+          "description": "An organization created a bot with its first key"
+        }
+      },
+      "key": {
+        "created": {
+          "title": "Key created",
+          "description": "A bot key or a personal key was issued (rotation counts too)"
+        },
+        "first_used": {
+          "title": "Key used for the first time",
+          "description": "The first request with a new key — the integration is live"
+        },
+        "revoked": {
+          "title": "Key revoked",
+          "description": "A key was revoked by a person, a cascade or a leak signal"
+        }
+      },
+      "session": {
+        "reuse_detected": {
+          "title": "Refresh token reuse",
+          "description": "A rotated refresh token was presented again; the session family was revoked"
+        }
+      }
+    },
+    "webhooks": {
+      "endpoint": {
+        "created": {
+          "title": "Webhook endpoint created",
+          "description": "An organization subscribed an https endpoint to events"
+        },
+        "disabled": {
+          "title": "Webhook endpoint disabled",
+          "description": "An endpoint was switched off: failures, a failed signature audit or by a person"
         }
       }
     }

@@ -4,6 +4,8 @@ import { createHmac, createHash, randomBytes, randomInt, timingSafeEqual } from 
 import * as bcrypt from 'bcrypt';
 import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
+import { KeysMacService } from '../keys/keys.mac.service';
+import { legacyHmacWithPrefix } from '../keys/keys.legacy';
 import { RedisService } from '../../shared/redis/redis.service';
 import { isDevEnv, isProdEnv } from '../../shared/config/env.validation';
 import {
@@ -70,6 +72,7 @@ export class VerifyService {
     private db: DatabaseService,
     private redis: RedisService,
     private sms: VerifySmsService,
+    private mac: KeysMacService,
   ) {
     // isProdEnv(): незаданный NODE_ENV — это ПРОД, а не «не прод». Иначе тест-карта с
     // фиксированными кодами пережила бы забытую переменную в контейнере.
@@ -163,13 +166,14 @@ export class VerifyService {
    */
   async startStepUp(
     userId: string,
-    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new',
+    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage',
     password: string,
     newPhone: string | undefined,
     ip?: string,
   ): Promise<VerifyStartResponse> {
-    const user = await this.db.user.findUnique({ where: { id: userId }, select: { phone: true, password: true, deletedAt: true } });
-    if (!user || user.deletedAt) throw unauthorized('auth.userNotFound');
+    const user = await this.db.user.findUnique({ where: { id: userId }, select: { phone: true, password: true, deletedAt: true, kind: true } });
+    // Бот (core/keys) — теневой пользователь без номера и пароля: step-up ему не положен
+    if (!user || user.deletedAt || user.kind === 'bot') throw unauthorized('auth.userNotFound');
     if (!(await bcrypt.compare(password, user.password))) {
       throw unauthorized('auth.wrongPassword');
     }
@@ -346,7 +350,7 @@ export class VerifyService {
       await this.db.verifyChallenge.update({
         where: { id: active.id },
         data: {
-          codeHash: this.hashCode(phone, purpose, code),
+          codeHash: await this.hashCode(phone, purpose, code),
           sendCount: { increment: 1 },
           lastSentAt: now,
           expiresAt,
@@ -360,7 +364,7 @@ export class VerifyService {
         data: {
           phone,
           purpose,
-          codeHash: this.hashCode(phone, purpose, code),
+          codeHash: await this.hashCode(phone, purpose, code),
           expiresAt,
           requestIp: ip ?? null,
           userId,
@@ -404,9 +408,7 @@ export class VerifyService {
       throw this.chainDead('verify.tooManyAttempts');
     }
 
-    const expected = Buffer.from(ch.codeHash, 'hex');
-    const actual = Buffer.from(this.hashCode(ch.phone, ch.purpose as VerifyPurpose, code), 'hex');
-    const match = expected.length === actual.length && timingSafeEqual(expected, actual);
+    const match = await this.codeMatches(ch.phone, ch.purpose as VerifyPurpose, code, ch.codeHash);
 
     if (!match) {
       // Гвард attempts<max закрывает гонку параллельных промахов на потолке.
@@ -600,9 +602,22 @@ export class VerifyService {
   // Криптография
   // ------------------------------------------------------------------
 
-  /** HMAC c номером и целью в контексте: код нельзя «переставить» на другой номер/цель. */
-  private hashCode(phone: string, purpose: VerifyPurpose | string, code: string): string {
-    return createHmac('sha256', `verify:${process.env.JWT_SECRET}`).update(`${phone}|${purpose}|${code}`).digest('hex');
+  /**
+   * HMAC с номером и целью в контексте: код нельзя «переставить» на другой номер/цель.
+   * Ключ — `verify_otp` keystore (core/keys), строка самодостаточна (`sa6m:1:<kid>:…`);
+   * цепочки, заведённые до движка (hex производным ключом), сверяются на legacy-окне.
+   */
+  private hashCode(phone: string, purpose: VerifyPurpose | string, code: string): Promise<string> {
+    return this.mac.tagged('verify_otp', `${phone}|${purpose}|${code}`);
+  }
+
+  private async codeMatches(phone: string, purpose: VerifyPurpose | string, code: string, stored: string): Promise<boolean> {
+    const data = `${phone}|${purpose}|${code}`;
+    if (this.mac.isTagged(stored)) return this.mac.verifyTagged('verify_otp', data, stored);
+    const legacy = legacyHmacWithPrefix('verify:', data);
+    if (!legacy) return false;
+    const expected = Buffer.from(stored, 'hex');
+    return expected.length === legacy.length && timingSafeEqual(expected, legacy);
   }
 
   /** Токен высокоэнтропийный (32 байта CSPRNG) — детерминированный SHA-256 (прецедент refresh-токенов). */

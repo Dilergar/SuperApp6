@@ -68,7 +68,8 @@
     "wsProfile": "Ұйым профилі",
     "aria": "Қосымша навигациясы",
     "expandBranch": "{name} жаю",
-    "collapseBranch": "{name} жию"
+    "collapseBranch": "{name} жию",
+    "wsIntegrations": "Интеграциялар мен кілттер"
   },
   "topbar": {
     "profile": "Профиль",

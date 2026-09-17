@@ -1,0 +1,412 @@
+{
+  "title": "Keys and integrations",
+  "subtitle": "Bots, personal keys and webhooks of the organization — who created them, for what, and when they were last used",
+  "noAccess": {
+    "title": "Only the owner and admins see this section",
+    "body": "Keys give programmatic access to the organization’s data, so they are managed by the roles that answer for it."
+  },
+  "nav": {
+    "registry": "Registry",
+    "bots": "Bots",
+    "webhooks": "Webhooks",
+    "journal": "Journal",
+    "policy": "Policy",
+    "aria": "Sections of keys and integrations"
+  },
+  "status": {
+    "active": "Active",
+    "expiring": "Expiring",
+    "expiringIn": "Expires in {days, plural, one {# day} other {# days}}",
+    "expired": "Expired",
+    "revoked": "Revoked",
+    "frozen": "Frozen",
+    "pending_verification": "Awaiting verification",
+    "disabled": "Disabled"
+  },
+  "frozenReason": {
+    "creator_left": "The person who created the bot left the organization — the owner decides what happens next",
+    "owner": "Frozen by the owner or an admin",
+    "platform": "Frozen by the platform"
+  },
+  "revokeReason": {
+    "owner": "Revoked by the owner",
+    "rotated": "Replaced by a rotation",
+    "leaked": "Found in a public place",
+    "member_left": "The holder left the organization",
+    "token_epoch": "All sessions were ended",
+    "bot_archived": "The bot was archived",
+    "platform": "Revoked by the platform",
+    "policy": "Organization policy",
+    "expired": "Expired"
+  },
+  "actions": {
+    "createBot": "New bot",
+    "createWebhook": "New webhook",
+    "rotate": "Rotate",
+    "revoke": "Revoke",
+    "freeze": "Freeze",
+    "unfreeze": "Unfreeze",
+    "archive": "Archive",
+    "edit": "Edit",
+    "newKey": "Issue another key",
+    "openKeys": "Keys",
+    "openBot": "Open the bot",
+    "openWebhooks": "Open webhooks",
+    "probe": "Send a test ping",
+    "enable": "Enable",
+    "disable": "Disable",
+    "delete": "Delete",
+    "openJournal": "Journal"
+  },
+  "stepUp": {
+    "title": "Confirm key management",
+    "body": "Keys give access to data without a password. Confirm with your password and an SMS code — the window stays open for 15 minutes.",
+    "password": "Password",
+    "getCode": "Get a code",
+    "confirmTitle": "Enter the code from the SMS",
+    "back": "Back",
+    "windowUntil": "Confirmed until {time}",
+    "end": "End"
+  },
+  "reveal": {
+    "title": "Save the key now",
+    "note": "The key is shown only once. It is not stored anywhere — if you lose it, issue a new one by rotating.",
+    "secretLabel": "Secret key",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Could not copy — select the key and copy it manually",
+    "savedCheck": "I saved the key in a safe place",
+    "done": "Done"
+  },
+  "scope": {
+    "matrixAria": "Access matrix by service",
+    "selected": "{count, plural, =0 {No services selected} one {# service selected} other {# services selected}}",
+    "clear": "Clear",
+    "botClosed": "Not available to bots",
+    "botReadOnly": "Bots: read only",
+    "none": "No access",
+    "level": {
+      "none": "No",
+      "read": "Read",
+      "write": "Write"
+    }
+  },
+  "service": {
+    "tasks": "Tasks",
+    "calendar": "Calendar",
+    "notes": "Notes",
+    "drive": "Drive",
+    "files": "Files",
+    "documents": "Documents",
+    "counterparties": "Counterparties",
+    "objects": "Sites",
+    "staff": "Employees",
+    "search": "Search",
+    "workspaces": "Organizations",
+    "chatter": "Chronicle",
+    "messenger": "Messenger",
+    "circles": "Circle",
+    "finance": "Finance",
+    "shop": "Shop",
+    "approvals": "Approvals",
+    "sign": "Signatures",
+    "hr": "HR",
+    "processes": "Processes",
+    "office": "Virtual office",
+    "recorder": "Recorder",
+    "share": "Share links",
+    "requisites": "Requisites and bank accounts",
+    "invitations": "Invitations"
+  },
+  "key": {
+    "name": "Name",
+    "purpose": "What it is for",
+    "purposeHint": "Required — in six months the registry has to explain why this key exists",
+    "purposePlaceholder": "Sync tasks with the warehouse system",
+    "scopes": "Access",
+    "scopesHint": "Only the services the integration really needs; write includes read",
+    "expiryDays": "Valid for, days",
+    "expiryMax": "Organization policy allows at most {days} days",
+    "noExpiry": "No expiry date",
+    "noExpiryHint": "Only with an IP allowlist. Prefer a term with rotation.",
+    "allowlist": "IP allowlist",
+    "allowlistHint": "Optional. Addresses or CIDR ranges, one per line. Requests from other addresses are rejected and reported.",
+    "allowlistInvalid": "Not an address or CIDR: {value}",
+    "storedHint": "Where the key is stored",
+    "storedHintHint": "A note for yourself: vault, server, CI variable — helps during rotation",
+    "storedHintShort": "stored: {hint}",
+    "create": "Create key",
+    "graceLabel": "Keep the old key working for",
+    "grace": {
+      "0": "Revoke immediately",
+      "1": "1 hour",
+      "24": "24 hours",
+      "72": "3 days",
+      "168": "7 days"
+    },
+    "rotateTitle": "Rotate key «{name}»",
+    "rotateNote": "A new key is issued; the old one keeps working during the overlap so the integration can switch without downtime.",
+    "rotatedTitle": "New key issued",
+    "rotatedNote": "Replace the old key in the integration before the overlap ends. The new key is shown only once.",
+    "revokeTitle": "Revoke key «{name}»",
+    "revokeNote": "Requests with this key stop immediately. This cannot be undone — issue a new key if needed.",
+    "revokeReason": "Reason",
+    "revokeNoteLabel": "Note (optional)"
+  },
+  "personal": {
+    "title": "Keys and apps",
+    "subtitle": "Personal keys for your own data: scripts, automations, your own apps. A key works only for you and cannot be used with an organization.",
+    "create": "New personal key",
+    "createForOrg": "Personal key for organization data",
+    "orgNote": "The key acts as you inside this organization with the chosen access. It is revoked when you leave the organization or lose the admin role.",
+    "ownNote": "The key acts as you for your personal data only.",
+    "empty": {
+      "title": "No personal keys yet",
+      "body": "Create a key for a script or an app that works with your data."
+    },
+    "deadCount": "{count, plural, one {# revoked or expired key} other {# revoked or expired keys}}"
+  },
+  "bot": {
+    "kindLabel": "Bot",
+    "rank": {
+      "member": "Employee",
+      "manager": "Manager"
+    },
+    "intro": "A bot is a separate identity of the organization: it works in tasks, calendar and documents as an employee, limited by its access. It belongs to the organization, not to the person who created it.",
+    "empty": {
+      "title": "No bots yet",
+      "body": "Create a bot for an integration: a warehouse system, a CRM, an automation."
+    },
+    "wizardTitle": "New bot",
+    "step1": "Step 1 of 3 — card",
+    "step2": "Step 2 of 3 — access",
+    "step3": "Step 3 of 3 — key",
+    "progress": "Step {step} of {total}",
+    "glyph": "Icon",
+    "name": "Name",
+    "namePlaceholder": "Warehouse sync",
+    "purposeHint": "Required — who will remember in a year what this bot does",
+    "purposePlaceholder": "Creates tasks from warehouse orders",
+    "rankLabel": "Rank in the organization",
+    "rankHint": "Decides what the bot sees, like an employee of that rank",
+    "rankMemberHint": "Sees what an employee sees",
+    "rankManagerHint": "Sees what a manager sees",
+    "responsible": "Responsible person",
+    "responsibleHint": "Optional. Who answers for the bot — otherwise the owner and admins",
+    "responsiblePlaceholder": "Pick a person",
+    "scopesHint": "Services open to bots; people-only services (messenger, finance) are unavailable",
+    "scopesEditHint": "Changes apply to all live keys of the bot at once",
+    "back": "Back",
+    "next": "Next",
+    "create": "Create bot",
+    "createdTitle": "Bot «{name}» created",
+    "createdNote": "This is the bot key. It is shown only once — save it in the integration now.",
+    "liveKeys": "{count, plural, =0 {no live keys} one {# live key} other {# live keys}}",
+    "allowlistCount": "{count, plural, one {# IP rule} other {# IP rules}}",
+    "unfreezeOwnerOnly": "Only the owner can unfreeze",
+    "keysTitle": "Keys",
+    "noKeys": "No keys",
+    "newKeyTitle": "Another key for «{name}»",
+    "newKeyNote": "A second key for another environment or a smooth migration. Access is the same as the bot’s.",
+    "freezeConfirm": {
+      "title": "Freeze bot «{name}»?",
+      "message": "Its keys stop working immediately. Nothing is deleted — the bot can be unfrozen by the owner."
+    },
+    "frozenToast": "Bot frozen",
+    "unfrozenToast": "Bot unfrozen",
+    "archiveConfirm": {
+      "title": "Archive bot «{name}»?",
+      "message": "All its keys are revoked and its role is removed. The history stays. This cannot be undone."
+    },
+    "archivedToast": "Bot archived",
+    "editTitle": "Edit bot «{name}»",
+    "savedToast": "Bot saved"
+  },
+  "registry": {
+    "columns": {
+      "name": "Key",
+      "holder": "Holder",
+      "purpose": "What for",
+      "scopes": "Access",
+      "status": "Status",
+      "lastUsed": "Last used",
+      "expires": "Expires"
+    },
+    "kinds": {
+      "aria": "Kind of key",
+      "all": "All",
+      "bot": "Bots",
+      "personal": "Personal",
+      "webhook": "Webhooks"
+    },
+    "filters": {
+      "aria": "Filters",
+      "frozen": "Frozen",
+      "idle90": "Unused 90 days",
+      "noExpiry": "No expiry",
+      "expiring14": "Expiring in 14 days"
+    },
+    "empty": {
+      "title": "The registry is empty",
+      "body": "Bots, personal keys for organization data and webhooks will appear here."
+    },
+    "tableAria": "Key registry",
+    "pending": "{count, plural, one {# bot is waiting for the owner’s decision} other {# bots are waiting for the owner’s decision}}",
+    "showFrozen": "Show frozen",
+    "createdAt": "created {date}",
+    "lastUsed": "used {date}",
+    "expires": "until {date}",
+    "never": "never used",
+    "noExpiry": "no expiry",
+    "eventsCount": "{count, plural, one {# event} other {# events}}",
+    "loadMore": "Show more"
+  },
+  "journal": {
+    "columns": {
+      "when": "When",
+      "actor": "Who",
+      "action": "Action",
+      "subject": "Subject",
+      "reason": "Reason"
+    },
+    "actorKind": {
+      "system": "System",
+      "platform": "Platform"
+    },
+    "empty": {
+      "title": "The journal is empty",
+      "body": "Every action with keys, bots and webhooks is recorded here and cannot be edited."
+    },
+    "tableAria": "Key journal",
+    "action": {
+      "bot_created": "Bot created",
+      "bot_updated": "Bot updated",
+      "bot_frozen": "Bot frozen",
+      "bot_unfrozen": "Bot unfrozen",
+      "bot_archived": "Bot archived",
+      "api_key_created": "Key created",
+      "api_key_rotated": "Key rotated",
+      "api_key_revoked": "Key revoked",
+      "api_key_updated": "Key updated",
+      "policy_updated": "Policy updated",
+      "webhook_endpoint_created": "Webhook created",
+      "webhook_endpoint_updated": "Webhook updated",
+      "webhook_endpoint_disabled": "Webhook disabled",
+      "webhook_endpoint_enabled": "Webhook enabled",
+      "webhook_endpoint_deleted": "Webhook deleted",
+      "webhook_endpoint_secret_rotated": "Webhook secret rotated",
+      "webhook_endpoint_verified": "Webhook verified",
+      "crypto_key_created": "Encryption key created",
+      "key_version_created": "Key version created",
+      "key_version_activated": "Key version activated",
+      "key_version_disabled": "Key version disabled",
+      "key_version_enabled": "Key version enabled",
+      "key_version_destroy_scheduled": "Key version scheduled for destruction",
+      "key_version_destroyed": "Key version destroyed",
+      "scope_frozen": "Encryption frozen",
+      "scope_unfrozen": "Encryption unfrozen",
+      "scope_rewrapped": "Keys re-wrapped",
+      "root_rotated": "Root key rotated"
+    },
+    "filters": {
+      "aria": "Journal filters",
+      "all": "All",
+      "bot": "Bots",
+      "api_key": "Keys",
+      "webhook_endpoint": "Webhooks"
+    },
+    "focus": "Only «{name}»",
+    "focusRemove": "Show the whole journal"
+  },
+  "policy": {
+    "title": "Key policy",
+    "body": "Ceilings for key lifetimes and the IP allowlist requirement. Applies to new keys.",
+    "ownerOnly": "Only the owner changes the policy",
+    "maxPatDays": "Personal keys for organization data, max days",
+    "maxPatDaysHint": "Default 90, at most {max}",
+    "maxBotKeyDays": "Bot keys, max days",
+    "maxBotKeyDaysHint": "Default 365",
+    "noCeiling": "No ceiling — the owner may issue bot keys without an expiry date (with an IP allowlist)",
+    "noCeilingHint": "Prefer a term with rotation: a key without an expiry date is a permanent session.",
+    "requireIpAllowlist": "Require an IP allowlist for every key",
+    "requireIpAllowlistHint": "Keys without an allowlist cannot be created",
+    "save": "Save policy",
+    "saved": "Policy saved"
+  },
+  "webhook": {
+    "intro": "Webhooks deliver events of the organization to your systems: a signed HTTPS request per event, retries with backoff, an endpoint is disabled after a series of failures.",
+    "empty": {
+      "title": "No webhooks yet",
+      "body": "Add an HTTPS address and choose the events it should receive."
+    },
+    "createTitle": "New webhook",
+    "editTitle": "Webhook events",
+    "create": "Create webhook",
+    "url": "Address (HTTPS)",
+    "urlNote": "Only public HTTPS addresses. After creation a verification ping is sent — the endpoint must answer 2xx.",
+    "httpsOnly": "Only https:// addresses",
+    "signingLabel": "Signature",
+    "signingHint": "Standard Webhooks: headers webhook-id, webhook-timestamp, webhook-signature",
+    "signing": {
+      "hmac": "HMAC (shared secret)",
+      "ed25519": "Ed25519 (public key)"
+    },
+    "signingHmacHint": "Verify with the secret shown once",
+    "signingEd25519Hint": "Verify with the public key; no shared secret",
+    "eventsLabel": "Events",
+    "eventsHint": "Up to {max} events per endpoint",
+    "events": {
+      "tasks_task_created": "Task created",
+      "tasks_task_completed": "Task completed",
+      "tasks_task_cancelled": "Task cancelled",
+      "documents_document_registered": "Document registered",
+      "documents_document_signed": "Document signed",
+      "workspaces_member_joined": "Member joined",
+      "workspaces_member_left": "Member left"
+    },
+    "createdTitle": "Webhook created",
+    "createdNote": "This is the signing secret. It is shown only once — put it into the receiver now.",
+    "savedToast": "Webhook saved",
+    "deliveries": "Deliveries",
+    "noDeliveries": "No deliveries yet",
+    "attempts": "{count, plural, one {# attempt} other {# attempts}}",
+    "delivery": {
+      "pending": "Pending",
+      "delivered": "Delivered",
+      "failed": "Failed",
+      "exhausted": "Given up"
+    },
+    "redeliver": "Send again",
+    "redeliverToast": "Delivery queued again",
+    "rotateSecret": "Rotate secret",
+    "rotateConfirm": {
+      "title": "Rotate the signing secret?",
+      "message": "A new secret is issued; the old one stays valid for {hours} hours so the receiver can switch."
+    },
+    "rotatedTitle": "New signing secret",
+    "rotatedNote": "The old secret keeps working for {hours} hours. The new one is shown only once.",
+    "deleteConfirm": {
+      "title": "Delete the webhook?",
+      "message": "Deliveries stop immediately. The history stays in the journal."
+    },
+    "deletedToast": "Webhook deleted",
+    "probeToast": "Test ping sent",
+    "enabledToast": "Webhook enabled",
+    "disabledToast": "Webhook disabled",
+    "failures": "{count, plural, one {# failure in a row} other {# failures in a row}}",
+    "prevSecretLive": "Old secret still valid",
+    "publicKey": "Public key",
+    "pendingHint": "Waiting for the verification ping to be answered with 2xx",
+    "disabledReason": {
+      "failures": "Disabled after a series of failed deliveries",
+      "manual": "Disabled by an admin",
+      "platform": "Disabled by the platform",
+      "verification": "The verification ping was not answered",
+      "signature_audit": "Disabled: the endpoint accepted a request with an invalid signature (signatures are not verified)"
+    }
+  },
+  "throttledReason": {
+    "rate": "too many requests per minute",
+    "export": "the daily limit of exported rows is reached"
+  }
+}

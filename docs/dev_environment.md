@@ -43,6 +43,11 @@ powershell -Command "cd apps/web; npx next dev"             # Web → http://loc
 - Прямой SQL: `docker exec -it superapp6-db psql -U superapp -d superapp6` (PostgreSQL MCP удалён — пакет deprecated)
 - Веб-dev на Turbopack; запасной путь: `pnpm --filter ./apps/web dev:webpack`
 
+## Ключи (`core/keys`) — корень и учение
+
+- Корневой ключ: dev создаёт `apps/api/.keys/root.key` сам (в `.gitignore`); production — церемония `node apps/api/scripts/keys-init-root.cjs <путь>` (32 байта CSPRNG, права 0600, печатает отпечаток SHA-256 для кабинета; существующий файл не перезаписывает), две офлайн-копии у двух людей. Учение восстановления — `node apps/api/scripts/keys-verify-root.cjs <копия>` (поднимает провайдер копией и распаковывает primary-версии; exit 1 = копия не та). Без корня API не стартует; версия, обёрнутая чужим корнем, роняет бут — [keys_engine.md](keys_engine.md).
+- Дев-полигон `/keys/dev/*` (только development/test): ротации, заморозка, roundtrip, режим ПДн, backfill, слив last-used, аудит вебхуков. Вебхуки на 127.0.0.1 — `WEBHOOKS_DEV_LOOPBACK=true` в `apps/api/.env`.
+
 ## Линтеры и стражи
 
 ```bash

@@ -68,7 +68,8 @@
     "wsProfile": "Organization profile",
     "aria": "App navigation",
     "expandBranch": "Expand {name}",
-    "collapseBranch": "Collapse {name}"
+    "collapseBranch": "Collapse {name}",
+    "wsIntegrations": "Integrations and keys"
   },
   "topbar": {
     "profile": "Profile",

@@ -65,3 +65,7 @@ infra/sign-verifier/roots/
 
 # graphify: генерируемые артефакты графа (внутри venv и кэши) — не коммитятся
 graphify-out/
+
+# Keys engine — файл корневого ключа разработки (core/keys, KEYS_ROOT_KEY_FILE по умолчанию)
+.keys/
+apps/api/.keys/

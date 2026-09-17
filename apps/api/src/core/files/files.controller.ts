@@ -90,11 +90,12 @@ export class FilesController {
     @Query('variant') variant: string | undefined,
     @Query('exp') exp: string | undefined,
     @Query('sig') sig: string | undefined,
+    @Query('k') kid: string | undefined,
     @Req() req: Request,
     @Res() res: Response,
   ) {
     const variantKind = variant || null;
-    if (!sig || !exp || !this.urls.verify(id, variantKind, Number(exp), sig)) {
+    if (!sig || !exp || !(await this.urls.verify(id, variantKind, Number(exp), sig, kid || null))) {
       throw forbidden('files.linkInvalid');
     }
     await serveStream(req, res, async (range) => {

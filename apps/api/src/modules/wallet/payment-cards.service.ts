@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { UserPaymentCard } from '@prisma/client';
 import {
   REQUISITE_LIMITS,
@@ -9,10 +9,27 @@ import {
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest, notFound } from '../../shared/errors/api-error';
-import { decryptField, encryptField } from '../../shared/crypto/secret-field';
+import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
+import { KeysFieldRegistry } from '../../core/keys/keys.registry';
+import { isLegacyAesField, legacyAesDecrypt, legacySha256Key } from '../../core/keys/keys.legacy';
 
-/** Контекст шифрования: свой на класс полей — расшифровка кредов Процессов карты не открывает */
-const CARD_CTX = 'payment-card';
+/** Сущность AAD: шифротекст привязан к карте человека и полю — перенос в чужую строку не читается */
+const CARD_ENTITY = 'user_payment_card';
+/** Прошлая эпоха: ключ sha256('field:payment-card:' + мастер-секрет) — только чтение на legacy-окне */
+const LEGACY_KEY_PREFIX = 'field:payment-card:';
+type CardField = 'pan' | 'iban';
+
+/** Открытый текст поля карты прошлого формата (для джоба перешивки); null — не legacy / окно закрыто. */
+function legacyCardPlain(stored: string): string | null {
+  if (!isLegacyAesField(stored)) return null;
+  const key = legacySha256Key(LEGACY_KEY_PREFIX);
+  if (!key) return null;
+  try {
+    return legacyAesDecrypt(key, stored);
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Карты человека в «Кошельке» — РЕКВИЗИТ для выплат (зарплата, возвраты), а не
@@ -28,20 +45,62 @@ const CARD_CTX = 'payment-card';
  * именно основная показывается в реквизитах и будет подставляться в документы.
  */
 @Injectable()
-export class PaymentCardsService {
+export class PaymentCardsService implements OnModuleInit {
   private readonly logger = new Logger(PaymentCardsService.name);
 
-  constructor(private readonly db: DatabaseService) {}
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly keys: KeysEnvelopeService,
+    private readonly keyFields: KeysFieldRegistry,
+  ) {}
+
+  /** Колонки карт — в реестре движка ключей: перешивка при ротации KEK, legacy-джоб. */
+  onModuleInit(): void {
+    for (const [column, field] of [
+      ['pan_encrypted', 'pan'],
+      ['iban_encrypted', 'iban'],
+    ] as const) {
+      this.keyFields.register({
+        table: 'user_payment_cards',
+        idColumn: 'id',
+        column,
+        scope: 'user',
+        scopeColumn: 'user_id',
+        entity: CARD_ENTITY,
+        field,
+        legacyDecrypt: (stored) => legacyCardPlain(stored),
+      });
+    }
+  }
+
+  private ctx(userId: string, field: CardField) {
+    return { entity: CARD_ENTITY, field, ownerType: 'user', ownerId: userId };
+  }
+
+  private encrypt(userId: string, field: CardField, plain: string): Promise<string> {
+    return this.keys.encrypt({ type: 'user', id: userId }, this.ctx(userId, field), plain);
+  }
+
+  /** Расшифровка поля: envelope; прошлый формат — только на legacy-окне (до перешивки джобом). */
+  private async decrypt(userId: string, field: CardField, stored: string): Promise<string> {
+    if (this.keys.isEnvelope(stored)) return this.keys.decrypt({ type: 'user', id: userId }, this.ctx(userId, field), stored);
+    const legacy = legacyCardPlain(stored);
+    if (legacy === null) throw new Error('the card field is unreadable (legacy window closed or damaged)');
+    return legacy;
+  }
 
   async list(userId: string): Promise<UserPaymentCardDto[]> {
     const rows = await this.db.userPaymentCard.findMany({
       where: { userId },
       orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
     });
-    return rows.map((r) => this.serialize(r));
+    return Promise.all(rows.map((r) => this.serialize(r)));
   }
 
   async create(userId: string, dto: CreatePaymentCardInput): Promise<UserPaymentCardDto> {
+    // Шифрование — ДО транзакции (unwrap KEK может стоить похода в БД)
+    const panEncrypted = await this.encrypt(userId, 'pan', dto.pan);
+    const ibanEncrypted = dto.iban ? await this.encrypt(userId, 'iban', dto.iban) : null;
     const row = await this.db.$transaction(async (tx) => {
       const count = await tx.userPaymentCard.count({ where: { userId } });
       if (count >= REQUISITE_LIMITS.maxCardsPerUser) {
@@ -55,9 +114,9 @@ export class PaymentCardsService {
       return tx.userPaymentCard.create({
         data: {
           userId,
-          panEncrypted: encryptField(CARD_CTX, dto.pan),
+          panEncrypted,
           panLast4: dto.pan.slice(-4),
-          ibanEncrypted: dto.iban ? encryptField(CARD_CTX, dto.iban) : null,
+          ibanEncrypted,
           holderName: dto.holderName,
           expMonth: dto.expMonth,
           expYear: dto.expYear,
@@ -70,6 +129,7 @@ export class PaymentCardsService {
 
   /** Номер карты не правится (реквизит новой карты = новая запись) — прочее можно */
   async update(userId: string, cardId: string, dto: UpdatePaymentCardInput): Promise<UserPaymentCardDto> {
+    const ibanEncrypted = dto.iban ? await this.encrypt(userId, 'iban', dto.iban) : null;
     const row = await this.db.$transaction(async (tx) => {
       const card = await tx.userPaymentCard.findFirst({ where: { id: cardId, userId } });
       if (!card) throw notFound('wallet.cardNotFound');
@@ -80,7 +140,7 @@ export class PaymentCardsService {
         where: { id: card.id },
         data: {
           ...(dto.iban !== undefined
-            ? { ibanEncrypted: dto.iban === null ? null : encryptField(CARD_CTX, dto.iban) }
+            ? { ibanEncrypted: dto.iban === null ? null : ibanEncrypted }
             : {}),
           ...(dto.holderName !== undefined ? { holderName: dto.holderName } : {}),
           ...(dto.expMonth !== undefined ? { expMonth: dto.expMonth } : {}),
@@ -122,28 +182,28 @@ export class PaymentCardsService {
     for (const r of rows) {
       try {
         out.set(r.userId, {
-          pan: decryptField(CARD_CTX, r.panEncrypted),
-          iban: r.ibanEncrypted ? decryptField(CARD_CTX, r.ibanEncrypted) : null,
+          pan: await this.decrypt(r.userId, 'pan', r.panEncrypted),
+          iban: r.ibanEncrypted ? await this.decrypt(r.userId, 'iban', r.ibanEncrypted) : null,
           holderName: r.holderName,
           expMonth: r.expMonth,
           expYear: r.expYear,
         });
       } catch (err) {
-        // Смена JWT_SECRET делает старые поля нечитаемыми (задокументированная цена
-        // производного ключа) — строка просто выпадает из выдачи, не роняя ростер.
+        // Замороженный/уничтоженный KEK человека или битая строка — карта просто
+        // выпадает из выдачи, не роняя ростер.
         this.logger.warn(`card ${r.id}: failed to decrypt (${err instanceof Error ? err.message : err})`);
       }
     }
     return out;
   }
 
-  private serialize(row: UserPaymentCard): UserPaymentCardDto {
+  private async serialize(row: UserPaymentCard): Promise<UserPaymentCardDto> {
     return {
       id: row.id,
       // Владельцу — полностью: с маской он не смог бы ни проверить опечатку, ни продиктовать.
-      pan: decryptField(CARD_CTX, row.panEncrypted),
+      pan: await this.decrypt(row.userId, 'pan', row.panEncrypted),
       panMasked: maskCardPan(row.panLast4),
-      iban: row.ibanEncrypted ? decryptField(CARD_CTX, row.ibanEncrypted) : null,
+      iban: row.ibanEncrypted ? await this.decrypt(row.userId, 'iban', row.ibanEncrypted) : null,
       holderName: row.holderName,
       expMonth: row.expMonth,
       expYear: row.expYear,

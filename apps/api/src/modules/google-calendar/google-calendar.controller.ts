@@ -23,8 +23,8 @@ export class GoogleCalendarController {
 
   @Get('auth-url')
   @ApiOperation({ summary: 'The link that connects Google (OAuth)' })
-  authUrl(@CurrentUser() user: JwtPayload) {
-    return { success: true, data: { url: this.google.getAuthUrl(user.sub) } };
+  async authUrl(@CurrentUser() user: JwtPayload) {
+    return { success: true, data: { url: await this.google.getAuthUrl(user.sub) } };
   }
 
   @Public()

@@ -9,6 +9,7 @@ import {
 import { ModuleRef } from '@nestjs/core';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AnalyticsService } from '../../core/analytics/analytics.service';
+import { WebhooksService } from '../../core/webhooks/webhooks.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
@@ -93,6 +94,7 @@ export class TasksService implements OnModuleInit {
     private workspaceContext: WorkspaceContextService,
     private i18n: I18nService,
     private analytics: AnalyticsService,
+    private webhooks: WebhooksService,
   ) {}
 
   /**
@@ -242,7 +244,7 @@ export class TasksService implements OnModuleInit {
   ): Promise<void> {
     const task = await tx.task.findUnique({
       where: { id: taskId },
-      select: { title: true, workspaceId: true, status: true },
+      select: { id: true, title: true, workspaceId: true, status: true, creatorId: true, priority: true, dueDate: true },
     });
     if (!task || task.status === 'done' || task.status === 'cancelled') return;
     const claimed = await tx.task.updateMany({
@@ -250,6 +252,8 @@ export class TasksService implements OnModuleInit {
       data: { status: 'cancelled' },
     });
     if (claimed.count === 0) return;
+    // Вебхуки организации — в транзакции отмены (outbox)
+    await this.webhooks.emit(tx, { workspaceId: task.workspaceId, eventKey: 'tasks.task.cancelled', payload: taskWebhookPayload({ ...task, status: 'cancelled' }) });
     await this.chatter.log(tx, {
       refType: 'task',
       refId: taskId,
@@ -473,6 +477,8 @@ export class TasksService implements OnModuleInit {
         },
         { userId, workspaceId: created.workspaceId ?? null, ref: { type: 'task', id: created.id } },
       );
+      // Вебхуки организации (core/webhooks): в той же транзакции — outbox
+      await this.webhooks.emit(tx, { workspaceId: created.workspaceId, eventKey: 'tasks.task.created', payload: taskWebhookPayload(created) });
 
       return created;
     });
@@ -1002,6 +1008,10 @@ export class TasksService implements OnModuleInit {
 
     await this.db.$transaction(async (tx) => {
       await tx.task.update({ where: { id: taskId }, data: patch });
+      // Отмена руками — событие организации наружу (core/webhooks), в той же транзакции
+      if (patch.status === 'cancelled' && existing.status !== 'cancelled') {
+        await this.webhooks.emit(tx, { workspaceId: existing.workspaceId, eventKey: 'tasks.task.cancelled', payload: taskWebhookPayload({ ...existing, status: 'cancelled', title: afterRow.title }) });
+      }
 
       if (patch.status === 'cancelled') {
         await this.escrow.releaseAll(tx, { refType: 'task', refId: taskId }); // refund all frozen / paid reward
@@ -1138,6 +1148,7 @@ export class TasksService implements OnModuleInit {
         data: { status: 'done', completedAt: new Date() },
       });
       await this.analytics.track(null, 'tasks.task.completed', {}, { userId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
+      await this.webhooks.emit(null, { workspaceId: task.workspaceId, eventKey: 'tasks.task.completed', payload: taskWebhookPayload({ ...task, status: 'done' }) });
       await this.chatter.log(null, {
         refType: 'task',
         refId: taskId,
@@ -1177,6 +1188,7 @@ export class TasksService implements OnModuleInit {
         data: { status: 'accepted', submittedAt: new Date(), acceptedAt: new Date() },
       });
       await this.analytics.track(null, 'tasks.task.completed', {}, { userId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
+      await this.webhooks.emit(null, { workspaceId: task.workspaceId, eventKey: 'tasks.task.completed', payload: taskWebhookPayload({ ...task, status: 'done' }) });
     } else {
       await this.db.taskParticipant.update({
         where: { id: me.id },
@@ -1858,4 +1870,9 @@ export class TasksService implements OnModuleInit {
       completedAt: task.completedAt?.toISOString() ?? null,
     };
   }
+}
+
+/** Тело события вебхука о задаче: только id, коды и деловые поля (без описания и участников). */
+function taskWebhookPayload(t: { id: string; title: string; status: string; priority?: string | null; dueDate?: Date | null; workspaceId: string | null; creatorId: string }): Record<string, unknown> {
+  return { id: t.id, title: t.title, status: t.status, priority: t.priority ?? null, dueDate: t.dueDate?.toISOString() ?? null, workspaceId: t.workspaceId, creatorId: t.creatorId };
 }

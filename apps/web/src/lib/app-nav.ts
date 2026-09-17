@@ -149,6 +149,8 @@ export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
 /** Счётчики бейджей организации («требует внимания» — Кадровые сроки). */
 export interface WorkspaceNavCounters {
   hrDeadlines?: number;
+  /** Ботов, ждущих решения владельца (core/keys) — бейдж на «Интеграции и ключи» */
+  keysPending?: number;
 }
 
 /** Контекст организации — рабочие сервисы. `role` решает, что показывать. */
@@ -209,6 +211,8 @@ export function buildWorkspaceNav(
     { key: 'ws-counterparties', labelKey: 'nav.wsCounterparties', icon: 'workspace', href: `${base}/counterparties` },
   ];
   if (isManager) items.push({ key: 'ws-journal', labelKey: 'nav.wsJournal', icon: 'journal', href: `${base}/journal` });
+  // Ключи и интеграции — только владелец и админы (решение грилла core/keys №11): остальным раздела нет
+  if (rank >= 4) items.push({ key: 'ws-integrations', labelKey: 'nav.wsIntegrations', icon: 'plug', href: `${base}/integrations`, badge: c.keysPending });
   if (isOwner) items.push({ key: 'ws-wallet', labelKey: 'nav.wsWallet', icon: 'coins', href: `${base}/wallet` });
 
   return {

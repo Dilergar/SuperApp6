@@ -1,6 +1,6 @@
 import { Global, Logger, Module, OnApplicationBootstrap } from '@nestjs/common';
 import { DiscoveryModule, DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
-import { JwtModule } from '@nestjs/jwt';
+
 import { PATH_METADATA } from '@nestjs/common/constants';
 import { IS_PUBLIC_KEY } from '../../shared/decorators/public.decorator';
 import { IS_PLATFORM_ROUTE_KEY, PLATFORM_ACCESS_KEY } from '../../shared/decorators/platform.decorator';
@@ -40,9 +40,8 @@ import { isDevEnv } from '../../shared/config/env.validation';
  */
 @Global()
 @Module({
-  // JwtModule без секрета намеренно: секрет кабинета читается на каждый sign/verify
-  // (env-константы модуля вычислялись бы ДО validateEnv в main.ts).
-  imports: [DiscoveryModule, JwtModule.register({})],
+  // Подпись токена кабинета — keystore core/keys (аудитория `platform`, @Global)
+  imports: [DiscoveryModule],
   controllers: [
     PlatformAuthController,
     PlatformMeController,

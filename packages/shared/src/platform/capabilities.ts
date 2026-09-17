@@ -39,6 +39,12 @@ export const PLATFORM_CAPABILITIES = [
   'analytics.read',
   'analytics.person.read',
   'analytics.manage',
+  // Движок ключей (core/keys): реестр ключей организации масками и журнал ·
+  // ротация корня/подписи, заморозка KEK организации, отзыв ключа (пара «пишет /
+  // одобряет» — заморозка организации и ротация корня идут через второго сотрудника)
+  'keys.read',
+  'keys.write',
+  'keys.approve',
 ] as const;
 
 export type PlatformCapability = (typeof PLATFORM_CAPABILITIES)[number];

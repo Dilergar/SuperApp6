@@ -32,7 +32,7 @@ export const CHATTER_CHATPOST_JOB = 'chatter.chatpost';
 
 type Tx = Prisma.TransactionClient;
 
-const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true } as const;
+const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true, kind: true } as const;
 
 /** Одна запись хроники на вход log/logMany */
 export interface ChatterLogInput {
@@ -472,7 +472,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
       where: { id: { in: ids }, deletedAt: null },
       select: USER_LITE,
     });
-    return Object.fromEntries(users.map((u) => [u.id, u]));
+    return Object.fromEntries(users.map((u) => [u.id, { ...u, kind: u.kind === 'bot' ? ('bot' as const) : ('person' as const) }]));
   }
 
   private toRow(e: ChatterLogInput): Prisma.ChatterEntryCreateManyInput {

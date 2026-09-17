@@ -7,6 +7,7 @@ import { AppModule } from './app.module';
 import { RedisIoAdapter } from './redis-io.adapter';
 import { validateEnv } from './shared/config/env.validation';
 import { wopiRawBodyMiddleware } from './core/docs/wopi-raw-body.middleware';
+import { DocsTokenService } from './core/docs/docs-token.service';
 import { isAllowedWebOrigin, webOrigins } from './shared/config/web-origins';
 
 // Защитная сеть: одна «забытая» асинхронная ошибка (unhandled rejection) в новых
@@ -24,10 +25,29 @@ process.on('uncaughtException', (err) => {
   setTimeout(() => process.exit(1), 200);
 });
 
+/**
+ * В production процесс не должен уметь отдавать свою память наружу: `--inspect`
+ * открывает отладчик с чтением heap (там распакованные KEK и DEK движка ключей),
+ * `--heapsnapshot-signal`/`--heapsnapshot-near-heap-limit` пишут heap на диск по сигналу,
+ * `--report-on-signal` — диагностический отчёт. Core dump выключает ОС (`ulimit -c 0`
+ * в юните сервиса) — это правило docs/security.md, здесь проверяется то, что видно
+ * процессу. Fail-closed: флаг найден → бут не поднимается.
+ */
+function assertNoDebugFlagsInProduction(): void {
+  if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') return;
+  const flags = [...process.execArgv, ...(process.env.NODE_OPTIONS ?? '').split(/\s+/)].filter(Boolean);
+  const banned = flags.filter((f) => /^--(inspect|inspect-brk|inspect-port|heapsnapshot-signal|heapsnapshot-near-heap-limit|report-on-signal|report-on-fatalerror|cpu-prof|heap-prof)(=|$)/.test(f));
+  if (banned.length) {
+    fatalLogger.error(`refusing to start in production with memory-exposing flags: ${banned.join(' ')} (see docs/security.md)`);
+    process.exit(1);
+  }
+}
+
 async function bootstrap() {
-  // Fail fast on a broken .env (unknown NODE_ENV, missing DATABASE_URL/JWT_SECRET,
-  // production without REDIS_URL) — BEFORE any module starts half-working.
+  // Fail fast on a broken .env (unknown NODE_ENV, missing DATABASE_URL, production
+  // without REDIS_URL or KEYS_ROOT_KEY_FILE) — BEFORE any module starts half-working.
   validateEnv();
+  assertNoDebugFlagsInProduction();
 
   const app = await NestFactory.create(AppModule);
 
@@ -73,7 +93,9 @@ async function bootstrap() {
   // потоком на диск (десятки мегабайт в памяти на каждое автосохранение = OOM) до того,
   // как до тела доберётся body-parser. Alias /api/v1→/api отработал выше — один use
   // покрывает оба префикса, как у вебхука LiveKit.
-  app.use('/api/wopi/files', wopiRawBodyMiddleware());
+  // Верификатор — из DI: подпись WOPI-токена проверяет keystore (core/keys), не константа.
+  const docsTokens = app.get(DocsTokenService);
+  app.use('/api/wopi/files', wopiRawBodyMiddleware(async (token) => (await docsTokens.verify(token)).ok));
 
   // Заголовки безопасности. API отдаёт JSON и байты файлов, HTML приложения рендерит
   // веб — поэтому основной CSP живёт в apps/web/next.config.ts, а здесь берём остальное
@@ -111,7 +133,10 @@ async function bootstrap() {
   });
 
   // Global prefix
-  app.setGlobalPrefix('api');
+  // JWKS платформы (core/keys) живёт по стандартному адресу вне префикса: внешние
+  // верификаторы ищут `/.well-known/jwks.json` у корня хоста (RFC 8615).
+  // Метрики Prometheus — тоже у корня (`/metrics`, гейт METRICS_TOKEN, shared/metrics).
+  app.setGlobalPrefix('api', { exclude: ['.well-known/jwks.json', 'metrics'] });
 
   // CORS — веб и мобильный клиент. Список — общий с сокетом и frame-ancestors
   // (shared/config/web-origins.ts); прод-адрес приходит из WEB_URL.

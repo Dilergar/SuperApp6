@@ -68,7 +68,7 @@ export interface SendNotificationInput {
   budget?: 'workspace';
 }
 
-const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true } as const;
+const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true, kind: true } as const;
 
 /**
  * core/notifications — движок уведомлений (17-й).
@@ -230,7 +230,7 @@ export class NotificationsService {
     return {
       items,
       nextCursor,
-      actors: users.map((u): NotificationActorDto => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, avatar: u.avatar })),
+      actors: users.map((u): NotificationActorDto => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, avatar: u.avatar, kind: u.kind === 'bot' ? 'bot' : 'person' })),
       workspaces: workspaces.map((w): NotificationWorkspaceDto => ({ id: w.id, name: w.name, logo: w.logo })),
     };
   }

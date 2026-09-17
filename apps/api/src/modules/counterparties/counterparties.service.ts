@@ -511,6 +511,8 @@ export class CounterpartiesService {
       return tx.counterpartyBankAccount.create({
         data: {
           counterpartyId: parent.id,
+          // Скоуп KEK шифрования IBAN — организация (денормализация, как у контактных лиц)
+          workspaceId: parent.workspaceId,
           iban: dto.iban,
           bankName: dto.bankName,
           bik: dto.bik,

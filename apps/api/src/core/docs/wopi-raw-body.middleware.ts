@@ -5,12 +5,14 @@ import * as path from 'path';
 import { Transform, pipeline } from 'stream';
 import type { NextFunction, Request, Response } from 'express';
 import { FILE_LIMITS } from '@superapp/shared';
-import { DocsTokenService } from './docs-token.service';
 
 const logger = new Logger('WopiRawBody');
 
-/** Проверка подписи не имеет зависимостей — экземпляр создаётся прямо здесь, вне DI */
-const tokens = new DocsTokenService();
+/**
+ * Верификатор токена приходит из DI (main.ts берёт `DocsTokenService` из контейнера):
+ * подпись проверяется ключом keystore, а не константой, и без контейнера её не взять.
+ */
+export type WopiTokenVerifier = (token: string | null) => Promise<boolean>;
 
 export interface WopiRawBody {
   /** Временный файл с телом запроса (потребляется движком файлов) */
@@ -33,8 +35,8 @@ function tmpDir(): string {
  * в main.ts — ПОСЛЕ алиаса /api/v1→/api (один use покрывает оба префикса) и ДО listen,
  * ровно как express.raw для вебхука LiveKit.
  */
-export function wopiRawBodyMiddleware(maxBytes = FILE_LIMITS.apiSingleRequestMax) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+export function wopiRawBodyMiddleware(verifyToken: WopiTokenVerifier, maxBytes = FILE_LIMITS.apiSingleRequestMax) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     if (req.method !== 'POST' || !/\/contents(\?|$)/.test(req.originalUrl)) {
       next();
       return;
@@ -60,7 +62,13 @@ export function wopiRawBodyMiddleware(maxBytes = FILE_LIMITS.apiSingleRequestMax
     // Неверный токен НЕ отвечаем сами: пусть контроллер вернёт свой 401/404 (движок
     // может быть вовсе выключен) — мы лишь не читаем тело.
     const token = new URL(req.originalUrl, 'http://local').searchParams.get('access_token');
-    if (!tokens.verify(token).ok) {
+    let valid = false;
+    try {
+      valid = await verifyToken(token);
+    } catch {
+      valid = false;
+    }
+    if (!valid) {
       next();
       return;
     }

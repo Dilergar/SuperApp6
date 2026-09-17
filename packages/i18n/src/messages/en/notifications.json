@@ -40,6 +40,32 @@
         "label": "Phone number changed",
         "title": "Phone number changed"
       }
+    },
+    "session": {
+      "reuseDetected": {
+        "body": "Someone tried to use an already-rotated session token. That session was ended everywhere. If this was not you — change your password.",
+        "label": "Token reuse",
+        "title": "A sign-in token was reused"
+      }
+    }
+  },
+  "bot": {
+    "frozen": {
+      "body": "{reasonLabel}. Its keys do not work until you unfreeze or delete it.",
+      "label": "Bot frozen",
+      "title": "Bot «{botName}» is frozen"
+    },
+    "responsible": {
+      "left": {
+        "body": "{personName} left the organization. The bot now answers to the owner and admins.",
+        "label": "Responsible left",
+        "title": "Bot «{botName}» lost its responsible person"
+      }
+    },
+    "unfrozen": {
+      "body": "The owner unfroze the bot.",
+      "label": "Bot unfrozen",
+      "title": "Bot «{botName}» works again"
     }
   },
   "calendar": {
@@ -344,6 +370,43 @@
       }
     }
   },
+  "key": {
+    "created": {
+      "body": "{purpose}",
+      "label": "Key created",
+      "title": "Key «{keyName}» created"
+    },
+    "expired": {
+      "body": "Requests with this key are rejected. Issue a new one if the integration is still needed.",
+      "label": "Key expired",
+      "title": "Key «{keyName}» has expired"
+    },
+    "expiring": {
+      "body": "Rotate it in the key registry before it stops working.",
+      "label": "Key expiring",
+      "title": "Key «{keyName}» expires in {days, plural, one {# day} other {# days}}"
+    },
+    "leaked": {
+      "body": "Source: {source}. Check where the key was stored and issue a new one.",
+      "label": "Key leaked",
+      "title": "Key «{keyName}» was found in a public place and revoked"
+    },
+    "newLocation": {
+      "body": "{location}. If this is unexpected — revoke the key.",
+      "label": "New location",
+      "title": "Key «{keyName}» used from a new location"
+    },
+    "revoked": {
+      "body": "Reason: {reasonLabel}",
+      "label": "Key revoked",
+      "title": "Key «{keyName}» revoked"
+    },
+    "throttled": {
+      "title": "Key «{keyName}» hit a limit",
+      "label": "Key limit",
+      "body": "{reasonLabel}. Check the integration: a runaway loop or a leaked key looks like this."
+    }
+  },
   "mention": {
     "received": {
       "body": "{snippet}",
@@ -519,6 +582,7 @@
     "entitlements": "Plan and limits",
     "finances": "Finance",
     "hr": "HR (KEDO)",
+    "keys": "Keys and integrations",
     "messenger": "Messenger",
     "notes": "Notes",
     "objects": "Sites",
@@ -729,6 +793,15 @@
         "body": "For the task «{taskTitle}»",
         "label": "Coins received",
         "title": "You earned {amount} {currencyName}"
+      }
+    }
+  },
+  "webhook": {
+    "endpoint": {
+      "disabled": {
+        "body": "{reasonLabel}",
+        "label": "Webhook disabled",
+        "title": "Webhook {url} disabled"
       }
     }
   },

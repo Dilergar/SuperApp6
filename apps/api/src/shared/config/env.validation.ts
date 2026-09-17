@@ -66,6 +66,9 @@ const isIanaTimeZone = (tz: string): boolean => {
 
 const envSchema = z
   .object({
+    // Читается ТОЛЬКО стражем main.ts: в production флаги отладчика/heap-snapshot в NODE_OPTIONS
+    // роняют бут (память процесса содержит распакованные ключи). Схема не ограничивает значение.
+    NODE_OPTIONS: blank(z.string().optional()),
     NODE_ENV: blank(
       z
         .enum(['development', 'test', 'production'], {
@@ -74,7 +77,33 @@ const envSchema = z
         .default('development'),
     ),
     DATABASE_URL: blank(z.string({ required_error: 'is required (PostgreSQL connection string)' }).min(1)),
-    JWT_SECRET: blank(z.string({ required_error: 'is required' }).min(8, 'at least 8 characters')),
+    // --- Движок ключей (core/keys) ---
+    // Провайдер корня доверия: `software` — файл с правами 0600 (KEYS_ROOT_KEY_FILE),
+    // `pkcs11` — HSM/сертифицированная СКЗИ (слот, реализация — по заключению юриста).
+    KEYS_PROVIDER: blank(z.enum(['software', 'pkcs11'], { errorMap: () => ({ message: 'must be software | pkcs11' }) }).optional()),
+    // Файл корневого ключа (32 байта hex/base64/raw), создаётся церемонией
+    // `apps/api/scripts/keys-init-root.cjs`. Production — ОБЯЗАТЕЛЕН (superRefine ниже);
+    // development пусто → `./.keys/root.key` генерируется при первом старте (громкий warn).
+    KEYS_ROOT_KEY_FILE: blank(z.string().min(1).optional()),
+    // Legacy HS256: до этой даты верификаторы принимают токены старого формата, подписанные
+    // JWT_SECRET_LEGACY (окно = 30 дней refresh). После — HS256 выключен, секрет обязан уйти из env.
+    KEYS_LEGACY_HS256_UNTIL: blank(z.string().datetime({ message: 'must be an ISO date-time (2026-10-14T00:00:00Z)' }).optional()),
+    // Прежний мастер-секрет — только на legacy-окне (подпись новых токенов им не идёт никогда).
+    // JWT_SECRET принимается как устаревший синоним на то же окно.
+    JWT_SECRET_LEGACY: blank(z.string().min(8, 'at least 8 characters').optional()),
+    JWT_SECRET: blank(z.string().min(8, 'at least 8 characters').optional()),
+    // Режим чтения ПДн на окне dual-write миграции: `legacy` (старые колонки) | `encrypted` (`*_enc`/`*_bi`).
+    KEYS_PII_READ_MODE: blank(z.enum(['legacy', 'encrypted'], { errorMap: () => ({ message: 'must be legacy | encrypted' }) }).optional()),
+    /** Dev-полигон вебхуков: доставка на http://127.0.0.1 (сьют поднимает приёмник). В production запрещено. */
+    WEBHOOKS_DEV_LOOPBACK: blank(z.enum(['true', 'false']).optional()),
+    // Метрики Prometheus `GET /metrics` (shared/metrics): токен скрейпера. Задан → Bearer
+    // обязателен; пусто → в production маршрут отвечает 404, в development открыт.
+    METRICS_TOKEN: blank(z.string().min(16, 'at least 16 characters').optional()),
+    // Заделы под pkcs11 (читаются провайдером при KEYS_PROVIDER=pkcs11).
+    KEYS_PKCS11_MODULE: blank(z.string().min(1).optional()),
+    KEYS_PKCS11_SLOT: blank(z.coerce.number().int().min(0).optional()),
+    KEYS_PKCS11_PIN: blank(z.string().min(1).optional()),
+    KEYS_PKCS11_KEY_LABEL: blank(z.string().min(1).optional()),
     // Время жизни access/refresh-токенов в записи jsonwebtoken/ms ('15m', '30d', '2 days').
     // Дефолты '15m' / '30d' живут в core/auth (auth.module / auth.service), которые читают
     // сырой process.env — схема лишь пропускает значение, формат не сужаем (ms принимает
@@ -139,19 +168,20 @@ const envSchema = z
     // http://host.docker.internal:3001). Пусто → откат на API_PUBLIC_URL. Пропуск этой
     // переменной — причина классического «WOPI::CheckFileInfo failed».
     DOCS_WOPI_PUBLIC_URL: blank(z.string().url('must be the API URL as seen FROM the editor container').optional()),
-    // Ключ подписи WOPI-токенов. Пусто → выводится из JWT_SECRET (JWT_SECRET и так мастер-ключ
-    // нескольких подсистем); отдельная переменная даёт возможность ротировать её независимо.
+    // УСТАРЕЛ (окно legacy): прежний ключ HMAC WOPI-токенов формата `v1.…`. Читается только
+    // для ПРОВЕРКИ токенов, выданных до движка ключей, и только пока открыто окно
+    // KEYS_LEGACY_HS256_UNTIL; новые токены подписывает keystore (аудитория `wopi`).
     DOCS_TOKEN_SECRET: blank(z.string().min(32, 'at least 32 characters').optional()),
     // --- Движок гостевых ссылок (core/share-links) ---
-    // Ключ подписи ГОСТЕВЫХ пропусков (пропуск человека, уже открывшего ссылку).
-    // Пусто → выводится из JWT_SECRET отдельной строкой контекста; отдельная переменная
-    // позволяет ротировать её независимо. Адрес самой ссылки строится из WEB_URL.
-    // Других переменных у движка нет — внешних зависимостей у него тоже нет.
+    // УСТАРЕЛ (окно legacy): прежний ключ HMAC гостевых пропусков `v1.…` — только проверка
+    // старых пропусков до KEYS_LEGACY_HS256_UNTIL; новые подписывает keystore (`share_link`).
+    // Адрес самой ссылки строится из WEB_URL; других переменных у движка нет.
     SHARE_LINK_SECRET: blank(z.string().min(32, 'at least 32 characters').optional()),
     // --- Кабинет платформы (core/platform) ---
-    // Секрет токена КАБИНЕТА — отдельный от продуктового (утечка ключа продукта не даёт
-    // подделать токен кабинета). В production ОБЯЗАТЕЛЕН (superRefine ниже); в
-    // development пусто → производный от JWT_SECRET отдельной строкой контекста.
+    // УСТАРЕЛ (окно legacy): прежний HS256-секрет токена кабинета — только проверка токенов,
+    // выданных до движка ключей, пока открыто окно KEYS_LEGACY_HS256_UNTIL. Новые токены
+    // кабинета подписывает keystore своей парой (аудитория `platform` ≠ `product`), поэтому
+    // отдельный секрет больше не нужен; после окна переменная обязана уйти (superRefine).
     PLATFORM_JWT_SECRET: blank(z.string().min(32, 'at least 32 characters').optional()),
     // Стоп-кран: `false` → все маршруты /platform/* отвечают 404 без деплоя кода.
     PLATFORM_CONSOLE_ENABLED: blank(z.enum(['true', 'false']).optional()),
@@ -342,21 +372,55 @@ const envSchema = z
           message: 'is required in production (without it there is a silent fallback to localhost — throttling, the bus and locks all fail)',
         });
       }
-      if (env.JWT_SECRET && env.JWT_SECRET.length < 32) {
+      // Движок ключей: корень доверия в production называется явно и лежит в файле с
+      // правами (или в HSM) — молчаливая генерация при старте недопустима: второй
+      // копии у второго человека не будет, и потеря диска = потеря всех данных.
+      if ((env.KEYS_PROVIDER ?? 'software') === 'software' && !env.KEYS_ROOT_KEY_FILE) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ['JWT_SECRET'],
-          message: 'at least 32 characters in production',
+          path: ['KEYS_ROOT_KEY_FILE'],
+          message: 'is required in production (run apps/api/scripts/keys-init-root.cjs — the key ceremony; never generated silently)',
         });
       }
-      // Токен кабинета платформы подписывается СВОИМ секретом: производный от JWT_SECRET
-      // допустим только в development (утечка ключа продукта не должна открывать кабинет).
-      if (!env.PLATFORM_JWT_SECRET) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['PLATFORM_JWT_SECRET'],
-          message: 'is required in production (the platform console token must not derive from JWT_SECRET)',
-        });
+      if (env.KEYS_PROVIDER === 'pkcs11') {
+        for (const key of ['KEYS_PKCS11_MODULE', 'KEYS_PKCS11_SLOT', 'KEYS_PKCS11_PIN', 'KEYS_PKCS11_KEY_LABEL'] as const) {
+          if (env[key] === undefined) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: [key], message: 'is required when KEYS_PROVIDER=pkcs11' });
+          }
+        }
+      }
+      // Legacy HS256 в production живёт только датированным окном; истёкшее окно — ошибка бута
+      if (env.WEBHOOKS_DEV_LOOPBACK === 'true') {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['WEBHOOKS_DEV_LOOPBACK'], message: 'must not be true in production: webhooks go only to public https addresses' });
+      }
+      const legacy = env.JWT_SECRET_LEGACY ?? env.JWT_SECRET;
+      if (legacy) {
+        if (!env.KEYS_LEGACY_HS256_UNTIL) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['KEYS_LEGACY_HS256_UNTIL'],
+            message: 'is required in production while JWT_SECRET_LEGACY (or JWT_SECRET) is set: the HS256 window must have an end date',
+          });
+        } else if (new Date(env.KEYS_LEGACY_HS256_UNTIL).getTime() <= Date.now()) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['JWT_SECRET_LEGACY'],
+            message: 'the HS256 window (KEYS_LEGACY_HS256_UNTIL) has ended — remove JWT_SECRET_LEGACY/JWT_SECRET from the environment',
+          });
+        }
+      }
+      // Legacy-секреты подписи (кабинет, WOPI, гостевые пропуска) живут только вместе с
+      // окном HS256: после его конца они мертвы и обязаны уйти из окружения — иначе через
+      // год никто не вспомнит, что переменная ничего не подписывает.
+      const legacyWindowOpen = !!env.KEYS_LEGACY_HS256_UNTIL && new Date(env.KEYS_LEGACY_HS256_UNTIL).getTime() > Date.now();
+      for (const key of ['PLATFORM_JWT_SECRET', 'DOCS_TOKEN_SECRET', 'SHARE_LINK_SECRET'] as const) {
+        if (env[key] && !legacyWindowOpen) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: 'is a legacy HS256/HMAC secret: it is only read while KEYS_LEGACY_HS256_UNTIL is in the future — remove it (tokens are signed by the keys engine)',
+          });
+        }
       }
     }
   });

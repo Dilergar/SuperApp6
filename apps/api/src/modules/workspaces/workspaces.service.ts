@@ -9,6 +9,8 @@ import { LegalEntitiesService } from './legal-entities.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
+import { KeysCascadesService } from '../../core/keys/api-keys/keys.cascades.service';
+import { WebhooksService } from '../../core/webhooks/webhooks.service';
 import { StaffService } from '../staff/staff.service';
 import { PaymentCardsService } from '../wallet/payment-cards.service';
 import { FilesService } from '../../core/files/files.service';
@@ -102,6 +104,8 @@ export class WorkspacesService implements OnModuleInit {
     private i18n: I18nService,
     private entitlements: EntitlementsService,
     private analytics: AnalyticsService,
+    private keysCascades: KeysCascadesService,
+    private webhooks: WebhooksService,
   ) {}
 
   /**
@@ -620,6 +624,8 @@ export class WorkspacesService implements OnModuleInit {
     const refIds = [workspaceId, ...taskIds];
 
     await this.db.$transaction(async (tx) => {
+      // Ключи API и боты организации гаснут, KEK — на уничтожение (crypto-shredding, 30 дней)
+      await this.keysCascades.onWorkspacePurge(tx, workspaceId);
       // Тариф: подписка, гранты, оверрайды и счётчики организации — строки без FK
       await this.entitlements.forgetSubject(tx, { type: 'workspace', id: workspaceId });
       // Аналитика: роллапы с измерением организации — сразу, сырьё — джобом
@@ -1053,6 +1059,9 @@ export class WorkspacesService implements OnModuleInit {
 
     if (data.role !== targetRole) {
       await this.setSoleWorkspaceRole(targetUserId, workspaceId, data.role, userId);
+      // Понижение с admin: личные ключи человека для данных организации гаснут, его боты —
+      // на решение владельца (право иметь ключи организации — только owner/admin)
+      await this.keysCascades.onRoleChanged(null, workspaceId, targetUserId, targetRole, data.role, userId);
       // Роли живут в снимке оргструктуры (состав команды, ранги «вне структуры»).
       await this.staff.invalidateOrgGraph(workspaceId);
       await this.chatter.log(null, {
@@ -1137,6 +1146,8 @@ export class WorkspacesService implements OnModuleInit {
     }
 
     await this.revokeAllWorkspaceRoles(targetUserId, workspaceId);
+    // Каскад: личные ключи человека в организации гаснут, его боты замораживаются до решения владельца.
+    await this.keysCascades.onMemberLeft(null, workspaceId, targetUserId, 'removed', userId);
     // Каскад: назначения должностей + их рёбра в движке доступа (+ хроника снятия).
     await this.staff.removeAllAssignmentsForUser(workspaceId, targetUserId, userId);
     // Каскад: участия во встречах офиса (доступ к чатам встреч).
@@ -1160,6 +1171,7 @@ export class WorkspacesService implements OnModuleInit {
     // Шина — триггеры Процессов («Сотрудник уволен»); строки организации у человека
     // архивируются (не удаляются), новое уведомление ложится в «Личное» — он уже не член.
     this.events.emit('workspace.member.removed', { workspaceId, workspaceName: ws.name, userId: targetUserId }, 'WorkspacesService');
+    await this.webhooks.emit(null, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId: targetUserId, reason: 'removed', workspaceId } });
     await this.notifications.archiveWorkspaceRows(null, targetUserId, workspaceId);
     await this.notifications.send(null, {
       type: 'workspace.member.removed',
@@ -1179,6 +1191,7 @@ export class WorkspacesService implements OnModuleInit {
       throw badRequest('workspace.ownerCannotLeave');
     }
     await this.revokeAllWorkspaceRoles(userId, workspaceId);
+    await this.keysCascades.onMemberLeft(null, workspaceId, userId, 'left', userId);
     await this.staff.removeAllAssignmentsForUser(workspaceId, userId, userId);
     await this.purgeOfficeParticipations(workspaceId, userId);
     // Тот же каскад, что при увольнении: вышедший не должен подвешивать шаги «нужен каждый».
@@ -1193,6 +1206,7 @@ export class WorkspacesService implements OnModuleInit {
       actorName: await this.userName(userId),
       typeKey: 'staff.left',
     });
+    await this.webhooks.emit(null, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId, reason: 'left', workspaceId } });
     // Правило стоит на ОБОИХ путях ухода: строки организации архивируются и у того, кто
     // вышел сам, — иначе они висят в бейдже, а чипа этой организации у него уже нет.
     await this.notifications.archiveWorkspaceRows(null, userId, workspaceId);
@@ -1436,6 +1450,7 @@ export class WorkspacesService implements OnModuleInit {
       );
 
       await this.analytics.track(tx, 'workspaces.invitation.accepted', { role: WORKSPACE_HIRE_ROLE }, { userId, workspaceId: inv.workspaceId });
+      await this.webhooks.emit(tx, { workspaceId: inv.workspaceId, eventKey: 'workspaces.member.joined', payload: { userId, role: WORKSPACE_HIRE_ROLE, workspaceId: inv.workspaceId } });
       await this.chatter.log(tx, {
         refType: 'workspace',
         refId: inv.workspaceId,

@@ -18,6 +18,8 @@ export interface User {
   socialLinks: SocialLinks | null;
   onlineStatusMode: string; // everyone, contacts, nobody
   isVerified: boolean;
+  /** `bot` — теневой пользователь бота (core/keys): интеграция по ключу видит, кто она */
+  kind: 'person' | 'bot';
   /** Язык интерфейса (BCP-47, одна из SUPPORTED_LOCALES); string на проводе — форвард-совместимость со старыми клиентами */
   locale: string;
   timezone: string;

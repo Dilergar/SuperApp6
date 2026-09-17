@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { WorkspaceContextService } from '../context/workspace-context.service';
+import { piiExtension } from './pii-extension';
 
 // Models owned by a workspace (B2B tenant). Auto-scoped by the chokepoint when an
 // active workspace is set. Task carries a nullable workspaceId (null = personal).
@@ -32,7 +33,10 @@ export function buildScopedPrismaClient(wsContext: WorkspaceContextService) {
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   });
 
-  return client.$extends({
+  // ПДн-слой (piiCrypt, core/keys): рядом с открытым текстом пишет `_enc`/`_bi`, в режиме
+  // `encrypted` переписывает фильтры на слепой индекс и расшифровывает результат. Стоит
+  // ВНУТРЕННИМ расширением: chokepoint (внешнее) сначала дополняет where организацией.
+  return client.$extends(piiExtension()).$extends({
     name: 'workspaceScope',
     query: {
       $allModels: {

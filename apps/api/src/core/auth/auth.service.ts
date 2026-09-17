@@ -5,8 +5,11 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { badRequest, conflict, unauthorized } from '../../shared/errors/api-error';
+import { KEYS_LIMITS } from '@superapp/shared';
+import { KeysSigningService } from '../keys/keys.signing.service';
+import { legacySecret } from '../keys/keys.legacy';
+import { parseDurationSec } from '../keys/keys.jwt';
 // Нативный bcrypt (libuv threadpool): bcryptjs считал cost-12 хэш НА event-loop'е
 // (~0.5–1.5с CPU) — десяток одновременных логинов душил все запросы инстанса.
 import * as bcrypt from 'bcrypt';
@@ -17,6 +20,7 @@ import { AnalyticsService } from '../analytics/analytics.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { KeysCascadesService } from '../keys/api-keys/keys.cascades.service';
 import { VerifyService } from '../verify/verify.service';
 import { JobsService } from '../jobs/jobs.service';
 import { EntitlementsService } from '../entitlements/entitlements.service';
@@ -32,7 +36,7 @@ export class AuthService {
 
   constructor(
     private db: DatabaseService,
-    private jwt: JwtService,
+    private signing: KeysSigningService,
     private redis: RedisService,
     private events: EventBusService,
     private notifications: NotificationsService,
@@ -41,6 +45,7 @@ export class AuthService {
     private wsContext: WorkspaceContextService,
     private entitlements: EntitlementsService,
     private analytics: AnalyticsService,
+    private keysCascades: KeysCascadesService,
   ) {}
 
   async register(data: {
@@ -155,6 +160,10 @@ export class AuthService {
     if (user.deletedAt) {
       throw unauthorized('auth.accountDeleted');
     }
+    // Бот (core/keys) — теневой пользователь: входа паролем у него нет никогда
+    if (user.kind === 'bot') {
+      throw unauthorized('auth.badCredentials');
+    }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
@@ -262,8 +271,19 @@ export class AuthService {
     return { ...tokens, restored };
   }
 
+  /**
+   * Ротация refresh-токена с обнаружением повторного предъявления (RFC 9700 §2.2.2).
+   * Прокрученная строка НЕ удаляется, а помечается `rotatedAt` + `replacedById`: если
+   * её токен предъявят снова вне окна grace (сетевой ретрай — 10 с), это утечка —
+   * всё семейство сессии отзывается, владельцу уходит `auth.session.reuseDetected`.
+   */
   async refreshToken(refreshToken: string): Promise<AuthTokens> {
-    // Find session by refresh token hash
+    // Подпись/срок — до похода в БД: чужая строка не должна стоить запроса
+    try {
+      await this.signing.verify('product', refreshToken, { forbidTyp: ['at+jwt'], legacy: { secret: legacySecret(), audienceOptional: true } });
+    } catch {
+      throw unauthorized('auth.sessionExpired');
+    }
     const tokenHash = this.hashToken(refreshToken);
     const session = await this.db.session.findUnique({
       where: { token: tokenHash },
@@ -283,8 +303,22 @@ export class AuthService {
       throw unauthorized('auth.sessionExpired');
     }
 
-    // Rotate refresh token (security best practice)
-    await this.db.session.delete({ where: { id: session.id } });
+    if (session.rotatedAt) {
+      const sinceMs = Date.now() - session.rotatedAt.getTime();
+      if (sinceMs > KEYS_LIMITS.refreshReuseGraceSec * 1000) {
+        // Повтор вне grace: семейство отозвано целиком; уведомление — после отзыва,
+        // без права уронить отказ (лента — не security-эффект)
+        await this.db.session.deleteMany({ where: { familyId: session.familyId } });
+        this.events.emit('auth.sessions.revoked', { userId: session.userId }, 'auth');
+        this.notifications
+          .send(null, { type: 'auth.session.reuseDetected', to: [{ userId: session.userId }], reason: 'system', actionUrl: '/profile/security' })
+          .catch((err) => this.logger.warn(`reuse-detected notification failed: ${err.message}`));
+        await this.analytics.track(null, 'keys.session.reuse_detected', {}, { userId: session.userId, workspaceId: null });
+        this.logger.warn(`refresh token reuse detected: user ${session.userId}, family ${session.familyId} revoked`);
+        throw unauthorized('auth.sessionExpired');
+      }
+      // Внутри grace: тот же клиент повторил запрос — выдаём ещё одну пару того же семейства
+    }
 
     const systemRole = this.getHighestSystemRole(
       session.user.roles.map((r) => r.role),
@@ -292,20 +326,29 @@ export class AuthService {
 
     // deviceInfo наследуется от ротируемой строки — иначе после первого же refresh
     // (≤15 мин) устройство в списке сессий снова становится «Неизвестным».
-    return this.generateTokens(
+    const minted = await this.mintSession(
       session.user.id,
       session.user.phone,
       systemRole,
       session.user.tokenEpoch,
       session.deviceInfo,
+      session.familyId,
     );
+    // Прокрутка: старая строка остаётся до истечения (её предъявление = сигнал), guard по
+    // rotatedAt — гонка двух refresh одним токеном помечает ровно один раз
+    await this.db.session.updateMany({
+      where: { id: session.id, rotatedAt: null },
+      data: { rotatedAt: new Date(), replacedById: minted.sessionId },
+    });
+    return minted.tokens;
   }
 
+  /** Выход — всё семейство сессии этого устройства (прокрученные строки включительно). */
   async logout(userId: string, refreshToken: string) {
     const tokenHash = this.hashToken(refreshToken);
-    await this.db.session.deleteMany({
-      where: { userId, token: tokenHash },
-    });
+    const session = await this.db.session.findFirst({ where: { userId, token: tokenHash }, select: { familyId: true } });
+    if (!session) return;
+    await this.db.session.deleteMany({ where: { userId, familyId: session.familyId } });
   }
 
   async logoutAll(userId: string) {
@@ -342,6 +385,8 @@ export class AuthService {
       data: { tokenEpoch: { increment: 1 } },
       select: { tokenEpoch: true },
     });
+    // «Все сессии завершены» = и личные ключи API тоже (ключ — сессия без срока)
+    await this.keysCascades.onTokenEpochBump(tx, userId);
     return user.tokenEpoch;
   }
 
@@ -361,23 +406,35 @@ export class AuthService {
     epoch: number,
     deviceInfo?: string | null,
   ): Promise<AuthTokens> {
+    return (await this.mintSession(userId, phone, role, epoch, deviceInfo, randomUUID())).tokens;
+  }
+
+  /**
+   * Сама чеканка: access `typ: at+jwt` и refresh `typ: refresh+jwt` — оба EdDSA с `kid`
+   * аудитории `product` (core/keys). `familyId` — семейство refresh-цепочки одного
+   * устройства: новый вход = новое семейство, ротация наследует.
+   */
+  private async mintSession(
+    userId: string,
+    phone: string,
+    role: string,
+    epoch: number,
+    deviceInfo: string | null | undefined,
+    familyId: string,
+  ): Promise<{ tokens: AuthTokens; sessionId: string }> {
     const sessionId = randomUUID();
     const payload: JwtPayload = { sub: userId, phone, role, epoch, sid: sessionId };
+    const accessTtl = parseDurationSec(process.env.JWT_EXPIRES_IN) ?? 15 * 60;
+    const refreshTtl = parseDurationSec(process.env.JWT_REFRESH_EXPIRES_IN) ?? 30 * 86_400;
 
-    const accessToken = this.jwt.sign(payload);
+    const accessToken = await this.signing.sign('product', { ...payload }, { ttlSec: accessTtl, typ: 'at+jwt' });
 
-    // Generate refresh token. A unique jti makes the signed token (and thus its
-    // SHA-256 hash on the unique session.token column) distinct even for two
-    // logins in the same second (identical iat) — avoids a duplicate-key crash.
-    const refreshToken = this.jwt.sign(
-      { ...payload, jti: randomUUID() },
-      { expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '30d' },
-    );
+    // Уникальный jti делает подписанный refresh (и его SHA-256 на unique-колонке
+    // session.token) разным даже у двух входов в одну секунду (одинаковый iat).
+    const refreshToken = await this.signing.sign('product', { ...payload, jti: randomUUID() }, { ttlSec: refreshTtl, typ: 'refresh+jwt' });
 
-    // Store refresh token hash in DB
     const tokenHash = this.hashToken(refreshToken);
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
+    const expiresAt = new Date(Date.now() + refreshTtl * 1000);
 
     await this.db.session.create({
       data: {
@@ -386,14 +443,11 @@ export class AuthService {
         token: tokenHash,
         deviceInfo: deviceInfo ?? null,
         expiresAt,
+        familyId,
       },
     });
 
-    return {
-      accessToken,
-      refreshToken,
-      expiresIn: 900, // 15 minutes in seconds
-    };
+    return { tokens: { accessToken, refreshToken, expiresIn: accessTtl }, sessionId };
   }
 
   /**

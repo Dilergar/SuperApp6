@@ -124,7 +124,12 @@ export type NotificationIcon =
   | 'lock'
   | 'device'
   | 'shield'
-  | 'smiley';
+  | 'smiley'
+  // core/keys, core/webhooks
+  | 'key'
+  | 'robot'
+  | 'globe'
+  | 'plug';
 
 export interface NotificationThrottle {
   /** Окно, секунд */
@@ -169,6 +174,8 @@ export const NOTIFICATION_SERVICES = {
   workspaces: { contexts: 'both', order: 80 },
   /** Тариф и лимиты (core/entitlements): пробный период, льготный период, квоты, места */
   entitlements: { contexts: 'both', order: 85 },
+  /** Ключи, боты и вебхуки (core/keys, core/webhooks): создание, истечение, отзыв, утечка, заморозка бота */
+  keys: { contexts: 'both', order: 87 },
   staff: { contexts: 'workspace', order: 90 },
   objects: { contexts: 'workspace', order: 100 },
   documents: { contexts: 'workspace', order: 110 },

@@ -68,7 +68,8 @@
     "wsProfile": "Профиль организации",
     "aria": "Навигация приложения",
     "expandBranch": "Развернуть {name}",
-    "collapseBranch": "Свернуть {name}"
+    "collapseBranch": "Свернуть {name}",
+    "wsIntegrations": "Интеграции и ключи"
   },
   "topbar": {
     "profile": "Профиль",

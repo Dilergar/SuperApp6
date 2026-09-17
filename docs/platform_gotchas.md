@@ -12,6 +12,21 @@
 - Порядок пересборки shared → api-client → api/web несущий (сборка против старого dist).
 - **Prisma migrate дропает то, чего нет в схеме**: партиальные уникумы, generated tsvector, GIN-индексы — дописывать руками в миграцию И зеркалить комментом в schema.prisma.
 
+## Ключи, ПДн, вебхуки (`core/keys`, `core/webhooks`)
+
+- **Dual-verify окна**: legacy HS256 (`KEYS_LEGACY_HS256_UNTIL`) и prev-секрет вебхука (`prevExpiresAt`) — токен/подпись «ещё работает» после ротации по дизайну; «не отозвалось» ≠ баг, пока окно не закрыто.
+- **Dual-write ПДн**: в `legacy` читаются открытые колонки — правка `_enc` руками невидима; в `encrypted` строка без `_bi` (посев сырым SQL) не найдётся по номеру — `POST /keys/dev/pii/backfill`. Порядок `$extends` несущий: `piiExtension` ДО `workspaceScope`.
+- **`KEYS_PII_READ_MODE` — на один деплой**: сьюты, гоняемые в `encrypted`, возвращают `legacy` в `finally` (`verify-keys-pii.cjs`), иначе соседний сьют падает на ростере.
+- **Снимок ключа API кэшируется 60 с**: любое изменение (отзыв, ротация, скоупы бота, allowlist, заморозка) обязано звать `invalidateByHash` — иначе «не сработало» до минуты.
+- **Step-up окно 15 мин** переживает перезапуск клиента и сьюта: проверка `403 keys.step_up_required` начинается с `POST /keys/step-up/end`.
+- **Новый контроллер под `/workspaces/:id/…` роняет бут** (`KeysRoutesAudit`): маршрут организации обязан быть либо строкой `KEY_SCOPE_SERVICES` (с `$` для точного пути), либо `@NoApiKeys()`, либо `@Public()`. Это не ошибка окружения — решение «пускать ли ключи» принимается в коде.
+- **Партиции журналов ключей** (`api_access_log`, `pii_access_log`): месяц без партиции = ошибка вставки `no partition of relation`; бут и крон заводят три месяца вперёд, слив батча заводит недостающую и повторяется один раз. Ретеншн — `POST /keys/dev/usage/partitions` в dev.
+- **Заморозка KEK = 403 везде**: `keys.key_unavailable` на чтении ПДн/секретов скоупа — состояние kill-switch, не порча данных; разморозка возвращает всё.
+- **Prisma `Bytes` = `Uint8Array`**: `Buffer` из `node:crypto` заворачивать `Uint8Array.from`.
+- **`prisma migrate diff --from-url` на живой БД** всегда тянет дрейф индексов аналитики (`*_dims_key`) — вырезать из ручной миграции.
+- **Глобальный `APP_GUARD`/`APP_INTERCEPTOR` из AppModule** резолвит зависимости в контексте AppModule: провайдер @Global-модуля обязан быть в его `exports` (иначе «can't resolve dependencies» на буте).
+- **Вебхуки на loopback** только с `WEBHOOKS_DEV_LOOPBACK=true` в development; endpoint в `pending_verification` получает лишь пинг; общий приёмник получает событие по разу на endpoint.
+
 ## Браузерная проверка (агентом или руками)
 
 - **Скрытая панель/вкладка**: `document.hidden` глушит rAF и ResizeObserver — React Flow не рисует рёбра, virtuoso не рисует ленту, Suspense-чанк `$RC` не раскрывается. Проверять во ФРОНТОВОЙ видимой вкладке.

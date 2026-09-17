@@ -30,6 +30,7 @@ const SERVICE_ICON: Record<EntitlementServiceKey, IconName> = {
   contacts: 'people',
   shop: 'cart',
   objects: 'workspace',
+  keys: 'key',
   legalEntities: 'file',
   cardSkins: 'crown',
   notifications: 'bell',

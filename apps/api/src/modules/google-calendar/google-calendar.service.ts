@@ -1,5 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { badRequest, notFound } from '../../shared/errors/api-error';
+import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
+import { KeysMacService } from '../../core/keys/keys.mac.service';
+import { KeysFieldRegistry } from '../../core/keys/keys.registry';
+import { legacyHmacRaw } from '../../core/keys/keys.legacy';
 import { SOURCE_LOCALE } from '@superapp/shared';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import * as crypto from 'crypto';
@@ -32,15 +36,54 @@ const TASKS_CAL_NAME_KEY = 'calendar.google.tasksCalendarName';
  * update time. Deletions mirror both ways. Participants are NOT pushed as attendees.
  * Known limitation (docs/roadmap.md): per-occurrence recurrence exceptions are synced at master+EXDATE level.
  */
+const TOKEN_ENTITY = 'google_connection';
+type TokenField = 'access_token' | 'refresh_token';
+
 @Injectable()
-export class GoogleCalendarService {
+export class GoogleCalendarService implements OnModuleInit {
   private readonly logger = new Logger(GoogleCalendarService.name);
 
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
     private i18n: I18nService,
+    private keys: KeysEnvelopeService,
+    private mac: KeysMacService,
+    private keyFields: KeysFieldRegistry,
   ) {}
+
+  /** Токены Google — envelope core/keys (KEK человека); строки прошлой эпохи (открытый текст) перешивает legacy-джоб. */
+  onModuleInit(): void {
+    for (const field of ['access_token', 'refresh_token'] as const) {
+      this.keyFields.register({
+        table: 'google_connections',
+        idColumn: 'id',
+        column: field,
+        scope: 'user',
+        scopeColumn: 'user_id',
+        entity: TOKEN_ENTITY,
+        field,
+        // Открытый текст прошлой эпохи → как есть; пустая строка — «токена нет»
+        legacyDecrypt: (stored) => (stored ? stored : null),
+      });
+    }
+  }
+
+  private tokenCtx(userId: string, field: TokenField) {
+    return { entity: TOKEN_ENTITY, field, ownerType: 'user', ownerId: userId };
+  }
+
+  private encryptToken(userId: string, field: TokenField, plain: string): Promise<string> {
+    return this.keys.encrypt({ type: 'user', id: userId }, this.tokenCtx(userId, field), plain);
+  }
+
+  /** Открытый токен: envelope → расшифровка; строка прошлой эпохи — как есть (до перешивки). */
+  private async plainToken(c: GoogleConnection, field: TokenField): Promise<string> {
+    const stored = field === 'access_token' ? c.accessToken : c.refreshToken;
+    if (!stored) return '';
+    if (!this.keys.isEnvelope(stored)) return stored;
+    return this.keys.decrypt({ type: 'user', id: c.userId }, this.tokenCtx(c.userId, field), stored);
+  }
 
   isConfigured(): boolean {
     return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REDIRECT_URI);
@@ -56,20 +99,20 @@ export class GoogleCalendarService {
   // OAuth flow
   // ============================================================
 
-  getAuthUrl(userId: string): string {
+  async getAuthUrl(userId: string): Promise<string> {
     this.assertConfigured();
     return this.oauth().generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent', // force refresh_token every time
       scope: SCOPES,
-      state: this.signState(userId),
+      state: await this.signState(userId),
     });
   }
 
   /** Exchange the OAuth code, store tokens, create dedicated calendars, kick off a full sync. */
   async handleCallback(code: string, state: string): Promise<string> {
     this.assertConfigured();
-    const userId = this.verifyState(state);
+    const userId = await this.verifyState(state);
     if (!userId) throw badRequest('google.badState');
 
     const o = this.oauth();
@@ -83,20 +126,23 @@ export class GoogleCalendarService {
     } catch { /* non-fatal */ }
 
     const existing = await this.db.googleConnection.findUnique({ where: { userId } });
+    // Токены — envelope core/keys ДО записи; в БД открытого текста больше не бывает
+    const accessEnc = tokens.access_token ? await this.encryptToken(userId, 'access_token', tokens.access_token) : null;
+    const refreshEnc = tokens.refresh_token ? await this.encryptToken(userId, 'refresh_token', tokens.refresh_token) : null;
     const conn = await this.db.googleConnection.upsert({
       where: { userId },
       create: {
         userId,
         googleEmail: email,
-        accessToken: tokens.access_token ?? '',
-        refreshToken: tokens.refresh_token ?? '',
+        accessToken: accessEnc ?? '',
+        refreshToken: refreshEnc ?? '',
         tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
       },
       update: {
         googleEmail: email,
-        accessToken: tokens.access_token ?? existing?.accessToken ?? '',
+        accessToken: accessEnc ?? existing?.accessToken ?? '',
         // Google omits refresh_token on re-consent sometimes; keep the old one then.
-        refreshToken: tokens.refresh_token ?? existing?.refreshToken ?? '',
+        refreshToken: refreshEnc ?? existing?.refreshToken ?? '',
         tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
       },
     });
@@ -139,13 +185,14 @@ export class GoogleCalendarService {
     if (!c) return;
     try {
       const o = this.oauth();
-      o.setCredentials({ refresh_token: c.refreshToken });
+      const refresh = await this.plainToken(c, 'refresh_token');
+      o.setCredentials({ refresh_token: refresh });
       if (c.channelId && c.channelResourceId) {
         await google.calendar({ version: 'v3', auth: o }).channels.stop({
           requestBody: { id: c.channelId, resourceId: c.channelResourceId },
         });
       }
-      await o.revokeToken(c.refreshToken);
+      await o.revokeToken(refresh);
     } catch { /* best-effort */ }
     await this.db.googleConnection.delete({ where: { userId } });
   }
@@ -432,21 +479,19 @@ export class GoogleCalendarService {
     this.assertConfigured();
     const o = this.oauth();
     o.setCredentials({
-      access_token: c.accessToken,
-      refresh_token: c.refreshToken,
+      access_token: await this.plainToken(c, 'access_token'),
+      refresh_token: await this.plainToken(c, 'refresh_token'),
       expiry_date: c.tokenExpiry ? c.tokenExpiry.getTime() : undefined,
     });
     o.on('tokens', (t) => {
-      this.db.googleConnection
-        .update({
-          where: { userId: c.userId },
-          data: {
-            accessToken: t.access_token ?? c.accessToken,
-            tokenExpiry: t.expiry_date ? new Date(t.expiry_date) : c.tokenExpiry,
-            ...(t.refresh_token ? { refreshToken: t.refresh_token } : {}),
-          },
-        })
-        .catch(() => undefined);
+      void (async () => {
+        const data: { accessToken?: string; refreshToken?: string; tokenExpiry?: Date | null } = {
+          tokenExpiry: t.expiry_date ? new Date(t.expiry_date) : c.tokenExpiry,
+        };
+        if (t.access_token) data.accessToken = await this.encryptToken(c.userId, 'access_token', t.access_token);
+        if (t.refresh_token) data.refreshToken = await this.encryptToken(c.userId, 'refresh_token', t.refresh_token);
+        await this.db.googleConnection.update({ where: { userId: c.userId }, data });
+      })().catch(() => undefined);
     });
     return google.calendar({ version: 'v3', auth: o });
   }
@@ -535,19 +580,28 @@ export class GoogleCalendarService {
 
   // ---- signed OAuth state (callback is unauthenticated) ----
 
-  private signState(userId: string): string {
+  /** state OAuth — HMAC ключом `oauth_state` keystore (`sa6m:1:<kid>:…`): callback не аутентифицирован. */
+  private async signState(userId: string): Promise<string> {
     const exp = Date.now() + 10 * 60 * 1000;
     const payload = `${userId}.${exp}`;
-    const sig = crypto.createHmac('sha256', process.env.JWT_SECRET || 'dev').update(payload).digest('base64url');
+    const sig = await this.mac.tagged('oauth_state', payload);
     return Buffer.from(`${payload}.${sig}`).toString('base64url');
   }
 
-  private verifyState(state: string): string | null {
+  private async verifyState(state: string): Promise<string | null> {
     try {
-      const [userId, exp, sig] = Buffer.from(state, 'base64url').toString().split('.');
-      const expected = crypto.createHmac('sha256', process.env.JWT_SECRET || 'dev').update(`${userId}.${exp}`).digest('base64url');
-      if (sig !== expected || Date.now() > Number(exp)) return null;
-      return userId;
+      const parts = Buffer.from(state, 'base64url').toString().split('.');
+      const userId = parts[0] ?? '';
+      const exp = parts[1] ?? '';
+      const sig = parts.slice(2).join('.');
+      if (!userId || !exp || !sig || Date.now() > Number(exp)) return null;
+      const payload = `${userId}.${exp}`;
+      if (this.mac.isTagged(sig)) return (await this.mac.verifyTagged('oauth_state', payload, sig)) ? userId : null;
+      // state, выданный до движка ключей (HMAC мастер-секретом) — только на legacy-окне
+      const legacy = legacyHmacRaw(payload);
+      if (!legacy) return null;
+      const got = Buffer.from(sig, 'base64url');
+      return got.length === legacy.length && crypto.timingSafeEqual(got, legacy) ? userId : null;
     } catch {
       return null;
     }

@@ -1,4 +1,5 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import type { KeyScopes } from '@superapp/shared';
 
 export interface JwtPayload {
   sub: string; // user id
@@ -27,6 +28,17 @@ export interface JwtPayload {
    * его явно, а не только по подписи (S1 плана кабинета).
    */
   aud?: string;
+  /**
+   * Личность по ключу API (core/keys): `bot` — теневой пользователь бота (`sub` = его
+   * users.id), `user` — человек по личному ключу. Отсутствует у живой сессии.
+   */
+  kind?: 'user' | 'bot';
+  keyId?: string;
+  botId?: string | null;
+  /** Организация ключа: боты и личные ключи данных организации; null — собственные данные человека */
+  keyWorkspaceId?: string | null;
+  /** Скоупы ключа — гард сверяет с сервисом маршрута; фактическое право = скоуп ∩ права носителя */
+  scopes?: KeyScopes;
 }
 
 export const CurrentUser = createParamDecorator(

@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { createHmac, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
+import { KeysSigningService } from '../keys/keys.signing.service';
+import { legacyDerivedHexSecret, legacyOpen } from '../keys/keys.legacy';
 import {
   PLATFORM_ERROR_CODES,
   PLATFORM_JWT_AUDIENCE,
@@ -46,7 +47,7 @@ export class PlatformAuthService {
   constructor(
     private readonly db: DatabaseService,
     private readonly redis: RedisService,
-    private readonly jwt: JwtService,
+    private readonly signing: KeysSigningService,
     private readonly sessions: SessionValidatorService,
     private readonly verify: VerifyService,
     private readonly access: PlatformAccessService,
@@ -60,12 +61,14 @@ export class PlatformAuthService {
     return process.env.PLATFORM_CONSOLE_ENABLED !== 'false';
   }
 
-  /** Секрет читается на каждый вызов (env-константы модуля вычислялись бы до validateEnv). */
-  private secret(): string {
-    const own = process.env.PLATFORM_JWT_SECRET;
-    if (own) return own;
-    // development: производный от JWT_SECRET отдельной строкой контекста
-    return createHmac('sha256', process.env.JWT_SECRET ?? '').update('superapp6:platform-console').digest('hex');
+  /**
+   * Legacy-секрет HS256 кабинета — только для проверки токенов, выданных до движка
+   * ключей (окно `KEYS_LEGACY_HS256_UNTIL`): PLATFORM_JWT_SECRET либо производный от
+   * прошлого мастер-секрета. Новые токены подписывает keystore (аудитория `platform`).
+   */
+  private legacySecret(): string | null {
+    if (!legacyOpen()) return null;
+    return process.env.PLATFORM_JWT_SECRET || legacyDerivedHexSecret('superapp6:platform-console');
   }
 
   // ============================================================
@@ -83,8 +86,8 @@ export class PlatformAuthService {
     if (fails >= PLATFORM_LIMITS.loginFailMax) {
       throw tooMany('platform.login_blocked', { minutes: PLATFORM_LIMITS.loginBlockMinutes }, { code: PLATFORM_ERROR_CODES.loginBlocked, resendInSec: PLATFORM_LIMITS.loginBlockMinutes * 60 });
     }
-    const user = await this.db.user.findUnique({ where: { phone }, select: { id: true, phone: true, password: true, deletedAt: true, deletionScheduledAt: true } });
-    const ok = !!user && !user.deletedAt && !user.deletionScheduledAt && (await bcrypt.compare(password, user.password));
+    const user = await this.db.user.findUnique({ where: { phone }, select: { id: true, phone: true, password: true, deletedAt: true, deletionScheduledAt: true, kind: true } });
+    const ok = !!user && !user.deletedAt && !user.deletionScheduledAt && user.kind !== 'bot' && (await bcrypt.compare(password, user.password));
     if (!ok) {
       try {
         const client = this.redis.getClient();
@@ -131,8 +134,8 @@ export class PlatformAuthService {
       });
       return { session, userId, epoch: user?.tokenEpoch ?? 0 };
     });
-    const payload: PlatformJwtPayload = { sub: userId, sid: session.id, epoch, aud: PLATFORM_JWT_AUDIENCE };
-    const accessToken = this.jwt.sign(payload, { secret: this.secret(), expiresIn: `${PLATFORM_LIMITS.sessionHours}h` });
+    // `aud: platform` ставит сам движок (аудитория = имя пары ключей); `typ` отделяет от продукта
+    const accessToken = await this.signing.sign('platform', { sub: userId, sid: session.id, epoch }, { ttlSec: PLATFORM_LIMITS.sessionHours * 3600, typ: 'platform+jwt' });
     await this.touch(session.id);
     return { accessToken, expiresAt: expiresAt.toISOString() };
   }
@@ -144,7 +147,7 @@ export class PlatformAuthService {
   async authenticate(raw: string, meta: { ip: string | null; userAgent: string | null; requestId: string }): Promise<PlatformActor> {
     let payload: PlatformJwtPayload;
     try {
-      payload = this.jwt.verify<PlatformJwtPayload>(raw, { secret: this.secret(), audience: PLATFORM_JWT_AUDIENCE });
+      payload = await this.signing.verify<PlatformJwtPayload>('platform', raw, { legacy: { secret: this.legacySecret() } });
     } catch {
       throw unauthorized('auth.invalidToken');
     }

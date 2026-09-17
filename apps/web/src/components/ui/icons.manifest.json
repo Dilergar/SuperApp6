@@ -193,5 +193,7 @@
   "bookmark": "BookmarkSimple",
   "bookmarkFill": "BookmarkSimple",
   "envelopeOpen": "EnvelopeOpen",
-  "checks": "Checks"
+  "checks": "Checks",
+  "snowflake": "Snowflake",
+  "webhook": "WebhooksLogo"
 }

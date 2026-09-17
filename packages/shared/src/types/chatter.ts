@@ -51,6 +51,8 @@ export interface ChatterActorLite {
   firstName: string;
   lastName: string | null;
   avatar: string | null;
+  /** `bot` — актор-бот (core/keys): клиент рисует BotChip, не PersonChip */
+  kind: 'person' | 'bot';
 }
 
 export interface ChatterEntryDto {

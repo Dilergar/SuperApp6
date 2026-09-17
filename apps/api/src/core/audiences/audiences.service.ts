@@ -130,8 +130,9 @@ export class AudiencesService {
         // Фильтр ролей сужает команду (владелец + админы); вне команды роль не считается.
         const allowed = roles ? TEAM_WORKSPACE_ROLES.filter((r) => roles.includes(r)) : [...TEAM_WORKSPACE_ROLES];
         if (!allowed.length) return [];
+        // Боты (core/keys) — теневые пользователи с ролью staff|manager: адресатами не бывают
         const rows = await this.db.userRole.findMany({
-          where: { context: WS_CONTEXT, tenantId: id, isActive: true, role: { in: allowed } },
+          where: { context: WS_CONTEXT, tenantId: id, isActive: true, role: { in: allowed }, user: { kind: { not: 'bot' } } },
           select: { userId: true },
           take: limit,
         });

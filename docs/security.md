@@ -46,9 +46,12 @@
 
 ## Секреты
 
-- Шифрование чувствительных полей — AES-256-GCM, общий хелпер `apps/api/src/shared/crypto/secret-field.ts` (контекст-строка на класс полей). Потребители: сейф кредов Процессов, платёжные карты (PAN/IBAN).
-- `JWT_SECRET` — мастер-ключ 7 подсистем (производные: DOCS_TOKEN_SECRET, SHARE_LINK_SECRET и др. при их пустоте). Известное ограничение: ротация секрета убьёт креды сейфа — отдельный «движок ключей» в бэклоге ([roadmap.md](roadmap.md)).
-- Google-токены лежат в БД открытым текстом (TODO в схеме) — тоже ждёт движка ключей.
+- Шифрование чувствительных полей и ПДн — envelope AES-256-GCM с AAD под движком ключей (`core/keys`: DEK на запись, KEK на организацию/человека, корень в файле/HSM, ротации, заморозка, crypto-shredding) — [keys_engine.md](keys_engine.md), [keys_pii.md](keys_pii.md). Потребители: сейф кредов Процессов, платёжные карты (PAN/IBAN), Google-токены, секреты вебхуков, ПДн людей и контрагентов.
+- **Стражи ESLint движка ключей** (`apps/api/eslint.config.mjs`): `process.env.JWT_SECRET(_LEGACY)` вне `core/keys`; библиотеки JWT (`jsonwebtoken`, `jose`, `@nestjs/jwt`, `passport-jwt`) вне `core/keys`; примитивы `node:crypto` шифрования/ключей (cipher, keypair, kdf, sign/verify-объекты) вне `core/keys` — хеши, HMAC, `random*`, `timingSafeEqual` остаются; заголовки `authorization`/`cookie`/`x-api-key` в аргументах `logger.*`/`console.*` — везде. Каждый проверен пробой (подсадить → красный → убрать).
+- **Секрет не попадает в URL**: проверка ключа — только `POST /keys/verify` (GET с `?key=` осел бы в логах балансировщика и истории браузера); в логи и конверты ошибок секреты идут через `redactSecrets`.
+- **Память процесса не отдаётся наружу**: в production бут отказывается стартовать с `--inspect*`, `--heapsnapshot-*`, `--report-on-*`, `--cpu-prof`/`--heap-prof` (в `execArgv` или `NODE_OPTIONS`) — в heap лежат распакованные KEK/DEK; core dump выключает ОС (`ulimit -c 0` / `LimitCORE=0` в юните сервиса) — правило деплоя, проверяется чек-листом прод-минимума.
+- **Метрики** `GET /metrics` — под `METRICS_TOKEN` (production без токена → 404); значения без id и ПДн.
+- Токены подписываются Ed25519 парами движка ключей (пара на аудиторию: product, platform, wopi, share_link, files_url, webhook; `kid` в заголовке, JWKS на `/.well-known/jwks.json`, ротация без разлогина). `JWT_SECRET` — только legacy-окно HS256 (`JWT_SECRET_LEGACY` + `KEYS_LEGACY_HS256_UNTIL`), после даты удаляется. Refresh с reuse-detection (семейство отзывается при повторе). Ключи API `sa6_…` — HMAC-хеш в БД, скоупы, IP-allowlist, step-up на управление — [keys_api_access.md](keys_api_access.md); исходящие вебхуки подписаны Standard Webhooks и ходят только `safeFetch` — [webhooks_engine.md](webhooks_engine.md).
 
 ## Вебхуки
 
@@ -57,7 +60,7 @@
 
 ## Кабинет платформы (`/platform/*`)
 
-- Отдельная личность: `PlatformStaff` ≠ `user_roles`; токен `aud: platform`, секрет `PLATFORM_JWT_SECRET` (production — обязателен и ≠ `JWT_SECRET`), сессия 8 ч с простоем 20 мин, sudo (step-up пароль + SMS) 15 мин; токены продукта и кабинета не взаимозаменяемы (`401`), `X-Workspace-Id` на `/platform/*` → `400`.
+- Отдельная личность: `PlatformStaff` ≠ `user_roles`; токен `aud: platform` подписан своей парой Ed25519 движка ключей (`PLATFORM_JWT_SECRET` — только legacy-окно HS256, после `KEYS_LEGACY_HS256_UNTIL` обязан уйти из env), сессия 8 ч с простоем 20 мин, sudo (step-up пароль + SMS) 15 мин; токены продукта и кабинета не взаимозаменяемы (`401`), `X-Workspace-Id` на `/platform/*` → `400`.
 - Закрыто по умолчанию: `PlatformAuthGuard` обслуживает только `@PlatformRoute()`, каждый маршрут объявляет доступ, `@Public()` под `/platform` запрещён, смоук на буте роняет старт при пропуске; стоп-кран `PLATFORM_CONSOLE_ENABLED=false` → `404`.
 - Каждое действие — команда: способность → step-up у high/critical → причина → «четыре глаза» (по политике) → идемпотентность → журнал append-only (триггер запрещает UPDATE/DELETE) в одной транзакции с эффектом; просмотры карточек — `PlatformAccessLog`. PII в ответах только масками, раскрытие — отдельная команда с причиной, результат в журнал не пишется. Поиск не энумерирует: только полный номер, 12-значный ИИН/БИН, uuid или ≥ 3 символов имени — [platform_console.md](platform_console.md).
 

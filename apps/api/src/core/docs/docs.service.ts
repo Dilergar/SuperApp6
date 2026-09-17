@@ -537,7 +537,7 @@ export class DocsService implements OnModuleInit {
 
     const urlsrc = await this.editor.actionUrl(base, doc.ext, doc.mime);
     const wopiSrc = this.router.wopiSrc(doc.id);
-    const { token, expiresAtMs } = this.tokens.issue({
+    const { token, expiresAtMs } = await this.tokens.issue({
       documentId: doc.id,
       userId,
       canWrite: effective === 'edit',
@@ -690,7 +690,7 @@ export class DocsService implements OnModuleInit {
    */
   async authorizeWopi(documentId: string, token: string | undefined): Promise<WopiContext> {
     if (!this.router.enabled) throw notFound('docs.notConnected');
-    const verdict = this.tokens.verify(token);
+    const verdict = await this.tokens.verify(token);
     if (!verdict.ok || !verdict.payload) throw unauthorized('docs.tokenInvalid');
     const payload = verdict.payload;
     if (payload.d !== documentId) throw unauthorized('docs.tokenOtherDocument');

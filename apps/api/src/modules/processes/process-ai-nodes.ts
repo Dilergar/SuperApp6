@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AgentCluster, NodeRunContext, ProcessNodeProvider } from './process-node.types';
-import { decryptSecret } from './process-crypto';
+import { decryptCredential } from './process-crypto';
 import { credentialKey } from './process-service-nodes';
 import { llmAgentLoop, llmGenerateText, type LlmConfig, type LlmProvider } from './process-ai-client';
 
@@ -40,7 +40,7 @@ export async function resolveLlmConfig(
 ): Promise<LlmConfig> {
   const cred = await ctx.deps.db.processCredential.findUnique({ where: { id: cfg.credentialId } });
   if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('the API key is not in the safe');
-  const apiKey = credentialKey(JSON.parse(decryptSecret(cred.data)));
+  const apiKey = credentialKey(JSON.parse(await decryptCredential(ctx.deps.keys, cred)));
   return { provider: cfg.provider, apiKey, model: cfg.model, baseUrl: cfg.baseUrl, temperature: cfg.temperature, maxTokens: cfg.maxTokens };
 }
 

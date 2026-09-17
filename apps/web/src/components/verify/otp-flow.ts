@@ -163,7 +163,7 @@ export function useOtpFlow() {
    */
   const startStepUp = useCallback(
     (
-      purpose: Extract<VerifyPurpose, 'password_change' | 'phone_change_old' | 'phone_change_new'>,
+      purpose: Extract<VerifyPurpose, 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage'>,
       password: string,
       newPhone?: string,
     ) => runStart('/verify/step-up', newPhone ? { purpose, password, newPhone } : { purpose, password }),

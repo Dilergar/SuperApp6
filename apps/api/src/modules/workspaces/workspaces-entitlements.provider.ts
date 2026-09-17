@@ -33,7 +33,8 @@ export class WorkspacesEntitlementsProvider implements OnModuleInit {
     this.usage.register('workspace.seats', {
       count: (subject, tx) =>
         (tx ?? this.db).userRole.count({
-          where: { context: WS_CONTEXT, tenantId: subject.id, isActive: true, role: { in: [...TEAM_WORKSPACE_ROLES] } },
+          // Боты (core/keys) места тарифа не занимают — у них свой потолок keys.maxBots
+          where: { context: WS_CONTEXT, tenantId: subject.id, isActive: true, role: { in: [...TEAM_WORKSPACE_ROLES] }, user: { kind: { not: 'bot' } } },
         }),
     });
     this.usage.register('workspaces.maxOwned', {

@@ -71,6 +71,105 @@ const CONSOLE_ACCESS_PATTERNS = [
 ];
 const OUTBOUND_IMPORT_PATHS = BANNED_MODULES.map((name) => ({ name, message: OUTBOUND_DOOR_HINT }));
 
+/**
+ * Третий страж: мастер-секрет прошлой эпохи читается ТОЛЬКО внутри движка ключей.
+ *
+ * До core/keys `JWT_SECRET` был ключом девяти потребителей (подпись, HMAC OTP, AES
+ * сейфов, производные секреты) — ротация была невозможна. Теперь подпись, HMAC и
+ * шифрование живут в keystore, а `JWT_SECRET`/`JWT_SECRET_LEGACY` нужен ровно одному
+ * месту — legacy-верификатору HS256 на окне миграции (`src/core/keys`). Любое новое
+ * чтение вне движка — снова «производный секрет», который никогда не ротируется.
+ */
+const KEYS_SECRET_HINT =
+  'process.env.JWT_SECRET / JWT_SECRET_LEGACY читается только внутри src/core/keys (legacy-верификатор HS256). Подпись — KeysSigningService, HMAC — KeysMacService, шифрование поля — KeysEnvelopeService: у них ротация и kid, у производного секрета — нет.';
+const KEYS_SECRET_SELECTORS = [
+  {
+    selector: "MemberExpression[object.object.name='process'][object.property.name='env'][property.name=/^JWT_SECRET(_LEGACY)?$/]",
+    message: KEYS_SECRET_HINT,
+  },
+  {
+    selector: "MemberExpression[computed=true][object.object.name='process'][object.property.name='env'][property.value=/^JWT_SECRET(_LEGACY)?$/]",
+    message: KEYS_SECRET_HINT,
+  },
+];
+
+/**
+ * Четвёртый страж: секреты не попадают в логи. `req.headers.authorization` (Bearer-токен
+ * или ключ `sa6_…`), `cookie` и `x-api-key` внутри аргументов logger.<метод>/console.<метод> — ошибка.
+ * Тело и заголовки запроса логируются только через `redactSecrets` (shared/utils/redact).
+ */
+const SECRET_LOG_HINT =
+  'Заголовки authorization / cookie / x-api-key в лог не пишутся: там Bearer-токен или ключ sa6_…. Нужен контекст запроса в логе — пропусти строку через redactSecrets() (shared/utils/redact.ts) и не передавай заголовок целиком.';
+const LOG_CALL = "CallExpression[callee.property.name=/^(log|warn|error|debug|verbose|fatal|info|trace)$/]";
+const SECRET_LOG_SELECTORS = [
+  {
+    selector: `${LOG_CALL} MemberExpression[property.name=/^(authorization|cookie|x-api-key)$/i]`,
+    message: SECRET_LOG_HINT,
+  },
+  {
+    // `req.headers['authorization']` — вычисляемое свойство
+    selector: `${LOG_CALL} MemberExpression[computed=true][property.value=/^(authorization|cookie|x-api-key)$/i]`,
+    message: SECRET_LOG_HINT,
+  },
+];
+
+/**
+ * Пятый страж: криптография — только через движок ключей (src/core/keys). Библиотеки JWT
+ * (`jsonwebtoken`, `jose`, `@nestjs/jwt`, `passport-jwt`) и примитивы шифрования/ключей
+ * `node:crypto` вне движка запрещены: свой AES без AAD и без `kid` не ротируется, свой JWT
+ * не знает JWKS. Хеши, HMAC, randomUUID/randomBytes и timingSafeEqual остаются доступны.
+ */
+const KEYS_CRYPTO_HINT =
+  'Криптография живёт в src/core/keys: подпись — KeysSigningService (Ed25519 + kid + JWKS), HMAC — KeysMacService, шифрование поля — KeysEnvelopeService (+ KeysFieldRegistry). Свой JWT/AES/ключевая пара вне движка не ротируется и не попадает в реестр ключей.';
+const BANNED_JWT_LIBS = ['jsonwebtoken', 'jose', 'node-jose', '@nestjs/jwt', 'passport-jwt', 'jwks-rsa'];
+const CRYPTO_PRIMITIVES_RE =
+  '/^(createCipheriv|createDecipheriv|createCipher|createDecipher|generateKeyPair|generateKeyPairSync|createPrivateKey|createSecretKey|privateEncrypt|privateDecrypt|publicEncrypt|publicDecrypt|scrypt|scryptSync|pbkdf2|pbkdf2Sync|hkdf|hkdfSync|createSign|createVerify|diffieHellman|createECDH|createDiffieHellman)$/';
+const KEYS_CRYPTO_SELECTORS = [
+  {
+    selector: `ImportDeclaration[source.value=/^(node:)?crypto$/] ImportSpecifier[imported.name=${CRYPTO_PRIMITIVES_RE}]`,
+    message: KEYS_CRYPTO_HINT,
+  },
+  {
+    // `import * as crypto from 'crypto'; crypto.createCipheriv(...)`
+    selector: `MemberExpression[object.name=/^(crypto|nodeCrypto)$/][property.name=${CRYPTO_PRIMITIVES_RE}]`,
+    message: KEYS_CRYPTO_HINT,
+  },
+];
+const JWT_IMPORT_PATHS = BANNED_JWT_LIBS.map((name) => ({ name, message: KEYS_CRYPTO_HINT }));
+
+/** Селекторы стража исходящих — общие для основного блока и для блока движка ключей (там без стража секрета). */
+const OUTBOUND_SYNTAX_SELECTORS = [
+  {
+    selector: "MemberExpression[object.name=/^(globalThis|global)$/][property.name='fetch']",
+    message: OUTBOUND_DOOR_HINT,
+  },
+  {
+    // `globalThis['fetch']` — тот же доступ, но через вычисляемое свойство.
+    selector: "MemberExpression[computed=true][object.name=/^(globalThis|global)$/][property.value='fetch']",
+    message: OUTBOUND_DOOR_HINT,
+  },
+  {
+    // `const { fetch } = globalThis` — деструктуризация не MemberExpression,
+    // предыдущие два селектора её не видят. Проверено пробой: проходила молча.
+    selector: "VariableDeclarator[init.name=/^(globalThis|global)$/] > ObjectPattern > Property[key.name='fetch']",
+    message: OUTBOUND_DOOR_HINT,
+  },
+  {
+    // `require('node:https')` — `no-restricted-imports` работает ТОЛЬКО по ESM-import
+    // и CommonJS не видит вовсе. В apps/api `require()` — живая идиома (sharp,
+    // exif-reader, thumbhash, ffmpeg-static), поэтому обход был бы естественным
+    // повторением местного стиля, а не изощрением. Проверено пробой: проходил молча.
+    selector: `CallExpression[callee.name='require'][arguments.0.value=${BANNED_MODULES_RE}]`,
+    message: OUTBOUND_DOOR_HINT,
+  },
+  {
+    // `await import('axios')` — динамический импорт `no-restricted-imports` тоже
+    // пропускает. Проверено пробой.
+    selector: `ImportExpression[source.value=${BANNED_MODULES_RE}]`,
+    message: OUTBOUND_DOOR_HINT,
+  },
+];
+
 export default [
   {
     ignores: ['dist/**', 'node_modules/**', 'prisma/**', 'scripts/**', 'test/**'],
@@ -104,46 +203,17 @@ export default [
       // `no-restricted-globals` работает по ссылкам на ГЛОБАЛЬНОЕ имя и не видит
       // `globalThis.fetch(...)` — это уже обращение к свойству объекта. Проверено:
       // без этого селектора такая запись проходила линтер молча.
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: "MemberExpression[object.name=/^(globalThis|global)$/][property.name='fetch']",
-          message: OUTBOUND_DOOR_HINT,
-        },
-        {
-          // `globalThis['fetch']` — тот же доступ, но через вычисляемое свойство.
-          selector: "MemberExpression[computed=true][object.name=/^(globalThis|global)$/][property.value='fetch']",
-          message: OUTBOUND_DOOR_HINT,
-        },
-        {
-          // `const { fetch } = globalThis` — деструктуризация не MemberExpression,
-          // предыдущие два селектора её не видят. Проверено пробой: проходила молча.
-          selector:
-            "VariableDeclarator[init.name=/^(globalThis|global)$/] > ObjectPattern > Property[key.name='fetch']",
-          message: OUTBOUND_DOOR_HINT,
-        },
-        {
-          // `require('node:https')` — `no-restricted-imports` работает ТОЛЬКО по ESM-import
-          // и CommonJS не видит вовсе. В apps/api `require()` — живая идиома (sharp,
-          // exif-reader, thumbhash, ffmpeg-static), поэтому обход был бы естественным
-          // повторением местного стиля, а не изощрением. Проверено пробой: проходил молча.
-          selector: `CallExpression[callee.name='require'][arguments.0.value=${BANNED_MODULES_RE}]`,
-          message: OUTBOUND_DOOR_HINT,
-        },
-        {
-          // `await import('axios')` — динамический импорт `no-restricted-imports` тоже
-          // пропускает. Проверено пробой.
-          selector: `ImportExpression[source.value=${BANNED_MODULES_RE}]`,
-          message: OUTBOUND_DOOR_HINT,
-        },
-      ],
+      // Селекторы живут в OUTBOUND_SYNTAX_SELECTORS (их же переиспользует блок движка
+      // ключей); здесь к ним добавлен страж мастер-секрета (KEYS_SECRET_SELECTORS).
+      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...KEYS_SECRET_SELECTORS, ...SECRET_LOG_SELECTORS, ...KEYS_CRYPTO_SELECTORS],
       // Обход правила «возьму другой HTTP-клиент» — тоже закрыт. На момент введения
       // (2026-08-30) ни одного такого импорта в apps/api нет: единственный способ
-      // ходить наружу — `fetch`. Правило держит это состояние.
+      // ходить наружу — `fetch`. Правило держит это состояние. Сюда же — библиотеки
+      // JWT (страж криптографии): подпись токенов только через движок ключей.
       'no-restricted-imports': [
         'error',
         {
-          paths: OUTBOUND_IMPORT_PATHS,
+          paths: [...OUTBOUND_IMPORT_PATHS, ...JWT_IMPORT_PATHS],
           patterns: CONSOLE_ACCESS_PATTERNS,
         },
       ],
@@ -154,7 +224,16 @@ export default [
     // человека со штата: там правило снято ровно на импорт кабинета, дверь наружу остаётся.
     files: ['src/core/platform/**/*.ts', 'src/core/users/users.service.ts', 'src/core/users/users.module.ts'],
     rules: {
-      'no-restricted-imports': ['error', { paths: OUTBOUND_IMPORT_PATHS }],
+      'no-restricted-imports': ['error', { paths: [...OUTBOUND_IMPORT_PATHS, ...JWT_IMPORT_PATHS] }],
+    },
+  },
+  {
+    // Движок ключей — единственное место, где legacy-верификатор читает JWT_SECRET(_LEGACY)
+    // и где живут примитивы node:crypto: стражи секрета и криптографии сняты, страж
+    // исходящих и страж логов остаются целиком.
+    files: ['src/core/keys/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...SECRET_LOG_SELECTORS],
     },
   },
   {

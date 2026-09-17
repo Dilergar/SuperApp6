@@ -13,6 +13,18 @@
       "port": 3001,
       "url": "http://localhost:3001",
       "autoPort": false
+    },
+    {
+      "name": "web-dev",
+      "comment": "Только веб (когда API уже поднят отдельно как node dist/main): pnpm --filter ./apps/web dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "./apps/web",
+        "dev"
+      ],
+      "port": 3000,
+      "autoPort": false
     }
   ]
 }

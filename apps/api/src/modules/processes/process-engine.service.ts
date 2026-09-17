@@ -10,6 +10,7 @@ import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { TasksService } from '../tasks/tasks.service';
 import { ApprovalsService } from '../../core/approvals/approvals.service';
+import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { PROCESS_ORIGIN_TYPE } from './process-builtin-nodes';
 import { ProcessNodeRegistry } from './process-node.registry';
@@ -61,6 +62,7 @@ export class ProcessEngineService {
     private approvals: ApprovalsService,
     private moduleRef: ModuleRef,
     private i18n: I18nService,
+    private keys: KeysEnvelopeService,
   ) {}
 
   // ---------------------------------------------------------------
@@ -1219,6 +1221,7 @@ export class ProcessEngineService {
         notifications: this.notifications,
         db: this.db,
         approvals: this.approvals,
+        keys: this.keys,
         // Ленивый резолвер (ModuleRef, strict:false) — ищет провайдер во всём графе
         // приложения; вызывается ТОЛЬКО нодой, которой сервис нужен (без eager-инъекции).
         getService: <T = unknown>(token: string | symbol | (new (...args: unknown[]) => unknown)): T =>

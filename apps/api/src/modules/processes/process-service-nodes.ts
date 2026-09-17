@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { NodeRunContext, ProcessNodeProvider } from './process-node.types';
-import { decryptSecret } from './process-crypto';
+import { decryptCredential } from './process-crypto';
 // Обе двери наружу живут в shared/http (общая инфраструктура): их импортируют и
 // движки core/*, а движок не имеет права зависеть от фичи. Реэкспорт — чтобы у
 // соседей по модулю Процессов не менялся путь импорта.
@@ -14,7 +14,7 @@ export async function loadCredentialSecret(
 ): Promise<{ type: string; secret: Record<string, string> }> {
   const cred = await ctx.deps.db.processCredential.findUnique({ where: { id: credentialId } });
   if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('the credential is not in the safe');
-  return { type: cred.type, secret: JSON.parse(decryptSecret(cred.data)) as Record<string, string> };
+  return { type: cred.type, secret: JSON.parse(await decryptCredential(ctx.deps.keys, cred)) as Record<string, string> };
 }
 
 /** Любое поле-ключ из креда (token у bearer, headerValue у header, password у basic). */
@@ -92,7 +92,7 @@ export const httpNode: ProcessNodeProvider = {
       if (cfg.credentialId) {
         const cred = await ctx.deps.db.processCredential.findUnique({ where: { id: cfg.credentialId } });
         if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('the credential was not found');
-        const secret = JSON.parse(decryptSecret(cred.data)) as Record<string, string>;
+        const secret = JSON.parse(await decryptCredential(ctx.deps.keys, cred)) as Record<string, string>;
         if (cred.type === 'bearer') headers['Authorization'] = `Bearer ${secret.token}`;
         else if (cred.type === 'basic') headers['Authorization'] = `Basic ${Buffer.from(`${secret.username}:${secret.password}`).toString('base64')}`;
         else if (cred.type === 'header') headers[secret.headerName] = secret.headerValue;

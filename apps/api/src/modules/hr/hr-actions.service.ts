@@ -31,6 +31,7 @@ import { StaffService } from '../staff/staff.service';
 import { TasksService } from '../tasks/tasks.service';
 import { WorkspacesService } from '../workspaces/workspaces.service';
 import { LegalEntitiesService } from '../workspaces/legal-entities.service';
+import { KeysCascadesService } from '../../core/keys/api-keys/keys.cascades.service';
 import { assignmentToday } from '../../shared/utils/assignment-window';
 import { HrCalendarService } from './hr-calendar.service';
 import { AudiencesService } from '../../core/audiences/audiences.service';
@@ -60,6 +61,8 @@ type HrActionRow = Awaited<ReturnType<DatabaseService['hrAction']['findUniqueOrT
 interface PostApplyEffects {
   syncFact?: { positionId: string; branchId: string | null; prevPositionId: string | null };
   removeMembership?: boolean;
+  /** Хвост каскада ключей после коммита (сокет `keys:changed` владельцу и админам) */
+  keysAfter?: () => Promise<void>;
   /**
    * Увольнение ЗАКРЫВАЕТ фактические назначения датой приказа (а не стирает их):
    * история, ставки и смены остаются, права снимаются фильтром по датам.
@@ -116,6 +119,7 @@ export class HrActionsService {
     private readonly calendar: HrCalendarService,
     private readonly audiences: AudiencesService,
     private readonly legal: LegalEntitiesService,
+    private readonly keysCascades: KeysCascadesService,
   ) {}
 
   // ---------- Гейты (копия лестницы — прецедент documents/processes) ----------
@@ -570,6 +574,9 @@ export class HrActionsService {
         post.syncFact.prevPositionId,
       );
     }
+    if (post.keysAfter) {
+      await post.keysAfter().catch((e) => this.logger.warn(`keys cascade after dismissal of ${action.userId}: ${(e as Error).message}`));
+    }
     if (post.removeMembership) {
       // Каскад системного увольнения не должен откатить юридический факт — при
       // ошибке кадровик снимает членство обычной кнопкой ростера.
@@ -728,6 +735,10 @@ export class HrActionsService {
         });
         // ЕСУТД: прекращение — 3 РАБОЧИХ дня ОТ ДНЯ ПРЕКРАЩЕНИЯ
         await this.ensureEsutd(tx, action, 'termination', dateStr(action.effectiveAt)!, employment.id);
+        // Ключи (core/keys, правило «на всех путях ухода»): личные ключи уволенного для данных
+        // организации гаснут В ЭТОЙ ЖЕ транзакции, его боты замораживаются до решения владельца —
+        // независимо от того, снимается ли членство в системе (человек мог остаться подрядчиком).
+        post.keysAfter = await this.keysCascades.onMemberLeft(tx, action.workspaceId, action.userId, 'dismissed', action.createdById);
         // Факт закрывается ДАТОЙ ПРИКАЗА: назначения остаются в истории (на них
         // ссылаются ставки и смены), но перестают действовать и давать права.
         post.closeAssignments = dateStr(action.effectiveAt)!;

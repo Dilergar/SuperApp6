@@ -10,7 +10,7 @@ import { RolesService } from '../../core/roles/roles.service';
 import { forbidden } from '../errors/api-error';
 import type { JwtPayload } from '../decorators/current-user.decorator';
 import { DEFER_WORKSPACE_CHECK_KEY } from '../decorators/defer-workspace-check.decorator';
-import { ANALYTICS_HEADERS, LOCALE_HEADER, WORKSPACE_ROLE_RANK } from '@superapp/shared';
+import { ANALYTICS_HEADERS, KEYS_ERROR_CODES, LOCALE_HEADER, WORKSPACE_ROLE_RANK } from '@superapp/shared';
 import { countryFromHeaders, negotiateLocale } from '@superapp/i18n';
 
 const ROLE_RANK: Record<string, number> = WORKSPACE_ROLE_RANK;
@@ -44,7 +44,23 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
     }>();
 
     const userId = req?.user?.sub;
-    const headerWs = this.readHeader(req?.headers);
+    let headerWs = this.readHeader(req?.headers);
+    // Запрос ПО КЛЮЧУ API (core/keys): организация задана самим ключом. Ключ бота и
+    // личный ключ данных организации работают только в ней (заголовок обязан совпасть
+    // или отсутствовать); личный ключ собственных данных с организацией не работает вовсе.
+    // Членство и роль дальше проверяются как у живой сессии: у бота роли лежат в
+    // user_roles его теневого пользователя, у человека — его собственные.
+    if (req?.user?.keyId) {
+      const keyWs = req.user.keyWorkspaceId ?? null;
+      if (keyWs) {
+        if (headerWs && headerWs !== keyWs) {
+          throw forbidden('keys.workspace_mismatch', undefined, { code: KEYS_ERROR_CODES.workspaceMismatch });
+        }
+        headerWs = keyWs;
+      } else if (headerWs) {
+        throw forbidden('keys.personal_needs_workspace', undefined, { code: KEYS_ERROR_CODES.personalKeyNeedsWorkspace });
+      }
+    }
     // Язык запроса — из `Accept-Language`, БЕЗ обращения к БД: клиент шлёт свой
     // текущий язык сам (веб — из cookie/профиля, mobile — из настроек, гость —
     // из браузера). Поход в `users` ради одного поля на КАЖДЫЙ запрос стоил бы

@@ -198,7 +198,7 @@ export class ShareLinksGuestService {
       { userId: null, workspaceId: link.ownerType === 'workspace' ? link.ownerId : null },
     );
     await this.notifyOwnerOfOpen(link, open, guest);
-    const session = this.tokens.issue(link.id, link.sessionEpoch, guest?.id ?? null);
+    const session = await this.tokens.issue(link.id, link.sessionEpoch, guest?.id ?? null);
     // Ссылка с личностью: вид перечитывается УЖЕ с гостем — потребитель кладёт в
     // него персональный срез (моя подпись/мой отказ). Второй заход резолвера на
     // одно открытие в час — приемлемая цена; ошибка не роняет уже засчитанное
@@ -229,7 +229,7 @@ export class ShareLinksGuestService {
    * терял бы страницу на первом же клике.
    */
   async authorizeGuest(sessionToken: string | undefined | null, expectedRefType?: string): Promise<GuestAccess> {
-    const verdict = this.tokens.verify(sessionToken);
+    const verdict = await this.tokens.verify(sessionToken);
     if (!verdict.ok || !verdict.payload) {
       deny(
         SHARE_LINK_ERROR_CODES.sessionInvalid,
@@ -275,7 +275,7 @@ export class ShareLinksGuestService {
     body: unknown,
     info: GuestRequestInfo,
   ): Promise<unknown> {
-    const verdict = this.tokens.verify(sessionToken);
+    const verdict = await this.tokens.verify(sessionToken);
     if (!verdict.ok || !verdict.payload) {
       deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionExpired', HttpStatus.FORBIDDEN);
     }
@@ -315,7 +315,7 @@ export class ShareLinksGuestService {
   }
 
   async refreshView(token: string, sessionToken: string | undefined | null): Promise<ShareGuestSessionDto> {
-    const verdict = this.tokens.verify(sessionToken);
+    const verdict = await this.tokens.verify(sessionToken);
     if (!verdict.ok || !verdict.payload) {
       deny(
         SHARE_LINK_ERROR_CODES.sessionInvalid,
