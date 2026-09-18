@@ -13,8 +13,10 @@
  * два — внутренности этих двух дверей. Поэтому «кто ходит наружу» — это один поиск
  * по двум именам, а не вычитывание всей кодовой базы.
  */
-import { promises as dnsPromises } from 'node:dns';
-import { isIP } from 'node:net';
+import { lookup as dnsLookup, promises as dnsPromises, type LookupAddress } from 'node:dns';
+import { isIP, type LookupFunction } from 'node:net';
+// eslint-disable-next-line no-restricted-imports -- внутренности двери: Agent нужен только ради пина соединения (guardedLookup); сам запрос идёт тем же единственным fetch ниже
+import { Agent } from 'undici';
 
 // ============================================================
 // SSRF-защита (A12). Регекс по хосту обходится: DNS-rebinding, 302→metadata,
@@ -22,8 +24,11 @@ import { isIP } from 'node:net';
 // IPv6-mapped (::ffff:127.0.0.1). Здесь: (1) числовой разбор IP во ВСЕХ формах +
 // классификация приватных диапазонов, (2) резолв DNS и проверка КАЖДОГО адреса до
 // соединения, (3) ручной follow редиректов с реперепроверкой каждого хопа и снятием
-// Authorization при кросс-хост редиректе. Пин соединения к валидному IP (полное
-// закрытие TOCTOU) потребовал бы undici-диспетчера — вне scope P0; окно rebind узкое.
+// Authorization при кросс-хост редиректе, (4) ПИН соединения: сокет резолвит имя через
+// `guardedLookup` — резолв и проверка одно действие, соединение идёт ровно на проверенный
+// адрес. Без (4) предпроверка и соединение — два РАЗНЫХ DNS-запроса: сервер имён с TTL 0
+// отдаёт публичный адрес первому и 169.254.169.254 второму (DNS-rebinding). Вебхуки делают
+// это окно рабочим: адрес выбирает арендатор, а ретраи дают ему попытки без счёта.
 // ============================================================
 
 /** IPv4 (uint32) во внутренней сети/зарезервирован (loopback/link-local/metadata/приватные). */
@@ -139,17 +144,42 @@ async function assertResolvedPublic(hostname: string): Promise<void> {
     throw new Error('The host name could not be resolved');
   }
   if (addrs.length === 0) throw new Error('The host name does not resolve');
-  for (const a of addrs) {
-    const priv =
-      a.family === 6
-        ? isPrivateIpv6(a.address)
-        : ((): boolean => {
-            const n = parseLooseIpv4(a.address);
-            return n === null ? true : isPrivateIpv4Num(n);
-          })();
-    if (priv) throw new Error('The host points into the internal network');
-  }
+  if (addrs.some(resolvedIsPrivate)) throw new Error('The host points into the internal network');
 }
+
+/** Резолвленный адрес во внутренней сети? Неразборчивый адрес — приватный (fail-closed). */
+function resolvedIsPrivate(a: { address: string; family: number }): boolean {
+  if (a.family === 6) return isPrivateIpv6(a.address);
+  const n = parseLooseIpv4(a.address);
+  return n === null ? true : isPrivateIpv4Num(n);
+}
+
+/**
+ * `lookup` сокета: резолвит имя и отвергает ответ, если ХОТЬ ОДИН адрес внутренний, —
+ * соединение идёт только на адреса, прошедшие проверку (закрывает DNS-rebinding между
+ * предпроверкой и `connect`). IP-литералы сюда не попадают (сокет их не резолвит) — их
+ * синхронно проверяет `assertPublicUrlShallow` на каждом хопе.
+ */
+export const guardedLookup: LookupFunction = (hostname, options, callback) => {
+  const opts = typeof options === 'object' && options !== null ? options : {};
+  dnsLookup(hostname, { ...opts, all: true }, (err, addresses) => {
+    if (err) return callback(err, '', 4);
+    const list = (Array.isArray(addresses) ? addresses : []) as LookupAddress[];
+    if (list.length === 0 || list.some(resolvedIsPrivate)) {
+      const blocked: NodeJS.ErrnoException = new Error('The host points into the internal network');
+      blocked.code = 'ESSRF';
+      return callback(blocked, '', 4);
+    }
+    if ((opts as { all?: boolean }).all) return callback(null, list);
+    return callback(null, list[0].address, list[0].family);
+  });
+};
+
+/**
+ * Диспетчер двери №1: все соединения safeFetch идут через `guardedLookup`. Простаивающие
+ * соединения живут недолго — адреса из данных редко повторяются, держать пул незачем.
+ */
+const guardedAgent = new Agent({ connect: { lookup: guardedLookup }, keepAliveTimeout: 1_000, keepAliveMaxTimeout: 5_000 });
 
 /** Нормализовать заголовки к mutable-объекту (для снятия Authorization при кросс-хост редиректе). */
 function toHeaderRecord(h: HeadersInit | undefined): Record<string, string> {
@@ -183,7 +213,7 @@ export async function safeFetch(
     let headers = toHeaderRecord(init.headers);
     for (let hop = 0; ; hop++) {
       // eslint-disable-next-line no-restricted-globals -- внутренности двери: тот самый один законный fetch
-      const res = await fetch(url.toString(), { ...init, method, body, headers, redirect: 'manual', signal: controller.signal });
+      const res = await fetch(url.toString(), { ...init, method, body, headers, redirect: 'manual', signal: controller.signal, dispatcher: guardedAgent } as RequestInit);
       const isRedirect = res.status >= 301 && res.status <= 308 && res.status !== 304 && res.status !== 305 && res.status !== 306;
       if (!isRedirect) return res;
       const loc = res.headers.get('location');

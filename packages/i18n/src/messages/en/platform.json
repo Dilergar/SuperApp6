@@ -114,6 +114,14 @@
     "entitlementsTrialExtend": {
       "title": "Extend a trial"
     },
+    "webhooksEndpointDisable": {
+      "description": "Deliveries to the address stop at once. Only the platform can enable it again; the owner and admins of the organization are notified.",
+      "title": "Disable a webhook"
+    },
+    "webhooksEndpointEnable": {
+      "description": "The address is verified with a ping again and becomes active after a 2xx answer.",
+      "title": "Enable a webhook disabled by the platform"
+    },
     "keysBotFreeze": {
       "description": "All keys of the bot stop working until the organization owner unfreezes it.",
       "title": "Freeze a bot"
@@ -277,6 +285,7 @@
     "workspaceAnalytics": "Activity",
     "workspaceAudit": "Console activity",
     "workspaceEntitlements": "Plan and limits",
+    "workspaceWebhooks": "Webhooks",
     "workspaceKeys": "Keys and bots",
     "workspaceMembersSummary": "Members",
     "workspaceProfile": "Profile"

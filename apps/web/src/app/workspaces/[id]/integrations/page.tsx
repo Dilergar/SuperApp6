@@ -110,7 +110,7 @@ export default function IntegrationsPage() {
       </div>
       {tab === 'registry' && <RegistryTab workspaceId={id} isOwner={isOwner} onOpenBots={() => setTab('bots')} onOpenWebhooks={() => setTab('webhooks')} onOpenJournal={onRowJournal} />}
       {tab === 'bots' && <BotsTab workspaceId={id} isOwner={isOwner} focusBotId={search.get('bot')} onOpenJournal={onBotJournal} />}
-      {tab === 'webhooks' && <WebhooksTab workspaceId={id} />}
+      {tab === 'webhooks' && <WebhooksTab workspaceId={id} focusEndpointId={search.get('endpoint')} />}
       {tab === 'journal' && <JournalTab workspaceId={id} focus={journalFocus} onClearFocus={() => setJournalFocus(null)} />}
       {tab === 'policy' && <PolicyTab workspaceId={id} isOwner={isOwner} />}
     </KeysStepUpProvider>

@@ -362,7 +362,9 @@
       "documents_document_registered": "Документ зарегистрирован",
       "documents_document_signed": "Документ подписан",
       "workspaces_member_joined": "Сотрудник присоединился",
-      "workspaces_member_left": "Сотрудник вышел"
+      "workspaces_member_left": "Сотрудник вышел",
+      "webhook_ping": "Проверочный пинг",
+      "webhook_test": "Аудит подписи"
     },
     "createdTitle": "Вебхук создан",
     "createdNote": "Это секрет подписи. Он показывается только один раз — положите его в приёмник сейчас.",

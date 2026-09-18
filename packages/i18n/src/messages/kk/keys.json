@@ -362,7 +362,9 @@
       "documents_document_registered": "Құжат тіркелді",
       "documents_document_signed": "Құжатқа қол қойылды",
       "workspaces_member_joined": "Қызметкер қосылды",
-      "workspaces_member_left": "Қызметкер шықты"
+      "workspaces_member_left": "Қызметкер шықты",
+      "webhook_ping": "Тексеру пингі",
+      "webhook_test": "Қолтаңба аудиті"
     },
     "createdTitle": "Вебхук құрылды",
     "createdNote": "Бұл қолтаңба құпиясы. Ол бір рет қана көрсетіледі — қабылдағышқа қазір қойыңыз.",

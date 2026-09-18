@@ -1938,12 +1938,18 @@ export class DocumentsService {
   ): Promise<void> {
     const row = await this.documentOrThrow(documentId).catch(() => null);
     if (!row) return;
-    const won = await this.db.orgDocument.updateMany({
-      where: { id: row.id, status: 'sent' },
-      data: { status: 'signed', signedAt: new Date() },
+    // Событие наружу — в транзакции клейма: откат не оставит вебхука без факта
+    const won = await this.db.$transaction(async (tx) => {
+      const r = await tx.orgDocument.updateMany({
+        where: { id: row.id, status: 'sent' },
+        data: { status: 'signed', signedAt: new Date() },
+      });
+      if (r.count) {
+        await this.webhooks.emit(tx, { workspaceId: row.workspaceId, eventKey: 'documents.document.signed', payload: documentWebhookPayload({ ...row, status: 'signed' }) });
+      }
+      return r;
     });
     if (won.count === 0) return;
-    await this.webhooks.emit(null, { workspaceId: row.workspaceId, eventKey: 'documents.document.signed', payload: documentWebhookPayload({ ...row, status: 'signed' }) });
     await this.notifications
       .send(null, {
         type: 'document.counterparty_signed',
@@ -2220,17 +2226,20 @@ export class DocumentsService {
     });
     const number = formatDocNumber(type.numberFormat, counter.value, now);
 
-    const claimed = await this.db.orgDocument.updateMany({
-      where: { id: row.id, number: null },
-      data: {
-        number,
-        numberedAt: now,
-        status: row.status === 'signed' ? 'registered' : row.status,
-      },
+    const claimed = await this.db.$transaction(async (tx) => {
+      const r = await tx.orgDocument.updateMany({
+        where: { id: row.id, number: null },
+        data: {
+          number,
+          numberedAt: now,
+          status: row.status === 'signed' ? 'registered' : row.status,
+        },
+      });
+      if (r.count > 0) {
+        await this.webhooks.emit(tx, { workspaceId: row.workspaceId, eventKey: 'documents.document.registered', payload: documentWebhookPayload({ ...row, number, status: row.status === 'signed' ? 'registered' : row.status }) });
+      }
+      return r;
     });
-    if (claimed.count > 0) {
-      await this.webhooks.emit(null, { workspaceId: row.workspaceId, eventKey: 'documents.document.registered', payload: documentWebhookPayload({ ...row, number, status: row.status === 'signed' ? 'registered' : row.status }) });
-    }
     if (claimed.count === 0) {
       // Гонку выиграл сосед — номер, который мы сожгли, останется дырой в книге
       // регистрации. Это честнее, чем выдать один номер двум приказам.
@@ -2388,13 +2397,21 @@ export class DocumentsService {
     const row = await this.documentOrThrow(documentId);
     if (row.signedAt) return;
     this.assertRoutable(row);
-    await this.db.orgDocument.updateMany({
-      // Статус-гвард обязателен: гвард только по `signedAt` перезаписывал отмену и
-      // воскрешал отменённый документ в «подписан».
-      where: { id: row.id, signedAt: null, status: { in: [...DOC_ROUTABLE_STATUSES] } },
-      data: { signedAt: new Date(), status: row.number ? 'registered' : 'signed' },
+    const won = await this.db.$transaction(async (tx) => {
+      const r = await tx.orgDocument.updateMany({
+        // Статус-гвард обязателен: гвард только по `signedAt` перезаписывал отмену и
+        // воскрешал отменённый документ в «подписан».
+        where: { id: row.id, signedAt: null, status: { in: [...DOC_ROUTABLE_STATUSES] } },
+        data: { signedAt: new Date(), status: row.number ? 'registered' : 'signed' },
+      });
+      if (r.count) {
+        await this.webhooks.emit(tx, { workspaceId: row.workspaceId, eventKey: 'documents.document.signed', payload: documentWebhookPayload({ ...row, status: row.number ? 'registered' : 'signed' }) });
+      }
+      return r;
     });
-    await this.webhooks.emit(null, { workspaceId: row.workspaceId, eventKey: 'documents.document.signed', payload: documentWebhookPayload({ ...row, status: row.number ? 'registered' : 'signed' }) });
+    // Гвард проигран (документ отменён между чтением и записью либо его уже пометил
+    // сосед) — подписания НЕ было: ни вебхука, ни строки хроники «подписан».
+    if (won.count === 0) return;
     await this.chatter
       .log(null, {
         refType: ORG_DOCUMENT_REF_TYPE,

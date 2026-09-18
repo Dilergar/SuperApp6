@@ -1143,12 +1143,20 @@ export class TasksService implements OnModuleInit {
     // Self-task (no participants): only the creator can complete it, no review step.
     if (task.participants.length === 0) {
       if (task.creatorId !== userId) throw forbidden('task.noAccess');
-      await this.db.task.update({
-        where: { id: taskId },
-        data: { status: 'done', completedAt: new Date() },
+      // Статус-гвард + событие наружу в ОДНОЙ транзакции: двойное «Готово» не даёт второго
+      // вебхука (и второго круга уведомлений/расчётов), откат не оставляет события без факта.
+      const flipped = await this.db.$transaction(async (tx) => {
+        const r = await tx.task.updateMany({
+          where: { id: taskId, status: { not: 'done' } },
+          data: { status: 'done', completedAt: new Date() },
+        });
+        if (r.count) {
+          await this.webhooks.emit(tx, { workspaceId: task.workspaceId, eventKey: 'tasks.task.completed', payload: taskWebhookPayload({ ...task, status: 'done' }) });
+        }
+        return r.count > 0;
       });
+      if (!flipped) return this.getTask(userId, taskId);
       await this.analytics.track(null, 'tasks.task.completed', {}, { userId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
-      await this.webhooks.emit(null, { workspaceId: task.workspaceId, eventKey: 'tasks.task.completed', payload: taskWebhookPayload({ ...task, status: 'done' }) });
       await this.chatter.log(null, {
         refType: 'task',
         refId: taskId,
@@ -1187,8 +1195,9 @@ export class TasksService implements OnModuleInit {
         where: { id: me.id },
         data: { status: 'accepted', submittedAt: new Date(), acceptedAt: new Date() },
       });
-      await this.analytics.track(null, 'tasks.task.completed', {}, { userId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
-      await this.webhooks.emit(null, { workspaceId: task.workspaceId, eventKey: 'tasks.task.completed', payload: taskWebhookPayload({ ...task, status: 'done' }) });
+      // «Задача завершена» здесь НЕ объявляется: у задачи могут быть соисполнители, чья
+      // работа ещё не принята. Факт завершения — производное состояние, его объявляет
+      // recomputeStatus (и аналитике, и вебхукам) ровно один раз.
     } else {
       await this.db.taskParticipant.update({
         where: { id: me.id },
@@ -1216,7 +1225,7 @@ export class TasksService implements OnModuleInit {
       });
     }
 
-    await this.recomputeStatus(taskId);
+    await this.recomputeStatus(taskId, userId);
     return this.getTask(userId, taskId);
   }
 
@@ -1273,7 +1282,7 @@ export class TasksService implements OnModuleInit {
         actionUrl: `/tasks/${taskId}`,
       });
     }
-    await this.recomputeStatus(taskId);
+    await this.recomputeStatus(taskId, userId);
     return this.getTask(userId, taskId);
   }
 
@@ -1309,7 +1318,7 @@ export class TasksService implements OnModuleInit {
       workspaceId: task.workspaceId,
       reason: 'assigned',
     });
-    await this.recomputeStatus(taskId);
+    await this.recomputeStatus(taskId, userId);
     return this.getTask(userId, taskId);
   }
 
@@ -1331,7 +1340,7 @@ export class TasksService implements OnModuleInit {
   }
 
   /** Recompute the aggregate Task.status from its participants' states. */
-  private async recomputeStatus(taskId: string) {
+  private async recomputeStatus(taskId: string, actorId?: string) {
     const task = await this.db.task.findUnique({
       where: { id: taskId },
       include: { participants: { where: { role: { not: 'observer' } } } },
@@ -1357,14 +1366,23 @@ export class TasksService implements OnModuleInit {
     if (status !== task.status || becameDone) {
       // Optimistic claim: два конкурентных финальных «Принять» не должны дать дубль
       // task.completed / повторный settlement (статус под нами уже сменили → выходим).
-      const claimed = await this.db.task.updateMany({
-        where: { id: taskId, status: task.status },
-        data: { status, completedAt: status === 'done' ? new Date() : null },
+      // Событие наружу — в транзакции клейма: единственная точка, где задача с участниками
+      // становится `done` (в т.ч. главный путь «сдал → постановщик принял»).
+      const claimed = await this.db.$transaction(async (tx) => {
+        const r = await tx.task.updateMany({
+          where: { id: taskId, status: task.status },
+          data: { status, completedAt: status === 'done' ? new Date() : null },
+        });
+        if (r.count && becameDone) {
+          await this.webhooks.emit(tx, { workspaceId: task.workspaceId, eventKey: 'tasks.task.completed', payload: taskWebhookPayload({ ...task, status: 'done' }) });
+        }
+        return r;
       });
       if (claimed.count === 0) return;
     }
 
     if (becameDone) {
+      await this.analytics.track(null, 'tasks.task.completed', {}, { userId: actorId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
       const full = await this.db.task.findUnique({
         where: { id: taskId },
         include: { participants: { select: { userId: true } } },

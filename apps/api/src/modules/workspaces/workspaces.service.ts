@@ -1157,8 +1157,12 @@ export class WorkspacesService implements OnModuleInit {
     // Каскад: снять с активных шагов «Ждут решения» (иначе шаг «нужен каждый»
     // виснет навсегда — решать уволенному запрещает гейт). Общий метод с leaveWorkspace.
     await this.approvals.releaseUserFromWorkspaceSteps(targetUserId, workspaceId);
-    await this.db.workspaceMember.deleteMany({
-      where: { workspaceId, userId: targetUserId },
+    // Событие наружу — в транзакции удаления членства и только если строка реально ушла
+    await this.db.$transaction(async (tx) => {
+      const gone = await tx.workspaceMember.deleteMany({ where: { workspaceId, userId: targetUserId } });
+      if (gone.count) {
+        await this.webhooks.emit(tx, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId: targetUserId, reason: 'removed', workspaceId } });
+      }
     });
 
     await this.chatter.log(null, {
@@ -1173,7 +1177,6 @@ export class WorkspacesService implements OnModuleInit {
     // Шина — триггеры Процессов («Сотрудник уволен»); строки организации у человека
     // архивируются (не удаляются), новое уведомление ложится в «Личное» — он уже не член.
     this.events.emit('workspace.member.removed', { workspaceId, workspaceName: ws.name, userId: targetUserId }, 'WorkspacesService');
-    await this.webhooks.emit(null, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId: targetUserId, reason: 'removed', workspaceId } });
     await this.notifications.archiveWorkspaceRows(null, targetUserId, workspaceId);
     await this.notifications.send(null, {
       type: 'workspace.member.removed',
@@ -1198,7 +1201,12 @@ export class WorkspacesService implements OnModuleInit {
     await this.purgeOfficeParticipations(workspaceId, userId);
     // Тот же каскад, что при увольнении: вышедший не должен подвешивать шаги «нужен каждый».
     await this.approvals.releaseUserFromWorkspaceSteps(userId, workspaceId);
-    await this.db.workspaceMember.deleteMany({ where: { workspaceId, userId } });
+    await this.db.$transaction(async (tx) => {
+      const gone = await tx.workspaceMember.deleteMany({ where: { workspaceId, userId } });
+      if (gone.count) {
+        await this.webhooks.emit(tx, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId, reason: 'left', workspaceId } });
+      }
+    });
 
     await this.chatter.log(null, {
       refType: 'workspace',
@@ -1208,7 +1216,6 @@ export class WorkspacesService implements OnModuleInit {
       actorName: await this.userName(userId),
       typeKey: 'staff.left',
     });
-    await this.webhooks.emit(null, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId, reason: 'left', workspaceId } });
     // Правило стоит на ОБОИХ путях ухода: строки организации архивируются и у того, кто
     // вышел сам, — иначе они висят в бейдже, а чипа этой организации у него уже нет.
     await this.notifications.archiveWorkspaceRows(null, userId, workspaceId);
@@ -1452,7 +1459,10 @@ export class WorkspacesService implements OnModuleInit {
       );
 
       await this.analytics.track(tx, 'workspaces.invitation.accepted', { role: WORKSPACE_HIRE_ROLE }, { userId, workspaceId: inv.workspaceId });
-      await this.webhooks.emit(tx, { workspaceId: inv.workspaceId, eventKey: 'workspaces.member.joined', payload: { userId, role: WORKSPACE_HIRE_ROLE, workspaceId: inv.workspaceId } });
+      // «Вступил» — только про НОВОЕ членство: повторное приглашение действующего члена событием не является
+      if (already === 0) {
+        await this.webhooks.emit(tx, { workspaceId: inv.workspaceId, eventKey: 'workspaces.member.joined', payload: { userId, role: WORKSPACE_HIRE_ROLE, workspaceId: inv.workspaceId } });
+      }
       await this.chatter.log(tx, {
         refType: 'workspace',
         refId: inv.workspaceId,

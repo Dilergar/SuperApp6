@@ -102,18 +102,39 @@ export const KEYS_LIMITS = {
 
 /** Исходящие вебхуки (core/webhooks). */
 export const WEBHOOK_LIMITS = {
-  /** Попыток доставки с экспоненциальным бэкоффом до ~3 суток */
-  maxAttempts: 12,
+  /**
+   * Попыток доставки события. Паузы 30 с × 2^(n−1) с капом 12 ч: 30 с, 1 мин, … 8,5 ч,
+   * 12 ч × 4 — окно ретраев ≈ 65 ч (получатель пережидает выходные). Кап — СВОЙ у типа
+   * джоба (`backoffCapMs`): общий часовой кап движка джобов сжал бы окно до ~5 часов.
+   */
+  maxAttempts: 16,
+  /** Попыток проверочного пинга (~15 минут): не дождались 2xx — endpoint уходит в disabled/verification */
+  pingMaxAttempts: 6,
   backoffBaseSec: 30,
-  backoffCapSec: 6 * 3600,
+  backoffCapSec: 12 * 3600,
   /** Таймаут запроса к endpoint'у, мс */
   timeoutMs: 10_000,
   /** Допуск timestamp подписи у получателя (Standard Webhooks), секунд */
   toleranceSec: 300,
   /** Старый секрет после ротации живёт не дольше, часов */
   prevSecretHours: 24,
-  /** Подряд провалов доставки до автоотключения endpoint'а */
+  /**
+   * Автоотключение: провалов подряд не меньше `failuresToDisable` И серия длится не меньше
+   * `disableAfterHours`. Одного счётчика мало: 50 событий за минуту перезапуска получателя
+   * отключали бы живой адрес (модель Stripe/Svix — «дни сплошных провалов», а не штуки).
+   */
   failuresToDisable: 50,
+  disableAfterHours: 24,
+  /**
+   * Предохранитель мёртвого адреса: после `circuitAfter` провалов подряд в сеть ходит ОДНА
+   * пробная доставка за паузу (30 с × 2^k, не дольше `circuitMaxSec`), остальные ждут без
+   * расхода попыток — чёрная дыра одного арендатора не занимает слоты общей очереди.
+   */
+  circuitAfter: 5,
+  circuitBaseSec: 30,
+  circuitMaxSec: 900,
+  /** Ручных пингов и повторов на endpoint в час (owner/admin не превращает платформу в пушку) */
+  manualActionsPerHour: 30,
   /** Потолок тела события, байт */
   maxPayloadBytes: 64 * 1024,
   /** Аудит битой подписью: раз в сутки (модель Discord) */
@@ -144,4 +165,6 @@ export const KEYS_REDIS = {
   rate: (keyId: string, minute: number) => `keys:rate:${keyId}:${minute}`,
   exportRows: (keyId: string, day: string) => `keys:export:${keyId}:${day}`,
   stepUp: (userId: string) => `keys:stepup:${userId}`,
+  /** Ручные пинги и повторы endpoint'а за час (потолок `WEBHOOK_LIMITS.manualActionsPerHour`) */
+  webhookManual: (endpointId: string, hour: number) => `keys:webhook-manual:${endpointId}:${hour}`,
 } as const;

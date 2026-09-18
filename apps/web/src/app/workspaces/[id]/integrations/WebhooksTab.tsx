@@ -15,11 +15,12 @@ import { useFormatters } from '@/lib/format';
 import { toast, toastError } from '@/lib/toast';
 import { createWebhookEndpoint, deleteWebhookEndpoint, fetchWebhookDeliveries, fetchWebhookEndpoints, fetchWebhookEvents, probeWebhookEndpoint, redeliverWebhook, rotateWebhookSecret, updateWebhookEndpoint } from '@/lib/keys-api';
 import { keysRegistryRootKey, webhooksDeliveriesKey, webhooksEndpointsKey, webhooksEventsKey } from '@/lib/queries';
+import { useRealtime } from '@/lib/realtime/useRealtime';
 import { KeyRevealOnce, KeyStatusChip, useKeysStepUp } from '@/components/keys';
 import { EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 import { Alert, Button, Card, Checkbox, Chip, EmptyState, Field, Input, LoadingBlock, Menu, Modal, Select, Skeleton, Tooltip, useConfirm } from '@/components/ui';
 
-export function WebhooksTab({ workspaceId }: { workspaceId: string }) {
+export function WebhooksTab({ workspaceId, focusEndpointId }: { workspaceId: string; focusEndpointId?: string | null }) {
   const t = useTranslations('keys');
   const qc = useQueryClient();
   const stepUp = useKeysStepUp();
@@ -27,7 +28,8 @@ export function WebhooksTab({ workspaceId }: { workspaceId: string }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [edit, setEdit] = useState<WebhookEndpointDto | null>(null);
   const [rotated, setRotated] = useState<WebhookEndpointCreatedDto | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
+  // Переход из уведомления «endpoint отключён» (`?endpoint=<id>`) сразу раскрывает его доставки
+  const [openId, setOpenId] = useState<string | null>(focusEndpointId ?? null);
   const gate = useEntitlementGate('webhooks.maxEndpoints', workspaceId);
 
   const endpoints = useQuery({ queryKey: webhooksEndpointsKey(workspaceId), queryFn: () => fetchWebhookEndpoints(workspaceId) });
@@ -35,6 +37,14 @@ export function WebhooksTab({ workspaceId }: { workspaceId: string }) {
     void qc.invalidateQueries({ queryKey: webhooksEndpointsKey(workspaceId) });
     void qc.invalidateQueries({ queryKey: keysRegistryRootKey(workspaceId) });
   };
+  // Статус меняет сервер в фоне (пинг прошёл → активен; серия провалов → отключён):
+  // сокет `keys:changed` обновляет карточки и доставки без перезагрузки (общий префикс ключа)
+  useRealtime({
+    onKeysChanged: (p) => {
+      if (p.workspaceId === workspaceId) invalidate();
+    },
+    onReconnect: invalidate,
+  });
   const act = async (fn: () => Promise<unknown>, done?: string) => {
     try {
       await fn();

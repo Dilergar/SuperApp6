@@ -81,5 +81,5 @@ export const updateWebhookEndpoint = (wsId: string, id: string, input: WebhookEn
 export const rotateWebhookSecret = (wsId: string, id: string, input: WebhookRotateSecretInput) => apiPost<WebhookEndpointCreatedDto>(`${wh(wsId)}/endpoints/${id}/rotate-secret`, input);
 export const probeWebhookEndpoint = (wsId: string, id: string) => apiPost<WebhookEndpointDto>(`${wh(wsId)}/endpoints/${id}/probe`, {});
 export const deleteWebhookEndpoint = (wsId: string, id: string) => apiDelete<void>(`${wh(wsId)}/endpoints/${id}`);
-export const fetchWebhookDeliveries = (wsId: string, id: string, params: { cursor?: string; status?: string }) => apiGet<WebhookDeliveryPage>(`${wh(wsId)}/endpoints/${id}/deliveries`, { params });
+export const fetchWebhookDeliveries = (wsId: string, id: string, params: { cursor?: string; limit?: number }) => apiGet<WebhookDeliveryPage>(`${wh(wsId)}/endpoints/${id}/deliveries`, { params });
 export const redeliverWebhook = (wsId: string, id: string, deliveryId: string) => apiPost<void>(`${wh(wsId)}/endpoints/${id}/deliveries/${deliveryId}/redeliver`, {});

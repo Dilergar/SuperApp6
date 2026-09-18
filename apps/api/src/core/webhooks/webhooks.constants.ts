@@ -1,6 +1,15 @@
 /** Очередь и типы джобов движка вебхуков (core/jobs). */
 export const WEBHOOKS_QUEUE = 'webhooks';
 
+/**
+ * Слотов очереди на инстанс. Cap — свойство ОЧЕРЕДИ (min по её типам), поэтому ОБА типа
+ * объявляют одно число: узкий тип сузил бы доставку. Аудит от доставок отделяет приоритет.
+ */
+export const WEBHOOKS_QUEUE_CONCURRENCY = 8;
+
+/** Приоритет постановки аудита (0 — высший): ночная волна проб не обгоняет доставку событий. */
+export const WEBHOOK_PROBE_PRIORITY = 5;
+
 export const WEBHOOK_JOBS = {
   /** Доставка одной строки WebhookDelivery (идемпотентно, ретраи с бэкоффом) */
   deliver: 'webhooks.deliver',

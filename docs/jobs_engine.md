@@ -16,7 +16,7 @@ JobsService.enqueue(tx, { type, payload, runAt?, uniqueKey?, maxAttempts?, prior
 // → { inserted } — по false постановщик, для которого «уже идёт» ≠ «уже учтено»,
 //   ставит ПАРНЫЙ догоняющий джоб (образец — пересборка Документов)
 JobsService.cancelByUniqueKey(tx|null, type, key)   // отмена невзятого (available); executing добьёт доменный гвард обработчика
-JobsRegistry.register(type, handler, { queue?, maxAttempts?, leaseMs?, backoffBaseMs?, queueConcurrency?, onDiscard? })  // в onModuleInit
+JobsRegistry.register(type, handler, { queue?, maxAttempts?, leaseMs?, backoffBaseMs?, backoffCapMs?, queueConcurrency?, onDiscard? })  // в onModuleInit
 handler(payload, ctx: { jobId, attempt, maxAttempts })   // ctx.attempt — для логики «последняя попытка» (attempt === maxAttempts)
 onDiscard(payload, { jobId, attempts, error })
 ```
@@ -26,7 +26,7 @@ onDiscard(payload, { jobId, attempts, error })
 
 **Обработчик ОБЯЗАН**:
 - быть идемпотентным (at-least-once);
-- делить ошибки на два класса: транзиентная (сеть/БД) → `throw` (движок ретраит с бэкоффом 30с×2^n ±25% джиттера, кап 1ч), ПОСТОЯННАЯ (родитель удалён, доступ отозван, работа потеряла смысл) → `JobDiscardError` ∥ тихий return — иначе джоб жжёт попытки часами и хоронится ложным инцидентом;
+- делить ошибки на два класса: транзиентная (сеть/БД) → `throw` (движок ретраит с бэкоффом 30с×2^n ±25% джиттера, кап 1ч; типу с длинным окном ретраев — свой `backoffCapMs`, иначе 12 и 50 попыток одинаково укладываются в часы: так у доставки вебхуков), ПОСТОЯННАЯ (родитель удалён, доступ отозван, работа потеряла смысл) → `JobDiscardError` ∥ тихий return — иначе джоб жжёт попытки часами и хоронится ложным инцидентом;
 - НЕ коммитить доменный клейм до эффектов (падение между клеймом и эффектом = потеря навсегда: повтор видит «уже сделано») — клейм+эффекты в одной транзакции, внешние вызовы после коммита;
 - иметь `onDiscard`-хук, если домен держит статус «в работе» (джоб может умереть по аренде МИМО catch — хук пишет терминальный статус, иначе строка виснет в processing навсегда);
 - сам держать внутренние таймауты в бюджете `leaseMs` (аренда — не убийца: JS не умеет прервать зависший Promise).
@@ -38,6 +38,7 @@ onDiscard(payload, { jobId, attempts, error })
 - **Claim** — CTE `FOR UPDATE SKIP LOCKED` пачкой (≤ `claimBatch` 10, только типы с обработчиком на этом инстансе) + `attempts++` при клейме = клейм-токен финальных записей (`setLease`/`complete`/`fail` — под гвардом `(status='executing', attempts)`; поздний зомби-врайт перехваченного джоба — no-op).
 - **Воркер** in-process: поллер 1с + нудж ~50мс после enqueue + нудж на освобождение слота; concurrency per-queue (дефолт 10). Cap — свойство ОЧЕРЕДИ = MIN `queueConcurrency` по её типам: тяжёлым типам дают СВОЮ очередь, а не сужают `default`. Очереди: `default`, `media`, `scan`, `voice`, `recording`, `docs`, `drive`, `documents`, `hr`, `sign`, `sign_stamp` (карта ниже).
 - **Graceful shutdown**: `enableShutdownHooks` + дренаж in-flight ≤ `shutdownDrainMs` (10с); недожатое вернёт reaper по аренде.
+- **Отложить без расхода попытки**: `throw new JobSnoozeError(delayMs)` (модель Oban `{:snooze, n}`) — работа сейчас бессмысленна, но не провалена (ресурс на паузе: предохранитель мёртвого адреса у вебхуков). Попытка клейма возвращается, `last_error` не трогается. Обработчик ОБЯЗАН сам гарантировать, что пауза конечна, — иначе джоб живёт вечно.
 - **Dead-letter**: исчерпание попыток или `JobDiscardError` → `discarded` + `onDiscard`. Error-лог и событие шины **`job.discarded`** (`{jobId, type, attempts, error}`) — ТОЛЬКО при исчерпании/протухании (явный discard = warn, не инцидент). Подписчиков у события нет — прод-наблюдаемость в [roadmap.md](roadmap.md). Текст `last_error` режется до `MAX_ERROR_LEN` (2000).
 - **Обслуживание — единственный крон движка** (`JobsCron`, каждый под Redis-локом):
   - reaper `* * * * *` — протухшие аренды: исчерпавшие попытки → `discarded` (+хук, +событие), остальные → `available` с бэкоффом базы ТИПА, пер-строчно под гвардом, ≤ `REAP_BATCH` (500) за прогон. Единственный крон с `runWithoutLock`: недоступный Redis не останавливает восстановление после краша (reaper идемпотентен).

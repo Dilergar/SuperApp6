@@ -5608,6 +5608,10 @@ model WebhookEndpoint {
   status         String    @default("pending_verification")
   /// Подряд провалов доставки (обнуляется успехом); порог — WEBHOOK_LIMITS.failuresToDisable
   failures       Int       @default(0)
+  /// Начало текущей серии провалов (null — серии нет): автоотключение = порог штук И возраст серии
+  failingSince   DateTime? @map("failing_since")
+  /// Последний провал либо взятая пробная доставка — таймер предохранителя мёртвого адреса
+  lastFailureAt  DateTime? @map("last_failure_at")
   disabledAt     DateTime? @map("disabled_at")
   /// failures | manual | platform | verification | signature_audit
   disabledReason String?   @map("disabled_reason")

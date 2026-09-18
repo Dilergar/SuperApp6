@@ -15,8 +15,6 @@ import { KeysPiiService } from './pii/keys.pii.service';
 import { KeysUsageCron } from './api-keys/keys.usage.cron';
 import { KEYS_REDIS } from '@superapp/shared';
 import { RedisService } from '../../shared/redis/redis.service';
-import { WebhooksDeliveryJobs } from '../webhooks/webhooks.delivery.job';
-import { WebhooksProbeCron } from '../webhooks/webhooks.probe.cron';
 
 const audienceBody = z.object({ audience: z.enum(SIGNING_AUDIENCES) }).strict();
 const kidBody = z.object({ kid: z.string().uuid() }).strict();
@@ -40,8 +38,6 @@ export class KeysDevController {
     private readonly mac: KeysMacService,
     private readonly pii: KeysPiiService,
     private readonly usage: KeysUsageCron,
-    private readonly webhookJobs: WebhooksDeliveryJobs,
-    private readonly webhookCron: WebhooksProbeCron,
     private readonly redis: RedisService,
   ) {}
 
@@ -286,24 +282,6 @@ export class KeysDevController {
     const notified = await this.usage.notifyExpiring();
     const purged = await this.usage.retention();
     return { success: true, data: { notified, purged } };
-  }
-
-  @Post('webhooks/probe')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Run the bogus-signature audit for one endpoint now' })
-  async webhookProbe(@Body() body: unknown) {
-    this.assertDev();
-    const { endpointId } = z.object({ endpointId: z.string().uuid() }).parse(body ?? {});
-    await this.webhookJobs.probe({ endpointId });
-    return { success: true };
-  }
-
-  @Post('webhooks/daily')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Run the daily webhooks sweep now (probes + retention)' })
-  async webhookDaily() {
-    this.assertDev();
-    return { success: true, data: { probes: await this.webhookCron.enqueueProbes(), purged: await this.webhookCron.retention() } };
   }
 
   @Post('legacy/reencrypt')

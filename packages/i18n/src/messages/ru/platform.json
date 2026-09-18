@@ -114,6 +114,14 @@
     "entitlementsTrialExtend": {
       "title": "Продлить пробный период"
     },
+    "webhooksEndpointDisable": {
+      "description": "Доставки на адрес прекращаются сразу. Включить его снова может только платформа; владелец и админы организации получают уведомление.",
+      "title": "Отключить вебхук"
+    },
+    "webhooksEndpointEnable": {
+      "description": "Адрес снова проверяется пингом и становится активным после ответа 2xx.",
+      "title": "Включить вебхук, отключённый платформой"
+    },
     "keysBotFreeze": {
       "description": "Все ключи бота перестают работать, пока владелец организации его не разморозит.",
       "title": "Заморозить бота"
@@ -277,6 +285,7 @@
     "workspaceAnalytics": "Активность",
     "workspaceAudit": "Действия в кабинете",
     "workspaceEntitlements": "Тариф и лимиты",
+    "workspaceWebhooks": "Вебхуки",
     "workspaceKeys": "Ключи и боты",
     "workspaceMembersSummary": "Состав",
     "workspaceProfile": "Профиль"

@@ -38,8 +38,14 @@ export interface JobTypeOptions {
    * время этим бюджетом (таймауты внутри) — JS не умеет убить зависший Promise.
    */
   leaseMs?: number;
-  /** База экспоненциального бэкоффа ретраев (мс); кап общий JOB_LIMITS.backoffCapMs. */
+  /** База экспоненциального бэкоффа ретраев (мс). */
   backoffBaseMs?: number;
+  /**
+   * Потолок одной паузы бэкоффа (мс); дефолт — JOB_LIMITS.backoffCapMs (час). Свой кап
+   * нужен типам с ДЛИННЫМ окном ретраев (доставка вебхуков: получатель лежит выходные) —
+   * при часовом капе 12 попыток укладываются в ~5 часов, сколько попыток ни объяви.
+   */
+  backoffCapMs?: number;
   /**
    * Слотов на инстанс для ОЧЕРЕДИ этого типа (per-queue cap, модель Solid Queue).
    * Cap очереди = MIN объявленных среди её типов; дефолт — JOB_LIMITS.defaultQueueConcurrency.
@@ -65,6 +71,22 @@ export class JobDiscardError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'JobDiscardError';
+  }
+}
+
+/**
+ * Бросить из обработчика, чтобы ОТЛОЖИТЬ джоб без расхода попытки (модель Oban
+ * `{:snooze, n}`): работа сейчас бессмысленна, но не провалена — ресурс на паузе
+ * (предохранитель мёртвого адреса у вебхуков). Попытка, посчитанная при клейме,
+ * возвращается; обработчик ОБЯЗАН сам гарантировать, что пауза когда-нибудь кончится.
+ */
+export class JobSnoozeError extends Error {
+  constructor(
+    readonly delayMs: number,
+    message = 'snoozed',
+  ) {
+    super(message);
+    this.name = 'JobSnoozeError';
   }
 }
 
@@ -102,6 +124,7 @@ export class JobsRegistry {
       maxAttempts: opts?.maxAttempts ?? JOB_LIMITS.defaultMaxAttempts,
       leaseMs: opts?.leaseMs ?? JOB_LIMITS.defaultLeaseMs,
       backoffBaseMs: opts?.backoffBaseMs ?? JOB_LIMITS.backoffBaseMs,
+      backoffCapMs: opts?.backoffCapMs ?? JOB_LIMITS.backoffCapMs,
       queueConcurrency: cap,
       onDiscard: opts?.onDiscard,
     });

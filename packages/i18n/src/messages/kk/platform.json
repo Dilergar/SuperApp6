@@ -114,6 +114,14 @@
     "entitlementsTrialExtend": {
       "title": "Сынақты ұзарту"
     },
+    "webhooksEndpointDisable": {
+      "description": "Мекенжайға жеткізу бірден тоқтайды. Оны қайта тек платформа қоса алады; ұйым иесі мен әкімшілеріне хабарланады.",
+      "title": "Вебхукты өшіру"
+    },
+    "webhooksEndpointEnable": {
+      "description": "Мекенжай пингпен қайта тексеріледі және 2xx жауабынан кейін белсенді болады.",
+      "title": "Платформа өшірген вебхукты қосу"
+    },
     "keysBotFreeze": {
       "description": "Ұйым иесі мұздатудан шығарғанша боттың барлық кілттері тоқтайды.",
       "title": "Ботты мұздату"
@@ -277,6 +285,7 @@
     "workspaceAnalytics": "Белсенділік",
     "workspaceAudit": "Кабинеттегі әрекеттер",
     "workspaceEntitlements": "Тариф және шектеулер",
+    "workspaceWebhooks": "Вебхуктар",
     "workspaceKeys": "Кілттер мен боттар",
     "workspaceMembersSummary": "Қатысушылар",
     "workspaceProfile": "Профиль"

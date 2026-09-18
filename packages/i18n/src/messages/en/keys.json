@@ -362,7 +362,9 @@
       "documents_document_registered": "Document registered",
       "documents_document_signed": "Document signed",
       "workspaces_member_joined": "Member joined",
-      "workspaces_member_left": "Member left"
+      "workspaces_member_left": "Member left",
+      "webhook_ping": "Verification ping",
+      "webhook_test": "Signature audit"
     },
     "createdTitle": "Webhook created",
     "createdNote": "This is the signing secret. It is shown only once — put it into the receiver now.",

@@ -4,7 +4,12 @@ import { WEBHOOK_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { JobsService } from '../jobs/jobs.service';
-import { WEBHOOK_JOBS, WEBHOOK_LOCKS } from './webhooks.constants';
+import { WEBHOOK_JOBS, WEBHOOK_LOCKS, WEBHOOK_PROBE_PRIORITY } from './webhooks.constants';
+
+/** Строк за один проход ретеншна: один DELETE на миллионы строк — долгая транзакция и блоат. */
+const RETENTION_BATCH = 5_000;
+/** Проходов ретеншна за ночь (остаток доберётся завтра — крон ежедневный). */
+const RETENTION_MAX_PASSES = 200;
 
 /**
  * Ежедневно: аудит битой подписью для живых endpoint'ов (раз в `probeIntervalHours`) и
@@ -31,18 +36,35 @@ export class WebhooksProbeCron {
 
   async enqueueProbes(): Promise<number> {
     const since = new Date(Date.now() - WEBHOOK_LIMITS.probeIntervalHours * 3_600_000);
-    const rows = await this.db.webhookEndpoint.findMany({ where: { status: 'active', OR: [{ lastProbeAt: null }, { lastProbeAt: { lt: since } }] }, select: { id: true }, take: 5000 });
+    // Дольше всех не проверявшиеся — первыми: при потолке выборки хвост не голодает
+    const rows = await this.db.webhookEndpoint.findMany({
+      // Архивные организации не аудируем: запросов наружу от их имени быть не должно
+      where: { status: 'active', workspace: { isActive: true }, OR: [{ lastProbeAt: null }, { lastProbeAt: { lt: since } }] },
+      select: { id: true },
+      orderBy: [{ lastProbeAt: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+      take: 5000,
+    });
     let n = 0;
     for (const r of rows) {
-      const { inserted } = await this.jobs.enqueue(null, { type: WEBHOOK_JOBS.probe, payload: { endpointId: r.id }, uniqueKey: r.id });
+      const { inserted } = await this.jobs.enqueue(null, { type: WEBHOOK_JOBS.probe, payload: { endpointId: r.id }, uniqueKey: r.id, priority: WEBHOOK_PROBE_PRIORITY });
       if (inserted) n++;
     }
     return n;
   }
 
   async retention(): Promise<number> {
+    // По возрасту, без оглядки на статус: окно ретраев ≈ 3 суток, значит строка старше 30 дней
+    // в `pending`/`failed` — сирота (джоб потерян), и сама она не уйдёт никогда. Живой джоб
+    // удалённой строки хоронит себя сам («delivery row is gone»).
     const cutoff = new Date(Date.now() - WEBHOOK_LIMITS.deliveryRetentionDays * 86_400_000);
-    const { count } = await this.db.webhookDelivery.deleteMany({ where: { createdAt: { lt: cutoff }, status: { in: ['delivered', 'exhausted'] } } });
-    return count;
+    let total = 0;
+    for (let pass = 0; pass < RETENTION_MAX_PASSES; pass++) {
+      const batch = await this.db.webhookDelivery.findMany({ where: { createdAt: { lt: cutoff } }, select: { id: true }, orderBy: { createdAt: 'asc' }, take: RETENTION_BATCH });
+      if (!batch.length) break;
+      const { count } = await this.db.webhookDelivery.deleteMany({ where: { id: { in: batch.map((r) => r.id) } } });
+      total += count;
+      if (batch.length < RETENTION_BATCH) break;
+    }
+    return total;
   }
 }

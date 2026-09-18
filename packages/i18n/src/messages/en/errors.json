@@ -583,7 +583,11 @@
       "url_rejected": "This address cannot receive webhooks (only public https)",
       "unknownEvent": "Unknown webhook event: {event}",
       "payloadTooLarge": "The event body is too large ({bytes} bytes)",
-      "deliveryNotFound": "The delivery was not found"
+      "deliveryNotFound": "The delivery was not found",
+      "platformDisabled": "The endpoint was disabled by the platform — contact support to enable it",
+      "rotationRace": "The secret has just been rotated by someone else — reload and try again",
+      "tooManyManual": "Too many pings and redeliveries for this endpoint — try again in an hour",
+      "notPlatformDisabled": "The endpoint was not disabled by the platform"
     },
     "workspace_mismatch": "The key belongs to another organization",
     "policy_allowlist_required": "The organization policy requires an IP allowlist for every key",

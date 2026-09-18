@@ -4,7 +4,7 @@ import { JOB_LIMITS, JobStatsDto, JobStatus } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { JobDiscardError, JobsRegistry, JobTypeDef } from './jobs.registry';
+import { JobDiscardError, JobSnoozeError, JobsRegistry, JobTypeDef } from './jobs.registry';
 
 type Tx = Prisma.TransactionClient;
 
@@ -238,6 +238,20 @@ export class JobsService {
    * discarded сразу (постоянная ошибка — ретраи бессмысленны, это НЕ инцидент).
    */
   async fail(job: ClaimedJob, def: JobTypeDef | undefined, err: unknown): Promise<void> {
+    if (err instanceof JobSnoozeError) {
+      // Отложено, а не провалено: попытку клейма возвращаем, lastError не трогаем.
+      // Гвард (status, attempts) — reaper мог уже вернуть джоб в очередь сам.
+      await this.db.job.updateMany({
+        where: { id: job.id, status: 'executing', attempts: job.attempts },
+        data: {
+          status: 'available',
+          attempts: { decrement: 1 },
+          runAt: new Date(Date.now() + Math.max(1000, Math.round(err.delayMs))),
+          leaseUntil: null,
+        },
+      });
+      return;
+    }
     const explicitDiscard = err instanceof JobDiscardError;
     const message = String(
       (err as Error)?.stack ?? (err as Error)?.message ?? err,
@@ -272,7 +286,7 @@ export class JobsService {
       return;
     }
 
-    const delay = this.backoffMs(job.attempts, def?.backoffBaseMs ?? JOB_LIMITS.backoffBaseMs);
+    const delay = this.backoffMs(job.attempts, def?.backoffBaseMs ?? JOB_LIMITS.backoffBaseMs, def?.backoffCapMs);
     await this.db.job.updateMany({
       where: { id: job.id, status: 'executing', attempts: job.attempts },
       data: {
@@ -285,8 +299,8 @@ export class JobsService {
   }
 
   /** Экспоненциальный бэкофф с джиттером ±25% (толпа ретраев не бьёт в одну секунду). */
-  private backoffMs(attempt: number, baseMs: number): number {
-    const raw = Math.min(JOB_LIMITS.backoffCapMs, baseMs * 2 ** (Math.max(attempt, 1) - 1));
+  private backoffMs(attempt: number, baseMs: number, capMs: number = JOB_LIMITS.backoffCapMs): number {
+    const raw = Math.min(capMs, baseMs * 2 ** (Math.max(attempt, 1) - 1));
     const jitter = raw * 0.25 * (Math.random() * 2 - 1);
     return Math.max(0, Math.round(raw + jitter));
   }
@@ -342,13 +356,14 @@ export class JobsService {
     });
     let requeued = 0;
     for (const j of expired) {
-      const base = this.registry.get(j.type)?.backoffBaseMs ?? JOB_LIMITS.backoffBaseMs;
+      const def = this.registry.get(j.type);
+      const base = def?.backoffBaseMs ?? JOB_LIMITS.backoffBaseMs;
       const res = await this.db.job.updateMany({
         where: { id: j.id, status: 'executing', attempts: j.attempts },
         data: {
           status: 'available',
           leaseUntil: null,
-          runAt: new Date(Date.now() + this.backoffMs(j.attempts, base)),
+          runAt: new Date(Date.now() + this.backoffMs(j.attempts, base, def?.backoffCapMs)),
         },
       });
       requeued += res.count;

@@ -235,3 +235,7 @@ export type KeysKeyRevokeInput = z.infer<typeof keysKeyRevokeInputSchema>;
 
 export const keysBotFreezeInputSchema = z.object({ botId: uuid }).strict();
 export type KeysBotFreezeInput = z.infer<typeof keysBotFreezeInputSchema>;
+
+/** Кабинет платформы: отключить endpoint вебхука / включить отключённый платформой. */
+export const webhooksEndpointPlatformInputSchema = z.object({ endpointId: uuid }).strict();
+export type WebhooksEndpointPlatformInput = z.infer<typeof webhooksEndpointPlatformInputSchema>;

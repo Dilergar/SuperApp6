@@ -13,7 +13,7 @@
 | `core/docs` | `core/access`, `core/chatter`, `core/files`, `core/jobs`, `core/keys`, `core/share-links` |
 | `core/entitlements` | `core/analytics`, `core/audiences`, `core/jobs`, `core/notifications`, `core/platform`, `core/realtime` |
 | `core/files` | `core/entitlements`, `core/jobs`, `core/keys`, `core/notifications` |
-| `core/keys` | `core/analytics`, `core/audiences`, `core/entitlements`, `core/jobs`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify`, `core/webhooks` |
+| `core/keys` | `core/analytics`, `core/audiences`, `core/entitlements`, `core/jobs`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify` |
 | `core/notifications` | `core/analytics`, `core/audiences`, `core/entitlements`, `core/jobs`, `core/realtime`, `core/roles`, `core/verify` |
 | `core/platform` | `core/approvals`, `core/audiences`, `core/keys`, `core/notifications`, `core/verify` |
 | `core/quick-actions` | `core/access` |
@@ -25,7 +25,7 @@
 | `core/users` | `core/access`, `core/analytics`, `core/entitlements`, `core/files`, `core/jobs`, `core/keys`, `core/notifications`, `core/platform`, `core/verify`, `modules/contacts`, `modules/workspaces` |
 | `core/verify` | `core/keys` |
 | `core/voice` | `core/files`, `core/jobs` |
-| `core/webhooks` | `core/analytics`, `core/entitlements`, `core/jobs`, `core/keys`, `core/notifications` |
+| `core/webhooks` | `core/analytics`, `core/entitlements`, `core/jobs`, `core/keys`, `core/notifications`, `core/platform` |
 | `modules/calendar` | `core/access`, `core/analytics`, `core/jobs`, `core/notifications`, `core/quick-actions`, `core/rich-cards`, `modules/contacts` |
 | `modules/card-skins` | `core/entitlements`, `modules/wallet` |
 | `modules/circles` | `core/access`, `core/entitlements`, `modules/contacts` |
