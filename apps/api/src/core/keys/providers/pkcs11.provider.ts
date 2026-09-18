@@ -10,6 +10,7 @@ import { KeyProviderError, type KeyProvider } from './key-provider';
 export class Pkcs11Provider implements KeyProvider {
   readonly kind = 'pkcs11' as const;
   readonly rootKid: string;
+  readonly nextRootKid = null;
 
   constructor(cfg: { module: string | null; slot: number | null; pin: string | null; keyLabel: string | null }) {
     if (!cfg.module || !fs.existsSync(cfg.module)) {

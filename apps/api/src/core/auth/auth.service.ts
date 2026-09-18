@@ -280,7 +280,7 @@ export class AuthService {
   async refreshToken(refreshToken: string): Promise<AuthTokens> {
     // Подпись/срок — до похода в БД: чужая строка не должна стоить запроса
     try {
-      await this.signing.verify('product', refreshToken, { forbidTyp: ['at+jwt'], legacy: { secret: legacySecret(), audienceOptional: true } });
+      await this.signing.verify('product', refreshToken, { typ: 'refresh+jwt', forbidTyp: ['at+jwt'], legacy: { secret: legacySecret(), audienceOptional: true, typOptional: true } });
     } catch {
       throw unauthorized('auth.sessionExpired');
     }

@@ -179,6 +179,8 @@ export class ApiKeysService {
 
   /** ≤ 2 живых ключей в семействе (ротация с перекрытием). */
   private async assertFamilyRoom(tx: Tx, familyId: string): Promise<void> {
+    // «Посчитал — вставил» без замка пропускало две одновременные ротации: живых стало бы три
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`keys:family:${familyId}`}))`;
     const live = await tx.apiKey.findMany({ where: { familyId, revokedAt: null }, select: { revokedAt: true, expiresAt: true, graceUntil: true } });
     if (live.filter((k) => keyIsLive(k)).length >= KEYS_LIMITS.familyMaxLive) {
       throw conflict('keys.family_full', undefined, { code: KEYS_ERROR_CODES.familyFull });
@@ -269,8 +271,28 @@ export class ApiKeysService {
     return { row, role: null };
   }
 
+  /**
+   * Личный ключ действует ОТ ИМЕНИ своего держателя. Владелец и админы организации видят
+   * его в реестре и могут ОТОЗВАТЬ, но не перевыпустить и не править: перевыпуск отдаёт
+   * новый секрет вызывающему — админ получил бы ключ с правами владельца (и его именем в
+   * хронике), а правка IP-списка сняла бы с чужого ключа сетевое ограничение.
+   */
+  private assertHolder(actor: KeyActor, row: ApiKey): void {
+    if (row.kind === 'pat' && row.userId !== actor.userId) {
+      throw forbidden('keys.holder_only', undefined, { code: KEYS_ERROR_CODES.holderOnly });
+    }
+  }
+
   async update(actor: KeyActor, keyId: string, workspaceId: string | null, input: ApiKeyUpdateInput): Promise<ApiKeyDto> {
     const { row } = await this.loadForManage(actor, keyId, workspaceId);
+    this.assertHolder(actor, row);
+    // Политика «IP-список обязателен» действует и на правку: иначе создал со списком — и снял его
+    if (input.ipAllowlist !== undefined && input.ipAllowlist.length === 0 && row.kind === 'pat' && row.workspaceId) {
+      const policy = await this.policy(row.workspaceId);
+      if (policy.requireIpAllowlist) throw badRequest('keys.policy_allowlist_required', undefined, { code: 'keys.policy_allowlist_required' });
+    }
+    // Сетевое ограничение ключа — часть его силы: менять его можно только под step-up
+    if (input.ipAllowlist !== undefined) await this.stepUp.assert(actor.userId);
     const updated = await this.db.$transaction(async (tx) => {
       const u = await tx.apiKey.update({
         where: { id: row.id },
@@ -290,6 +312,7 @@ export class ApiKeysService {
   /** Ротация: новый секрет того же семейства, старый живёт до `graceUntil` (0 ч — отзыв сразу). */
   async rotate(actor: KeyActor, keyId: string, workspaceId: string | null, input: ApiKeyRotateInput): Promise<ApiKeyCreatedDto> {
     const { row, role } = await this.loadForManage(actor, keyId, workspaceId);
+    this.assertHolder(actor, row);
     if (!keyIsLive(row)) throw conflict('keys.revoked', undefined, { code: KEYS_ERROR_CODES.revoked });
     await this.stepUp.assert(actor.userId);
     const ws = row.bot?.workspaceId ?? row.workspaceId;
@@ -331,10 +354,12 @@ export class ApiKeysService {
         minted = { row: created, secret: m.secret };
       }
       // Старый ключ: grace-окно либо немедленный отзыв
-      await tx.apiKey.update({
-        where: { id: row.id },
+      // Status-guarded: ключ, отозванный параллельно (утечка, каскад), не «оживает» grace-окном
+      const { count } = await tx.apiKey.updateMany({
+        where: { id: row.id, revokedAt: null },
         data: graceUntil ? { graceUntil } : { revokedAt: new Date(), revokedReason: 'rotated' satisfies ApiKeyRevokeReason },
       });
+      if (count === 0) throw conflict('keys.revoked', undefined, { code: KEYS_ERROR_CODES.revoked });
       return minted;
     });
     await this.auth.invalidateByHash(row.hash);
@@ -353,12 +378,16 @@ export class ApiKeysService {
   /** Отзыв в транзакции (каскады, кабинет, утечка): идемпотентен — уже отозванный не трогается. */
   async revokeTx(tx: Tx, row: ApiKey, actor: { actorId: string | null; actorKind: string; ip?: string | null }, reason: ApiKeyRevokeReason, note: string | null): Promise<ApiKey> {
     if (row.revokedAt) return row;
-    const updated = await tx.apiKey.update({ where: { id: row.id }, data: { revokedAt: new Date(), revokedReason: reason, revokedNote: note } });
+    // Status-guarded: два отзыва разом (каскад + сканер утечек) не переписывают причину друг друга
+    // и не шлют два уведомления; сброс кэша идёт в любом случае — он идемпотентен
+    const { count } = await tx.apiKey.updateMany({ where: { id: row.id, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: reason, revokedNote: note } });
+    await this.auth.invalidateByHash(row.hash);
+    const updated = await tx.apiKey.findUniqueOrThrow({ where: { id: row.id } });
+    if (count === 0) return updated;
     const workspaceId = row.workspaceId ?? (row.botId ? (await tx.bot.findUnique({ where: { id: row.botId }, select: { workspaceId: true } }))?.workspaceId ?? null : null);
     await this.audit.log(tx, { actorId: actor.actorId, actorKind: actor.actorKind, workspaceId, subjectType: 'api_key', subjectId: row.id, subjectName: row.name, action: 'api_key.revoked', reason: note, ip: actor.ip ?? null, details: { reason } });
     await this.analytics.track(tx, 'keys.key.revoked', { kind: row.kind, reason }, { userId: actor.actorId ?? undefined, workspaceId });
     await this.notifier.keyEvent(tx, reason === 'leaked' ? 'key.leaked' : 'key.revoked', { id: row.id, name: row.name, userId: row.userId, workspaceId }, { reasonLabelKey: `keys.revokeReason.${reason}`, source: note ?? '' }, { actorId: actor.actorId });
-    await this.auth.invalidateByHash(row.hash);
     return updated;
   }
 

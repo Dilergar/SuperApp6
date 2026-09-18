@@ -14,6 +14,8 @@ export interface KeysEnv {
   rootKeyFile: string;
   /** Файл корня был подставлен дефолтом (только dev) — можно создать при первом старте */
   rootKeyFileIsDefault: boolean;
+  /** Файл СЛЕДУЮЩЕГО корня на окне ротации (`KEYS_ROOT_KEY_FILE_NEXT`); null — окна нет */
+  nextRootKeyFile: string | null;
   /** До этой даты верификаторы принимают legacy HS256 (`JWT_SECRET_LEGACY`); null — окно закрыто */
   legacyHs256Until: Date | null;
   /** Секрет legacy-окна (пусто → HS256 не принимается вовсе) */
@@ -35,6 +37,7 @@ export function keysEnv(): KeysEnv {
     provider,
     rootKeyFile: rootRaw ? path.resolve(rootRaw) : DEFAULT_ROOT_KEY_FILE,
     rootKeyFileIsDefault: !rootRaw,
+    nextRootKeyFile: process.env.KEYS_ROOT_KEY_FILE_NEXT ? path.resolve(process.env.KEYS_ROOT_KEY_FILE_NEXT) : null,
     legacyHs256Until: until && Number.isFinite(until.getTime()) ? until : null,
     legacySecret,
     piiReadMode: process.env.KEYS_PII_READ_MODE === 'encrypted' ? 'encrypted' : 'legacy',

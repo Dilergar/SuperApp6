@@ -85,8 +85,9 @@
 
 - `KEYS_PROVIDER` — `software` (по умолчанию) | `pkcs11` (заглушка под HSM/СКЗИ; интерфейс `KeyProvider`)
 - `KEYS_ROOT_KEY_FILE` — файл корневого ключа (32 байта hex/base64/raw; dev-дефолт `./.keys/root.key` создаётся сам только в development). Production: обязателен, файл существует, права 0600; церемония — `node apps/api/scripts/keys-init-root.cjs`, учение — `keys-verify-root.cjs`
+- `KEYS_ROOT_KEY_FILE_NEXT` — файл СЛЕДУЮЩЕГО корня на окне ротации (создан церемонией, никогда не генерируется сам; те же требования к правам). Пока задан, инстанс держит оба корня, а `keys.root.rotate` перешивает версии порциями; после завершения — становится `KEYS_ROOT_KEY_FILE`, переменная убирается ([keys_engine.md](keys_engine.md))
 - `JWT_SECRET_LEGACY` — секрет прошлой эпохи (HS256-токены, производные HMAC) на окно миграции; пусто → берётся `JWT_SECRET`
-- `KEYS_LEGACY_HS256_UNTIL` — ISO-дата конца legacy-окна; production при заданном legacy-секрете требует дату в будущем, после неё секрет удаляется из окружения (бут падает)
+- `KEYS_LEGACY_HS256_UNTIL` — ISO-дата конца legacy-окна; production при заданном legacy-секрете требует дату в будущем и не дальше 45 дней вперёд (окно = срок refresh-токена), после неё секрет удаляется из окружения (бут падает)
 - `KEYS_PII_READ_MODE` — `legacy` (по умолчанию: читаем открытые ПДн-колонки, пишем обе) | `encrypted` (читаем `_enc`, ищем по `_bi`) — [keys_pii.md](keys_pii.md)
 - `KEYS_PKCS11_MODULE`, `KEYS_PKCS11_SLOT`, `KEYS_PKCS11_PIN`, `KEYS_PKCS11_KEY_LABEL` — параметры провайдера `pkcs11` (только при `KEYS_PROVIDER=pkcs11`)
 - `WEBHOOKS_DEV_LOOPBACK` — `true` разрешает доставку вебхуков на `http://127.0.0.1` (приёмник сьюта `verify-webhooks.cjs`); только development/test, в production бут падает — [webhooks_engine.md](webhooks_engine.md)

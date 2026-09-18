@@ -28,6 +28,7 @@ import { ContactsService } from '../../modules/contacts/contacts.service';
 import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { KeysCascadesService } from '../keys/api-keys/keys.cascades.service';
+import { KeysEnvelopeService } from '../keys/keys.envelope.service';
 import {
   SOURCE_LOCALE,
   maskPhone,
@@ -71,6 +72,7 @@ export class UsersService implements OnModuleInit {
     private platformAccess: PlatformAccessService,
     private analytics: AnalyticsService,
     private keysCascades: KeysCascadesService,
+    private keysEnvelope: KeysEnvelopeService,
   ) {}
 
   onModuleInit(): void {
@@ -84,8 +86,10 @@ export class UsersService implements OnModuleInit {
    * выводился из Prisma-select, и веб держал свою урезанную копию типа.
    */
   async getProfile(userId: string): Promise<UserProfile> {
-    // Try cache first
-    const cached = await this.redis.getJson<UserProfile>(`user:${userId}:profile`);
+    // Кэш профиля несёт ПДн (телефон, ИИН, адрес, номер документа), поэтому лежит в Redis
+    // envelope-шифротекстом под KEK САМОГО человека: открытого текста в кэше нет, а заморозка
+    // или уничтожение его KEK гасит и кэш — он просто перестаёт открываться (промах → БД).
+    const cached = await this.readProfileCache(userId);
     if (cached) return cached;
 
     const user = await this.db.user.findUnique({
@@ -170,10 +174,34 @@ export class UsersService implements OnModuleInit {
       contactsCount: _count.contactLinksA + _count.contactLinksB,
     };
 
-    // Cache for 5 minutes
-    await this.redis.setJson(`user:${userId}:profile`, profile, 300);
+    await this.writeProfileCache(userId, profile);
 
     return profile;
+  }
+
+  private profileCacheCtx(userId: string) {
+    return { entity: 'user', field: 'profile_cache', ownerType: 'user', ownerId: userId };
+  }
+
+  private async readProfileCache(userId: string): Promise<UserProfile | null> {
+    try {
+      const stored = await this.redis.get(`user:${userId}:profile`);
+      if (!stored || !this.keysEnvelope.isEnvelope(stored)) return null; // в т.ч. запись прошлого формата (открытый JSON)
+      const dec = await this.keysEnvelope.tryDecrypt({ type: 'user', id: userId }, this.profileCacheCtx(userId), stored);
+      return dec.ok ? (JSON.parse(dec.value) as UserProfile) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Кэш на 5 минут; KEK недоступен (заморожен/уничтожен) — не кэшируем вовсе: профиль без ПДн не залипает. */
+  private async writeProfileCache(userId: string, profile: UserProfile): Promise<void> {
+    try {
+      const stored = await this.keysEnvelope.encrypt({ type: 'user', id: userId }, this.profileCacheCtx(userId), JSON.stringify(profile));
+      await this.redis.set(`user:${userId}:profile`, stored, 300);
+    } catch {
+      /* best-effort: без кэша профиль читается из БД */
+    }
   }
 
   /** Ответ `PATCH /users/me` — урезанный профиль (веб его не читает, но контракт стоит). */
@@ -604,6 +632,14 @@ export class UsersService implements OnModuleInit {
           phone: `deleted:${userId}`, // frees the real number for re-registration
           phoneVerifiedAt: null, // подтверждение принадлежало освобождённому номеру
           email: null,
+          // Удостоверяющие данные: без них «удалённый» аккаунт продолжал бы хранить ИИН, адрес
+          // и номер документа открытым текстом (шифротексты гаснут вместе с KEK, открытые колонки — нет)
+          middleName: null,
+          iin: null,
+          residentialAddress: null,
+          idDocNumber: null,
+          idDocIssuedBy: null,
+          idDocIssuedAt: null,
           password: deadHash, // unusable
           avatar: null,
           bio: null,
@@ -620,6 +656,9 @@ export class UsersService implements OnModuleInit {
 
     // Restored / re-scheduled in the meantime → nothing was changed, skip.
     if (!anonymized) return;
+
+    // KEK человека ушёл на уничтожение — кэши keystore сбрасываются ПОСЛЕ коммита
+    await this.keysCascades.afterScopeDestroyCommitted();
 
     // Drop the mirrored access edges (best-effort, reconcile is the safety net).
     for (const c of ownedCircles) {

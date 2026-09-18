@@ -21,12 +21,32 @@ const ROOT_LEN = 32;
 export class SoftwareProvider implements KeyProvider {
   readonly kind = 'software' as const;
   readonly rootKid: string;
-  private readonly root: Buffer;
+  readonly nextRootKid: string | null;
+  /** Все корни, которые держит инстанс: текущий и (на окне ротации) следующий — по отпечатку */
+  private readonly roots = new Map<string, Buffer>();
   private readonly logger = new Logger(SoftwareProvider.name);
 
-  constructor(rootKeyFile: string, opts: { createIfMissing: boolean }) {
-    this.root = SoftwareProvider.loadRoot(rootKeyFile, opts.createIfMissing, this.logger);
-    this.rootKid = SoftwareProvider.fingerprint(this.root);
+  constructor(rootKeyFile: string, opts: { createIfMissing: boolean; nextRootKeyFile?: string | null }) {
+    const root = SoftwareProvider.loadRoot(rootKeyFile, opts.createIfMissing, this.logger);
+    this.rootKid = SoftwareProvider.fingerprint(root);
+    this.roots.set(this.rootKid, root);
+    let nextKid: string | null = null;
+    if (opts.nextRootKeyFile) {
+      // Следующий корень НИКОГДА не создаётся молча: его делает церемония (две офлайн-копии)
+      const next = SoftwareProvider.loadRoot(opts.nextRootKeyFile, false, this.logger);
+      const kid = SoftwareProvider.fingerprint(next);
+      if (kid !== this.rootKid) {
+        this.roots.set(kid, next);
+        nextKid = kid;
+      }
+    }
+    this.nextRootKid = nextKid;
+  }
+
+  private rootOf(rootKid: string): Buffer {
+    const root = this.roots.get(rootKid);
+    if (!root) throw new KeyProviderError('root_mismatch', `this instance does not hold the root ${rootKid} (holds: ${[...this.roots.keys()].join(', ')})`);
+    return root;
   }
 
   static fingerprint(root: Buffer): string {
@@ -55,7 +75,13 @@ export class SoftwareProvider implements KeyProvider {
       }
       fs.mkdirSync(path.dirname(file), { recursive: true });
       const fresh = randomBytes(ROOT_LEN).toString('hex') + '\n';
-      fs.writeFileSync(file, fresh, { mode: 0o600 });
+      try {
+        // `wx`: второй процесс, стартовавший одновременно (API + скрипт), НЕ перезапишет уже
+        // созданный корень — иначе первый остался бы с корнем в памяти, которого нет на диске
+        fs.writeFileSync(file, fresh, { mode: 0o600, flag: 'wx' });
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+      }
       logger.warn(
         `⚠️  Generated a DEVELOPMENT root key at ${file}. Everything encrypted by this API is bound to it: back it up or accept losing the data. ` +
           'Production requires KEYS_ROOT_KEY_FILE created by the key ceremony (keys-init-root.cjs).',
@@ -81,29 +107,34 @@ export class SoftwareProvider implements KeyProvider {
     return root;
   }
 
-  async wrap(plain: Buffer, aad: string): Promise<Buffer> {
+  async wrap(plain: Buffer, aad: string, rootKid: string = this.rootKid): Promise<Buffer> {
     const iv = randomBytes(IV_LEN);
-    const cipher = createCipheriv('aes-256-gcm', this.root, iv);
+    const cipher = createCipheriv('aes-256-gcm', this.rootOf(rootKid), iv, { authTagLength: TAG_LEN });
     cipher.setAAD(Buffer.from(aad, 'utf8'));
     const ct = Buffer.concat([cipher.update(plain), cipher.final()]);
     return Buffer.concat([Buffer.from([WRAP_V1]), iv, cipher.getAuthTag(), ct]);
   }
 
-  async unwrap(wrapped: Buffer, aad: string): Promise<Buffer> {
+  async unwrap(wrapped: Buffer, aad: string, rootKid?: string): Promise<Buffer> {
     if (wrapped.length < 1 + IV_LEN + TAG_LEN || wrapped[0] !== WRAP_V1) {
       throw new KeyProviderError('wrap_format', 'wrapped material has an unknown format');
     }
     const iv = wrapped.subarray(1, 1 + IV_LEN);
     const tag = wrapped.subarray(1 + IV_LEN, 1 + IV_LEN + TAG_LEN);
     const ct = wrapped.subarray(1 + IV_LEN + TAG_LEN);
-    try {
-      const decipher = createDecipheriv('aes-256-gcm', this.root, iv);
-      decipher.setAAD(Buffer.from(aad, 'utf8'));
-      decipher.setAuthTag(tag);
-      return Buffer.concat([decipher.update(ct), decipher.final()]);
-    } catch {
-      throw new KeyProviderError('root_mismatch', 'wrapped material does not open with this root key (rotated root or tampered row)');
+    // Корень называет сама строка версии (`root_kid`); без подсказки — пробуем все, что держим
+    const candidates = rootKid ? [this.rootOf(rootKid)] : [...this.roots.values()];
+    for (const root of candidates) {
+      try {
+        const decipher = createDecipheriv('aes-256-gcm', root, iv, { authTagLength: TAG_LEN });
+        decipher.setAAD(Buffer.from(aad, 'utf8'));
+        decipher.setAuthTag(tag);
+        return Buffer.concat([decipher.update(ct), decipher.final()]);
+      } catch {
+        /* следующий кандидат */
+      }
     }
+    throw new KeyProviderError('root_mismatch', 'wrapped material does not open with this root key (rotated root or tampered row)');
   }
 
   async generateSymmetric(): Promise<Buffer> {

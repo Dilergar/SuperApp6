@@ -663,6 +663,8 @@ export class WorkspacesService implements OnModuleInit {
       await tx.workspace.delete({ where: { id: workspaceId } });
     });
 
+    // KEK организации ушёл на уничтожение — кэши keystore сбрасываются ПОСЛЕ коммита
+    await this.keysCascades.afterScopeDestroyCommitted();
     await this.roles.invalidateUserCache(ws.ownerId);
     await this.redis.invalidateUserProfile(ws.ownerId);
     this.logger.log(`Workspace ${workspaceId} purged by the archive retention`);

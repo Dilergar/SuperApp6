@@ -184,18 +184,29 @@ function BotEditDialog({ workspaceId, bot, onClose, onSaved }: { workspaceId: st
   const [scopes, setScopes] = useState<KeyScopes>(bot.scopes);
   const [allowlist, setAllowlist] = useState<string[]>(bot.ipAllowlist);
   const [busy, setBusy] = useState(false);
+  const stepUp = useKeysStepUp();
   const save = async () => {
     setBusy(true);
     try {
+      // Уезжает только изменённое. Ранг, права и IP-список — сила уже выпущенных ключей:
+      // сервер меняет их только под сильным подтверждением, имя и назначение — без него.
+      const scopesChanged = JSON.stringify(Object.entries(scopes).sort()) !== JSON.stringify(Object.entries(bot.scopes).sort());
+      const allowlistChanged = JSON.stringify([...allowlist].sort()) !== JSON.stringify([...bot.ipAllowlist].sort());
+      const sensitive = rank !== bot.rank || scopesChanged || allowlistChanged;
       const input: BotUpdateInput = {
         ...(name.trim() !== bot.name ? { name: name.trim() } : {}),
         ...(purpose.trim() !== bot.purpose ? { purpose: purpose.trim() } : {}),
         ...(rank !== bot.rank ? { rank } : {}),
-        responsibleUserId: responsible[0]?.id ?? null,
-        scopes,
-        ipAllowlist: allowlist,
+        ...((responsible[0]?.id ?? null) !== bot.responsibleUserId ? { responsibleUserId: responsible[0]?.id ?? null } : {}),
+        ...(scopesChanged ? { scopes } : {}),
+        ...(allowlistChanged ? { ipAllowlist: allowlist } : {}),
       };
-      await updateBot(workspaceId, bot.id, input);
+      if (sensitive) {
+        const res = await stepUp.withStepUp(() => updateBot(workspaceId, bot.id, input));
+        if (res === undefined) return; // человек закрыл подтверждение — диалог правки остаётся открытым
+      } else {
+        await updateBot(workspaceId, bot.id, input);
+      }
       toast(t('bot.savedToast'), 'success');
       onSaved();
     } catch (err) {

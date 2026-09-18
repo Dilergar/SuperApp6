@@ -13,6 +13,7 @@ import { JobsService } from '../../jobs/jobs.service';
 import { KEYS_JOBS, KEYS_QUEUE } from '../keys.constants';
 import { keysEnv } from '../keys.env';
 import { KeysEnvelopeService } from '../keys.envelope.service';
+import { KeysFieldRegistry } from '../keys.registry';
 import { KeysStoreService } from '../keys.store.service';
 import { PII_MODELS, PII_MODEL_MAP, PII_PLAINTEXT_PRESENT } from './keys.pii.registry';
 
@@ -50,6 +51,7 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
     private readonly store: KeysStoreService,
     private readonly registry: JobsRegistry,
     private readonly jobs: JobsService,
+    private readonly keyFields: KeysFieldRegistry,
   ) {
     this.partitions = new MonthlyPartitions(db, { table: 'pii_access_log', column: 'occurred_at', retentionDays: ACCESS_LOG_RETENTION_DAYS });
     for (const m of Prisma.dmmf.datamodel.models) {
@@ -61,6 +63,45 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
 
   onModuleInit(): void {
     this.registry.register(KEYS_JOBS.piiBackfill, async () => void (await this.backfill()), { queue: KEYS_QUEUE, maxAttempts: 10, leaseMs: 60 * 60_000, queueConcurrency: 1 });
+    this.registerEncryptedColumns();
+  }
+
+  /**
+   * Каждая `_enc`-колонка ПДн — в реестре шифрованных колонок движка: по нему после ротации
+   * KEK идёт перешивка (`keys.rewrap`), а после ротации mac-ключа — переиндексация
+   * (`keys.reindex`). Колонка вне реестра осталась бы под старой версией KEK, а та после
+   * перешивки выводится — телефон, e-mail и ИИН стали бы нечитаемыми. Декларация скоупа
+   * (`keyScopes`) сверяется со `scope()` пробной строкой: расхождение роняет бут.
+   */
+  private registerEncryptedColumns(): void {
+    for (const def of PII_MODELS) {
+      const { table, col } = this.table(def.model);
+      if (!def.keyScopes.length) throw new Error(`pii registry: ${def.model} declares no keyScopes`);
+      for (const ks of def.keyScopes) {
+        const probe: Record<string, unknown> = {};
+        if (ks.type !== 'platform') {
+          probe[ks.field] = 'probe';
+          if (ks.discriminator) probe[ks.discriminator.field] = ks.discriminator.value;
+        }
+        const got = def.scope(probe);
+        const same = got && got.type === ks.type && (ks.type === 'platform' || (got.type !== 'platform' && got.id === 'probe'));
+        if (!same) throw new Error(`pii registry: ${def.model}.keyScopes (${ks.type}) disagrees with scope()`);
+        for (const f of def.fields) {
+          this.keyFields.register({
+            table,
+            idColumn: col('id'),
+            column: col(f.enc),
+            scope: ks.type,
+            scopeColumn: ks.type === 'platform' ? undefined : col(ks.field),
+            scopeDiscriminator: ks.type !== 'platform' && ks.discriminator ? { column: col(ks.discriminator.field), value: ks.discriminator.value } : undefined,
+            entity: def.entity,
+            field: f.name,
+            literal: f.literal,
+            blindIndex: f.bi && f.biAlt && f.index ? { column: col(f.bi), altColumn: col(f.biAlt), name: f.index, normalize: f.normalize ?? ((v: string) => v) } : undefined,
+          });
+        }
+      }
+    }
   }
 
   /** Хуки — после старта всех модулей (keystore готов); до этого расширение — passthrough. */
@@ -76,7 +117,9 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
       if (!m) throw new Error(`pii registry: model ${def.model} is not in the Prisma schema`);
       const names = new Set(m.fields.map((f) => f.name));
       for (const f of def.fields) {
-        for (const col of [f.name, f.enc, f.bi]) if (col && !names.has(col)) throw new Error(`pii registry: ${def.model}.${col} is not a schema field`);
+        for (const col of [f.name, f.enc, f.bi, f.biAlt]) if (col && !names.has(col)) throw new Error(`pii registry: ${def.model}.${col} is not a schema field`);
+        // Слепой индекс — всегда парой слотов: без второго смена ключа `blind_index` встала бы на этой колонке
+        if (!!f.bi !== !!f.biAlt) throw new Error(`pii registry: ${def.model}.${f.name} must declare both blind index slots (bi + biAlt)`);
       }
     }
     const hooks: PiiHooks = {
@@ -91,7 +134,7 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
       },
       prefetch: (kids) => this.store.prefetch(kids),
       kekKidOf: (stored) => this.envelope.kekKidOf(stored),
-      blindIndex: (index, normalized) => this.envelope.blindIndex(index, normalized),
+      blindIndexPlan: () => this.envelope.blindIndexPlan(),
       logAccess: (entry) => this.logAccess(entry),
       relation: (model, field) => this.relations.get(model)?.get(field) ?? null,
       fetchScopeRow: (model, where) => this.fetchScopeRow(model, where),
@@ -209,7 +252,7 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
     for (const f of def.fields) {
       const plain = Prisma.raw(`"${col(f.name)}"`);
       const enc = Prisma.raw(`"${col(f.enc)}"`);
-      const bi = f.bi ? Prisma.raw(`"${col(f.bi)}"`) : null;
+      const hasBi = !!(f.bi && f.biAlt && f.index);
       const scopeCols = def.scopeFields.map((s) => Prisma.raw(`"${col(s)}" AS "${s}"`));
       const scopeSelect = scopeCols.length ? Prisma.sql`, ${Prisma.join(scopeCols)}` : Prisma.empty;
       let cursor = '';
@@ -227,14 +270,19 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
           const ctx = { entity: def.entity, field: f.name, ownerType: scope.type, ownerId: scope.type === 'platform' ? 'platform' : scope.id };
           let encValue: string;
           try {
-            encValue = await this.envelope.encrypt(scope, ctx, value);
+            // Служебная заглушка (`deleted:` / `bot:`) — не ПДн: в `_enc` как есть, без KEK
+            encValue = f.literal?.(value) ? value : await this.envelope.encrypt(scope, ctx, value);
           } catch (err) {
             this.logger.warn(`pii backfill ${table}.${col(f.name)} ${row.id}: ${(err as Error).message}`);
             continue;
           }
-          const biValue = f.bi && f.index ? await this.envelope.blindIndex(f.index, f.normalize ? f.normalize(value) : value) : null;
-          if (bi) {
-            await this.db.$executeRaw`UPDATE ${t} SET ${enc} = ${encValue}, ${bi} = ${biValue} WHERE "id"::text = ${row.id} AND ${enc} IS NULL`;
+          if (hasBi) {
+            // Те же слоты, что у живой записи: рабочий — primary-версией, второй — pending на окне смены ключа
+            const plan = await this.envelope.blindIndexPlan();
+            const norm = f.normalize ? f.normalize(value) : value;
+            const cur = Prisma.raw(`"${col(plan.slot === 0 ? f.bi! : f.biAlt!)}"`);
+            const other = Prisma.raw(`"${col(plan.slot === 0 ? f.biAlt! : f.bi!)}"`);
+            await this.db.$executeRaw`UPDATE ${t} SET ${enc} = ${encValue}, ${cur} = ${plan.value(f.index!, norm)}, ${other} = ${plan.pendingValue(f.index!, norm)} WHERE "id"::text = ${row.id} AND ${enc} IS NULL`;
           } else {
             await this.db.$executeRaw`UPDATE ${t} SET ${enc} = ${encValue} WHERE "id"::text = ${row.id} AND ${enc} IS NULL`;
           }

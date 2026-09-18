@@ -7,8 +7,12 @@ export const KEYS_QUEUE = 'keys';
 export const KEYS_JOBS = {
   /** Перешить DEK'и всех полей KEK'а на его primary-версию (после ротации KEK) */
   rewrap: 'keys.rewrap',
-  /** Пересчитать слепые индексы на primary-версию mac-ключа (только при компрометации) */
+  /** Слепые индексы: заполнить слот pending-версии и активировать её; без pending — починка рабочего слота */
   reindex: 'keys.reindex',
+  /** Слепые индексы: вывести прежнюю версию и очистить её слот-колонку */
+  blindIndexRetire: 'keys.blindindex.retire',
+  /** Ротация корня: перешить версии под следующий корень порциями */
+  rootRewrap: 'keys.root.rewrap',
   /** pending → active у версии подписи (после протухания кэша JWKS) */
   signingActivate: 'keys.signing.activate',
   /** Старая версия подписи после окна максимального срока токена → destroy_scheduled */
@@ -40,7 +44,9 @@ export const KEY_AUDIT_ACTIONS = {
   versionDestroyed: 'key_version.destroyed',
   scopeFrozen: 'scope.frozen',
   scopeUnfrozen: 'scope.unfrozen',
+  rootRotationStarted: 'root.rotation_started',
   rootRotated: 'root.rotated',
+  blindIndexRotated: 'blind_index.rotated',
   rewrapDone: 'scope.rewrapped',
 } as const;
 

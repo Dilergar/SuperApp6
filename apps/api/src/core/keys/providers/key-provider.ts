@@ -11,12 +11,18 @@ import type { KeysProviderKind } from '@superapp/shared';
  */
 export interface KeyProvider {
   readonly kind: KeysProviderKind;
-  /** Отпечаток корня (SHA-256 материала, первые 16 hex) — пишется в каждую версию */
+  /** Отпечаток ТЕКУЩЕГО корня (SHA-256 материала, первые 16 hex) — пишется в каждую версию */
   readonly rootKid: string;
-  /** Обернуть материал корнем: AAD связывает блоб с версией и назначением */
-  wrap(plain: Buffer, aad: string): Promise<Buffer>;
-  /** Распаковать; корень не тот или блоб подменён → KeyProviderError */
-  unwrap(wrapped: Buffer, aad: string): Promise<Buffer>;
+  /**
+   * Отпечаток СЛЕДУЮЩЕГО корня на окне ротации (`KEYS_ROOT_KEY_FILE_NEXT`); `null` — окна нет.
+   * Пока окно открыто, инстанс читает версии под ЛЮБЫМ из двух корней: перешивка идёт порциями,
+   * и состояние «часть под старым, часть под новым» — рабочее, а не аварийное.
+   */
+  readonly nextRootKid: string | null;
+  /** Обернуть материал корнем `rootKid` (по умолчанию — текущим): AAD связывает блоб с версией и назначением */
+  wrap(plain: Buffer, aad: string, rootKid?: string): Promise<Buffer>;
+  /** Распаковать корнем из строки версии (`rootKid`); корень неизвестен или блоб подменён → KeyProviderError */
+  unwrap(wrapped: Buffer, aad: string, rootKid?: string): Promise<Buffer>;
   /** 32 байта CSPRNG — материал KEK/HMAC */
   generateSymmetric(): Promise<Buffer>;
   /** Пара Ed25519: приватный — PKCS#8 DER (будет обёрнут), публичный — SPKI DER */

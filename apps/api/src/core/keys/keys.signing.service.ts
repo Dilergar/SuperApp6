@@ -29,8 +29,12 @@ export interface VerifyOptions {
   typ?: string;
   /** Отвергать эти `typ` (refresh-токен, предъявленный как access) */
   forbidTyp?: string[];
-  /** Legacy HS256 на окне миграции: секрет вызывающего (продукт — JWT_SECRET_LEGACY; кабинет — свой) */
-  legacy?: { secret: string | null; audienceOptional?: boolean };
+  /**
+   * Legacy HS256 на окне миграции: секрет вызывающего (продукт — JWT_SECRET_LEGACY; кабинет — свой).
+   * `typOptional` — токены прошлой эпохи `typ` не несли: требование `typ` к ним не применяется
+   * (к EdDSA — всегда), запреты `forbidTyp` действуют на оба алгоритма.
+   */
+  legacy?: { secret: string | null; audienceOptional?: boolean; typOptional?: boolean };
   /** Допуск часов, секунд */
   clockToleranceSec?: number;
 }
@@ -45,7 +49,7 @@ export interface VerifyOptions {
 @Injectable()
 export class KeysSigningService {
   private readonly logger = new Logger(KeysSigningService.name);
-  private jwksCache: { at: number; value: JwksDto } | null = null;
+  private jwksCache: { epoch: number; at: number; value: JwksDto } | null = null;
   private lastUnknownKidRefetch = 0;
 
   constructor(
@@ -107,7 +111,9 @@ export class KeysSigningService {
       if (payload.aud === undefined && !opts.legacy?.audienceOptional) throw new KeysTokenError('audience');
     }
 
-    if (opts.typ && header.typ !== opts.typ) throw new KeysTokenError('typ');
+    // jsonwebtoken прошлой эпохи ставил `typ: JWT` всем токенам — различать по нему нечего
+    const typExempt = header.alg === 'HS256' && !!opts.legacy?.typOptional;
+    if (opts.typ && header.typ !== opts.typ && !typExempt) throw new KeysTokenError('typ');
     if (opts.forbidTyp && header.typ && opts.forbidTyp.includes(header.typ)) throw new KeysTokenError('typ');
     if (typeof payload.exp !== 'number' || payload.exp + tolerance <= now) throw new KeysTokenError('expired');
     if (typeof payload.nbf === 'number' && payload.nbf - tolerance > now) throw new KeysTokenError('not_yet');
@@ -146,7 +152,8 @@ export class KeysSigningService {
   /** Все активные и pending версии всех аудиторий (кэш 10 мин; сброс — эпохой store). */
   async jwks(): Promise<JwksDto> {
     const epoch = await this.store.epoch();
-    if (this.jwksCache && this.jwksCache.at === epoch) return this.jwksCache.value;
+    // Эпоха + TTL: при недоступном Redis эпоха не растёт, и без срока кэш JWKS жил бы вечно
+    if (this.jwksCache && this.jwksCache.epoch === epoch && Date.now() - this.jwksCache.at < KEYS_LIMITS.jwksCacheSec * 1000) return this.jwksCache.value;
     const keys: JwksDto['keys'] = [];
     for (const aud of SIGNING_AUDIENCES) {
       const key = await this.store.getKey(PLATFORM_SCOPE, 'sign', aud);
@@ -157,7 +164,7 @@ export class KeysSigningService {
       }
     }
     const value = { keys };
-    this.jwksCache = { at: epoch, value };
+    this.jwksCache = { epoch, at: Date.now(), value };
     return value;
   }
 
@@ -169,13 +176,16 @@ export class KeysSigningService {
   async rotate(audience: SigningAudience, opts: { actorId?: string | null; reason?: string | null; activateInMin?: number; retireAfterSec: number }): Promise<{ kid: string }> {
     const key = await this.store.ensureKey(PLATFORM_SCOPE, 'sign', audience);
     const previousKid = key.primaryKid;
-    const kid = await this.store.createVersion(key.id, 'pending', { actorId: opts.actorId ?? null, actorKind: opts.actorId ? 'platform' : 'system', reason: opts.reason ?? null });
     const delayMs = (opts.activateInMin ?? KEYS_LIMITS.signingActivateDelayMin) * 60_000;
-    await this.jobs.enqueue(null, {
-      type: KEYS_JOBS.signingActivate,
-      payload: { kid, previousKid, retireAfterSec: opts.retireAfterSec },
-      runAt: new Date(Date.now() + delayMs),
-      uniqueKey: `activate:${kid}`,
+    // Джоб активации — В ТОЙ ЖЕ транзакции, что и pending-версия: падение между шагами оставило
+    // бы версию `pending` навсегда, а крон ротации по возрасту пропускает аудиторию с pending
+    const kid = await this.store.createVersion(key.id, 'pending', { actorId: opts.actorId ?? null, actorKind: opts.actorId ? 'platform' : 'system', reason: opts.reason ?? null }, async (tx, id) => {
+      await this.jobs.enqueue(tx, {
+        type: KEYS_JOBS.signingActivate,
+        payload: { kid: id, previousKid, retireAfterSec: opts.retireAfterSec },
+        runAt: new Date(Date.now() + delayMs),
+        uniqueKey: `activate:${id}`,
+      });
     });
     return { kid };
   }

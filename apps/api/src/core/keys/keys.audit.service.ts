@@ -57,7 +57,8 @@ export class KeysAuditService {
   /** Лента журнала организации (keyset по id DESC). Права проверил контроллер. */
   async list(workspaceId: string, q: KeyJournalQuery): Promise<KeyAuditPage> {
     const limit = q.limit ?? KEYS_LIMITS.journalPageSize;
-    const cursor = q.cursor ? BigInt(q.cursor) : null;
+    // Курсор — id строки; чужая строка (`BigInt('abc')` бросает SyntaxError → 500) читается как «с начала»
+    const cursor = q.cursor && /^\d{1,18}$/.test(q.cursor) ? BigInt(q.cursor) : null;
     const rows = await this.db.keyAuditEntry.findMany({
       where: {
         workspaceId,

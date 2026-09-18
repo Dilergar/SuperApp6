@@ -127,7 +127,7 @@
       "title": "Revoke an API key"
     },
     "keysRootRotate": {
-      "description": "Re-wrap every key version under a NEW root file created by the ceremony. Every API instance must be restarted with the new file right after.",
+      "description": "Re-wrap every key version under the NEXT root. First the ceremony file is rolled out to every instance as KEYS_ROOT_KEY_FILE_NEXT; the command checks the fingerprint and the fleet, then re-wraps in the background in batches. When the job reports completion, make the new file KEYS_ROOT_KEY_FILE, remove the NEXT variable and restart every instance.",
       "title": "Rotate the root key"
     },
     "keysSigningRotate": {
@@ -168,6 +168,10 @@
     "platformStaffSuspend": {
       "description": "Revokes all console sessions and blocks sign-in until reinstated",
       "title": "Suspend a staff member"
+    },
+    "keysBlindIndexRotate": {
+      "description": "Only when the blind index key is compromised. A new version fills the second index column in the background while sign-in and search keep working, then search switches to it and the old column is cleared.",
+      "title": "Rotate the blind index key"
     }
   },
   "fields": {

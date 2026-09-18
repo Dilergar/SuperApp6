@@ -147,7 +147,7 @@ export class PlatformAuthService {
   async authenticate(raw: string, meta: { ip: string | null; userAgent: string | null; requestId: string }): Promise<PlatformActor> {
     let payload: PlatformJwtPayload;
     try {
-      payload = await this.signing.verify<PlatformJwtPayload>('platform', raw, { legacy: { secret: this.legacySecret() } });
+      payload = await this.signing.verify<PlatformJwtPayload>('platform', raw, { typ: 'platform+jwt', legacy: { secret: this.legacySecret(), typOptional: true } });
     } catch {
       throw unauthorized('auth.invalidToken');
     }

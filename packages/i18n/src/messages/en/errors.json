@@ -588,7 +588,11 @@
     "workspace_mismatch": "The key belongs to another organization",
     "policy_allowlist_required": "The organization policy requires an IP allowlist for every key",
     "rate_limited": "This key makes too many requests — wait a minute",
-    "export_cap": "This key has reached its daily export limit — try again tomorrow"
+    "export_cap": "This key has reached its daily export limit — try again tomorrow",
+    "holder_only": "Only the holder of a personal key can change or rotate it — others can only revoke it",
+    "root_next_not_loaded": "The next root is not loaded on this instance (KEYS_ROOT_KEY_FILE_NEXT) or its fingerprint is different",
+    "root_fleet_not_ready": "Not every running instance holds the next root yet ({count}) — finish the rollout first",
+    "rotation_in_progress": "A key rotation is already in progress — wait until it finishes"
   },
   "legalEntity": {
     "archived": "The legal entity is archived — pick an active one",
@@ -1208,6 +1212,7 @@
     "keys": {
       "allowlistTooLong": "Too many entries in the allowlist",
       "badCidr": "Enter an IP address or a CIDR range",
+      "cidrTooWide": "The range is too wide: at most /8 for IPv4 and /16 for IPv6",
       "expiryConflict": "Choose either a term or «no expiry»",
       "nameRequired": "Give the key a name",
       "nameTooLong": "The name is too long",

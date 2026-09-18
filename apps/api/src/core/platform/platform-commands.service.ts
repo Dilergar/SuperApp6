@@ -467,6 +467,9 @@ export class PlatformCommandsService {
   /** Сброс кэша способностей ПОСЛЕ коммита: внутри транзакции он гонится с чтением. */
   private async invalidateStaff(out: CommandOutcome): Promise<void> {
     for (const userId of out.invalidateStaff ?? []) await this.access.invalidate(userId);
+    if (out.afterCommit) {
+      await out.afterCommit().catch((err: unknown) => this.logger.warn(`command afterCommit hook failed: ${err instanceof Error ? err.message : String(err)}`));
+    }
   }
 
   private hashInput(input: unknown): string {

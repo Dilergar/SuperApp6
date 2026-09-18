@@ -16,10 +16,11 @@ export const KEY_PURPOSES = ['kek', 'sign', 'mac'] as const;
 export type KeyPurpose = (typeof KEY_PURPOSES)[number];
 
 /**
- * Состояния версии ключа (модель Google Cloud KMS): `pending` — опубликована, но не
- * подписывает; `active` — рабочая; `disabled` — не шифрует и не подписывает, но
- * расшифровывает/проверяет; `destroy_scheduled` — материал уничтожится по сроку
- * (восстановимо → `disabled`); `destroyed` — материала нет, данные под ним нечитаемы.
+ * Состояния версии ключа (модель Google Cloud KMS): `pending` — опубликована в JWKS, но не
+ * подписывает; `active` — рабочая (primary пишет/подписывает, остальные читают/проверяют);
+ * `disabled` — НЕ используется ни для чего, даже для чтения (kill-switch заморозки);
+ * `destroy_scheduled` — не используется, материал уничтожится по сроку (восстановимо →
+ * `active`); `destroyed` — материала нет, данные под ним нечитаемы.
  */
 export const KEY_VERSION_STATES = ['pending', 'active', 'disabled', 'destroy_scheduled', 'destroyed'] as const;
 export type KeyVersionState = (typeof KEY_VERSION_STATES)[number];
@@ -131,6 +132,8 @@ export type WebhookDeliveryStatus = (typeof WEBHOOK_DELIVERY_STATUSES)[number];
 export const KEYS_ERROR_CODES = {
   /** Ключи организации создают только владелец и админы */
   roleRequired: 'keys.role_required',
+  /** Править и перевыпускать личный ключ может только его держатель (остальным — только отзыв) */
+  holderOnly: 'keys.holder_only',
   botFrozen: 'keys.bot.frozen',
   botArchived: 'keys.bot.archived',
   scopeDenied: 'keys.scope.denied',
@@ -149,6 +152,12 @@ export const KEYS_ERROR_CODES = {
   /** Суточный потолок выгрузки строк одним ключом (`KEYS_LIMITS.exportRowsPerDay`) */
   exportCap: 'keys.export_cap',
   rootMissing: 'keys.root_missing',
+  /** Следующий корень не загружен на этом инстансе (`KEYS_ROOT_KEY_FILE_NEXT`) либо отпечаток не тот */
+  rootNextNotLoaded: 'keys.root_next_not_loaded',
+  /** Не все живые инстансы держат следующий корень — ротация оставила бы их без доступа к ключам */
+  rootFleetNotReady: 'keys.root_fleet_not_ready',
+  /** Смена ключа уже идёт (есть версия в ожидании либо прошлая ещё не выведена) */
+  rotationInProgress: 'keys.rotation_in_progress',
   keyUnavailable: 'keys.key_unavailable',
   webhookUrlRejected: 'keys.webhook.url_rejected',
   webhookNotVerified: 'keys.webhook.not_verified',

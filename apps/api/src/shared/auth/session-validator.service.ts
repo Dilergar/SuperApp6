@@ -97,8 +97,10 @@ export class SessionValidatorService {
     let payload: JwtPayload & { jti?: string };
     try {
       payload = await this.signing.verify<JwtPayload>('product', raw, {
+        // Строго access: любой будущий вид токена аудитории `product` сюда не пройдёт по умолчанию
+        typ: 'at+jwt',
         forbidTyp: ['refresh+jwt'],
-        legacy: { secret: legacySecret(), audienceOptional: true },
+        legacy: { secret: legacySecret(), audienceOptional: true, typOptional: true },
       });
     } catch {
       throw unauthorized('auth.invalidToken');

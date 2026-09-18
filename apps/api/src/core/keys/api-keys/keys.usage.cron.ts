@@ -88,20 +88,39 @@ export class KeysUsageCron implements OnApplicationBootstrap {
   }
 
   async flushLastUsed(): Promise<number> {
+    // Снимаем оба хеша АТОМАРНО (RENAME): обращения за время слива пишутся уже в новые ключи и
+    // попадут в следующий батч. Остаток упавшего прошлого слива досливается первым.
+    let n = 0;
+    n += await this.flushLastUsedFrom(`${KEYS_REDIS.lastUsed}:flush`, `${KEYS_REDIS.useCount}:flush`);
     const client = this.redis.getClient();
-    const all = await client.hgetall(KEYS_REDIS.lastUsed);
-    const ids = Object.keys(all);
+    for (const key of [KEYS_REDIS.lastUsed, KEYS_REDIS.useCount]) {
+      try {
+        await client.rename(key, `${key}:flush`);
+      } catch {
+        /* ключа нет — обращений не было */
+      }
+    }
+    n += await this.flushLastUsedFrom(`${KEYS_REDIS.lastUsed}:flush`, `${KEYS_REDIS.useCount}:flush`);
+    return n;
+  }
+
+  private async flushLastUsedFrom(lastUsedKey: string, countKey: string): Promise<number> {
+    const client = this.redis.getClient();
+    const [all, counts] = await Promise.all([client.hgetall(lastUsedKey), client.hgetall(countKey)]);
+    const ids = [...new Set([...Object.keys(all), ...Object.keys(counts)])];
     if (!ids.length) return 0;
-    // Снимаем поля ДО записи: новые обращения за время слива попадут в следующий батч
-    await client.hdel(KEYS_REDIS.lastUsed, ...ids);
     let n = 0;
     for (const id of ids) {
       try {
-        const v = JSON.parse(all[id]!) as { at: string; ip: string | null; country?: string | null; n: number; first?: boolean };
+        const v = all[id] ? (JSON.parse(all[id]!) as { at: string; ip: string | null; country?: string | null }) : null;
+        const uses = Math.max(0, Number(counts[id] ?? 0) || 0);
         const row = await this.db.apiKey.findUnique({ where: { id }, select: { id: true, kind: true, userId: true, workspaceId: true, lastUsedAt: true, bot: { select: { workspaceId: true, userId: true } } } });
         if (!row) continue;
-        await this.db.apiKey.update({ where: { id }, data: { lastUsedAt: new Date(v.at), lastUsedIp: v.ip, lastUsedCountry: v.country ?? null, useCount: { increment: v.n } } });
-        if (!row.lastUsedAt) {
+        await this.db.apiKey.update({
+          where: { id },
+          data: { ...(v ? { lastUsedAt: new Date(v.at), lastUsedIp: v.ip, lastUsedCountry: v.country ?? null } : {}), useCount: { increment: uses } },
+        });
+        if (!row.lastUsedAt && v) {
           await this.analytics.track(null, 'keys.key.first_used', { kind: row.kind }, { userId: row.userId ?? row.bot?.userId ?? undefined, workspaceId: row.bot?.workspaceId ?? row.workspaceId });
         }
         n++;
@@ -109,6 +128,7 @@ export class KeysUsageCron implements OnApplicationBootstrap {
         this.logger.warn(`usage flush ${id}: ${(err as Error).message}`);
       }
     }
+    await client.del(lastUsedKey, countKey);
     return n;
   }
 

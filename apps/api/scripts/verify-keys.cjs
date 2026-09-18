@@ -88,14 +88,33 @@ async function main() {
     const rt3 = await dev('roundtrip', { plaintext: 'after-rotation' });
     check('after KEK rotation: new writes use the new kid', rt3.json?.data?.kekKid === kekRot.json?.data?.kid, `${rt3.json?.data?.kekKid} vs ${kekRot.json?.data?.kid}`);
     check('old ciphertext still has old kid (rewrap only touches registered columns)', storedBefore && storedBefore.split(':')[2] !== kekRot.json?.data?.kid);
+    // ПДн — зарегистрированные колонки: после ротации KEK человека его `_enc` лежат под НОВОЙ версией,
+    // а старая версия выведена только потому, что под ней не осталось ни одной строки
+    const piiRow = await prisma.user.findUnique({ where: { id: s1.id }, select: { phoneEnc: true } });
+    check('PII rewrap: users.phone_enc moved to the new KEK version', !piiRow?.phoneEnc || piiRow.phoneEnc.split(':')[2] === kekRot.json?.data?.kid, String(piiRow?.phoneEnc).slice(0, 60));
+    const strayPii = await prisma.$queryRaw`SELECT COUNT(*)::int AS n FROM "contact_invitations" WHERE "from_user_id" = ${s1.id} AND "to_phone_enc" LIKE 'sa6e:1:%' AND "to_phone_enc" NOT LIKE ${'sa6e:1:' + kekRot.json?.data?.kid + ':%'}`;
+    check('PII rewrap: no contact_invitations rows left under old KEK versions', Number(strayPii[0]?.n ?? 0) === 0, JSON.stringify(strayPii));
+    const oldVersions = await prisma.cryptoKeyVersion.findMany({ where: { key: { scope: `user:${s1.id}`, purpose: 'kek' }, id: { not: kekRot.json?.data?.kid } }, select: { state: true } });
+    check('old KEK versions retired only after the rewrap left nothing under them', oldVersions.every((v) => v.state !== 'active'), JSON.stringify(oldVersions));
 
     // ===== A6. Заморозка скоупа (kill-switch) =====
+    // Версия, выключенная ПОШТУЧНО (подозрение на утечку), заморозку и разморозку скоупа переживает
+    // выключенной: разморозка возвращает только то, что выключила сама заморозка (`frozen_from`)
+    const singled = await prisma.cryptoKeyVersion.findFirst({ where: { key: { scope: `user:${s1.id}`, purpose: 'kek' }, state: 'destroy_scheduled' } });
+    if (singled) await prisma.cryptoKeyVersion.update({ where: { id: singled.id }, data: { state: 'disabled', frozenFrom: null } });
     const fr = await dev('scope/freeze', { type: 'user', id: s1.id });
     check('freeze: versions disabled', fr.ok && fr.json?.data?.versions >= 1, JSON.stringify(fr.json));
     const rtFrozen = await dev('roundtrip', { plaintext: 'frozen?' });
     check('frozen scope: encrypt refused with 403 keys.key_unavailable', rtFrozen.status === 403 && rtFrozen.code === 'keys.key_unavailable', `${rtFrozen.status} ${rtFrozen.code}`);
     const unfr = await dev('scope/unfreeze', { type: 'user', id: s1.id });
     check('unfreeze: versions active again', unfr.ok && unfr.json?.data?.versions >= 1);
+    if (singled) {
+      const after = await prisma.cryptoKeyVersion.findUnique({ where: { id: singled.id }, select: { state: true } });
+      check('unfreeze leaves an individually disabled version disabled', after?.state === 'disabled', after?.state);
+      await prisma.cryptoKeyVersion.update({ where: { id: singled.id }, data: { state: 'destroy_scheduled' } });
+    }
+    const frozenLeft = await prisma.cryptoKeyVersion.count({ where: { key: { scope: `user:${s1.id}` }, frozenFrom: { not: null } } });
+    check('unfreeze clears the remembered pre-freeze state', frozenLeft === 0, frozenLeft);
     const rtBack = await dev('roundtrip', { plaintext: 'back' });
     check('after unfreeze: roundtrip works', rtBack.ok && rtBack.json?.data?.roundtripOk === true);
 
@@ -230,7 +249,9 @@ async function main() {
       check('download url carries k=<kid> and sig', /[?&]k=[0-9a-f-]{36}/.test(url) && /[?&]sig=/.test(url), url.slice(0, 120));
       const got = await fetch(url);
       check('signed url serves the bytes (200)', got.status === 200, got.status);
-      const tampered = await fetch(url.replace(/sig=([A-Za-z0-9_-]+)/, (m, v) => `sig=${v.slice(0, -2)}AA`));
+      // Портим НАЧАЛО подписи: хвост — старший байт скаляра S у Ed25519, он < 0x10 и в 1 случае из 16
+      // равен нулю — замена хвоста на «AA» тогда даёт ту же самую подпись, и проверка мигала
+      const tampered = await fetch(url.replace(/sig=([A-Za-z0-9_-]+)/, (m, v) => `sig=${v[0] === 'A' ? 'B' : 'A'}${v.slice(1)}`));
       check('tampered signature → 403', tampered.status === 403, tampered.status);
       const u = new URL(url);
       const exp = Number(u.searchParams.get('exp'));
@@ -508,6 +529,16 @@ async function main() {
       check('suite2 promoted to admin', promote.ok, `${promote.status} ${promote.code}`);
       const adminPat = await call('POST', `/workspaces/${W}/keys/keys`, s2.token, { name: 'admin org key', purpose: 'e2e: org', scopes: { tasks: 'read' } });
       check('admin creates a personal key for organization data', adminPat.status === 201, `${adminPat.status} ${adminPat.code}`);
+      // Личный ключ действует от имени держателя: владелец организации (не держатель) может его
+      // только отозвать — перевыпуск отдал бы ЕМУ секрет с правами и именем другого человека
+      const foreignRotate = await call('POST', `/workspaces/${W}/keys/keys/${adminPat.json?.data?.key?.id}/rotate`, s1.token, { graceHours: 0 });
+      check('rotate of another person PAT → 403 keys.holder_only', foreignRotate.status === 403 && foreignRotate.code === 'keys.holder_only', `${foreignRotate.status} ${foreignRotate.code}`);
+      const foreignPatch = await call('PATCH', `/workspaces/${W}/keys/keys/${adminPat.json?.data?.key?.id}`, s1.token, { ipAllowlist: [] });
+      check('update of another person PAT → 403 keys.holder_only', foreignPatch.status === 403 && foreignPatch.code === 'keys.holder_only', `${foreignPatch.status} ${foreignPatch.code}`);
+      const stillAlive = await call('GET', '/users/me', adminPat.json?.data?.secret ?? '');
+      check('refused rotate left the key of its holder intact', stillAlive.ok, `${stillAlive.status} ${stillAlive.code}`);
+      const wideCidr = await call('POST', `/workspaces/${W}/keys/keys`, s2.token, { name: 'wide', purpose: 'e2e: wide cidr', scopes: { tasks: 'read' }, ipAllowlist: ['0.0.0.0/0'] });
+      check('allowlist 0.0.0.0/0 → 400 (a list that admits everyone is not a list)', wideCidr.status === 400, `${wideCidr.status} ${wideCidr.code}`);
       const adminBot = await call('POST', `/workspaces/${W}/keys/bots`, s2.token, { name: 'Admin bot', purpose: 'e2e: admin', rank: 'manager', scopes: { tasks: 'write' }, responsibleUserId: s2.id });
       check('admin creates a bot (rank manager → role manager)', adminBot.status === 201, `${adminBot.status} ${adminBot.code}`);
       const adminBotRole = adminBot.ok ? await prisma.userRole.findFirst({ where: { userId: adminBot.json.data.bot.userId, context: 'workspace', tenantId: W, isActive: true } }) : null;
@@ -553,6 +584,15 @@ async function main() {
       const acc3 = await call('POST', `/workspaces/invitations/${inv3Id}/accept`, s3.token);
       const promote3 = await call('PATCH', `/workspaces/${W}/members/${s3.id}`, s1.token, { role: 'admin' });
       check('suite3 joined and promoted to admin', acc3.ok && promote3.ok, `${acc3.status}/${promote3.status}`);
+      // suite3 — админ БЕЗ окна step-up: ранг/права/IP-список бота (сила уже выпущенных ключей)
+      // он поменять не может, а имя — может
+      await call('POST', '/keys/step-up/end', s3.token, {});
+      const powerNoStep = await call('PATCH', `/workspaces/${W}/keys/bots/${botId}`, s3.token, { scopes: { tasks: 'write', documents: 'write', notes: 'write' } });
+      check('bot scopes change without step-up → 403 keys.step_up_required', powerNoStep.status === 403 && powerNoStep.code === 'keys.step_up_required', `${powerNoStep.status} ${powerNoStep.code}`);
+      const rankNoStep = await call('PATCH', `/workspaces/${W}/keys/bots/${botId}`, s3.token, { rank: 'manager' });
+      check('bot rank change without step-up → 403 keys.step_up_required', rankNoStep.status === 403 && rankNoStep.code === 'keys.step_up_required', `${rankNoStep.status} ${rankNoStep.code}`);
+      const nameNoStep = await call('PATCH', `/workspaces/${W}/keys/bots/${botId}`, s3.token, { purpose: 'e2e: tasks sync (renamed)' });
+      check('bot purpose change needs no step-up → 200', nameNoStep.ok, `${nameNoStep.status} ${nameNoStep.code}`);
       const su3 = await stepUp(s3);
       check('suite3 step-up', su3.ok, su3.status);
       const leaverPat = await call('POST', `/workspaces/${W}/keys/keys`, s3.token, { name: 'leaver org key', purpose: 'e2e: leave path', scopes: { tasks: 'read' } });

@@ -75,6 +75,19 @@ export function isValidCidr(entry: string): boolean {
   return parseCidr(entry) !== null;
 }
 
+/** Самый широкий диапазон, допустимый в allowlist: /8 у IPv4, /16 у IPv6. */
+export const ALLOWLIST_MIN_PREFIX = { 4: 8, 6: 16 } as const;
+
+/**
+ * Запись годится для IP-allowlist: это CIDR и он не шире `ALLOWLIST_MIN_PREFIX`. Список
+ * `0.0.0.0/0` формально «задан», но пускает всех — а наличие списка служит условием
+ * (бессрочный ключ, политика организации), и такая запись обнуляла бы само условие.
+ */
+export function isAllowlistCidr(entry: string): boolean {
+  const cidr = parseCidr(entry);
+  return !!cidr && cidr.bits >= ALLOWLIST_MIN_PREFIX[cidr.family];
+}
+
 /** Входит ли адрес (как его видит `req.ip`) в запись allowlist. IPv4-mapped IPv6 сравнивается как IPv4. */
 export function ipInCidr(ip: string, entry: string | ParsedCidr): boolean {
   const cidr = typeof entry === 'string' ? parseCidr(entry) : entry;

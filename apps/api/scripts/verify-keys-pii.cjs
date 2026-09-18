@@ -143,6 +143,84 @@ async function main() {
       check('encrypted: OTP chain (phone filters via _bi) verifies', chk.ok && !!chk.json?.data?.verifyToken, `${chk.status} ${JSON.stringify(chk.json).slice(0, 120)}`);
     } else check('encrypted: verify/start', false, otp2.status);
 
+    // ===== 4. Смена ключа слепых индексов без простоя (два слота-колонки) =====
+    // Каждая версия ключа пишет в свой слот: `_bi` (0) / `_bi_alt` (1). Смена = pending-версия →
+    // двойная запись → фон заполняет второй слот → поиск переключается → старый слот очищается.
+    const colOf = (slot, base) => (slot === 0 ? `${base}_bi` : `${base}_bi_alt`);
+    const fieldOf = (slot, base) => (slot === 0 ? `${base}Bi` : `${base}BiAlt`);
+    const biCycle = async (label) => {
+      const before = (await call('GET', '/keys/dev/blind-index/status', s1.token)).json?.data;
+      const oldKid = before?.primaryKid;
+      const oldSlot = before?.versions?.find((v) => v.kid === oldKid)?.slot ?? 0;
+      const rot = await dev('blind-index/rotate');
+      const newKid = rot.json?.data?.kid;
+      const mid = (await call('GET', '/keys/dev/blind-index/status', s1.token)).json?.data;
+      const newSlot = mid?.versions?.find((v) => v.kid === newKid)?.slot;
+      check(`${label}: pending version takes the opposite slot, primary unchanged`, rot.ok && mid?.primaryKid === oldKid && newSlot === (oldSlot === 0 ? 1 : 0), JSON.stringify(mid?.versions));
+      const again = await dev('blind-index/rotate');
+      check(`${label}: a second rotation while one is in progress → 409 keys.rotation_in_progress`, again.status === 409 && again.code === 'keys.rotation_in_progress', `${again.status} ${again.code}`);
+
+      // Окно: запись кладёт ОБА индекса (primary — в свой слот, pending — в свой)
+      const mail = `suite-bi-${Date.now()}@example.com`;
+      const setMail = await call('PATCH', '/users/me', s1.token, { email: mail });
+      const dual = await prisma.user.findUnique({ where: { id: s1.id }, select: { emailBi: true, emailBiAlt: true } });
+      const inOld = dual?.[fieldOf(oldSlot, 'email')] ?? '';
+      const inNew = dual?.[fieldOf(newSlot, 'email')] ?? '';
+      check(`${label}: write inside the window fills both slots (each under its own version)`, setMail.ok && inOld.startsWith(`sa6b:1:${oldKid}:`) && inNew.startsWith(`sa6b:1:${newKid}:`), JSON.stringify(dual));
+      const lgMid = await call('POST', '/auth/login', null, { phone: SUITE.p2, password: SUITE.password });
+      check(`${label}: sign-in works inside the window (search by the primary slot)`, lgMid.ok, lgMid.status);
+
+      // Заполнение второго слота и переключение
+      const sw = await dev('blind-index/reindex');
+      check(`${label}: reindex fills the pending slot and switches the primary`, sw.ok && sw.json?.data?.primaryKid === newKid, JSON.stringify(sw.json?.data));
+      const lgAfter = await call('POST', '/auth/login', null, { phone: SUITE.p2, password: SUITE.password });
+      check(`${label}: sign-in works right after the switch (search by the new slot)`, lgAfter.ok, lgAfter.status);
+      const meAfter = await call('GET', '/users/me', lgAfter.json?.data?.accessToken ?? s2.token);
+      check(`${label}: the account found after the switch is the same person`, meAfter.json?.data?.id === s2.id, meAfter.json?.data?.id);
+      const unknownAfter = await call('POST', '/auth/login', null, { phone: '+77009990999', password: SUITE.password });
+      check(`${label}: unknown number is still unknown`, unknownAfter.status === 401, unknownAfter.status);
+      const stray = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM "users" WHERE "phone_enc" IS NOT NULL AND ("${colOf(newSlot, 'phone')}" IS NULL OR "${colOf(newSlot, 'phone')}" NOT LIKE 'sa6b:1:${newKid}:%')`);
+      check(`${label}: every user row carries the new-slot index`, Number(stray[0]?.n ?? 1) === 0, JSON.stringify(stray));
+      // Уникальность держит НОВЫЙ слот: чужое значение индекса в свою строку не записать
+      const s2row = await prisma.user.findUnique({ where: { id: s2.id }, select: { phoneBi: true, phoneBiAlt: true } });
+      let uniqueHeld = false;
+      try {
+        await prisma.$executeRawUnsafe(`UPDATE "users" SET "${colOf(newSlot, 'phone')}" = $1 WHERE "id" = $2`, s2row?.[fieldOf(newSlot, 'phone')], s1.id);
+      } catch {
+        uniqueHeld = true;
+      }
+      check(`${label}: the unique index guards the new slot (a duplicate index value is rejected)`, uniqueHeld);
+
+      // Вывод прежней версии: её слот очищен и свободен под следующую смену
+      const ret = await dev('blind-index/retire', { kid: oldKid });
+      const oldState = ret.json?.data?.versions?.find((v) => v.kid === oldKid)?.state;
+      check(`${label}: the previous version is retired (destroy_scheduled)`, ret.ok && oldState === 'destroy_scheduled', oldState);
+      const left = await prisma.$queryRawUnsafe(`SELECT (SELECT COUNT(*) FROM "users" WHERE "${colOf(oldSlot, 'phone')}" IS NOT NULL)::int AS users, (SELECT COUNT(*) FROM "contact_invitations" WHERE "${colOf(oldSlot, 'to_phone')}" IS NOT NULL)::int AS invitations`);
+      check(`${label}: the old slot column is cleared`, Number(left[0]?.users) === 0 && Number(left[0]?.invitations) === 0, JSON.stringify(left));
+      // Вне окна запись кладёт только рабочий слот
+      const mail2 = `suite-bi2-${Date.now()}@example.com`;
+      await call('PATCH', '/users/me', s1.token, { email: mail2 });
+      const single = await prisma.user.findUnique({ where: { id: s1.id }, select: { emailBi: true, emailBiAlt: true } });
+      check(`${label}: outside the window a write fills only the primary slot`, (single?.[fieldOf(newSlot, 'email')] ?? '').startsWith(`sa6b:1:${newKid}:`) && single?.[fieldOf(oldSlot, 'email')] === null, JSON.stringify(single));
+    };
+    await biCycle('blind index rotation #1');
+    await biCycle('blind index rotation #2 (back to the first slot)');
+
+    // Kill-switch на окне dual-write: заморозка KEK человека прячет его ПДн, хотя открытая колонка
+    // ещё в схеме (fail-closed: в режиме encrypted правда — `_enc`, открытый текст не подставляется)
+    const s3 = await login(SUITE.p3);
+    const fz = await dev('scope/freeze', { type: 'user', id: s3.id });
+    try {
+      const frozenRow = await call('GET', `/platform/lookup?q=${encodeURIComponent(SUITE.p3)}`, cl.token ?? s1.token);
+      const meFrozen = await call('GET', '/users/me', s3.token);
+      check('encrypted + frozen KEK: the phone is not served from the plaintext column', fz.ok && !JSON.stringify(meFrozen.json ?? {}).includes(SUITE.p3), `${meFrozen.status} ${JSON.stringify(meFrozen.json).slice(0, 120)} lookup=${frozenRow.status}`);
+    } finally {
+      const unfz = await dev('scope/unfreeze', { type: 'user', id: s3.id });
+      check('unfreeze restores the scope', unfz.ok, unfz.status);
+    }
+    const meBack = await call('GET', '/users/me', s3.token);
+    check('after unfreeze the phone decrypts again', meBack.json?.data?.phone === SUITE.p3, meBack.json?.data?.phone);
+
     // cleanup
     if (inv.ok) await call('POST', `/contacts/invitations/${inv.json.data.id}/cancel`, s1.token).catch(() => undefined);
     await call('PATCH', '/users/me', s1.token, { iin: null, residentialAddress: null, email: null }).catch(() => undefined);

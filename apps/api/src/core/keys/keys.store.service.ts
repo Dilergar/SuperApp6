@@ -3,6 +3,7 @@ import { Prisma, type CryptoKey, type CryptoKeyVersion } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { KEYS_ERROR_CODES, KEYS_LIMITS, KEYS_REDIS, KEY_ALGORITHMS, type KeyPurpose, type KeyVersionState } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { utcTs } from '../../shared/database/sql-time';
 import { RedisService } from '../../shared/redis/redis.service';
 import { MetricsService } from '../../shared/metrics/metrics.service';
 import type { Counter } from 'prom-client';
@@ -26,6 +27,8 @@ export interface LoadedVersion {
   material: Buffer | null;
   publicKey: Buffer | null;
   rootKid: string;
+  /** Слот слепого индекса (0 → `_bi`, 1 → `_bi_alt`); только у версий mac-ключа `blind_index` */
+  slot: number | null;
   createdAt: Date;
   activatedAt: Date | null;
   deactivatedAt: Date | null;
@@ -47,6 +50,9 @@ export interface LoadedKey {
 }
 
 const CACHE_MS = KEYS_LIMITS.kekCacheSec * 1000;
+
+/** Имя mac-ключа слепых индексов: его версии несут слот-колонку. */
+export const BLIND_INDEX_KEY = 'blind_index';
 
 /** Prisma `Bytes` — `Uint8Array` поверх ArrayBuffer; Buffer из node:crypto сюда не подходит по типу. */
 const bytes = (b: Buffer): Uint8Array<ArrayBuffer> => Uint8Array.from(b);
@@ -117,12 +123,32 @@ export class KeysStoreService {
     }
   }
 
+  /**
+   * Мутация шла в ЧУЖОЙ транзакции: сбрасывать эпоху до её коммита бессмысленно и вредно —
+   * параллельное чтение увидит ещё старое состояние и положит его в кэш уже с новой эпохой
+   * (замороженный ключ жил бы до TTL кэша). Поэтому: вызывающий ОБЯЗАН позвать `bumpEpoch()`
+   * после коммита (мгновенный эффект), а здесь — страховка на все пути: отложенные сбросы,
+   * которые переживают забытый вызов и долгую транзакцию (2 с / 15 с / 60 с, таймеры unref).
+   */
+  private bumpAfterForeignTx(): void {
+    for (const ms of KEYS_LIMITS.foreignTxEpochBumpsMs) {
+      const t = setTimeout(() => void this.bumpEpoch(), ms);
+      t.unref?.();
+    }
+  }
+
   /** Сбросить ТОЛЬКО локальные кэши (неизвестный `kid` от соседа): перечитать без INCR эпохи. */
   async bumpEpochLocalOnly(): Promise<void> {
     this.keyCache.clear();
     this.versionCache.clear();
     this.epochAt = 0;
     await this.epoch();
+  }
+
+  /** Своя транзакция уже закоммичена → сброс сразу; чужая → после её коммита (см. `bumpAfterForeignTx`). */
+  private async bumpAfter(tx: Tx | undefined): Promise<void> {
+    if (tx) this.bumpAfterForeignTx();
+    else await this.bumpEpoch();
   }
 
   private cacheKey(scope: string, purpose: KeyPurpose, name: string): string {
@@ -156,6 +182,7 @@ export class KeysStoreService {
           state: v.state as KeyVersionState,
           publicKey: v.publicKey ? Buffer.from(v.publicKey) : null,
           rootKid: v.rootKid,
+          slot: v.slot,
           createdAt: v.createdAt,
           activatedAt: v.activatedAt,
           deactivatedAt: v.deactivatedAt,
@@ -192,7 +219,7 @@ export class KeysStoreService {
     const purpose = row.key.purpose as KeyPurpose;
     let material: Buffer | null = null;
     if (row.wrappedMaterial && row.state !== 'destroyed') {
-      material = await this.provider.unwrap(Buffer.from(row.wrappedMaterial), this.wrapAad(row.id, purpose));
+      material = await this.provider.unwrap(Buffer.from(row.wrappedMaterial), this.wrapAad(row.id, purpose), row.rootKid);
       this.unwrapTotal.inc({ purpose });
     }
     const v: LoadedVersion = {
@@ -207,6 +234,7 @@ export class KeysStoreService {
       material,
       publicKey: row.publicKey ? Buffer.from(row.publicKey) : null,
       rootKid: row.rootKid,
+      slot: row.slot,
       createdAt: row.createdAt,
       activatedAt: row.activatedAt,
       deactivatedAt: row.deactivatedAt,
@@ -233,7 +261,7 @@ export class KeysStoreService {
       let material: Buffer | null = null;
       if (row.wrappedMaterial && row.state !== 'destroyed') {
         try {
-          material = await this.provider.unwrap(Buffer.from(row.wrappedMaterial), this.wrapAad(row.id, purpose));
+          material = await this.provider.unwrap(Buffer.from(row.wrappedMaterial), this.wrapAad(row.id, purpose), row.rootKid);
           this.unwrapTotal.inc({ purpose });
         } catch (err) {
           this.logger.warn(`prefetch ${row.id}: ${(err as Error).message}`);
@@ -255,6 +283,7 @@ export class KeysStoreService {
           material,
           publicKey: row.publicKey ? Buffer.from(row.publicKey) : null,
           rootKid: row.rootKid,
+          slot: row.slot,
           createdAt: row.createdAt,
           activatedAt: row.activatedAt,
           deactivatedAt: row.deactivatedAt,
@@ -356,10 +385,23 @@ export class KeysStoreService {
     } else {
       material = await this.provider.generateSymmetric();
     }
-    const wrapped = await this.provider.wrap(material, this.wrapAad(kid, purpose));
+    const wrapRoot = await this.wrapRootKid();
+    const wrapped = await this.provider.wrap(material, this.wrapAad(kid, purpose), wrapRoot);
     const last = await tx.cryptoKeyVersion.aggregate({ where: { keyId: key.id }, _max: { version: true } });
     const version = (last._max.version ?? 0) + 1;
     const now = new Date();
+    // Слепой индекс: каждая версия пишет в СВОЙ слот-колонку (`_bi` / `_bi_alt`) — новая версия
+    // получает слот, противоположный primary, и в колонке никогда не смешиваются две версии
+    let slot: number | null = null;
+    if (purpose === 'mac' && key.name === BLIND_INDEX_KEY) {
+      // Сразу-`active` вторая версия стала бы primary с ПУСТЫМ слотом: поиск по номеру перестал бы
+      // находить всех разом. Смена идёт только pending → заполнение слота → активация.
+      if (state === 'active' && key.primaryVersionId) {
+        throw new Error('keystore: the blind_index key rotates only through the pending → fill → activate sequence (KeysRotationJobs.rotateBlindIndex)');
+      }
+      const primary = key.primaryVersionId ? await tx.cryptoKeyVersion.findUnique({ where: { id: key.primaryVersionId }, select: { slot: true } }) : null;
+      slot = primary ? ((primary.slot ?? 0) === 0 ? 1 : 0) : 0;
+    }
     await tx.cryptoKeyVersion.create({
       data: {
         id: kid,
@@ -368,7 +410,8 @@ export class KeysStoreService {
         state,
         wrappedMaterial: bytes(wrapped),
         publicKey: publicKey ? bytes(publicKey) : null,
-        rootKid: this.provider.rootKid,
+        rootKid: wrapRoot,
+        slot,
         activatedAt: state === 'active' ? now : null,
       },
     });
@@ -380,16 +423,25 @@ export class KeysStoreService {
       subjectId: kid,
       subjectName: `${key.scope}/${key.purpose}/${key.name} v${version}`,
       action: KEY_AUDIT_ACTIONS.versionCreated,
-      details: { state, rootKid: this.provider.rootKid },
+      details: { state, rootKid: wrapRoot, ...(slot !== null ? { slot } : {}) },
     });
     return kid;
   }
 
   /** Публичная ротация: новая версия (`pending` для подписи — активируется джобом, `active` для KEK/MAC). */
-  async createVersion(keyId: string, state: 'pending' | 'active', actor: { actorId?: string | null; actorKind?: string; reason?: string | null } = {}): Promise<string> {
+  async createVersion(
+    keyId: string,
+    state: 'pending' | 'active',
+    actor: { actorId?: string | null; actorKind?: string; reason?: string | null } = {},
+    /** В ТОЙ ЖЕ транзакции, что и версия: джоб активации/перешивки не теряется при падении между шагами */
+    inTx?: (tx: Tx, kid: string) => Promise<void>,
+  ): Promise<string> {
     const kid = await this.db.$transaction(async (tx) => {
+      // Две ротации одного ключа разом дали бы две версии с одним номером — сериализуем по ключу
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`keys:version:${keyId}`}))`;
       const key = await tx.cryptoKey.findUniqueOrThrow({ where: { id: keyId } });
       const id = await this.createVersionTx(tx, key, state);
+      if (inTx) await inTx(tx, id);
       if (actor.actorId || actor.reason) {
         await this.audit.log(tx, {
           actorId: actor.actorId ?? null,
@@ -439,7 +491,7 @@ export class KeysStoreService {
       return true;
     };
     const ok = tx ? await run(tx) : await this.db.$transaction(run);
-    if (ok) await this.bumpEpoch();
+    if (ok) await this.bumpAfter(tx);
     return ok;
   }
 
@@ -448,13 +500,13 @@ export class KeysStoreService {
     const run = async (t: Tx) => {
       const v = await t.cryptoKeyVersion.findUnique({ where: { id: kid }, include: { key: true } });
       if (!v) return false;
-      const { count } = await t.cryptoKeyVersion.updateMany({ where: { id: kid, state: { in: ['disabled', 'destroy_scheduled'] } }, data: { state: 'active', deactivatedAt: null, destroyScheduledAt: null } });
+      const { count } = await t.cryptoKeyVersion.updateMany({ where: { id: kid, state: { in: ['disabled', 'destroy_scheduled'] } }, data: { state: 'active', deactivatedAt: null, destroyScheduledAt: null, frozenFrom: null } });
       if (count === 0) return false;
       await this.audit.log(t, { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'system', workspaceId: this.workspaceOf(v.key.scope), subjectType: 'key_version', subjectId: kid, subjectName: `${v.key.scope}/${v.key.purpose}/${v.key.name} v${v.version}`, action: KEY_AUDIT_ACTIONS.versionEnabled, reason: actor.reason ?? null });
       return true;
     };
     const ok = tx ? await run(tx) : await this.db.$transaction(run);
-    if (ok) await this.bumpEpoch();
+    if (ok) await this.bumpAfter(tx);
     return ok;
   }
 
@@ -463,19 +515,36 @@ export class KeysStoreService {
     const run = async (t: Tx) => {
       const v = await t.cryptoKeyVersion.findUnique({ where: { id: kid }, include: { key: true } });
       if (!v) return false;
-      const { count } = await t.cryptoKeyVersion.updateMany({ where: { id: kid, state: { in: ['active', 'disabled', 'pending'] } }, data: { state: 'destroy_scheduled', destroyScheduledAt: at, deactivatedAt: v.deactivatedAt ?? new Date() } });
+      // Primary не выводится поштучно никогда: ключ остался бы без рабочей версии, а данные под
+      // ним — нечитаемыми. Субъект целиком уходит через `scheduleScopeDestroy`.
+      if (v.key.primaryVersionId === kid) {
+        this.logger.warn(`refused to schedule destroy of the primary version ${kid} (${v.key.scope}/${v.key.purpose}/${v.key.name})`);
+        return false;
+      }
+      const { count } = await t.cryptoKeyVersion.updateMany({ where: { id: kid, state: { in: ['active', 'disabled', 'pending'] } }, data: { state: 'destroy_scheduled', destroyScheduledAt: at, deactivatedAt: v.deactivatedAt ?? new Date(), frozenFrom: null } });
       if (count === 0) return false;
       await this.audit.log(t, { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'system', workspaceId: this.workspaceOf(v.key.scope), subjectType: 'key_version', subjectId: kid, subjectName: `${v.key.scope}/${v.key.purpose}/${v.key.name} v${v.version}`, action: KEY_AUDIT_ACTIONS.versionDestroyScheduled, reason: actor.reason ?? null, details: { at: at.toISOString() } });
       return true;
     };
     const ok = tx ? await run(tx) : await this.db.$transaction(run);
-    if (ok) await this.bumpEpoch();
+    if (ok) await this.bumpAfter(tx);
     return ok;
   }
 
   /** Уничтожить материал (crypto-shredding). Только из `destroy_scheduled` и только по сроку. */
   async destroyDue(now = new Date()): Promise<number> {
-    const due = await this.db.cryptoKeyVersion.findMany({ where: { state: 'destroy_scheduled', destroyScheduledAt: { lte: now } }, include: { key: true }, take: 200 });
+    let n = 0;
+    for (let page = 0; page < 500; page++) {
+      const done = await this.destroyDuePage(now);
+      n += done.destroyed;
+      if (done.seen < 200) break;
+    }
+    if (n) await this.bumpEpoch();
+    return n;
+  }
+
+  private async destroyDuePage(now: Date): Promise<{ seen: number; destroyed: number }> {
+    const due = await this.db.cryptoKeyVersion.findMany({ where: { state: 'destroy_scheduled', destroyScheduledAt: { lte: now } }, include: { key: true }, orderBy: { destroyScheduledAt: 'asc' }, take: 200 });
     let n = 0;
     for (const v of due) {
       const ok = await this.db.$transaction(async (tx) => {
@@ -486,8 +555,7 @@ export class KeysStoreService {
       });
       if (ok) n++;
     }
-    if (n) await this.bumpEpoch();
-    return n;
+    return { seen: due.length, destroyed: n };
   }
 
   // ------------------------------------------------------------
@@ -499,12 +567,16 @@ export class KeysStoreService {
     const run = async (t: Tx) => {
       const keys = await t.cryptoKey.findMany({ where: { scope }, select: { id: true } });
       if (!keys.length) return 0;
-      const { count } = await t.cryptoKeyVersion.updateMany({ where: { keyId: { in: keys.map((k) => k.id) }, state: { in: ['active', 'pending'] } }, data: { state: 'disabled', deactivatedAt: new Date() } });
+      // Состояние ДО заморозки запоминается в `frozen_from` (колонка → колонка, поэтому сырой SQL):
+      // разморозка вернёт ровно его и не тронет версии, выключенные поштучно (у тех `frozen_from` пуст)
+      const count = await t.$executeRaw`
+        UPDATE "crypto_key_versions" SET "frozen_from" = "state", "state" = 'disabled', "deactivated_at" = ${utcTs(new Date())}
+        WHERE "key_id" IN (${Prisma.join(keys.map((k) => k.id))}) AND "state" IN ('active', 'pending')`;
       await this.audit.log(t, { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'platform', workspaceId: this.workspaceOf(scope), subjectType: 'crypto_key', subjectId: scope, subjectName: scope, action: KEY_AUDIT_ACTIONS.scopeFrozen, reason: actor.reason ?? null, details: { versions: count } });
       return count;
     };
     const n = tx ? await run(tx) : await this.db.$transaction(run);
-    await this.bumpEpoch();
+    await this.bumpAfter(tx);
     return n;
   }
 
@@ -512,12 +584,16 @@ export class KeysStoreService {
     const run = async (t: Tx) => {
       const keys = await t.cryptoKey.findMany({ where: { scope }, select: { id: true } });
       if (!keys.length) return 0;
-      const { count } = await t.cryptoKeyVersion.updateMany({ where: { keyId: { in: keys.map((k) => k.id) }, state: 'disabled' }, data: { state: 'active', deactivatedAt: null } });
+      // Только версии, выключенные САМОЙ заморозкой: `pending` возвращается в `pending`, а версия,
+      // выключенная поштучно (подозрение на утечку), остаётся выключенной
+      const count = await t.$executeRaw`
+        UPDATE "crypto_key_versions" SET "state" = "frozen_from", "frozen_from" = NULL, "deactivated_at" = NULL
+        WHERE "key_id" IN (${Prisma.join(keys.map((k) => k.id))}) AND "state" = 'disabled' AND "frozen_from" IN ('active', 'pending')`;
       await this.audit.log(t, { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'platform', workspaceId: this.workspaceOf(scope), subjectType: 'crypto_key', subjectId: scope, subjectName: scope, action: KEY_AUDIT_ACTIONS.scopeUnfrozen, reason: actor.reason ?? null, details: { versions: count } });
       return count;
     };
     const n = tx ? await run(tx) : await this.db.$transaction(run);
-    await this.bumpEpoch();
+    await this.bumpAfter(tx);
     return n;
   }
 
@@ -527,12 +603,12 @@ export class KeysStoreService {
     const run = async (t: Tx) => {
       const keys = await t.cryptoKey.findMany({ where: { scope }, select: { id: true } });
       if (!keys.length) return 0;
-      const { count } = await t.cryptoKeyVersion.updateMany({ where: { keyId: { in: keys.map((k) => k.id) }, state: { in: ['active', 'pending', 'disabled'] } }, data: { state: 'destroy_scheduled', destroyScheduledAt: at, deactivatedAt: new Date() } });
+      const { count } = await t.cryptoKeyVersion.updateMany({ where: { keyId: { in: keys.map((k) => k.id) }, state: { in: ['active', 'pending', 'disabled'] } }, data: { state: 'destroy_scheduled', destroyScheduledAt: at, deactivatedAt: new Date(), frozenFrom: null } });
       await this.audit.log(t, { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'system', workspaceId: this.workspaceOf(scope), subjectType: 'crypto_key', subjectId: scope, subjectName: scope, action: KEY_AUDIT_ACTIONS.versionDestroyScheduled, reason: actor.reason ?? null, details: { versions: count, at: at.toISOString() } });
       return count;
     };
     const n = tx ? await run(tx) : await this.db.$transaction(run);
-    await this.bumpEpoch();
+    await this.bumpAfter(tx);
     return n;
   }
 
@@ -546,29 +622,79 @@ export class KeysStoreService {
     return this.db.cryptoKey.count({ where: { purpose: 'kek' } });
   }
 
-  /** Версии, обёрнутые другим корнем (смоук бута: файл не тот — отказ, а не тихие ошибки на первом запросе). */
+  /** Корни, которые держит инстанс: текущий и (на окне ротации) следующий. */
+  knownRootKids(): string[] {
+    return this.provider.nextRootKid ? [this.provider.rootKid, this.provider.nextRootKid] : [this.provider.rootKid];
+  }
+
+  /** Версии, обёрнутые корнем, которого у инстанса нет (смоук бута: файл не тот — отказ, а не тихие ошибки на первом запросе). */
   async versionsWithForeignRoot(): Promise<number> {
-    return this.db.cryptoKeyVersion.count({ where: { state: { not: 'destroyed' }, rootKid: { not: this.provider.rootKid } } });
+    return this.db.cryptoKeyVersion.count({ where: { state: { not: 'destroyed' }, rootKid: { notIn: this.knownRootKids() } } });
+  }
+
+  // ------------------------------------------------------------
+  // Ротация корня: окно двух корней, перешивка порциями
+  // ------------------------------------------------------------
+
+  private rootRotationStartedFlag = false;
+
+  /**
+   * Ротация корня НАЧАТА ⇔ в keystore есть хоть одна версия под следующим корнем. Флаг выводится
+   * из самих данных (ни Redis, ни отдельной таблицы): началась — уже не «разначнётся», поэтому
+   * кэшируется только истина.
+   */
+  async rootRotationStarted(): Promise<boolean> {
+    const next = this.provider.nextRootKid;
+    if (!next) return false;
+    if (this.rootRotationStartedFlag) return true;
+    const any = await this.db.cryptoKeyVersion.findFirst({ where: { rootKid: next }, select: { id: true } });
+    if (any) this.rootRotationStartedFlag = true;
+    return this.rootRotationStartedFlag;
+  }
+
+  /** Каким корнем оборачивать НОВУЮ версию: после начала ротации — следующим (иначе хвост под старым не кончался бы). */
+  private async wrapRootKid(): Promise<string> {
+    const next = this.provider.nextRootKid;
+    return next && (await this.rootRotationStarted()) ? next : this.provider.rootKid;
+  }
+
+  async rootRotationStatus(): Promise<{ rootKid: string; nextRootKid: string | null; underCurrent: number; underNext: number; foreign: number }> {
+    const live = { state: { not: 'destroyed' }, wrappedMaterial: { not: null } } as const;
+    const next = this.provider.nextRootKid;
+    const [underCurrent, underNext, foreign] = await Promise.all([
+      this.db.cryptoKeyVersion.count({ where: { ...live, rootKid: this.provider.rootKid } }),
+      next ? this.db.cryptoKeyVersion.count({ where: { ...live, rootKid: next } }) : Promise.resolve(0),
+      this.versionsWithForeignRoot(),
+    ]);
+    return { rootKid: this.provider.rootKid, nextRootKid: next, underCurrent, underNext, foreign };
   }
 
   /**
-   * Ротация корня: перешить материал ВСЕХ живых версий с текущего корня на новый.
-   * В одной транзакции; после коммита каждый инстанс обязан быть перезапущен с новым
-   * файлом (иначе его unwrap получит `root_mismatch`). `dryRun` — только подсчёт.
+   * Одна порция перешивки: версии под ТЕКУЩИМ корнем → под следующий. Каждая версия — свой
+   * короткий UPDATE под гардом `root_kid = текущий` (а не одна транзакция на весь keystore:
+   * у каждого человека и организации свой KEK, и сотни тысяч строк в одной транзакции не
+   * уложились бы ни в память, ни в таймаут). Промежуточное состояние — рабочее: инстансы
+   * держат оба корня, а каким открыть — говорит сама строка. Возвращает число перешитых.
    */
-  async rewrapAllToProvider(next: KeyProvider, actor: { actorId: string | null; reason: string | null }, tx: Tx, dryRun: boolean): Promise<{ versions: number; fromRootKid: string; toRootKid: string }> {
-    const rows = await tx.cryptoKeyVersion.findMany({ where: { state: { not: 'destroyed' }, wrappedMaterial: { not: null } }, include: { key: true } });
-    if (!dryRun) {
-      for (const row of rows) {
-        const purpose = row.key.purpose as KeyPurpose;
-        const aad = this.wrapAad(row.id, purpose);
-        const material = await this.provider.unwrap(Buffer.from(row.wrappedMaterial!), aad);
-        const wrapped = await next.wrap(material, aad);
-        await tx.cryptoKeyVersion.update({ where: { id: row.id }, data: { wrappedMaterial: bytes(wrapped), rootKid: next.rootKid } });
-      }
-      await this.audit.log(tx, { actorId: actor.actorId, actorKind: 'platform', subjectType: 'root', subjectId: next.rootKid, subjectName: `root ${this.provider.rootKid} → ${next.rootKid}`, action: KEY_AUDIT_ACTIONS.rootRotated, reason: actor.reason, details: { versions: rows.length } });
+  async rewrapRootBatch(limit: number): Promise<number> {
+    const next = this.provider.nextRootKid;
+    if (!next) return 0;
+    const rows = await this.db.cryptoKeyVersion.findMany({
+      where: { rootKid: this.provider.rootKid, state: { not: 'destroyed' }, wrappedMaterial: { not: null } },
+      include: { key: { select: { purpose: true } } },
+      orderBy: { id: 'asc' },
+      take: limit,
+    });
+    let n = 0;
+    for (const row of rows) {
+      const aad = this.wrapAad(row.id, row.key.purpose as KeyPurpose);
+      const material = await this.provider.unwrap(Buffer.from(row.wrappedMaterial!), aad, row.rootKid);
+      const wrapped = await this.provider.wrap(material, aad, next);
+      const { count } = await this.db.cryptoKeyVersion.updateMany({ where: { id: row.id, rootKid: this.provider.rootKid }, data: { wrappedMaterial: bytes(wrapped), rootKid: next } });
+      n += count;
     }
-    return { versions: rows.length, fromRootKid: this.provider.rootKid, toRootKid: next.rootKid };
+    if (n) this.rootRotationStartedFlag = true;
+    return n;
   }
 
   workspaceOf(scope: string): string | null {

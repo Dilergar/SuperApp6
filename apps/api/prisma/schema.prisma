@@ -18,7 +18,11 @@ model User {
   // + слепой индекс `_bi` там, где ищут по равенству. Открытые колонки живут до окна
   // dual-write (KEYS_PII_READ_MODE) и удаляются отдельной миграцией — docs/keys_pii.md.
   phoneEnc         String?   @map("phone_enc")
+  // Слепой индекс живёт в ДВУХ колонках-слотах (`_bi` — слот 0, `_bi_alt` — слот 1): каждая версия
+  // ключа `blind_index` пишет в свой слот, смена ключа переключает поиск на другой слот без окна
+  // простоя и без потери уникальности (docs/keys_engine.md). Вне окна смены второй слот пуст.
   phoneBi          String?   @unique @map("phone_bi")
+  phoneBiAlt       String?   @unique @map("phone_bi_alt")
   password         String // bcrypt hash
   firstName        String    @map("first_name")
   lastName         String?   @map("last_name")
@@ -33,6 +37,7 @@ model User {
   email            String?   @unique
   emailEnc         String?   @map("email_enc")
   emailBi          String?   @unique @map("email_bi")
+  emailBiAlt       String?   @unique @map("email_bi_alt")
   maritalStatus    String?   @map("marital_status")
   socialLinks      Json?     @map("social_links")
   onlineStatusMode String    @default("everyone") @map("online_status_mode")
@@ -70,6 +75,7 @@ model User {
   iin                String? // 12 цифр, контрольная сумма проверяется схемой
   iinEnc             String?   @map("iin_enc")
   iinBi              String?   @map("iin_bi")
+  iinBiAlt           String?   @map("iin_bi_alt")
   residentialAddress String?   @map("residential_address")
   residentialAddressEnc String? @map("residential_address_enc")
   idDocNumber        String?   @map("id_doc_number") // удостоверение личности
@@ -148,6 +154,7 @@ model User {
   bot               Bot?
 
   @@index([iinBi])
+  @@index([iinBiAlt])
   @@index([kind])
   @@map("users")
 }
@@ -264,6 +271,7 @@ model ContactInvitation {
   // ПДн под движком ключей: envelope (KEK отправителя) + слепой индекс для поиска по номеру
   toPhoneEnc String? @map("to_phone_enc")
   toPhoneBi  String? @map("to_phone_bi")
+  toPhoneBiAlt String? @map("to_phone_bi_alt")
 
   // Roles each side proposes. Recipient can override at accept-time.
   // DB columns kept (proposed_label_*) to preserve data.
@@ -289,9 +297,12 @@ model ContactInvitation {
 
   @@index([toPhone])
   @@index([toPhoneBi])
+  @@index([toPhoneBiAlt])
   @@index([fromUserId, toPhoneBi, status])
+  @@index([fromUserId, toPhoneBiAlt, status])
   // ⚠️ ПАРТИАЛЬНЫЙ UNIQUE-двойник по слепому индексу дописан РУКАМИ в миграции keys_pii:
   //   contact_invitations_one_pending_per_phone_bi (from_user_id, to_phone_bi) WHERE status = 'pending'
+  //   contact_invitations_one_pending_per_phone_bi_alt (from_user_id, to_phone_bi_alt) — двойник второго слота (миграция keys_blind_index_slots)
   @@index([fromUserId, status]) // leading column also serves plain fromUserId lookups
   // Курсорные списки приглашений: (…, status, createdAt, id) обслуживают и фильтр,
   // и ORDER BY createdAt DESC, id DESC.
@@ -1082,6 +1093,7 @@ model WorkspaceInvitation {
   // ПДн под движком ключей: envelope (KEK организации) + слепой индекс
   toPhoneEnc String? @map("to_phone_enc")
   toPhoneBi  String? @map("to_phone_bi")
+  toPhoneBiAlt String? @map("to_phone_bi_alt")
 
   role       String   @default("trainee") // всегда trainee для новых приглашений
   positionId String?  @map("position_id")
@@ -1104,6 +1116,7 @@ model WorkspaceInvitation {
   @@index([toUserId])
   @@index([toPhone])
   @@index([toPhoneBi])
+  @@index([toPhoneBiAlt])
   @@index([workspaceId, status])
   @@index([toUserId, status])
   // Cleanup cron: WHERE status='pending' AND expiresAt < now.
@@ -3242,6 +3255,7 @@ model VerifyChallenge {
   // ПДн под движком ключей: envelope (платформенный KEK — аккаунта ещё нет) + слепой индекс
   phoneEnc          String?   @map("phone_enc")
   phoneBi           String?   @map("phone_bi")
+  phoneBiAlt        String?   @map("phone_bi_alt")
   purpose           String // register | password_reset | password_change | phone_change_old | phone_change_new
   codeHash          String    @map("code_hash")
   attempts          Int       @default(0) // неверные вводы на цепочку; 5 → цепочка сгорает
@@ -3263,10 +3277,12 @@ model VerifyChallenge {
   // Активная цепочка ищется по (phone, purpose) среди неистёкших.
   @@index([phone, purpose, createdAt])
   @@index([phoneBi, purpose, createdAt])
+  @@index([phoneBiAlt, purpose, createdAt])
   // Потолки SMS на номер: окно считается по времени ПОСЛЕДНЕЙ отправки, а не по
   // созданию цепочки (ресенды долгоживущей цепочки иначе выпадали бы из часового окна).
   @@index([phone, lastSentAt])
   @@index([phoneBi, lastSentAt])
+  @@index([phoneBiAlt, lastSentAt])
   @@index([createdAt]) // ретеншн-крон (7 дней)
   @@map("verify_challenges")
 }
@@ -3691,6 +3707,7 @@ model ShareLinkGuest {
   // ПДн под движком ключей: envelope (KEK владельца ссылки) + слепой индекс (уникум ниже)
   phoneEnc        String?  @map("phone_enc")
   phoneBi         String?  @map("phone_bi")
+  phoneBiAlt      String?  @map("phone_bi_alt")
   // Имя вводит сам гость (не подтверждается). Последнее введённое побеждает —
   // человек мог опечататься в первый раз.
   name            String
@@ -3701,6 +3718,7 @@ model ShareLinkGuest {
 
   @@unique([ownerType, ownerId, phone])
   @@unique([ownerType, ownerId, phoneBi])
+  @@unique([ownerType, ownerId, phoneBiAlt])
   @@map("share_link_guests")
 }
 
@@ -3910,6 +3928,7 @@ model Counterparty {
   // ПДн под движком ключей (KEK организации): телефон ещё и слепым индексом (сверка ПЭП)
   phoneEnc String? @map("phone_enc")
   phoneBi  String? @map("phone_bi")
+  phoneBiAlt String? @map("phone_bi_alt")
   emailEnc String? @map("email_enc")
   comment String?
 
@@ -3927,6 +3946,7 @@ model Counterparty {
   @@index([workspaceId, archivedAt])
   @@index([workspaceId, name])
   @@index([workspaceId, phoneBi])
+  @@index([workspaceId, phoneBiAlt])
   // ВНИМАНИЕ: партиальный UNIQUE (workspace_id, bin)
   // WHERE bin IS NOT NULL AND archived_at IS NULL дописан РУКАМИ в миграции
   // `counterparties_service` — Prisma такое не выражает. Дубль БИН среди живых →
@@ -3948,6 +3968,7 @@ model CounterpartyContact {
   // ПДн под движком ключей (KEK организации)
   phoneEnc String? @map("phone_enc")
   phoneBi  String? @map("phone_bi")
+  phoneBiAlt String? @map("phone_bi_alt")
   emailEnc String? @map("email_enc")
 
   archivedAt DateTime? @map("archived_at")
@@ -3959,6 +3980,7 @@ model CounterpartyContact {
   @@index([counterpartyId, archivedAt])
   @@index([workspaceId])
   @@index([workspaceId, phoneBi])
+  @@index([workspaceId, phoneBiAlt])
   @@map("counterparty_contacts")
 }
 
@@ -4307,6 +4329,7 @@ model SignAct {
   // ПДн под движком ключей: ИИН подписанта — envelope (платформенный KEK) + слепой индекс «все подписи ИИН»
   certSubjectIinEnc String? @map("cert_subject_iin_enc")
   certSubjectIinBi  String? @map("cert_subject_iin_bi")
+  certSubjectIinBiAlt String? @map("cert_subject_iin_bi_alt")
   certSubjectBin String?   @map("cert_subject_bin")
   certSerial     String?   @map("cert_serial")
   certIssuerCn   String?   @map("cert_issuer_cn")
@@ -4355,6 +4378,7 @@ model SignAct {
   // «Найти все подписи этого ИИН» — запрос проверяющего и будущего аудита.
   @@index([certSubjectIin])
   @@index([certSubjectIinBi])
+  @@index([certSubjectIinBiAlt])
   @@index([status, createdAt])
   // ВНИМАНИЕ: партиальный UNIQUE (request_id, signer_user_id)
   // WHERE status IN ('pending','signed') дописан РУКАМИ в миграции `sign_engine`
@@ -5384,6 +5408,10 @@ model CryptoKeyVersion {
   publicKey          Bytes?    @map("public_key")
   /// Отпечаток корня, которым обёрнут материал (ротация корня перешивает всё)
   rootKid            String    @map("root_kid")
+  /// Слот слепого индекса (0 → `_bi`, 1 → `_bi_alt`) — только у версий mac-ключа `blind_index`
+  slot               Int?
+  /// Состояние ДО заморозки скоупа: разморозка возвращает ровно его; NULL — версию выключали поштучно
+  frozenFrom         String?   @map("frozen_from")
   createdAt          DateTime  @default(now()) @map("created_at")
   activatedAt        DateTime? @map("activated_at")
   deactivatedAt      DateTime? @map("deactivated_at")
@@ -5395,6 +5423,7 @@ model CryptoKeyVersion {
   @@unique([keyId, version])
   @@index([keyId, state])
   @@index([state, destroyScheduledAt])
+  @@index([rootKid])
   @@map("crypto_key_versions")
 }
 

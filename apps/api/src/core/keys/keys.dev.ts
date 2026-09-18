@@ -118,6 +118,62 @@ export class KeysDevController {
     return { success: true, data: { kid } };
   }
 
+  // ---- Учения смены ключа слепых индексов: три шага по отдельности (сьют проверяет окно dual-write) ----
+
+  @Get('blind-index/status')
+  @ApiOperation({ summary: '[dev] Blind index key: versions with their slot and state' })
+  async blindIndexStatus() {
+    this.assertDev();
+    const key = await this.store.getKey(PLATFORM_SCOPE, 'mac', 'blind_index');
+    return { success: true, data: { primaryKid: key?.primaryKid ?? null, versions: (key?.versions ?? []).map((v) => ({ kid: v.kid, version: v.version, state: v.state, slot: v.slot ?? 0 })) } };
+  }
+
+  @Post('blind-index/rotate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Step 1: a pending blind index version in the opposite slot (writes become dual)' })
+  async blindIndexRotate(@CurrentUser() user: JwtPayload) {
+    this.assertDev();
+    return { success: true, data: await this.rotation.rotateBlindIndex({ actorId: user.sub, reason: 'dev drill' }) };
+  }
+
+  @Post('blind-index/reindex')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Step 2: fill the pending slot and activate it now (skips the cache window)' })
+  async blindIndexReindex() {
+    this.assertDev();
+    await this.rotation.reindex({ force: true });
+    return this.blindIndexStatus();
+  }
+
+  @Post('blind-index/retire')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Step 3: retire the previous version and clear its slot column' })
+  async blindIndexRetire(@Body() body: unknown) {
+    this.assertDev();
+    const { kid } = kidBody.parse(body ?? {});
+    await this.rotation.blindIndexRetire({ kid });
+    return this.blindIndexStatus();
+  }
+
+  // ---- Учения ротации корня (окно двух корней: API поднят с KEYS_ROOT_KEY_FILE_NEXT) ----
+
+  @Get('root/status')
+  @ApiOperation({ summary: '[dev] Root rotation: current/next fingerprints and versions under each' })
+  async rootStatus() {
+    this.assertDev();
+    return { success: true, data: { ...(await this.store.rootRotationStatus()), started: await this.store.rootRotationStarted() } };
+  }
+
+  @Post('root/rewrap')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Re-wrap every key version under the next root now (batches)' })
+  async rootRewrap() {
+    this.assertDev();
+    await this.rotation.assertFleetHoldsRoot(this.store.provider.nextRootKid ?? '');
+    await this.rotation.rootRewrap();
+    return this.rootStatus();
+  }
+
   @Post('scope/freeze')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '[dev] Freeze all key versions of a scope (kill-switch drill)' })

@@ -100,6 +100,16 @@ export class KeysCascadesService {
     await this.store.scheduleScopeDestroy(userScope(userId), { actorKind: 'system', reason: 'account anonymized' }, tx);
   }
 
+  /**
+   * После коммита `onWorkspacePurge` / `onAccountAnonymize`: сброс эпохи keystore, чтобы KEK
+   * субъекта перестал работать на всех инстансах сразу (внутри транзакции сброс бесполезен —
+   * параллельное чтение вернуло бы в кэш ещё живую версию). Забытый вызов страхуют
+   * отложенные сбросы самого keystore.
+   */
+  async afterScopeDestroyCommitted(): Promise<void> {
+    await this.store.bumpEpoch();
+  }
+
   /** Плановое удаление аккаунта (грейс 30 дней): личные ключи гаснут сразу — восстановление их не вернёт. */
   async onDeletionScheduled(userId: string): Promise<void> {
     await this.db.$transaction(async (tx) => {

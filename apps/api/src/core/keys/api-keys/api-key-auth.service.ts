@@ -64,7 +64,9 @@ export class ApiKeyAuthService {
    *   в реестре и в уведомлении о новом месте.
    */
   async authenticate(raw: string, ip: string | null, country: string | null = null): Promise<JwtPayload> {
-    const failKey = KEYS_REDIS.authFail(ip ?? 'unknown', roughPrefix(raw));
+    // Два счётчика отказов: связка IP + префикс (шумная сломанная интеграция) и IP целиком —
+    // перебор тел ключей меняет префикс на каждой попытке и первый счётчик обходит
+    const failKey = [KEYS_REDIS.authFail(ip ?? 'unknown', roughPrefix(raw)), KEYS_REDIS.authFailIp(ip ?? 'unknown')] as const;
     await this.assertNotBlocked(failKey);
     const parsed = parseApiSecret(raw);
     if (!parsed || parsed.kind === 'whs') throw await this.fail(failKey, 'invalid', unauthorized('keys.invalid', undefined, { code: KEYS_ERROR_CODES.invalid }));
@@ -107,12 +109,21 @@ export class ApiKeyAuthService {
     const peppers = await this.mac.pepperVersions();
     if (!peppers.length) return null;
     const hashes = peppers.map((p) => hashApiSecret(p.material, raw));
-    const cacheKey = KEYS_REDIS.apiKey(hashes[0]!);
+    // Кэш лежит под хешем СТРОКИ (той версией pepper, которой ключ отчеканен) — тем же, по
+    // которому его гасит `invalidateByHash`: на окне ротации pepper хешей-кандидатов несколько.
+    // «Надгробие» (отзыв/заморозка/правка только что были) выключает кэш целиком: сброс кэша
+    // внутри транзакции гонится с чтением, которое вернуло бы в кэш ещё не отозванную строку.
+    let cacheable = true;
     try {
-      const cached = await this.redis.getJson<KeySnapshot>(cacheKey);
-      if (cached) return cached;
+      const found = await this.redis.getClient().mget(...hashes.map((h) => KEYS_REDIS.apiKeyTombstone(h)), ...hashes.map((h) => KEYS_REDIS.apiKey(h)));
+      if (found.slice(0, hashes.length).some((t) => t !== null)) {
+        cacheable = false;
+      } else {
+        const hit = found.slice(hashes.length).find((c) => c !== null);
+        if (hit) return JSON.parse(hit) as KeySnapshot;
+      }
     } catch {
-      /* Redis недоступен — честный поход в БД */
+      cacheable = false; // Redis недоступен — честный поход в БД, без кэша
     }
     const row = await this.db.apiKey.findFirst({
       where: { hash: { in: hashes } },
@@ -149,9 +160,9 @@ export class ApiKeyAuthService {
       neverUsed: !row.lastUsedAt,
     };
     // Мёртвый ключ не кэшируем (redкий путь; отзыв должен читаться из БД)
-    if (keyIsLive(row) && snap.botStatus !== 'frozen') {
+    if (cacheable && keyIsLive(row) && snap.botStatus !== 'frozen') {
       try {
-        await this.redis.setJson(cacheKey, snap, KEYS_LIMITS.keyCacheSec);
+        await this.redis.setJson(KEYS_REDIS.apiKey(row.hash), snap, KEYS_LIMITS.keyCacheSec);
       } catch {
         /* best-effort */
       }
@@ -159,17 +170,35 @@ export class ApiKeyAuthService {
     return snap;
   }
 
-  /** Сброс кэша ключа (отзыв, ротация, заморозка бота) — по хешу строки. */
+  /**
+   * Сброс кэша ключа (отзыв, ротация, заморозка бота, правка скоупов) — по хешу строки.
+   * Безопасен ВНУТРИ транзакции: кроме удаления снимка ставится «надгробие» дольше срока
+   * кэша — пока оно живо, снимок не читается и не пишется, решение идёт из БД. Откат
+   * транзакции стоит лишь полутора минут без кэша, а не минуты жизни отозванного ключа.
+   */
   async invalidateByHash(hash: string): Promise<void> {
-    await this.redis.del(KEYS_REDIS.apiKey(hash)).catch(() => undefined);
+    try {
+      const client = this.redis.getClient();
+      await client.set(KEYS_REDIS.apiKeyTombstone(hash), '1', 'EX', KEYS_LIMITS.keyCacheTombstoneSec);
+      await client.del(KEYS_REDIS.apiKey(hash));
+    } catch (err) {
+      this.logger.warn(`api key cache invalidation failed (snapshot expires in ${KEYS_LIMITS.keyCacheSec}s): ${(err as Error).message}`);
+    }
   }
 
-  private async assertNotBlocked(failKey: string): Promise<void> {
+  private async assertNotBlocked(failKey: readonly [string, string]): Promise<void> {
+    let byPrefix = 0;
+    let byIp = 0;
     try {
-      const n = Number((await this.redis.get(failKey)) ?? 0);
-      if (n >= KEYS_LIMITS.authFailPerHour) throw tooMany('keys.invalid', undefined, { code: KEYS_ERROR_CODES.invalid, resendInSec: 3600 });
-    } catch (err) {
-      if ((err as { status?: number }).status === 429) throw err;
+      const [a, b] = await this.redis.getClient().mget(failKey[0], failKey[1]);
+      byPrefix = Number(a ?? 0);
+      byIp = Number(b ?? 0);
+    } catch {
+      return; // Redis недоступен — счётчики не применяются (аутентификация всё равно идёт по БД)
+    }
+    if (byPrefix >= KEYS_LIMITS.authFailPerHour || byIp >= KEYS_LIMITS.authFailPerIpPerHour) {
+      this.authTotal.inc({ result: 'blocked' });
+      throw tooMany('keys.invalid', undefined, { code: KEYS_ERROR_CODES.invalid, resendInSec: 3600 });
     }
   }
 
@@ -195,24 +224,25 @@ export class ApiKeyAuthService {
     throw tooMany('keys.rate_limited', undefined, { code: KEYS_ERROR_CODES.rateLimited, resendInSec: 60 - (Math.floor(Date.now() / 1000) % 60) });
   }
 
-  private async fail<T>(failKey: string, result: string, error: T): Promise<T> {
+  private async fail<T>(failKey: readonly [string, string], result: string, error: T): Promise<T> {
     this.authTotal.inc({ result });
     try {
       const client = this.redis.getClient();
-      const n = await client.incr(failKey);
-      if (n === 1) await client.expire(failKey, 3600);
+      for (const key of failKey) {
+        const n = await client.incr(key);
+        if (n === 1) await client.expire(key, 3600);
+      }
     } catch {
       /* best-effort */
     }
     return error;
   }
 
-  /** Использование — в Redis: hash `keys:last-used` (id → {at, ip, n}); крон сливает в БД раз в минуту. */
+  /** Использование — в Redis: `keys:last-used` (id → {at, ip, country}) + `keys:use-count` (id → n); крон сливает в БД раз в минуту. */
   private async touch(snap: KeySnapshot, ip: string | null, country: string | null): Promise<void> {
     const client = this.redis.getClient();
-    const field = snap.id;
-    const prev = await client.hget(KEYS_REDIS.lastUsed, field);
-    const n = prev ? (JSON.parse(prev) as { n?: number }).n ?? 0 : 0;
-    await client.hset(KEYS_REDIS.lastUsed, field, JSON.stringify({ at: new Date().toISOString(), ip, country, n: n + 1, first: snap.neverUsed && n === 0 }));
+    // Счётчик — HINCRBY (read-modify-write JSON терял обращения под конкуренцией)
+    await client.hincrby(KEYS_REDIS.useCount, snap.id, 1);
+    await client.hset(KEYS_REDIS.lastUsed, snap.id, JSON.stringify({ at: new Date().toISOString(), ip, country }));
   }
 }

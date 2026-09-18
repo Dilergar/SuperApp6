@@ -8,7 +8,9 @@ import type { PiiModelDef, PiiScopeRef } from '../../../shared/database/pii-hook
 
 const digits = (v: string) => v.replace(/\D/g, '');
 const lower = (v: string) => v.trim().toLowerCase();
-const phoneNorm = (v: string) => (v.startsWith('deleted:') || v.startsWith('bot:') ? v : normalizePhone(v));
+/** Служебные заглушки номера (анонимизированный аккаунт, теневой пользователь бота) — не ПДн */
+const phoneStub = (v: string) => v.startsWith('deleted:') || v.startsWith('bot:');
+const phoneNorm = (v: string) => (phoneStub(v) ? v : normalizePhone(v));
 
 const platform: PiiScopeRef = { type: 'platform' };
 const workspaceOf = (row: Record<string, unknown>): PiiScopeRef | null =>
@@ -20,10 +22,11 @@ export const PII_MODELS: PiiModelDef[] = [
     entity: 'user',
     scopeFields: ['id'],
     scope: (row) => (typeof row.id === 'string' ? { type: 'user', id: row.id } : null),
+    keyScopes: [{ type: 'user', field: 'id' }],
     fields: [
-      { name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', index: 'phone', normalize: phoneNorm },
-      { name: 'email', enc: 'emailEnc', bi: 'emailBi', index: 'email', normalize: lower },
-      { name: 'iin', enc: 'iinEnc', bi: 'iinBi', index: 'iin', normalize: digits, sensitive: true },
+      { name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', biAlt: 'phoneBiAlt', index: 'phone', normalize: phoneNorm, literal: phoneStub },
+      { name: 'email', enc: 'emailEnc', bi: 'emailBi', biAlt: 'emailBiAlt', index: 'email', normalize: lower },
+      { name: 'iin', enc: 'iinEnc', bi: 'iinBi', biAlt: 'iinBiAlt', index: 'iin', normalize: digits, sensitive: true },
       { name: 'dateOfBirth', enc: 'dateOfBirthEnc', kind: 'date', sensitive: true },
       { name: 'residentialAddress', enc: 'residentialAddressEnc', sensitive: true },
       { name: 'idDocNumber', enc: 'idDocNumberEnc', sensitive: true },
@@ -35,21 +38,24 @@ export const PII_MODELS: PiiModelDef[] = [
     entity: 'contact_invitation',
     scopeFields: ['fromUserId'],
     scope: (row) => (typeof row.fromUserId === 'string' ? { type: 'user', id: row.fromUserId } : null),
-    fields: [{ name: 'toPhone', enc: 'toPhoneEnc', bi: 'toPhoneBi', index: 'phone', normalize: phoneNorm }],
+    keyScopes: [{ type: 'user', field: 'fromUserId' }],
+    fields: [{ name: 'toPhone', enc: 'toPhoneEnc', bi: 'toPhoneBi', biAlt: 'toPhoneBiAlt', index: 'phone', normalize: phoneNorm }],
   },
   {
     model: 'WorkspaceInvitation',
     entity: 'workspace_invitation',
     scopeFields: ['workspaceId'],
     scope: workspaceOf,
-    fields: [{ name: 'toPhone', enc: 'toPhoneEnc', bi: 'toPhoneBi', index: 'phone', normalize: phoneNorm }],
+    keyScopes: [{ type: 'workspace', field: 'workspaceId' }],
+    fields: [{ name: 'toPhone', enc: 'toPhoneEnc', bi: 'toPhoneBi', biAlt: 'toPhoneBiAlt', index: 'phone', normalize: phoneNorm }],
   },
   {
     model: 'VerifyChallenge',
     entity: 'verify_challenge',
     scopeFields: [],
     scope: () => platform,
-    fields: [{ name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', index: 'phone', normalize: phoneNorm }],
+    keyScopes: [{ type: 'platform' }],
+    fields: [{ name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', biAlt: 'phoneBiAlt', index: 'phone', normalize: phoneNorm }],
   },
   {
     model: 'ShareLinkGuest',
@@ -61,14 +67,19 @@ export const PII_MODELS: PiiModelDef[] = [
         : row.ownerType === 'user' && typeof row.ownerId === 'string'
           ? { type: 'user', id: row.ownerId }
           : null,
-    fields: [{ name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', index: 'phone', normalize: phoneNorm }],
-    compoundUniques: { ownerType_ownerId_phone: { bi: 'ownerType_ownerId_phoneBi', field: 'phone' } },
+    keyScopes: [
+      { type: 'workspace', field: 'ownerId', discriminator: { field: 'ownerType', value: 'workspace' } },
+      { type: 'user', field: 'ownerId', discriminator: { field: 'ownerType', value: 'user' } },
+    ],
+    fields: [{ name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', biAlt: 'phoneBiAlt', index: 'phone', normalize: phoneNorm }],
+    compoundUniques: { ownerType_ownerId_phone: { bi: 'ownerType_ownerId_phoneBi', biAlt: 'ownerType_ownerId_phoneBiAlt', field: 'phone' } },
   },
   {
     model: 'WorkspaceBankAccount',
     entity: 'workspace_bank_account',
     scopeFields: ['workspaceId'],
     scope: workspaceOf,
+    keyScopes: [{ type: 'workspace', field: 'workspaceId' }],
     fields: [{ name: 'iban', enc: 'ibanEnc', sensitive: true }],
   },
   {
@@ -76,6 +87,7 @@ export const PII_MODELS: PiiModelDef[] = [
     entity: 'counterparty_bank_account',
     scopeFields: ['workspaceId'],
     scope: workspaceOf,
+    keyScopes: [{ type: 'workspace', field: 'workspaceId' }],
     fields: [{ name: 'iban', enc: 'ibanEnc', sensitive: true }],
   },
   {
@@ -83,8 +95,9 @@ export const PII_MODELS: PiiModelDef[] = [
     entity: 'counterparty',
     scopeFields: ['workspaceId'],
     scope: workspaceOf,
+    keyScopes: [{ type: 'workspace', field: 'workspaceId' }],
     fields: [
-      { name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', index: 'phone', normalize: phoneNorm },
+      { name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', biAlt: 'phoneBiAlt', index: 'phone', normalize: phoneNorm },
       { name: 'email', enc: 'emailEnc' },
     ],
   },
@@ -93,8 +106,9 @@ export const PII_MODELS: PiiModelDef[] = [
     entity: 'counterparty_contact',
     scopeFields: ['workspaceId'],
     scope: workspaceOf,
+    keyScopes: [{ type: 'workspace', field: 'workspaceId' }],
     fields: [
-      { name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', index: 'phone', normalize: phoneNorm },
+      { name: 'phone', enc: 'phoneEnc', bi: 'phoneBi', biAlt: 'phoneBiAlt', index: 'phone', normalize: phoneNorm },
       { name: 'email', enc: 'emailEnc' },
     ],
   },
@@ -103,7 +117,8 @@ export const PII_MODELS: PiiModelDef[] = [
     entity: 'sign_act',
     scopeFields: [],
     scope: () => platform,
-    fields: [{ name: 'certSubjectIin', enc: 'certSubjectIinEnc', bi: 'certSubjectIinBi', index: 'iin', normalize: digits, sensitive: true }],
+    keyScopes: [{ type: 'platform' }],
+    fields: [{ name: 'certSubjectIin', enc: 'certSubjectIinEnc', bi: 'certSubjectIinBi', biAlt: 'certSubjectIinBiAlt', index: 'iin', normalize: digits, sensitive: true }],
   },
 ];
 

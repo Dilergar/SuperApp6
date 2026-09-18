@@ -85,6 +85,9 @@ const envSchema = z
     // `apps/api/scripts/keys-init-root.cjs`. Production — ОБЯЗАТЕЛЕН (superRefine ниже);
     // development пусто → `./.keys/root.key` генерируется при первом старте (громкий warn).
     KEYS_ROOT_KEY_FILE: blank(z.string().min(1).optional()),
+    // Окно ротации корня: файл СЛЕДУЮЩЕГО корня (церемония). Пока задан, инстанс читает версии
+    // под обоими корнями, а команда `keys.root.rotate` перешивает их порциями в фоне.
+    KEYS_ROOT_KEY_FILE_NEXT: blank(z.string().min(1).optional()),
     // Legacy HS256: до этой даты верификаторы принимают токены старого формата, подписанные
     // JWT_SECRET_LEGACY (окно = 30 дней refresh). После — HS256 выключен, секрет обязан уйти из env.
     KEYS_LEGACY_HS256_UNTIL: blank(z.string().datetime({ message: 'must be an ISO date-time (2026-10-14T00:00:00Z)' }).optional()),
@@ -406,6 +409,14 @@ const envSchema = z
             code: z.ZodIssueCode.custom,
             path: ['JWT_SECRET_LEGACY'],
             message: 'the HS256 window (KEYS_LEGACY_HS256_UNTIL) has ended — remove JWT_SECRET_LEGACY/JWT_SECRET from the environment',
+          });
+        } else if (new Date(env.KEYS_LEGACY_HS256_UNTIL).getTime() > Date.now() + 45 * 86_400_000) {
+          // Окно = срок жизни refresh-токена (30 дней) + запас. Дата «в 2099 году» превратила бы
+          // временный допуск HS256 общим секретом в постоянный — а весь смысл окна в том, что оно кончается
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['KEYS_LEGACY_HS256_UNTIL'],
+            message: 'must be at most 45 days ahead: the HS256 window only covers the refresh-token lifetime of the migration',
           });
         }
       }

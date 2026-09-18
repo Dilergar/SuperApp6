@@ -63,7 +63,7 @@ import { KeysPiiService } from './pii/keys.pii.service';
         const env = keysEnv();
         const rootPresent = metrics.gauge('keys_root_present', 'Root key of the keys engine is loaded (1) or missing (0)');
         try {
-          const provider = env.provider === 'pkcs11' ? new Pkcs11Provider(env.pkcs11) : new SoftwareProvider(env.rootKeyFile, { createIfMissing: env.rootKeyFileIsDefault && isDevEnv() });
+          const provider = env.provider === 'pkcs11' ? new Pkcs11Provider(env.pkcs11) : new SoftwareProvider(env.rootKeyFile, { createIfMissing: env.rootKeyFileIsDefault && isDevEnv(), nextRootKeyFile: env.nextRootKeyFile });
           rootPresent.set(1);
           return provider;
         } catch (err) {

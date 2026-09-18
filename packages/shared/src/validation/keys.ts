@@ -13,7 +13,7 @@ import {
   type KeyScopeService,
   type WebhookEventKey,
 } from '../keys';
-import { isValidCidr } from '../utils/cidr';
+import { isAllowlistCidr, isValidCidr } from '../utils/cidr';
 
 // ============================================================
 // core/keys + core/webhooks — входные схемы (единственное описание формы: тип = z.infer)
@@ -35,7 +35,7 @@ export const keyScopeLevelSchema = z.enum(KEY_SCOPE_LEVELS);
 export const keyScopesSchema = z.record(keyScopeServiceSchema, keyScopeLevelSchema);
 
 export const ipAllowlistSchema = z
-  .array(z.string().trim().min(1).max(64).refine(isValidCidr, 'validation.keys.badCidr'))
+  .array(z.string().trim().min(1).max(64).refine(isValidCidr, 'validation.keys.badCidr').refine(isAllowlistCidr, 'validation.keys.cidrTooWide'))
   .max(KEYS_LIMITS.ipAllowlistMax, 'validation.keys.allowlistTooLong');
 
 /** Срок ключа: дни либо явное «бессрочно» (только owner и только с IP-списком — проверяет сервер). */
@@ -210,11 +210,19 @@ export type WebhookDeliveriesQuery = z.infer<typeof webhookDeliveriesQuerySchema
 
 export const keysRootRotateInputSchema = z
   .object({
-    /** Путь к НОВОМУ файлу корня на сервере (создан `keys-init-root.cjs`); движок перешивает все версии */
-    newRootKeyFile: z.string().min(1).max(1024),
+    /**
+     * Отпечаток НОВОГО корня (16 hex — его печатает церемония `keys-init-root.cjs`). Сам файл
+     * заранее выкладывается на КАЖДЫЙ инстанс как `KEYS_ROOT_KEY_FILE_NEXT`; команда сверяет
+     * отпечаток, перекличку инстансов и ставит фоновую перешивку порциями.
+     */
+    newRootKid: z.string().regex(/^[0-9a-f]{16}$/),
   })
   .strict();
 export type KeysRootRotateInput = z.infer<typeof keysRootRotateInputSchema>;
+
+/** Смена ключа слепых индексов (только при компрометации): входа нет — ключ один на платформу. */
+export const keysBlindIndexRotateInputSchema = z.object({}).strict();
+export type KeysBlindIndexRotateInput = z.infer<typeof keysBlindIndexRotateInputSchema>;
 
 export const keysSigningRotateInputSchema = z.object({ audience: z.enum(SIGNING_AUDIENCES) }).strict();
 export type KeysSigningRotateInput = z.infer<typeof keysSigningRotateInputSchema>;

@@ -21,6 +21,20 @@ export interface FieldCtx {
 
 export type DecryptResult = { ok: true; value: string } | { ok: false; error: string };
 
+/** Снимок слепого индекса на одну операцию (см. `KeysEnvelopeService.blindIndexPlan`). */
+export interface BlindIndexPlan {
+  /** Слот primary-версии: 0 → колонка `_bi`, 1 → `_bi_alt` */
+  slot: 0 | 1;
+  primaryKid: string;
+  pendingKid: string | null;
+  value(field: string, normalized: string): string;
+  /** Значение для ВТОРОГО слота: индекс pending-версией на окне смены ключа, иначе `null` */
+  pendingValue(field: string, normalized: string): string | null;
+}
+
+/** Слот версии `blind_index` (у версий до миграции слотов — 0). */
+export const slotOf = (v: { slot: number | null }): 0 | 1 => (v.slot === 1 ? 1 : 0);
+
 const ENV_PREFIX = KEYS_ARTIFACT_PREFIX.envelope;
 const BI_PREFIX = KEYS_ARTIFACT_PREFIX.blindIndex;
 const IV_LEN = 12;
@@ -62,6 +76,10 @@ export class KeysEnvelopeService {
   }
 
   private aad(ctx: FieldCtx, kekKid: string): Buffer {
+    // Части склеиваются через `|`: разделитель внутри части дал бы двум РАЗНЫМ контекстам один AAD
+    for (const part of [ctx.entity, ctx.field, ctx.ownerType, ctx.ownerId]) {
+      if (!part || part.includes('|')) throw new Error('keys envelope: a field context part is empty or contains the AAD separator');
+    }
     return Buffer.from(`${ctx.entity}|${ctx.field}|${ctx.ownerType}|${ctx.ownerId}|${kekKid}`, 'utf8');
   }
 
@@ -84,12 +102,12 @@ export class KeysEnvelopeService {
     const aad = this.aad(ctx, kek.kid);
     // Данные под DEK
     const iv = randomBytes(IV_LEN);
-    const c = createCipheriv('aes-256-gcm', dek, iv);
+    const c = createCipheriv('aes-256-gcm', dek, iv, { authTagLength: TAG_LEN });
     c.setAAD(aad);
     const ct = Buffer.concat([c.update(plaintext, 'utf8'), c.final(), c.getAuthTag()]);
     // DEK под KEK (свой IV, тот же AAD)
     const iv2 = randomBytes(IV_LEN);
-    const w = createCipheriv('aes-256-gcm', kek.material, iv2);
+    const w = createCipheriv('aes-256-gcm', kek.material, iv2, { authTagLength: TAG_LEN });
     w.setAAD(aad);
     const wrapped = Buffer.concat([iv2, w.update(dek), w.final(), w.getAuthTag()]);
     return [ENV_PREFIX, '1', kek.kid, KEY_ALGORITHMS.kek, wrapped.toString('base64url'), iv.toString('base64url'), ct.toString('base64url')].join(':');
@@ -137,7 +155,7 @@ export class KeysEnvelopeService {
       const iv2 = wrapped.subarray(0, IV_LEN);
       const wct = wrapped.subarray(IV_LEN, wrapped.length - TAG_LEN);
       const wtag = wrapped.subarray(wrapped.length - TAG_LEN);
-      const u = createDecipheriv('aes-256-gcm', kek.material!, iv2);
+      const u = createDecipheriv('aes-256-gcm', kek.material!, iv2, { authTagLength: TAG_LEN });
       u.setAAD(aad);
       u.setAuthTag(wtag);
       const dek = Buffer.concat([u.update(wct), u.final()]);
@@ -145,7 +163,7 @@ export class KeysEnvelopeService {
       const blob = Buffer.from(parts[6]!, 'base64url');
       const ct = blob.subarray(0, blob.length - TAG_LEN);
       const tag = blob.subarray(blob.length - TAG_LEN);
-      const d = createDecipheriv('aes-256-gcm', dek, iv);
+      const d = createDecipheriv('aes-256-gcm', dek, iv, { authTagLength: TAG_LEN });
       d.setAAD(aad);
       d.setAuthTag(tag);
       return { ok: true, value: Buffer.concat([d.update(ct), d.final()]).toString('utf8') };
@@ -198,11 +216,29 @@ export class KeysEnvelopeService {
     return `${BI_PREFIX}:1:${key.kid}:${mac}`;
   }
 
-  /** Все значения индекса, которыми могла быть записана строка (на окне переиндексации — все активные версии). */
-  async blindIndexCandidates(field: string, normalized: string): Promise<string[]> {
-    const versions = await this.store.activeVersions(PLATFORM_SCOPE, 'mac', 'blind_index');
-    if (!versions.length) return [await this.blindIndex(field, normalized)];
-    return versions.map((v) => this.blindIndexWith(v, field, normalized));
+  /**
+   * План слепого индекса на ОДНУ операцию: primary-версия (её слот — колонка, по которой ищут и
+   * куда пишут) и, на окне смены ключа, pending-версия (её слот пишется ВТОРЫМ значением —
+   * dual-write, пока фон заполняет слот у старых строк). Вне окна второй слот пишется `null`.
+   * Снимок берётся один раз на операцию: все поля одного запроса смотрят в одни и те же колонки.
+   */
+  async blindIndexPlan(): Promise<BlindIndexPlan> {
+    const primary = await this.macKey('blind_index');
+    const key = await this.store.getKey(PLATFORM_SCOPE, 'mac', 'blind_index');
+    const pendingMeta = key?.versions.find((v) => v.state === 'pending' && v.kid !== primary.kid) ?? null;
+    let pending: LoadedVersion | null = null;
+    if (pendingMeta) {
+      const v = await this.store.version(pendingMeta.kid);
+      // Слот pending обязан отличаться от primary — иначе dual-write затирал бы рабочую колонку
+      if (v?.material && v.state === 'pending' && slotOf(v) !== slotOf(primary)) pending = v;
+    }
+    return {
+      slot: slotOf(primary),
+      primaryKid: primary.kid,
+      pendingKid: pending?.kid ?? null,
+      value: (field, normalized) => this.blindIndexWith(primary, field, normalized),
+      pendingValue: (field, normalized) => (pending ? this.blindIndexWith(pending, field, normalized) : null),
+    };
   }
 
   /** Сравнить сохранённый индекс с новым значением (константное время). */

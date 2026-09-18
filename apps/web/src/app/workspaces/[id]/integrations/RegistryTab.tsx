@@ -8,6 +8,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { KEY_REGISTRY_FILTERS, KEY_REGISTRY_KINDS, KEYS_LIMITS, type ApiKeyRevokeReason, type KeyRegistryFilter, type KeyRegistryKind, type KeyRegistryRowDto } from '@superapp/shared';
 import { PersonChip } from '@/app/circles/PersonCard';
 import { useFormatters } from '@/lib/format';
+import { useAuthStore } from '@/lib/stores/auth';
 import { createWorkspacePersonalKey, fetchKeysPending, fetchKeysPolicy, fetchKeysRegistry, revokeWorkspaceKey, rotateWorkspaceKey } from '@/lib/keys-api';
 import { keysPendingKey, keysPolicyKey, keysRegistryKey, keysRegistryRootKey } from '@/lib/queries';
 import { BotChip, KeyStatusChip, PersonalKeyDialog, RevokeKeyDialog, RotateKeyDialog, ScopeSummary, useKeysStepUp } from '@/components/keys';
@@ -19,6 +20,7 @@ export function RegistryTab({ workspaceId, isOwner, onOpenBots, onOpenWebhooks, 
   const fmt = useFormatters();
   const qc = useQueryClient();
   const stepUp = useKeysStepUp();
+  const meId = useAuthStore((s) => s.user?.id ?? null);
   const [kind, setKind] = useState<KeyRegistryKind | null>(null);
   const [filter, setFilter] = useState<KeyRegistryFilter | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -62,7 +64,9 @@ export function RegistryTab({ workspaceId, isOwner, onOpenBots, onOpenWebhooks, 
     return [
       ...(r.kind === 'bot' ? [{ key: 'bot', label: t('actions.openBot'), icon: 'robot' as const, onClick: onOpenBots }] : []),
       journal,
-      { key: 'rotate', label: t('actions.rotate'), icon: 'refresh' as const, disabled: !live, onClick: () => setRotate(r) },
+      // Чужой личный ключ можно только отозвать: перевыпуск отдал бы его новый секрет не держателю
+      // (сервер отвечает `keys.holder_only`) — действие не предлагаем вовсе
+      ...(r.kind === 'personal' && r.holder.id !== meId ? [] : [{ key: 'rotate', label: t('actions.rotate'), icon: 'refresh' as const, disabled: !live, onClick: () => setRotate(r) }]),
       { key: 'revoke', label: t('actions.revoke'), icon: 'lock' as const, danger: true, disabled: !live, separatorBefore: true, onClick: () => setRevoke(r) },
     ];
   };

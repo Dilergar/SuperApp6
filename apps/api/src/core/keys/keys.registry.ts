@@ -17,11 +17,21 @@ export interface EncryptedColumnDef {
   /** Скоуп KEK строки и колонка с id владельца (у `platform` — не нужна) */
   scope: KeyScopeType;
   scopeColumn?: string;
+  /**
+   * Полиморфный владелец (`owner_type` + `owner_id`): одна колонка id на два вида скоупа —
+   * колонка регистрируется ДВАЖДЫ (по разу на вид), каждая со своим равенством-дискриминатором
+   */
+  scopeDiscriminator?: { column: string; value: string };
   /** Контекст AAD: сущность и поле (ownerType/ownerId выводятся из scope) */
   entity: string;
   field: string;
-  /** Пара слепого индекса (если есть): колонка `_bi`, имя индекса и нормализация значения */
-  blindIndex?: { column: string; name: string; normalize: (plain: string) => string };
+  /**
+   * Пара слепого индекса (если есть): колонки ДВУХ слотов (`_bi` — слот 0, `_bi_alt` — слот 1),
+   * имя индекса и нормализация значения. Версия mac-ключа пишет в колонку СВОЕГО слота.
+   */
+  blindIndex?: { column: string; altColumn: string; name: string; normalize: (plain: string) => string };
+  /** Значение колонки — служебная заглушка без конверта (`deleted:<id>`, `bot:<id>`): индексируется как есть */
+  literal?: (stored: string) => boolean;
   /**
    * Строки прошлой эпохи (не `sa6e:`): как получить открытый текст, чтобы джоб
    * `keys.legacy.reencrypt` перешил их в envelope. `null` — строка нечитаема (окно
@@ -38,10 +48,13 @@ export class KeysFieldRegistry {
   private readonly defs: EncryptedColumnDef[] = [];
 
   register(def: EncryptedColumnDef): void {
-    for (const ident of [def.table, def.idColumn, def.column, def.scopeColumn, def.blindIndex?.column]) {
+    for (const ident of [def.table, def.idColumn, def.column, def.scopeColumn, def.blindIndex?.column, def.blindIndex?.altColumn, def.scopeDiscriminator?.column]) {
       if (ident !== undefined && !IDENT.test(ident)) throw new Error(`keys registry: bad identifier "${ident}"`);
     }
     if (def.scope !== 'platform' && !def.scopeColumn) throw new Error(`keys registry: ${def.table}.${def.column} needs scopeColumn for scope ${def.scope}`);
+    // Повторная регистрация той же колонки того же скоупа (HMR, двойной onModuleInit) — не дубль прохода
+    const same = (d: EncryptedColumnDef) => d.table === def.table && d.column === def.column && d.scope === def.scope && d.scopeDiscriminator?.value === def.scopeDiscriminator?.value;
+    if (this.defs.some(same)) return;
     this.defs.push(def);
   }
 

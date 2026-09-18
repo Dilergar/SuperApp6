@@ -1,24 +1,28 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import {
+  KEYS_ERROR_CODES,
+  keysBlindIndexRotateInputSchema,
   keysRootRotateInputSchema,
   keysSigningRotateInputSchema,
   keysWorkspaceFreezeInputSchema,
+  type KeysBlindIndexRotateInput,
   type KeysRootRotateInput,
   type KeysSigningRotateInput,
   type KeysWorkspaceFreezeInput,
 } from '@superapp/shared';
-import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest } from '../../shared/errors/api-error';
 import { PlatformCommandRegistry } from '../platform/platform-commands.registry';
-import { workspaceScope } from './keys.constants';
+import { JobsService } from '../jobs/jobs.service';
+import { KeysAuditService } from './keys.audit.service';
+import { KEYS_JOBS, KEY_AUDIT_ACTIONS, workspaceScope } from './keys.constants';
 import { AUDIENCE_MAX_TTL_SEC, KeysRotationJobs } from './keys.rotation.jobs';
 import { KeysSigningService } from './keys.signing.service';
 import { KeysStoreService } from './keys.store.service';
-import { SoftwareProvider } from './providers/software.provider';
 
 /**
  * Команды кабинета платформы (журнал append-only, step-up, «четыре глаза» — исполнитель
- * кабинета): ротация корня (critical, dualControl, dryRun), ротация подписи аудитории,
+ * кабинета): ротация корня (critical, dualControl, dryRun; фоновая перешивка порциями на окне
+ * двух корней), смена ключа слепых индексов (critical, dualControl), ротация подписи аудитории,
  * заморозка/разморозка KEK организации (critical, dualControl). Панель «Ключи» карточки
  * организации и отзыв ключа регистрирует `api-keys/keys.platform.panel.ts` (фаза E).
  */
@@ -26,16 +30,25 @@ import { SoftwareProvider } from './providers/software.provider';
 export class KeysPlatformProvider implements OnModuleInit {
   constructor(
     private readonly commands: PlatformCommandRegistry,
-    private readonly db: DatabaseService,
     private readonly store: KeysStoreService,
     private readonly signing: KeysSigningService,
     private readonly rotation: KeysRotationJobs,
+    private readonly jobs: JobsService,
+    private readonly audit: KeysAuditService,
   ) {}
+
+  /** Следующий корень загружен на ЭТОМ инстансе, его отпечаток — тот, что назвал сотрудник, и чужих корней в keystore нет. */
+  private async assertRootRotationReady(newRootKid: string) {
+    const st = await this.store.rootRotationStatus();
+    if (newRootKid === st.rootKid) throw badRequest('keys.root_same', undefined, { code: 'keys.root_same' });
+    if (st.nextRootKid !== newRootKid) throw badRequest('keys.root_next_not_loaded', undefined, { code: KEYS_ERROR_CODES.rootNextNotLoaded });
+    return st;
+  }
 
   onModuleInit(): void {
     this.commands.register<KeysRootRotateInput>({
       key: 'keys.root.rotate',
-      version: 1,
+      version: 2,
       group: 'keys',
       titleKey: 'platform.commands.keysRootRotate.title',
       descriptionKey: 'platform.commands.keysRootRotate.description',
@@ -44,30 +57,37 @@ export class KeysPlatformProvider implements OnModuleInit {
       risk: 'critical',
       dualControl: true,
       dryRun: true,
-      redact: ['newRootKeyFile'],
       target: () => ({ type: 'keys_root', id: 'root' }),
       execute: async (ctx, input, tx) => {
-        // Новый корень читается с диска этого инстанса (файл создан церемонией заранее);
-        // сгенерировать его молча нельзя — иначе второй копии у второго человека не будет.
-        let next: SoftwareProvider;
-        try {
-          next = new SoftwareProvider(input.newRootKeyFile, { createIfMissing: false });
-        } catch (err) {
-          throw badRequest('keys.root_missing', undefined, { code: 'keys.root_missing', detail: (err as Error).message });
-        }
-        if (next.rootKid === this.store.provider.rootKid) throw badRequest('keys.root_missing', undefined, { code: 'keys.root_same' });
-        const res = await this.store.rewrapAllToProvider(next, { actorId: ctx.actor.userId, reason: ctx.reason }, tx, false);
-        return { before: { rootKid: res.fromRootKid }, after: { rootKid: res.toRootKid }, result: { versions: res.versions, restartRequired: true } };
+        // Новый корень заранее выложен церемонией на КАЖДЫЙ инстанс (`KEYS_ROOT_KEY_FILE_NEXT`):
+        // команда сверяет отпечаток и перекличку и ставит фоновую перешивку порциями. Одной
+        // транзакцией весь keystore не перешить: у каждого человека и организации свой KEK.
+        const st = await this.assertRootRotationReady(input.newRootKid);
+        await this.rotation.assertFleetHoldsRoot(input.newRootKid);
+        await this.jobs.enqueue(tx, { type: KEYS_JOBS.rootRewrap, payload: {}, uniqueKey: `root:${input.newRootKid}` });
+        await this.audit.log(tx, { actorId: ctx.actor.userId, actorKind: 'platform', subjectType: 'root', subjectId: input.newRootKid, subjectName: `root ${st.rootKid} → ${input.newRootKid}`, action: KEY_AUDIT_ACTIONS.rootRotationStarted, reason: ctx.reason, details: { versions: st.underCurrent } });
+        return { before: { rootKid: st.rootKid }, after: { rootKid: input.newRootKid }, result: { versions: st.underCurrent, alreadyUnderNext: st.underNext, background: true, restartRequired: true } };
       },
       preview: async (_ctx, input) => {
-        let next: SoftwareProvider;
-        try {
-          next = new SoftwareProvider(input.newRootKeyFile, { createIfMissing: false });
-        } catch (err) {
-          throw badRequest('keys.root_missing', undefined, { code: 'keys.root_missing', detail: (err as Error).message });
-        }
-        const res = await this.db.$transaction((tx) => this.store.rewrapAllToProvider(next, { actorId: null, reason: null }, tx, true));
-        return { before: { rootKid: res.fromRootKid }, after: { rootKid: res.toRootKid }, result: { versions: res.versions, restartRequired: true } };
+        const st = await this.assertRootRotationReady(input.newRootKid);
+        return { before: { rootKid: st.rootKid }, after: { rootKid: input.newRootKid }, result: { versions: st.underCurrent, alreadyUnderNext: st.underNext, background: true, restartRequired: true } };
+      },
+    });
+
+    this.commands.register<KeysBlindIndexRotateInput>({
+      key: 'keys.blindindex.rotate',
+      version: 1,
+      group: 'keys',
+      titleKey: 'platform.commands.keysBlindIndexRotate.title',
+      descriptionKey: 'platform.commands.keysBlindIndexRotate.description',
+      input: keysBlindIndexRotateInputSchema,
+      capability: 'keys.write',
+      risk: 'critical',
+      dualControl: true,
+      target: () => ({ type: 'mac_key', id: 'blind_index' }),
+      execute: async (ctx) => {
+        const { kid } = await this.rotation.rotateBlindIndex({ actorId: ctx.actor.userId, reason: ctx.reason });
+        return { result: { kid, background: true } };
       },
     });
 
@@ -102,7 +122,8 @@ export class KeysPlatformProvider implements OnModuleInit {
       target: (i) => ({ type: 'workspace', id: i.workspaceId, workspaceId: i.workspaceId }),
       execute: async (ctx, input, tx) => {
         const n = await this.store.freezeScope(workspaceScope(input.workspaceId), { actorId: ctx.actor.userId, actorKind: 'platform', reason: ctx.reason }, tx);
-        return { result: { versions: n } };
+        // Kill-switch обязан сработать за секунду: эпоха сбрасывается ПОСЛЕ коммита команды
+        return { result: { versions: n }, afterCommit: () => this.store.bumpEpoch() };
       },
     });
 
@@ -120,7 +141,7 @@ export class KeysPlatformProvider implements OnModuleInit {
       target: (i) => ({ type: 'workspace', id: i.workspaceId, workspaceId: i.workspaceId }),
       execute: async (ctx, input, tx) => {
         const n = await this.store.unfreezeScope(workspaceScope(input.workspaceId), { actorId: ctx.actor.userId, actorKind: 'platform', reason: ctx.reason }, tx);
-        return { result: { versions: n } };
+        return { result: { versions: n }, afterCommit: () => this.store.bumpEpoch() };
       },
     });
 

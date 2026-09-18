@@ -139,6 +139,20 @@ export class BotsService {
     if (input.responsibleUserId !== undefined) await this.assertResponsible(input.responsibleUserId, workspaceId);
     const scopes = input.scopes !== undefined ? normalizeKeyScopes(input.scopes, true) : null;
     const rankChanged = input.rank !== undefined && input.rank !== row.rank;
+    // Ранг, скоупы и IP-список — это СИЛА уже выпущенных ключей: их правка равна выпуску нового
+    // ключа и идёт под тем же сильным подтверждением (угнанная сессия не расширит бота молча)
+    // (клиент может прислать прежние значения — подтверждение нужно только когда сила реально меняется)
+    const stable = (v: unknown): string => JSON.stringify(Array.isArray(v) ? [...v].sort() : Object.entries((v ?? {}) as Record<string, unknown>).sort());
+    const scopesChanged = !!scopes && stable(scopes) !== stable(normalizeKeyScopes(row.scopes as Record<string, unknown>, true));
+    const allowlistChanged = input.ipAllowlist !== undefined && stable(input.ipAllowlist) !== stable(Array.isArray(row.ipAllowlist) ? row.ipAllowlist : []);
+    if (rankChanged || scopesChanged || allowlistChanged) await this.stepUp.assert(actor.userId);
+    if (input.ipAllowlist !== undefined && input.ipAllowlist.length === 0) {
+      // IP-список нельзя снять, пока он — условие: политика организации либо живой бессрочный ключ
+      const policy = await this.keys.policy(workspaceId);
+      if (policy.requireIpAllowlist) throw badRequest('keys.policy_allowlist_required', undefined, { code: 'keys.policy_allowlist_required' });
+      const noExpiry = await this.db.apiKey.count({ where: { botId: row.id, revokedAt: null, expiresAt: null } });
+      if (noExpiry > 0) throw badRequest('keys.no_expiry_needs_allowlist', undefined, { code: KEYS_ERROR_CODES.noExpiryNeedsAllowlist });
+    }
     const updated = await this.db.$transaction(async (tx) => {
       const u = await tx.bot.update({
         where: { id: row.id },
@@ -172,8 +186,8 @@ export class BotsService {
     return toBotDto(updated);
   }
 
-  private async invalidateKeys(botId: string): Promise<void> {
-    const keys = await this.db.apiKey.findMany({ where: { botId }, select: { hash: true } });
+  private async invalidateKeys(botId: string, client: Tx | DatabaseService = this.db): Promise<void> {
+    const keys = await client.apiKey.findMany({ where: { botId }, select: { hash: true } });
     await Promise.all(keys.map((k) => this.auth.invalidateByHash(k.hash)));
   }
 
@@ -202,6 +216,9 @@ export class BotsService {
 
   async freezeTx(tx: Tx, row: Bot, reason: 'creator_left' | 'owner' | 'platform', actor: { actorId: string | null; actorKind: string; ip?: string | null }): Promise<Bot> {
     const { count } = await tx.bot.updateMany({ where: { id: row.id, status: 'active' }, data: { status: 'frozen', frozenReason: reason, frozenAt: new Date() } });
+    // Сброс снимков ключей — ЗДЕСЬ, на всех путях заморозки (владелец, каскад ухода, кабинет
+    // платформы): иначе ключи уволенного создателя жили бы в кэше ещё минуту
+    await this.invalidateKeys(row.id, tx);
     if (count === 0) return row;
     await this.audit.log(tx, { actorId: actor.actorId, actorKind: actor.actorKind, workspaceId: row.workspaceId, subjectType: 'bot', subjectId: row.id, subjectName: row.name, action: 'bot.frozen', ip: actor.ip ?? null, details: { reason } });
     await this.notifier.botEvent(tx, 'bot.frozen', { id: row.id, name: row.name, workspaceId: row.workspaceId }, { reasonLabelKey: `keys.frozenReason.${reason}` }, { actorId: actor.actorId, ownerOnly: true });
@@ -223,6 +240,7 @@ export class BotsService {
 
   async unfreezeTx(tx: Tx, row: Bot, actor: { actorId: string | null; actorKind: string; ip?: string | null }, note: string | null): Promise<Bot> {
     const { count } = await tx.bot.updateMany({ where: { id: row.id, status: 'frozen' }, data: { status: 'active', frozenReason: null, frozenAt: null } });
+    await this.invalidateKeys(row.id, tx);
     if (count === 0) return row;
     await this.audit.log(tx, { actorId: actor.actorId, actorKind: actor.actorKind, workspaceId: row.workspaceId, subjectType: 'bot', subjectId: row.id, subjectName: row.name, action: 'bot.unfrozen', reason: note, ip: actor.ip ?? null });
     await this.notifier.botEvent(tx, 'bot.unfrozen', { id: row.id, name: row.name, workspaceId: row.workspaceId }, {}, { actorId: actor.actorId });
@@ -243,6 +261,7 @@ export class BotsService {
 
   async archiveTx(tx: Tx, row: Bot, actor: { actorId: string | null; actorKind: string; ip?: string | null }): Promise<void> {
     const { count } = await tx.bot.updateMany({ where: { id: row.id, status: { not: 'archived' } }, data: { status: 'archived', archivedAt: new Date() } });
+    await this.invalidateKeys(row.id, tx);
     if (count === 0) return;
     const keys = await tx.apiKey.findMany({ where: { botId: row.id, revokedAt: null } });
     for (const k of keys) await this.keys.revokeTx(tx, k, actor, 'bot_archived', null);

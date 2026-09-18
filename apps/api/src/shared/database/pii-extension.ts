@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { PII_ENVELOPE_PREFIX, piiHooks, type PiiFieldDef, type PiiHooks, type PiiModelDef, type PiiScopeRef } from './pii-hooks';
+import { PII_ENVELOPE_PREFIX, piiHooks, type PiiBlindIndexPlan, type PiiFieldDef, type PiiHooks as PiiEngineHooks, type PiiModelDef, type PiiScopeRef } from './pii-hooks';
 
 // ============================================================
 // Расширение Prisma «piiCrypt» — единственное место, где ПДн шифруются и читаются.
@@ -15,6 +15,23 @@ import { PII_ENVELOPE_PREFIX, piiHooks, type PiiFieldDef, type PiiHooks, type Pi
 // ============================================================
 
 type Rec = Record<string, unknown>;
+
+/**
+ * Хуки на ОДНУ операцию: снимок слепого индекса (`plan`) берётся лениво и один раз — все поля
+ * запроса (запись, фильтр, вложенные связи) смотрят в одни и те же слот-колонки, даже если
+ * смена ключа переключит primary посреди запроса.
+ */
+type PiiHooks = PiiEngineHooks & { plan(): Promise<PiiBlindIndexPlan> };
+
+function forOperation(hooks: PiiEngineHooks): PiiHooks {
+  let plan: Promise<PiiBlindIndexPlan> | null = null;
+  return Object.assign(Object.create(hooks) as PiiEngineHooks, { plan: () => (plan ??= hooks.blindIndexPlan()) });
+}
+
+/** Колонки слепого индекса поля по слоту primary: `[рабочая, вторая]`. */
+function biColumns(f: PiiFieldDef, slot: 0 | 1): [string, string] {
+  return slot === 0 ? [f.bi!, f.biAlt!] : [f.biAlt!, f.bi!];
+}
 
 const WRITE_OPS = new Set(['create', 'createMany', 'createManyAndReturn', 'update', 'updateMany', 'upsert']);
 const RETURNING_OPS = new Set(['findUnique', 'findUniqueOrThrow', 'findFirst', 'findFirstOrThrow', 'findMany', 'create', 'update', 'upsert', 'createManyAndReturn']);
@@ -55,6 +72,13 @@ async function scopeForWrite(hooks: PiiHooks, def: PiiModelDef, data: Rec, op: '
   }
   const fromData = def.scope(data);
   if (fromData) return fromData;
+  // Поля скоупа прямо в уникальном where (`{ id }` у человека, `{ id, workspaceId }`): строка,
+  // которую правка найдёт, обязана им соответствовать — поход в БД не нужен. Это же чинит
+  // правку строки, созданной в ТОЙ ЖЕ транзакции: `fetchScopeRow` читает вне её и не видит.
+  if (isRec(where)) {
+    const fromWhere = def.scope(where);
+    if (fromWhere) return fromWhere;
+  }
   if (where) {
     const row = await hooks.fetchScopeRow(def.model, where);
     const s = row ? def.scope(row) : null;
@@ -80,11 +104,23 @@ async function transformData(hooks: PiiHooks, model: string, data: unknown, op: 
         const plain = normalizeValue(f, value);
         if (plain === null) {
           data[f.enc] = null;
-          if (f.bi) data[f.bi] = null;
+          if (f.bi) {
+            data[f.bi] = null;
+            data[f.biAlt!] = null;
+          }
           continue;
         }
-        data[f.enc] = await hooks.encrypt(scope, ctxOf(def, f, scope), plain);
-        if (f.bi && f.index) data[f.bi] = await hooks.blindIndex(f.index, f.normalize ? f.normalize(plain) : plain);
+        data[f.enc] = f.literal?.(plain) ? plain : await hooks.encrypt(scope, ctxOf(def, f, scope), plain);
+        if (f.bi && f.index) {
+          // Рабочий слот — индекс primary-версией; второй слот — индекс pending-версией на окне смены
+          // ключа (dual-write), а вне окна — `null`: запись инстанса, ещё не знающего про pending,
+          // не оставит во втором слоте индекс СТАРОГО значения — фон досчитает строку заново
+          const plan = await hooks.plan();
+          const norm = f.normalize ? f.normalize(plain) : plain;
+          const [cur, other] = biColumns(f, plan.slot);
+          data[cur] = plan.value(f.index, norm);
+          data[other] = plan.pendingValue(f.index, norm);
+        }
       }
     }
   }
@@ -152,10 +188,15 @@ async function transformWrite(hooks: PiiHooks, model: string, operation: string,
       await transformData(hooks, model, a.data, 'update', null);
       return;
     }
-    case 'upsert':
+    case 'upsert': {
       await transformData(hooks, model, a.create, 'create', null);
-      await transformData(hooks, model, a.update, 'update', a.where);
+      // Строки ещё нет → скоуп ветки update вывести неоткуда; если она появится, то из `create`
+      // с тем же уникумом — его скоуп и есть запасной (последним в порядке вывода)
+      const def = hooks.models.get(model);
+      const createScope = def && isRec(a.create) ? def.scope(a.create) : null;
+      await transformData(hooks, model, a.update, 'update', a.where, createScope);
       return;
+    }
     default:
       return;
   }
@@ -168,7 +209,7 @@ async function transformWrite(hooks: PiiHooks, model: string, operation: string,
 async function biOf(hooks: PiiHooks, f: PiiFieldDef, v: unknown): Promise<string | null> {
   const plain = normalizeValue(f, v);
   if (plain === null) return null;
-  return hooks.blindIndex(f.index!, f.normalize ? f.normalize(plain) : plain);
+  return (await hooks.plan()).value(f.index!, f.normalize ? f.normalize(plain) : plain);
 }
 
 /**
@@ -194,7 +235,10 @@ async function rewriteWhere(hooks: PiiHooks, model: string, where: unknown, stri
     }
     const f = def?.fields.find((x) => x.name === key);
     if (f) {
-      if (!f.bi || !f.index) throw new Error(`pii: ${model}.${key} is encrypted without a blind index — it cannot be filtered`);
+      if (!f.bi || !f.biAlt || !f.index) throw new Error(`pii: ${model}.${key} is encrypted without a blind index — it cannot be filtered`);
+      // Ищем в слоте primary-версии: в колонке всегда ровно одна версия ключа, поэтому уникальные
+      // операции и уникальные индексы работают и посреди смены ключа
+      const [biCol] = biColumns(f, (await hooks.plan()).slot);
       let biCond: unknown;
       if (value === null || typeof value === 'string' || value instanceof Date) {
         biCond = value === null ? null : await biOf(hooks, f, value);
@@ -213,19 +257,20 @@ async function rewriteWhere(hooks: PiiHooks, model: string, where: unknown, stri
         throw new Error(`pii: ${model}.${key}: unsupported filter value`);
       }
       if (strictUnique || !hooks.plaintextPresent() || value === null) {
-        out[f.bi] = biCond;
+        out[biCol] = biCond;
       } else {
-        hybrid.push({ OR: [{ [f.bi]: biCond }, { [f.bi]: null, [key]: value }] });
+        hybrid.push({ OR: [{ [biCol]: biCond }, { [biCol]: null, [key]: value }] });
       }
       continue;
     }
     const cu = def?.compoundUniques?.[key];
     if (cu && isRec(value)) {
       const fld = def!.fields.find((x) => x.name === cu.field)!;
+      const slot = (await hooks.plan()).slot;
       const inner: Rec = { ...value };
-      inner[fld.bi!] = await biOf(hooks, fld, inner[cu.field]);
+      inner[biColumns(fld, slot)[0]] = await biOf(hooks, fld, inner[cu.field]);
       delete inner[cu.field];
-      out[cu.bi] = inner;
+      out[slot === 0 ? cu.bi : cu.biAlt] = inner;
       continue;
     }
     const rel = hooks.relation(model, key);
@@ -307,10 +352,21 @@ async function decryptRows(hooks: PiiHooks, model: string, rows: unknown, args: 
       const scope = def.scope(row);
       for (const f of def.fields) {
         const stored = row[f.enc];
-        if (typeof stored !== 'string' || !stored.startsWith(PII_ENVELOPE_PREFIX)) continue; // не бэкфиллено — остаётся открытый текст
+        if (typeof stored !== 'string') continue; // не бэкфиллено — остаётся открытый текст
+        if (!stored.startsWith(PII_ENVELOPE_PREFIX)) {
+          // Служебная заглушка (`deleted:` / `bot:`) лежит в `_enc` без конверта — она и есть значение
+          if (f.literal?.(stored)) row[f.name] = stored;
+          continue;
+        }
         if (!scope) continue;
         const plain = await hooks.decrypt(scope, ctxOf(def, f, scope), stored);
-        if (plain === null) continue; // KEK заморожен/уничтожен: поле остаётся как есть (открытый текст на окне, иначе null)
+        if (plain === null) {
+          // KEK заморожен/уничтожен либо шифротекст бит. Fail-closed: в режиме `encrypted` правда —
+          // `_enc`, и подставлять открытую колонку окна dual-write нельзя: kill-switch заморозки
+          // иначе не прятал бы ПДн, пока открытые колонки не дропнуты. Поле — null, строка жива.
+          row[f.name] = null;
+          continue;
+        }
         row[f.name] = f.kind === 'date' ? new Date(`${plain}T00:00:00.000Z`) : plain;
         if (f.sensitive) {
           const e = col.entries.get(def.entity) ?? { fields: new Set<string>(), ids: new Set<string>() };
@@ -349,8 +405,8 @@ export function piiExtension() {
       query: {
         $allModels: {
           async $allOperations({ model, operation, args, query }) {
-            const hooks = piiHooks.current;
-            if (!hooks) return query(args);
+            if (!piiHooks.current) return query(args);
+            const hooks = forOperation(piiHooks.current);
             const a = (args ?? {}) as Rec;
             if (WRITE_OPS.has(operation)) await transformWrite(hooks, model, operation, a);
             const encrypted = hooks.readMode() === 'encrypted';
