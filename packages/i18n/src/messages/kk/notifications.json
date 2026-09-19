@@ -598,7 +598,8 @@
     "system": "Платформа",
     "tasks": "Тапсырмалар",
     "wallet": "Әмиян",
-    "workspaces": "Ұйымдар"
+    "workspaces": "Ұйымдар",
+    "consents": "Келісімдер мен құжаттар"
   },
   "settings": {
     "always": {
@@ -717,7 +718,8 @@
     }
   },
   "sms": {
-    "text": "SuperApp6: {title}"
+    "text": "SuperApp6: {title}",
+    "accountDeletionScheduled": "SuperApp6: аккаунтты жою сұралды. Сіз емес пе? Болдырмау үшін {days, plural, one {# күн} other {# күн}} ішінде кіріңіз."
   },
   "staff": {
     "deputy": {
@@ -850,6 +852,32 @@
         "label": "Рөл өзгертілді",
         "title": "{workspaceName} ұйымындағы рөліңіз өзгерді: {role}"
       }
+    }
+  },
+  "consents": {
+    "newVersion": {
+      "title": "«{documentLabel}» құжатының жаңа нұсқасы",
+      "body": "{effectiveFrom} бастап қолданылады. Қазір оқып, қабылдауға болады",
+      "label": "Платформа құжаттарының жаңа нұсқасы"
+    },
+    "workspace": {
+      "newVersion": {
+        "title": "Ұйымдарға арналған жаңа шарттар: «{documentLabel}»",
+        "body": "{effectiveFrom} бастап қолданылады. Оларды иесі қабылдауы керек; қызметкерлер жұмысын жалғастырады",
+        "label": "Ұйымдарға арналған жаңа шарттар"
+      }
+    },
+    "accepted": {
+      "title": "Келісіміңіз жазылды",
+      "body": "{count, plural, one {# құжат} other {# құжат}}. Келісім парағы — «Менің деректерім» бөлімінде",
+      "label": "Келісім туралы түбіртек"
+    }
+  },
+  "account": {
+    "deletionScheduled": {
+      "title": "Аккаунтты жою сұралды",
+      "body": "Бұл сіз емес пе? Болдырмау үшін {days, plural, one {# күн} other {# күн}} ішінде кіріңіз. Аккаунт {purgeAt} күні жойылады",
+      "label": "Аккаунтты жою сұрауы"
     }
   }
 }

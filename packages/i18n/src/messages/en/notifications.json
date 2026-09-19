@@ -598,7 +598,8 @@
     "system": "Platform",
     "tasks": "Tasks",
     "wallet": "Wallet",
-    "workspaces": "Organizations"
+    "workspaces": "Organizations",
+    "consents": "Consents and documents"
   },
   "settings": {
     "always": {
@@ -717,7 +718,8 @@
     }
   },
   "sms": {
-    "text": "SuperApp6: {title}"
+    "text": "SuperApp6: {title}",
+    "accountDeletionScheduled": "SuperApp6: account deletion requested. Not you? Sign in within {days, plural, one {# day} other {# days}} to cancel."
   },
   "staff": {
     "deputy": {
@@ -850,6 +852,32 @@
         "label": "Role changed",
         "title": "Your role in {workspaceName} changed: {role}"
       }
+    }
+  },
+  "consents": {
+    "newVersion": {
+      "title": "New version of “{documentLabel}”",
+      "body": "Takes effect on {effectiveFrom}. You can read and accept it now",
+      "label": "New version of the platform documents"
+    },
+    "workspace": {
+      "newVersion": {
+        "title": "New terms for organizations: “{documentLabel}”",
+        "body": "Take effect on {effectiveFrom}. The owner must accept them; employees keep working",
+        "label": "New terms for organizations"
+      }
+    },
+    "accepted": {
+      "title": "Your consent is recorded",
+      "body": "{count, plural, one {# document} other {# documents}}. The consent sheet is in “My data”",
+      "label": "Consent receipt"
+    }
+  },
+  "account": {
+    "deletionScheduled": {
+      "title": "Account deletion requested",
+      "body": "Not you? Sign in within {days, plural, one {# day} other {# days}} to cancel. The account will be deleted on {purgeAt}",
+      "label": "Account deletion requested"
     }
   }
 }

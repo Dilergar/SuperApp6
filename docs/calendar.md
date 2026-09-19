@@ -36,3 +36,7 @@ OAuth 2.0 + Calendar API (модель Bitrix24/Salesforce, не «чистый 
 ## Проверка
 
 `verify-calendar-access.cjs`, `verify-calendar-layers.cjs`, `verify-calendar-reminders.cjs`.
+
+## Google Calendar — согласие по запросу
+
+Подключение Google — трансграничная передача, не нужная для базовой работы: основание — отдельное согласие `integration_google`, данное В МОМЕНТ подключения ([consents_engine.md](consents_engine.md)). `GET /integrations/google/auth-url` без живой приёмки → `400 consents.required` с `documentKey`; веб показывает текст и повторяет запрос после `POST /consents/accept`. Колбэк OAuth перепроверяет согласие. Отключение отзывает согласие той же транзакцией; отзыв согласия (в т.ч. удалением аккаунта) гасит подключение хуком `ConsentsRevokeRegistry` (строка подключения удаляется в транзакции отзыва, токен у Google отзывается после коммита — сети внутри транзакции нет). Фоновые пути (крон, вебхук Google, push события) без живого согласия молча не работают — `status.consentRequired` для подключений прошлой эпохи. Каждая синхронизация пишется в учёт действий с ПДн (получатель `google_calendar`).

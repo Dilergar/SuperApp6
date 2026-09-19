@@ -11,6 +11,8 @@ export interface GoogleConnectionStatus {
   /** id of the one-way Google calendar for exported task deadlines. */
   tasksCalendarId: string | null;
   lastSyncedAt: string | null;
+  /** Нет живого согласия `integration_google` (core/consents): подключение и синхронизация ждут его */
+  consentRequired: boolean;
 }
 
 export interface GoogleCalendarListItem {

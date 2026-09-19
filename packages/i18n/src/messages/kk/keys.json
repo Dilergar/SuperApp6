@@ -303,6 +303,7 @@
       "key_version_enabled": "Кілт нұсқасы қосылды",
       "key_version_destroy_scheduled": "Кілт нұсқасы жоюға жоспарланды",
       "key_version_destroyed": "Кілт нұсқасы жойылды",
+      "key_version_compromised": "Кілт нұсқасы бұзылған деп танылды",
       "scope_frozen": "Шифрлау тоқтатылды",
       "scope_unfrozen": "Шифрлау қайта қосылды",
       "scope_rewrapped": "Кілттер қайта оралды",

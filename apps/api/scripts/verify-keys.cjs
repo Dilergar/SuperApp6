@@ -32,7 +32,8 @@ async function main() {
     check('dev/status: 200', st.ok, st.status);
     check('provider software, root fingerprint 16 hex', st.json?.data?.provider === 'software' && /^[0-9a-f]{16}$/.test(st.json?.data?.rootKid ?? ''), JSON.stringify(st.json?.data?.rootKid));
     const audiences = (st.json?.data?.signing ?? []).map((s) => s.audience).sort();
-    check('signing keys for all 6 audiences', JSON.stringify(audiences) === JSON.stringify(['files_url', 'platform', 'product', 'share_link', 'webhook', 'wopi']), audiences.join(','));
+    // `consents` — подпись версий документов платформы (core/consents, архивная проверка)
+    check('signing keys for all 7 audiences', JSON.stringify(audiences) === JSON.stringify(['consents', 'files_url', 'platform', 'product', 'share_link', 'webhook', 'wopi']), audiences.join(','));
     check('every audience has a primary kid', (st.json?.data?.signing ?? []).every((s) => !!s.primaryKid));
     const macs = (st.json?.data?.mac ?? []).map((m) => m.name).sort();
     check('mac keys: api_key_pepper, blind_index, oauth_state, verify_otp', JSON.stringify(macs) === JSON.stringify(['api_key_pepper', 'blind_index', 'oauth_state', 'verify_otp']), macs.join(','));

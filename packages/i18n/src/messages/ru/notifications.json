@@ -598,7 +598,8 @@
     "system": "Платформа",
     "tasks": "Задачи",
     "wallet": "Кошелёк",
-    "workspaces": "Организации"
+    "workspaces": "Организации",
+    "consents": "Согласия и документы"
   },
   "settings": {
     "always": {
@@ -717,7 +718,8 @@
     }
   },
   "sms": {
-    "text": "SuperApp6: {title}"
+    "text": "SuperApp6: {title}",
+    "accountDeletionScheduled": "SuperApp6: запрошено удаление аккаунта. Не вы? Войдите в течение {days, plural, one {# дня} few {# дней} many {# дней} other {# дня}}, чтобы отменить."
   },
   "staff": {
     "deputy": {
@@ -850,6 +852,32 @@
         "label": "Роль изменена",
         "title": "Ваша роль в {workspaceName} изменена: {role}"
       }
+    }
+  },
+  "consents": {
+    "newVersion": {
+      "title": "Новая версия документа «{documentLabel}»",
+      "body": "Действует с {effectiveFrom}. Можно прочитать и принять уже сейчас",
+      "label": "Новая версия документов платформы"
+    },
+    "workspace": {
+      "newVersion": {
+        "title": "Новые условия для организаций: «{documentLabel}»",
+        "body": "Действуют с {effectiveFrom}. Принять их должен владелец; сотрудники продолжают работать",
+        "label": "Новые условия для организаций"
+      }
+    },
+    "accepted": {
+      "title": "Ваше согласие записано",
+      "body": "{count, plural, one {# документ} few {# документа} many {# документов} other {# документа}}. Лист согласия — в разделе «Мои данные»",
+      "label": "Квитанция о согласии"
+    }
+  },
+  "account": {
+    "deletionScheduled": {
+      "title": "Запрошено удаление аккаунта",
+      "body": "Это не вы? Войдите в течение {days, plural, one {# дня} few {# дней} many {# дней} other {# дня}}, чтобы отменить. Аккаунт будет удалён {purgeAt}",
+      "label": "Запрос на удаление аккаунта"
     }
   }
 }

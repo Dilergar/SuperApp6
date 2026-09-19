@@ -101,6 +101,8 @@ export const ANALYTICS_AREAS = {
   /** Ключи, боты, личные токены (core/keys) и исходящие вебхуки (core/webhooks) */
   keys: { kind: 'platform', order: 970 },
   webhooks: { kind: 'platform', order: 975 },
+  /** Согласия, документы платформы, «Мои данные» (core/consents) */
+  consents: { kind: 'platform', order: 980 },
   platform: { kind: 'platform', order: 970 },
   other: { kind: 'platform', order: 999 },
 } as const satisfies Record<string, { kind: 'product' | 'platform'; order: number }>;

@@ -49,6 +49,7 @@ export * from './types/entitlements';
 export * from './types/platform';
 export * from './types/analytics';
 export * from './types/keys';
+export * from './types/consents';
 
 // Validation schemas
 export * from './validation/query';
@@ -96,6 +97,7 @@ export * from './validation/entitlements';
 export * from './validation/platform';
 export * from './validation/analytics';
 export * from './validation/keys';
+export * from './validation/consents';
 
 // Utils
 export * from './utils/phone';
@@ -121,6 +123,8 @@ export * from './analytics';
 // Движок ключей (core/keys) и исходящие вебхуки (core/webhooks): словарь, скоупы, реестр событий, лимиты
 export * from './keys';
 export * from './constants/keys';
+// Движок согласий (core/consents): виды, пакеты, получатели ПДн, учёт действий, реквизиты оператора
+export * from './consents';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';

@@ -1,0 +1,209 @@
+{
+  "operator": {
+    "legalName": "SuperApp6 LLP",
+    "address": "282 Zharokov St., Bostandyk district, Almaty 050060, Republic of Kazakhstan",
+    "dpoTitle": "Director"
+  },
+  "legal": {
+    "title": "SuperApp6 documents",
+    "subtitle": "The current versions and the archive. Every version is immutable and signed by the platform",
+    "archiveTitle": "Version archive",
+    "current": "current",
+    "upcoming": "from {date}",
+    "superseded": "replaced",
+    "backToCurrent": "To the current version",
+    "home": "Home",
+    "notFound": "There is no such document",
+    "hash": "Text checksum (sha256)",
+    "attested": "Certified by the digital signature of the operator’s head"
+  },
+  "myData": {
+    "title": "My data",
+    "subtitle": "What you agreed to, and to whom your data was transferred",
+    "consentsTitle": "Consents",
+    "status": {
+      "accepted": "Accepted",
+      "outdated": "A new version awaits",
+      "declined": "Off",
+      "none": "Not given",
+      "default_on": "On by default"
+    },
+    "acceptedVersion": "Version {version} accepted on {date}",
+    "currentVersion": "Current version: {version}",
+    "receipt": "Consent sheet",
+    "read": "Read",
+    "acceptNew": "Accept the new version",
+    "required": "Required",
+    "optional": "Optional",
+    "privacyNote": "The consent to data processing can be withdrawn only together with deleting the account — the platform cannot work without it",
+    "deleteAccount": "Delete the account",
+    "transfersTitle": "To whom my data was transferred",
+    "transfersHint": "Every actual transfer is recorded: SMS, push notifications, integrations, links you shared",
+    "transfersEmpty": "No transfers yet",
+    "crossBorder": "Outside Kazakhstan",
+    "byYou": "Your own action",
+    "loadFailed": "Could not load"
+  },
+  "purposes": {
+    "otp_sms": "Confirmation code by SMS",
+    "notification_sms": "Notification by SMS",
+    "service_sms": "Service SMS",
+    "notification_push": "Push notification",
+    "calendar_sync": "Calendar sync",
+    "webhook_delivery": "Webhook delivery",
+    "signature_check": "Digital signature check",
+    "share_link_created": "An outbound link created",
+    "card_visibility_changed": "Card visibility changed",
+    "consent_accepted": "Consent given",
+    "consent_revoked": "Consent withdrawn",
+    "account_deletion_requested": "Account deletion requested"
+  },
+  "fields": {
+    "phone": "phone number",
+    "first_name": "first name",
+    "last_name": "surname",
+    "middle_name": "patronymic",
+    "avatar": "photo",
+    "email": "e-mail",
+    "date_of_birth": "date of birth",
+    "city": "city",
+    "bio": "about me",
+    "iin": "IIN",
+    "ip_address": "IP address",
+    "device_token": "device token",
+    "notification_text": "message text",
+    "calendar_events": "calendar events",
+    "signature_certificate": "signature certificate",
+    "entity_payload": "organization data",
+    "public_card": "card fields",
+    "shared_content": "shared content"
+  },
+  "receipt": {
+    "title": "Consent sheet",
+    "document": "Document",
+    "operator": "Operator",
+    "bin": "BIN",
+    "subject": "Data subject",
+    "actor": "Accepted by",
+    "term": "Term",
+    "termValue": {
+      "account_deletion": "until the account is deleted, then only what the law requires to keep",
+      "revocation": "until withdrawn"
+    },
+    "thirdParties": "Transfer to third parties",
+    "crossBorder": "Cross-border transfer",
+    "publication": "Dissemination in public sources",
+    "publicationYes": "only what you decide to show yourself",
+    "no": "no",
+    "dataFields": "Data collected",
+    "acceptedAt": "Accepted",
+    "revokedAt": "Withdrawn",
+    "channel": "Channel",
+    "channels": {
+      "web": "website",
+      "mobile": "mobile app",
+      "api": "API",
+      "terminal": "terminal"
+    },
+    "contentHash": "Checksum of the text you saw",
+    "signature": "Platform signature",
+    "signatureValid": "verified",
+    "signatureInvalid": "not verified",
+    "language": "Language"
+  },
+  "deletion": {
+    "title": "Delete the account",
+    "steps": {
+      "check": "Check",
+      "consequences": "What happens",
+      "confirm": "Confirmation",
+      "done": "Done"
+    },
+    "checking": "Checking whether the account can be deleted…",
+    "blockedTitle": "The account cannot be deleted yet",
+    "blockedText": "The law does not allow withdrawing the consent while obligations are unfinished. Here is what needs to be done first",
+    "blockers": {
+      "sole_owner": "You own the organization “{name}” ({members, plural, one {# person} other {# people}}). Transfer the ownership or delete the organization",
+      "open_escrow": "Unfinished deals with frozen funds: {count}",
+      "debt": "Unfinished orders: {count}"
+    },
+    "openOrganization": "Open the organization",
+    "transferPick": "Pick an employee…",
+    "transfer": "Transfer the ownership",
+    "transferConfirmTitle": "Transfer the ownership?",
+    "transferConfirmMessage": "You will hand the owner rights of «{name}» to another employee. Only they will be able to give them back.",
+    "archive": "Delete the organization",
+    "archiveConfirmTitle": "Delete the organization?",
+    "archiveConfirmMessage": "«{name}» goes to the archive: employees lose access, and in {n, plural, one {# day} other {# days}} it is deleted for good. Until then you can restore it.",
+    "noMembers": "There are no employees to transfer the ownership to",
+    "c": {
+      "consent": "Deleting the account withdraws your consent to personal data processing",
+      "grace": "For {days, plural, one {# day} other {# days}} the account is hidden and can be restored by signing in",
+      "term": "Then we delete or anonymise your data — within 15 business days of the request",
+      "remains": "What remains: the records of organizations about you as an employee, financial operations and signed documents — access is restricted, and they are kept only as long as the law requires",
+      "keys": "Personal API keys stop working at once and are not restored"
+    },
+    "continue": "Continue",
+    "password": "Your password",
+    "sendCode": "Get the SMS code",
+    "submitNoSms": "Delete the account",
+    "codeHint": "Enter the code to confirm the deletion",
+    "doneTitle": "The account will be deleted on {date}",
+    "doneText": "Changed your mind? Just sign in before that date — the account will be restored",
+    "toLogin": "To the sign-in page",
+    "failed": "The account could not be deleted"
+  },
+  "console": {
+    "title": "Consents and documents",
+    "description": "Platform documents, acceptance coverage and the personal data incident register",
+    "tabs": {
+      "documents": "Documents",
+      "incidents": "Incidents"
+    },
+    "coverageTitle": "Acceptance of the current versions",
+    "coverage": "{accepted} of {population}",
+    "notPublished": "not published",
+    "versionsTitle": "All versions",
+    "col": {
+      "document": "Document",
+      "version": "Version",
+      "status": "Status",
+      "effective": "In effect from",
+      "kind": "Change",
+      "signature": "Signing key"
+    },
+    "status": {
+      "draft": "Draft",
+      "published": "Published",
+      "superseded": "Replaced",
+      "withdrawn": "Withdrawn"
+    },
+    "material": "material",
+    "immaterial": "minor",
+    "urgent": "urgent",
+    "attested": "certified",
+    "commandsHint": "Drafts, publication, certification and incident steps are console commands — open the command runner",
+    "incidentsEmpty": "No incidents",
+    "incident": {
+      "kind": {
+        "unauthorized_access": "Unauthorised access",
+        "leak": "Leak",
+        "loss": "Loss",
+        "alteration": "Alteration",
+        "availability": "Unavailability",
+        "other": "Other"
+      },
+      "status": {
+        "open": "Open",
+        "authority_notified": "Authority notified",
+        "subjects_notified": "Subjects notified",
+        "closed": "Closed"
+      },
+      "deadline": "Notify the authority by {date}",
+      "overdue": "Deadline missed",
+      "detected": "Detected {date}",
+      "affected": "Affected (estimate): {count}"
+    },
+    "loadFailed": "Could not load"
+  }
+}

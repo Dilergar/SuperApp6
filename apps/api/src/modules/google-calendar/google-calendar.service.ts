@@ -1,4 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConsentsService } from '../../core/consents/consents.service';
+import { ConsentsRevokeRegistry } from '../../core/consents/consents.registry';
+import { ConsentsActionsService } from '../../core/consents/consents.actions.service';
+import { CONSENT_ERROR_CODES } from '@superapp/shared';
 import { badRequest, notFound } from '../../shared/errors/api-error';
 import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
 import { KeysMacService } from '../../core/keys/keys.mac.service';
@@ -50,10 +54,26 @@ export class GoogleCalendarService implements OnModuleInit {
     private keys: KeysEnvelopeService,
     private mac: KeysMacService,
     private keyFields: KeysFieldRegistry,
+    private consents: ConsentsService,
+    private consentHooks: ConsentsRevokeRegistry,
+    private pdActions: ConsentsActionsService,
   ) {}
 
   /** Токены Google — envelope core/keys (KEK человека); строки прошлой эпохи (открытый текст) перешивает legacy-джоб. */
   onModuleInit(): void {
+    // Согласие `integration_google` отозвано (в т.ч. удалением аккаунта) → подключение гаснет в той же
+    // транзакции: без хука отзыв оставлял бы синхронизацию работать (правило «на всех путях»)
+    this.consentHooks.register('integration_google', {
+      onRevoked: async (tx, subject) => {
+        if (subject.type !== 'user') return;
+        // В транзакции — только база; отзыв токена у Google — ПОСЛЕ коммита (сетевой вызов держал бы
+        // транзакцию отзыва открытой до чужого таймаута). Строка читается ДО удаления: токены нужны отзыву.
+        const conn = await tx.googleConnection.findUnique({ where: { userId: subject.id } });
+        if (!conn) return;
+        await tx.googleConnection.deleteMany({ where: { userId: subject.id } });
+        return () => this.revokeAtGoogle(conn);
+      },
+    });
     for (const field of ['access_token', 'refresh_token'] as const) {
       this.keyFields.register({
         table: 'google_connections',
@@ -99,8 +119,26 @@ export class GoogleCalendarService implements OnModuleInit {
   // OAuth flow
   // ============================================================
 
+  /**
+   * Подключение Google — трансграничная передача, не нужная для базовой работы: основание —
+   * отдельное согласие `integration_google`, данное В МОМЕНТ подключения (core/consents).
+   * Нет живой приёмки → `400 consents.required` с ключом документа: клиент показывает текст,
+   * человек принимает (`POST /consents/accept`) и повторяет запрос.
+   */
+  private async requireConsent(userId: string): Promise<string> {
+    const acceptanceId = await this.consents.hasLive({ type: 'user', id: userId }, 'integration_google');
+    if (!acceptanceId) throw badRequest(CONSENT_ERROR_CODES.required, undefined, { documentKey: 'integration_google' });
+    return acceptanceId;
+  }
+
+  /** Учёт действий с ПДн: события календаря ушли в Google (трансгранично) на основании согласия. */
+  private async recordTransfer(userId: string, acceptanceId: string | null): Promise<void> {
+    await this.pdActions.record(null, { subjectId: userId, recipient: 'google_calendar', purpose: 'calendar_sync', consentAcceptanceId: acceptanceId });
+  }
+
   async getAuthUrl(userId: string): Promise<string> {
     this.assertConfigured();
+    await this.requireConsent(userId);
     return this.oauth().generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent', // force refresh_token every time
@@ -114,6 +152,8 @@ export class GoogleCalendarService implements OnModuleInit {
     this.assertConfigured();
     const userId = await this.verifyState(state);
     if (!userId) throw badRequest('google.badState');
+    // Согласие могли отозвать, пока человек был на экране Google, — токены без основания не храним
+    await this.requireConsent(userId);
 
     const o = this.oauth();
     const { tokens } = await o.getToken(code);
@@ -161,7 +201,8 @@ export class GoogleCalendarService implements OnModuleInit {
 
   async getStatus(userId: string): Promise<GoogleConnectionStatus> {
     const c = await this.db.googleConnection.findUnique({ where: { userId } });
-    if (!c) return { connected: false, email: null, syncCalendarId: null, syncCalendarName: null, tasksCalendarId: null, lastSyncedAt: null };
+    const consentRequired = !(await this.consents.hasLive({ type: 'user', id: userId }, 'integration_google'));
+    if (!c) return { connected: false, email: null, syncCalendarId: null, syncCalendarName: null, tasksCalendarId: null, lastSyncedAt: null, consentRequired };
     let name: string | null = SYNC_CAL_NAME;
     if (c.syncCalendarId) {
       try {
@@ -177,11 +218,12 @@ export class GoogleCalendarService implements OnModuleInit {
       syncCalendarName: name,
       tasksCalendarId: c.tasksCalendarId,
       lastSyncedAt: c.lastSyncedAt ? c.lastSyncedAt.toISOString() : null,
+      consentRequired,
     };
   }
 
-  async disconnect(userId: string): Promise<void> {
-    const c = await this.db.googleConnection.findUnique({ where: { userId } });
+  /** Отозвать доступ на стороне Google и остановить канал push-уведомлений — best-effort. */
+  private async revokeAtGoogle(c: GoogleConnection | null): Promise<void> {
     if (!c) return;
     try {
       const o = this.oauth();
@@ -194,7 +236,20 @@ export class GoogleCalendarService implements OnModuleInit {
       }
       await o.revokeToken(refresh);
     } catch { /* best-effort */ }
-    await this.db.googleConnection.delete({ where: { userId } });
+  }
+
+  /**
+   * Отключение = прекращение передачи: строка подключения и согласие `integration_google`
+   * гаснут одной транзакцией (следующее подключение спросит согласие заново). Отзыв служебный —
+   * хук отзыва не зовётся (иначе он удалял бы то же подключение второй раз).
+   */
+  async disconnect(userId: string): Promise<void> {
+    await this.revokeAtGoogle(await this.db.googleConnection.findUnique({ where: { userId } }));
+    const out = await this.db.$transaction(async (tx) => {
+      await tx.googleConnection.deleteMany({ where: { userId } });
+      return this.consents.revoke(tx, { subject: { type: 'user', id: userId }, documentKey: 'integration_google', actorUserId: userId, reason: 'integration_disconnected', system: true });
+    });
+    await out.afterCommit();
   }
 
   async listCalendars(userId: string): Promise<GoogleCalendarListItem[]> {
@@ -230,13 +285,16 @@ export class GoogleCalendarService implements OnModuleInit {
 
   /** Manual "sync now": pull remote changes + (re)export task deadlines. */
   async syncNow(userId: string): Promise<GoogleSyncResult> {
+    const acceptanceId = await this.requireConsent(userId);
     const pulled = await this.pullIncremental(userId);
     const pushedTasks = await this.exportTasks(userId);
+    await this.recordTransfer(userId, acceptanceId);
     return { pushed: pushedTasks, pulled: pulled.pulled, deleted: pulled.deleted };
   }
 
   /** Push every local own event lacking a Google id, then pull everything, then export tasks. */
   async fullSync(userId: string): Promise<void> {
+    const acceptanceId = await this.requireConsent(userId);
     const c = await this.requireConn(userId);
     if (!c.syncCalendarId) return;
     const cal = await this.client(c);
@@ -249,16 +307,23 @@ export class GoogleCalendarService implements OnModuleInit {
     }
     await this.pullIncremental(userId);
     await this.exportTasks(userId);
+    await this.recordTransfer(userId, acceptanceId);
   }
 
   /** Outbound: create/update one local event in Google (called by the EventBus listener). */
   async pushEvent(userId: string, eventId: string): Promise<void> {
     const c = await this.db.googleConnection.findUnique({ where: { userId } });
     if (!c?.syncCalendarId) return;
+    // Фоновая передача без живого согласия молча не делается (подключения прошлой эпохи ждут согласия)
+    const acceptanceId = await this.consents.hasLive({ type: 'user', id: userId }, 'integration_google');
+    if (!acceptanceId) return;
     const ev = await this.db.calendarEvent.findUnique({ where: { id: eventId } });
     if (!ev || ev.userId !== userId || ev.recurrenceParentId) return; // only own masters/standalone
     const cal = await this.client(c);
-    try { await this.pushEventWith(cal, c, ev); } catch (e) { this.logger.warn(`push ${eventId}: ${e instanceof Error ? e.message : e}`); }
+    try {
+      await this.pushEventWith(cal, c, ev);
+      await this.recordTransfer(userId, acceptanceId);
+    } catch (e) { this.logger.warn(`push ${eventId}: ${e instanceof Error ? e.message : e}`); }
   }
 
   /** Outbound deletion mirror. */
@@ -288,6 +353,8 @@ export class GoogleCalendarService implements OnModuleInit {
 
   /** Inbound incremental pull (events.list with syncToken; 410 → full resync). */
   async pullIncremental(userId: string): Promise<{ pulled: number; deleted: number }> {
+    // Фоновые пути (крон, вебхук Google) без живого согласия не работают: подключения прошлой эпохи ждут согласия
+    if (!(await this.consents.hasLive({ type: 'user', id: userId }, 'integration_google'))) return { pulled: 0, deleted: 0 };
     const c = await this.requireConn(userId);
     if (!c.syncCalendarId) return { pulled: 0, deleted: 0 };
     const cal = await this.client(c);
@@ -373,6 +440,7 @@ export class GoogleCalendarService implements OnModuleInit {
 
   /** One-way export of task deadlines into the dedicated tasks calendar (never pulled back). */
   async exportTasks(userId: string): Promise<number> {
+    if (!(await this.consents.hasLive({ type: 'user', id: userId }, 'integration_google'))) return 0;
     const c = await this.db.googleConnection.findUnique({ where: { userId } });
     if (!c?.tasksCalendarId) return 0;
     const cal = await this.client(c);

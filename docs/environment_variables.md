@@ -61,6 +61,7 @@
 - `WEB_PUSH_VAPID_PUBLIC_KEY` · `WEB_PUSH_VAPID_PRIVATE_KEY` — пара VAPID (`npx web-push generate-vapid-keys`); пусто → push выключен: тумблер «уведомления в этом браузере» и карточка в панели не показываются, доставки `skipped: driver_not_configured`, регистрация web-устройства отвечает `400 notification.push.notConfigured`.
 - `WEB_PUSH_SUBJECT` — контакт для push-служб по спецификации VAPID (`mailto:…` или `https://…`; дефолт `mailto:support@superapp6.kz`).
 - `KIT_USERNAME` / `KIT_PASSWORD` / `KIT_ORIGINATOR` — все три обязательны при kazinfoteh (уходят телом POST, не в query) · `KIT_URL` (пусто → боевой шлюз `kazinfoteh.org:9507/api`)
+- `CONSENTS_REQUIRED` — движок согласий ([consents_engine.md](consents_engine.md)): обязателен ли ЯВНЫЙ пакет согласий при создании организации. Пусто = secure-by-default (production → да); вне production без поля `consents` сервер принимает действующие версии сам (основание `dev_auto`); `true` — форс в dev; `false` в production → warn. Регистрация человека требует согласий ВСЕГДА — рубильника у неё нет
 - `VERIFY_REQUIRED` — пусто = secure-by-default (production → да); `true` форс в dev; `false` — аварийный рубильник в production (warn)
 - `VERIFY_TEST_PHONES` — тест-карта `"+7700…:111111,…"` (SMS не шлётся, фикс-код, лимиты скипаются; в production игнорируется) · `VERIFY_TEST_PHONES_ALLOW_PROD` (осознанный прод-смоук)
 - `VERIFY_SMS_HOURLY_BUDGET` (дефолт 200 = `VERIFY_LIMITS.globalHourlyBudgetDefault`) · `VERIFY_SMS_ORIGIN_DOMAIN` (origin-bound строка в SMS)
@@ -119,4 +120,4 @@ CSP пока `Content-Security-Policy-Report-Only` (`next.config.ts`); когд�
 
 Ошибки бута: `FILES_DRIVER=s3` → пять `S3_*` (кроме `S3_FORCE_PATH_STYLE`/`S3_PUBLIC_BASE_URL`) · любой `LIVEKIT_*` → все три · `LIVEKIT_EGRESS_DIR` → включённый LiveKit · `DOCS_EDITOR_URL` при пустом `API_PUBLIC_URL` → `DOCS_WOPI_PUBLIC_URL` · `SIGN_VERIFY_DRIVER=ncanode` → `NCANODE_URL` · `SIGN_QR_DRIVER=smartbridge` → три `SMARTBRIDGE_*` · `SMS_DRIVER=kazinfoteh` → три `KIT_*` · production → `REDIS_URL`, `KEYS_ROOT_KEY_FILE` существует, legacy-секрет только с датой `KEYS_LEGACY_HS256_UNTIL` в будущем, `WEBHOOKS_DEV_LOOPBACK` ≠ true, флаги `--inspect*`/`--heapsnapshot-*` запрещены · `PLATFORM_JWT_SECRET`/`DOCS_TOKEN_SECRET`/`SHARE_LINK_SECRET` заданы после конца legacy-окна → ошибка · URL-поля обязаны быть URL, `APP_TIMEZONE` — IANA-зоной.
 
-Только warn в production: `FILES_DRIVER=local` · пустой `TRUST_PROXY` · `VERIFY_REQUIRED=false` · `SMS_DRIVER≠kazinfoteh` · нет верификатора ЭЦП · задан `LIVEKIT_EGRESS_DIR`.
+Только warn в production: `FILES_DRIVER=local` · пустой `TRUST_PROXY` · `VERIFY_REQUIRED=false` · `CONSENTS_REQUIRED=false` · `SMS_DRIVER≠kazinfoteh` · нет верификатора ЭЦП · задан `LIVEKIT_EGRESS_DIR`.

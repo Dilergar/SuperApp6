@@ -9,6 +9,7 @@ import { EntitlementsService } from '../entitlements/entitlements.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { VerifySmsService } from '../verify/verify.sms';
+import { ConsentsActionsService } from '../consents/consents.actions.service';
 import { NOTIFICATION_JOBS, NOTIFICATION_QUEUE, NOTIFICATION_REDIS } from './notifications.constants';
 import { NotificationChannelRegistry, type PushDevice, type PushMessage } from './notifications.registry';
 import { NotificationsRenderer } from './notifications.render';
@@ -55,6 +56,7 @@ export class NotificationsDelivery implements OnModuleInit {
     private readonly renderer: NotificationsRenderer,
     private readonly notifications: NotificationsService,
     private readonly entitlements: EntitlementsService,
+    private readonly pdActions: ConsentsActionsService,
   ) {}
 
   onModuleInit(): void {
@@ -212,6 +214,8 @@ export class NotificationsDelivery implements OnModuleInit {
         data: { status: 'sent', sentAt: new Date(), attempts: { increment: 1 }, providerMessageId: summary ? `summary:${fresh.length}` : null },
       });
       await slidingRecord(this.redis, NOTIFICATION_REDIS.burst(userId), NOTIFICATION_LIMITS.pushBurst.windowSec).catch(() => undefined);
+      // Учёт действий с ПДн: токен устройства и текст ушли службе доставки браузера (трансгранично)
+      await this.pdActions.record(null, { subjectId: userId, recipient: 'web_push', purpose: 'notification_push', refType: 'notification', refId: first.notificationId ?? null });
     } else {
       const anyLive = devices.some((d) => this.channels.push(d.provider as PushDevice['provider'])?.live);
       await this.db.notificationDelivery.updateMany({
@@ -328,6 +332,8 @@ export class NotificationsDelivery implements OnModuleInit {
       return;
     }
     await slidingRecord(this.redis, userKey, 86_400).catch(() => undefined);
+    // Учёт действий с ПДн: номер и текст ушли SMS-шлюзу
+    await this.pdActions.record(null, { subjectId: d.userId, recipient: 'kazinfoteh', purpose: 'notification_sms', refType: 'notification_delivery', refId: String(deliveryId) });
     await this.db.notificationDelivery.update({
       where: { id: deliveryId },
       data: { status: 'sent', sentAt: new Date(), attempts: { increment: 1 }, providerMessageId: (res as { providerMessageId?: string | null }).providerMessageId ?? null },

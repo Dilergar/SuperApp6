@@ -34,13 +34,26 @@ async function call(method, p, body) {
   return { status: res.status, ok: res.ok, json };
 }
 
+// Согласия (core/consents): регистрация без пакета `registration` отвергается всегда, а уже
+// существующие аккаунты после публикации новых версий ждёт блокирующий экран — сид принимает
+// за них всё, что ждёт принятия (идемпотентно), чтобы сьюты и человек не упирались в шлюз.
+const { registrationConsents, acceptAllPending } = require('./_consents.cjs');
+const DOB = '1990-01-01';
+
 async function main() {
   let fails = 0;
+  const consents = await registrationConsents(BASE);
   for (const a of ACCOUNTS) {
-    const r = await call('POST', '/auth/register', { ...a, password: PW });
+    const r = await call('POST', '/auth/register', { ...a, password: PW, dateOfBirth: DOB, consents });
     if (r.ok) console.log(`✓ создан  ${a.phone}`);
     else if (r.status === 409) console.log(`• уже есть ${a.phone}`);
-    else { console.log(`✗ ${a.phone} → ${r.status} ${JSON.stringify(r.json)}`); fails++; }
+    else { console.log(`✗ ${a.phone} → ${r.status} ${JSON.stringify(r.json)}`); fails++; continue; }
+    const login = await call('POST', '/auth/login', { phone: a.phone, password: PW });
+    const token = login.json?.data?.accessToken;
+    if (!token) { console.log(`  ✗ вход ${a.phone} → ${login.status}`); fails++; continue; }
+    const acc = await acceptAllPending(BASE, token);
+    if (acc.ok && acc.accepted > 0) console.log(`  ✓ принято документов: ${acc.accepted}`);
+    else if (!acc.ok) { console.log(`  ✗ согласия ${a.phone} → ${acc.status}`); fails++; }
   }
   if (fails > 0) process.exit(1);
 }

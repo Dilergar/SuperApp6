@@ -9,10 +9,13 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { WorkspacesService } from './workspaces.service';
 import { NoApiKeys } from '../../shared/decorators/api-keys.decorator';
+import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
 import {
   CurrentUser,
   type JwtPayload,
@@ -45,9 +48,11 @@ export class WorkspacesController {
 
   @Post()
   @ApiOperation({ summary: 'Create an organization' })
-  async create(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+  async create(@CurrentUser() user: JwtPayload, @Body() body: unknown, @Req() req: Request) {
     const data = createWorkspaceSchema.parse(body);
-    const ws = await this.workspaces.createWorkspace(user.sub, data);
+    const ua = req.headers['user-agent'];
+    // IP и User-Agent — часть доказательства согласия владельца (core/consents); IP только из `req.ip`
+    const ws = await this.workspaces.createWorkspace(user.sub, data, { ip: req.ip ?? null, userAgent: typeof ua === 'string' ? ua : null });
     return { success: true, data: ws };
   }
 
@@ -191,6 +196,10 @@ export class WorkspacesController {
     return { success: true, data: ws };
   }
 
+  // Вне шлюза согласий: владелец, НЕ принимающий новые условия, обязан иметь выход — удалить аккаунт.
+  // Единственное владение организацией удаление блокирует (мотивированный отказ), поэтому архив,
+  // передача владения и список сотрудников (кому передать) работают и за блокирующим экраном.
+  @SkipConsentGate()
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Deactivate the organization (owner)' })
@@ -208,6 +217,7 @@ export class WorkspacesController {
     return { success: true };
   }
 
+  @SkipConsentGate()
   @NoApiKeys()
   @Post(':id/transfer')
   @HttpCode(HttpStatus.OK)
@@ -233,6 +243,7 @@ export class WorkspacesController {
 
   // ----- Members -----
 
+  @SkipConsentGate()
   @Get(':id/members')
   @ApiOperation({ summary: 'The employees of the organization' })
   async members(@CurrentUser() user: JwtPayload, @Param('id') id: string) {

@@ -1,4 +1,5 @@
-import { Controller, Post, Body, HttpCode, HttpStatus, Headers } from '@nestjs/common';
+import { Controller, Post, Body, HttpCode, HttpStatus, Headers, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -10,6 +11,7 @@ import {
   refreshTokenSchema,
   passwordResetCompleteSchema,
 } from '@superapp/shared';
+import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
 
 /**
  * User-Agent берём из заголовка ЗДЕСЬ и передаём в сервис: он уезжает в
@@ -23,6 +25,8 @@ function deviceInfoOf(userAgent?: string): string | null {
 }
 
 @ApiTags('Auth')
+// Вход, выход и обновление токена работают и за блокирующим экраном согласий
+@SkipConsentGate()
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
@@ -31,9 +35,10 @@ export class AuthController {
   @Post('register')
   @Throttle({ long: { limit: 5, ttl: 900000 } })
   @ApiOperation({ summary: 'Register a new user' })
-  async register(@Body() body: unknown, @Headers('user-agent') userAgent?: string) {
+  async register(@Body() body: unknown, @Req() req: Request, @Headers('user-agent') userAgent?: string) {
     const data = registerSchema.parse(body);
-    const tokens = await this.authService.register(data, deviceInfoOf(userAgent));
+    // IP и User-Agent — часть доказательства согласия (core/consents); IP только из `req.ip` (TRUST_PROXY)
+    const tokens = await this.authService.register(data, deviceInfoOf(userAgent), { ip: req.ip ?? null, userAgent: userAgent ?? null });
     return { success: true, data: tokens };
   }
 

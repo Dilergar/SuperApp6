@@ -143,6 +143,67 @@ export class KeysSigningService {
     return this.store.provider.verify(v.publicKey, Buffer.from(data, 'utf8'), Buffer.from(sig, 'base64url'));
   }
 
+  /**
+   * АРХИВНАЯ проверка сырой подписи — для артефактов, живущих дольше ключа (версии согласий:
+   * подпись ставится один раз и обязана проверяться годами). В отличие от `verifyRaw`,
+   * принимает версии, выведенные ротацией (`destroy_scheduled`, `destroyed`: материал стёрт,
+   * публичный ключ остаётся), и ОТВЕРГАЕТ:
+   *  - `disabled` и `pending` — версия не вправе была подписывать;
+   *  - любую версию с меткой `compromisedAt` — kill-switch при компрометации, навсегда;
+   *  - подпись, чей заявленный момент `signedAt` лежит вне окна жизни версии
+   *    (создана … выключена): украденный ПОЗЖЕ ключ не подделает артефакт «задним числом»
+   *    внутри окна без доступа к базе, а вне окна — не подделает вовсе.
+   * Возвращает false на любой отказ; причина — в `reason` (только для лога и панели).
+   */
+  async verifyArchival(
+    audience: SigningAudience,
+    input: { kid: string; data: string; sig: string; signedAt: Date },
+  ): Promise<{ ok: boolean; reason?: 'format' | 'kid' | 'state' | 'compromised' | 'window' | 'signature' }> {
+    const { kid, data, sig, signedAt } = input;
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(kid) || !/^[A-Za-z0-9_-]{60,120}$/.test(sig)) return { ok: false, reason: 'format' };
+    const v = await this.store.version(kid);
+    if (!v || v.scope !== PLATFORM_SCOPE || v.purpose !== 'sign' || v.name !== audience || !v.publicKey) return { ok: false, reason: 'kid' };
+    if (v.compromisedAt) return { ok: false, reason: 'compromised' };
+    if (v.state !== 'active' && v.state !== 'destroy_scheduled' && v.state !== 'destroyed') return { ok: false, reason: 'state' };
+    const toleranceMs = KEYS_LIMITS.archivalClockToleranceSec * 1000;
+    const from = (v.activatedAt ?? v.createdAt).getTime() - toleranceMs;
+    const until = (v.deactivatedAt ?? v.destroyScheduledAt ?? v.destroyedAt)?.getTime();
+    const at = signedAt.getTime();
+    if (!Number.isFinite(at) || at < from || (until !== undefined && at > until + toleranceMs)) return { ok: false, reason: 'window' };
+    const ok = await this.store.provider.verify(v.publicKey, Buffer.from(data, 'utf8'), Buffer.from(sig, 'base64url'));
+    return ok ? { ok: true } : { ok: false, reason: 'signature' };
+  }
+
+  /**
+   * Компрометация версии подписи: если это primary — СНАЧАЛА новая версия сразу `active`
+   * (primary-указатель переезжает в той же транзакции создания), затем метка на старую.
+   * Внешним верификаторам (JWKS) новая версия видна сразу — эпоха store поднимается.
+   * Артефакты, подписанные скомпрометированной версией, перезаверяет их владелец
+   * (согласия — команда `consents.versions.reattest`).
+   */
+  async compromise(audience: SigningAudience, kid: string, actor: { actorId?: string | null; actorKind?: string; reason?: string | null }): Promise<{ compromised: boolean; newPrimaryKid: string | null }> {
+    const v = await this.store.version(kid);
+    if (!v || v.scope !== PLATFORM_SCOPE || v.purpose !== 'sign' || v.name !== audience) return { compromised: false, newPrimaryKid: null };
+    const key = await this.store.ensureKey(PLATFORM_SCOPE, 'sign', audience);
+    let newPrimaryKid: string | null = null;
+    let compromised = false;
+    if (key.primaryKid === kid) {
+      // Одна транзакция: новая primary и метка на старую — без окна «primary скомпрометирована, замены нет»
+      newPrimaryKid = await this.store.createVersion(
+        key.id,
+        'active',
+        { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'platform', reason: actor.reason ?? 'compromise of the primary version' },
+        async (tx) => {
+          compromised = await this.store.markCompromised(kid, actor, tx);
+        },
+      );
+    } else {
+      compromised = await this.store.markCompromised(kid, actor);
+    }
+    this.jwksCache = null;
+    return { compromised, newPrimaryKid };
+  }
+
   /** Публичный ключ primary-версии аудитории (для получателей вебхуков с Ed25519). */
   async publicKeyOf(audience: SigningAudience): Promise<{ kid: string; publicKey: string }> {
     const v = await this.primary(audience);

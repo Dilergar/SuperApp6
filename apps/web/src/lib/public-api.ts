@@ -3,6 +3,12 @@ import { readLocaleCookie } from '@/i18n/locale';
 import {
   LOCALE_HEADER,
   type ApiOk,
+  type ConsentBundleDto,
+  type ConsentBundleKey,
+  type ConsentDocumentDto,
+  type ConsentDocumentKey,
+  type ConsentVersionRefDto,
+  type Locale,
   type ShareDriveNodesPage,
   SHARE_SESSION_HEADER,
   type ShareDriveNodeDto,
@@ -187,4 +193,28 @@ export function shareDriveZipUrl(session: string, nodeId?: string): string {
 export function shareSignPackageUrl(session: string, kind: 'stamped' | 'zip'): string {
   const params = new URLSearchParams({ session, kind });
   return `${API_URL}/sign/guest/package?${params.toString()}`;
+}
+
+// ============================================================
+// Документы платформы (core/consents) — чтения @Public: регистрация (аккаунта ещё нет),
+// витрина /legal и блокирующий экран рисуют ОДИН и тот же текст. Гостевой инстанс, а не
+// обычный `api`: на экране регистрации и на публичной витрине перехватчик 401 не нужен.
+// Язык документа человек выбирает сам — он передаётся явно, а не заголовком.
+// ============================================================
+
+export function fetchConsentBundle(bundleKey: ConsentBundleKey): Promise<ConsentBundleDto> {
+  return guestGet<ConsentBundleDto>(`/consents/bundles/${bundleKey}`);
+}
+
+export function fetchConsentDocument(documentKey: ConsentDocumentKey, locale: Locale, version?: number): Promise<ConsentDocumentDto> {
+  const path = version === undefined ? `/consents/documents/${documentKey}` : `/consents/documents/${documentKey}/v/${version}`;
+  return guestGet<ConsentDocumentDto>(path, { params: { locale } });
+}
+
+export function fetchConsentVersion(versionId: string, locale: Locale): Promise<ConsentDocumentDto> {
+  return guestGet<ConsentDocumentDto>(`/consents/versions/${versionId}`, { params: { locale } });
+}
+
+export function fetchConsentArchive(documentKey: ConsentDocumentKey): Promise<ConsentVersionRefDto[]> {
+  return guestGet<ConsentVersionRefDto[]>(`/consents/documents/${documentKey}/versions`);
 }

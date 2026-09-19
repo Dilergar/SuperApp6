@@ -5,8 +5,10 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { badRequest, conflict, unauthorized } from '../../shared/errors/api-error';
-import { KEYS_LIMITS } from '@superapp/shared';
+import { badRequest, conflict, forbidden, unauthorized } from '../../shared/errors/api-error';
+import { CONSENT_AGE, CONSENT_ERROR_CODES, KEYS_LIMITS, ageOnDate, consentSelectionSchema, platformTodayIso, type ConsentSelectionInput } from '@superapp/shared';
+import { ConsentsService } from '../consents/consents.service';
+import { ConsentsActionsService } from '../consents/consents.actions.service';
 import { KeysSigningService } from '../keys/keys.signing.service';
 import { legacySecret } from '../keys/keys.legacy';
 import { parseDurationSec } from '../keys/keys.jwt';
@@ -46,6 +48,8 @@ export class AuthService {
     private entitlements: EntitlementsService,
     private analytics: AnalyticsService,
     private keysCascades: KeysCascadesService,
+    private consents: ConsentsService,
+    private pdActions: ConsentsActionsService,
   ) {}
 
   async register(data: {
@@ -53,14 +57,23 @@ export class AuthService {
     password: string;
     firstName: string;
     lastName?: string;
-    dateOfBirth?: string; // ISO YYYY-MM-DD
+    dateOfBirth: string; // ISO YYYY-MM-DD — обязательна (возраст ≥ 16)
     verifyToken?: string; // одноразовый пропуск движка подтверждений (purpose=register)
-  }, deviceInfo?: string | null): Promise<AuthTokens> {
+    /** Только для сред без SMS-подтверждения; при `verifyToken` игнорируется — правда в SMS-цепочке */
+    consents?: ConsentSelectionInput;
+  }, deviceInfo?: string | null, evidence: { ip?: string | null; userAgent?: string | null } = {}): Promise<AuthTokens> {
     // Secure-by-default (движок core/verify): в production аккаунт без подтверждённого
     // SMS-кодом номера создать нельзя — иначе возвращается дыра «занял чужой номер —
     // получил его приглашения». В development/test токен опционален (seed/verify-скрипты).
     if (this.verify.required && !data.verifyToken) {
       throw badRequest('auth.verifyRequired');
+    }
+
+    // Возраст: регистрация с 16 лет (ГК РК ст. 22 + оговорка оферты о согласии представителя).
+    // «Сегодня» — в поясе платформы: по UTC до 05:00 Алматы ещё вчера, и день рождения сдвигался бы.
+    const age = ageOnDate(data.dateOfBirth, platformTodayIso());
+    if (!Number.isFinite(age) || age < CONSENT_AGE.minRegistration) {
+      throw forbidden(CONSENT_ERROR_CODES.minorNotAllowed, { age: CONSENT_AGE.minRegistration });
     }
 
     // Check if phone already exists
@@ -79,16 +92,24 @@ export class AuthService {
     const hashedPassword = await bcrypt.hash(data.password, 12);
 
     // Create user + system role + trial subscription in one transaction
+    let consentsAfterCommit: (() => Promise<void>) | null = null;
     const user = await this.db.$transaction(async (tx) => {
       // Гашение пропуска — В ТРАНЗАКЦИИ создания (откат = пропуск не потрачен).
       // expectedPhone гарантирует: подтверждён именно ТОТ номер, на который регистрируемся.
+      let chain: Awaited<ReturnType<VerifyService['consume']>> | null = null;
       if (data.verifyToken) {
-        await this.verify.consume(tx, {
+        chain = await this.verify.consume(tx, {
           verifyToken: data.verifyToken,
           purpose: 'register',
           expectedPhone: data.phone,
         });
       }
+      // Что человек принял. С SMS-цепочкой — ТОЛЬКО её контекст (принято ДО отправки кода; тело
+      // шага 3 не читается: иначе согласие можно было бы «дорисовать» позже). Без цепочки
+      // (development/test) — тело запроса.
+      const parsedCtx = chain ? consentSelectionSchema.safeParse(chain.context) : null;
+      const selection = chain ? (parsedCtx?.success ? parsedCtx.data : null) : data.consents ?? null;
+      if (!selection) throw badRequest(CONSENT_ERROR_CODES.required);
 
       const newUser = await tx.user.create({
         data: {
@@ -132,11 +153,36 @@ export class AuthService {
         payload: { userId: newUser.id, phone: newUser.phone },
         uniqueKey: `phone-invites:${newUser.id}:${newUser.phone}`,
       });
+      // Записи приёмки — в ЭТОЙ ЖЕ транзакции, что гашение пропуска и создание аккаунта: аккаунта
+      // без согласия не существует ни мгновения. По записи на документ, общий `bundleKey`;
+      // обязательные документы пакета сверяет движок (`requireBundle`), рассылки — по выбору.
+      const accepted = await this.consents.accept(tx, {
+        subject: { type: 'user', id: newUser.id },
+        actorUserId: newUser.id,
+        actorRole: 'self',
+        versionIds: selection.versionIds,
+        locale: selection.locale,
+        channel: selection.channel,
+        bundleKey: 'registration',
+        requireBundle: 'registration',
+        evidence: { ip: evidence.ip ?? null, userAgent: evidence.userAgent ?? null, verifyChallengeId: chain?.challengeId ?? null },
+        acceptedAt: chain?.startedAt,
+        // Квитанция новичку не шлётся: первое, что он видит, — не уведомление о собственной галочке
+        notify: false,
+      });
+      consentsAfterCommit = accepted.afterCommit;
+      // Учёт действий с ПДн: код регистрации ушёл SMS-шлюзу ещё до аккаунта — запись ставится сейчас
+      if (chain?.smsSent) {
+        await this.pdActions.record(tx, { subjectId: newUser.id, recipient: 'kazinfoteh', fields: ['phone'], purpose: 'otp_sms', refType: 'verify_challenge', refId: chain.challengeId });
+      }
+
       // Аналитика: факт регистрации — в той же транзакции (откат = события нет)
       await this.analytics.track(tx, 'auth.user.registered', { verified: !!data.verifyToken }, { userId: newUser.id, workspaceId: null });
 
       return newUser;
     });
+    // Кэши шлюза согласий — после коммита (сброс внутри транзакции гонится с чтением)
+    await (consentsAfterCommit as (() => Promise<void>) | null)?.().catch(() => undefined);
 
     // Generate tokens — system role goes into JWT
     return this.generateTokens(user.id, user.phone, 'user', user.tokenEpoch, deviceInfo);

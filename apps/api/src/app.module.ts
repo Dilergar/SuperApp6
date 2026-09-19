@@ -41,6 +41,9 @@ import { PlatformAuthGuard } from './core/platform/platform-auth.guard';
 import { AnalyticsModule } from './core/analytics/analytics.module';
 import { KeysModule } from './core/keys/keys.module';
 import { WebhooksModule } from './core/webhooks/webhooks.module';
+import { ConsentsGateModule } from './core/consents/gate/consents-gate.module';
+import { ConsentsModule } from './core/consents/consents.module';
+import { ConsentGateGuard } from './shared/guards/consent-gate.guard';
 import { KeyScopeGuard } from './core/keys/api-keys/key-scope.guard';
 import { ApiKeyAccessInterceptor } from './core/keys/api-keys/keys.usage.cron';
 import { DocumentsModule } from './modules/documents/documents.module';
@@ -105,6 +108,8 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     RedisModule,
     MetricsModule,
     // Живость/отзыв сессии — общая проверка для HTTP (JwtStrategy) и рукопожатия сокета.
+    // Ядро шлюза согласий — ДО валидатора сессий: он держит его для рукопожатия сокета
+    ConsentsGateModule,
     SessionValidatorModule,
     EventBusModule,
     // Keys engine — 22-й платформенный движок: keystore (KEK на организацию/человека,
@@ -113,6 +118,7 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // append-only. Идёт ДО auth: подпись токенов и HMAC кодов живут здесь: docs/keys_engine.md.
     KeysModule,
     WebhooksModule,
+    ConsentsModule,
 
     // Core — auth, users & universal identity
     AuthModule,
@@ -272,6 +278,13 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     {
       provide: APP_GUARD,
       useClass: KeyScopeGuard,
+    },
+    // Шлюз согласий (core/consents): непринятые обязательные документы после даты вступления →
+    // `403 consents.pending` на всём, кроме `@SkipConsentGate()`. ПОСЛЕ аутентификации и скоупов;
+    // кабинет платформы и боты — вне шлюза
+    {
+      provide: APP_GUARD,
+      useClass: ConsentGateGuard,
     },
     // Establishes the active-workspace context (chokepoint) after auth runs.
     {

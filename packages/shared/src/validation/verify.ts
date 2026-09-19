@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { passwordSchema, kzMobilePhoneSchema } from './auth';
 import { VERIFY_PURPOSES, VERIFY_LIMITS } from '../constants/verify';
+import { consentSelectionSchema } from './consents';
 
 // ============================================================
 // Движок подтверждений (core/verify) — Zod-схемы
@@ -14,6 +15,12 @@ export const verifyStartSchema = z.object({
   purpose: verifyPurposeSchema,
   // Слот под CAPTCHA (Cloudflare Turnstile) — включается env-флагом при выходе в прод.
   captchaToken: z.string().max(4096).optional(),
+  /**
+   * Цель `register`: что человек принял ДО отправки SMS (отправка кода — уже обработка
+   * номера). Без поля старт регистрации отвергается, SMS не уходит; принятое кладётся в
+   * `VerifyChallenge.context`, и записи приёмки строятся ИЗ НЕГО, а не из тела шага 3.
+   */
+  consents: consentSelectionSchema.optional(),
 });
 
 /**
@@ -25,7 +32,7 @@ export const verifyStartSchema = z.object({
  */
 export const verifyStepUpSchema = z
   .object({
-    purpose: z.enum(['password_change', 'phone_change_old', 'phone_change_new', 'keys_manage']),
+    purpose: z.enum(['password_change', 'phone_change_old', 'phone_change_new', 'keys_manage', 'account_delete']),
     password: z.string().min(1, 'validation.verify.passwordRequired'),
     newPhone: kzMobilePhoneSchema.optional(),
   })
@@ -68,6 +75,19 @@ export const changePhoneSchema = z.object({
   newVerifyToken: verifyTokenSchema, // purpose=phone_change_new, отправлен на НОВЫЙ номер
   currentRefreshToken: z.string().min(1).optional(),
 });
+
+/**
+ * DELETE /users/me — удаление аккаунта (= отзыв согласия на обработку ПДн): пароль + SMS-пропуск
+ * цели `account_delete`. На уровне схемы пропуск опционален: ОБЯЗАТЕЛЬНОСТЬ решает сервер
+ * (secure-by-default — в production без него отказ; development/test живут без SMS).
+ */
+export const deleteAccountSchema = z
+  .object({
+    password: z.string().min(1, 'validation.verify.passwordRequired'),
+    verifyToken: verifyTokenSchema.optional(),
+  })
+  .strict();
+export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;
 
 export type VerifyStartInput = z.infer<typeof verifyStartSchema>;
 export type VerifyCheckInput = z.infer<typeof verifyCheckSchema>;

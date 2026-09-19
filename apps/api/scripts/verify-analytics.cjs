@@ -136,8 +136,9 @@ const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000
     check('первая связь неизменна, помечена contested', link?.userId === s1.id && link?.contested === true);
 
     // ---- 5. Отказ человека: клиентское не пишется, серверный факт пишется с сессией ----
-    const off = await call('PATCH', '/analytics/consent', s2.token, { optOut: true });
-    check('consent optOut=true', off.ok && off.json?.data?.optOut === true);
+    // Отказ — согласие вида `analytics` движка согласий (правда), `users.analyticsOptOut` — его зеркало
+    const off = await call('POST', '/consents/revoke', s2.token, { documentKey: 'analytics' });
+    check('отказ от аналитики записан движком согласий', off.ok && off.json?.data?.revoked === 1, JSON.stringify(off.json).slice(0, 160));
     const consent = await call('GET', '/analytics/consent', s2.token);
     check('consent читается', consent.json?.data?.optOut === true);
     const optedEvent = ev('navigation.page.viewed', { route: '/dashboard', service: 'dashboard' });
@@ -159,7 +160,10 @@ const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000
     });
     check('business-факт записан несмотря на отказ', !!fact);
     check('серверное событие несёт сессию из X-Analytics-Session', fact?.session_id === sessionB, fact?.session_id);
-    await call('PATCH', '/analytics/consent', s2.token, { optOut: false });
+    {
+      const doc = await call('GET', '/consents/documents/analytics', null);
+      await call('POST', '/consents/accept', s2.token, { versionIds: [doc.json?.data?.versionId], locale: 'ru', channel: 'api' });
+    }
 
     // ---- 6. Ретрай того же батча ----
     await call('POST', '/analytics/collect', s1.token, body(b1));
@@ -222,7 +226,9 @@ const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000
     check('journeys отвечает', journeys.ok && Array.isArray(journeys.json?.data?.result?.pairs));
     const byPlan = await q({ type: 'breakdown', range, by: 'plan', metric: 'users', excludeInternal: false });
     const planRows = byPlan.json?.data?.result?.rows ?? [];
-    check('k-анонимность: ячейки тарифа < 20 человек скрыты', byPlan.ok && planRows.length > 0 && planRows.every((r) => r.masked && r.value === null), JSON.stringify(planRows));
+    // Инвариант, не зависящий от объёма данных дня: ячейка либо скрыта (значения нет), либо в ней ≥ 20 человек.
+    // Прежняя форма («скрыты все») краснела в любой день, когда активных набиралось двадцать.
+    check('k-анонимность: ячейки тарифа < 20 человек скрыты', byPlan.ok && planRows.length > 0 && planRows.some((r) => r.masked) && planRows.every((r) => (r.masked ? r.value === null : r.value >= 20)), JSON.stringify(planRows));
     const byWs = await q({ type: 'breakdown', range, by: 'workspace', metric: 'users', excludeInternal: false });
     check('k-анонимность: организации скрыты, «личное» — нет', byWs.ok && (byWs.json?.data?.result?.rows ?? []).every((r) => r.key === 'personal' || r.masked));
     const eu = await q({ type: 'trend', range, metric: 'event_users', eventKey: 'tasks.task.created', excludeInternal: false });
@@ -344,7 +350,10 @@ const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000
       await prisma.analyticsQuarantine.deleteMany({ where: { eventKey: 'suite.unknown.key' } });
       await prisma.analyticsReport.deleteMany({ where: { title: 'suite report', createdBy: s1?.id } });
       await prisma.analyticsDashboard.deleteMany({ where: { title: 'suite board', createdBy: s1?.id } });
-      if (s2) await call('PATCH', '/analytics/consent', s2.token, { optOut: false });
+      if (s2) {
+        const doc = await call('GET', '/consents/documents/analytics', null);
+        await call('POST', '/consents/accept', s2.token, { versionIds: [doc.json?.data?.versionId], locale: 'ru', channel: 'api' });
+      }
     } catch (err) {
       console.error('cleanup failed:', err?.message);
     }

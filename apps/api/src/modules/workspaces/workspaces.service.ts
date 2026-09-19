@@ -19,6 +19,10 @@ import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { ApprovalsService } from '../../core/approvals/approvals.service';
 import { EntitlementsService } from '../../core/entitlements/entitlements.service';
 import { AnalyticsService } from '../../core/analytics/analytics.service';
+import { ConsentsService } from '../../core/consents/consents.service';
+import { ConsentsDocumentsService } from '../../core/consents/consents.documents.service';
+import { consentsRequired } from '../../shared/config/env.validation';
+import type { ConsentSelectionInput } from '@superapp/shared';
 import { RedisService } from '../../shared/redis/redis.service';
 import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
@@ -106,6 +110,8 @@ export class WorkspacesService implements OnModuleInit {
     private analytics: AnalyticsService,
     private keysCascades: KeysCascadesService,
     private webhooks: WebhooksService,
+    private consents: ConsentsService,
+    private consentDocs: ConsentsDocumentsService,
   ) {}
 
   /**
@@ -159,7 +165,23 @@ export class WorkspacesService implements OnModuleInit {
   // Workspace CRUD
   // ============================================================
 
-  async createWorkspace(userId: string, data: { name: string; logo?: string }): Promise<Workspace> {
+  async createWorkspace(
+    userId: string,
+    data: { name: string; logo?: string; consents?: ConsentSelectionInput },
+    evidence: { ip?: string | null; userAgent?: string | null } = {},
+  ): Promise<Workspace> {
+    // Согласия пакета `workspace_creation` сверяются ДО транзакции: нет пакета — нет организации.
+    // Вне production поле может отсутствовать: сервер принимает действующие версии сам и честно
+    // помечает основание `dev_auto` (сиды и сьюты живут без правок; образец — VERIFY_REQUIRED).
+    let selection: ConsentSelectionInput | null = data.consents ?? null;
+    let autoAccepted = false;
+    if (selection || consentsRequired()) {
+      await this.consentDocs.assertBundleSelection('workspace_creation', selection);
+    } else if (await this.consentDocs.bundleReady('workspace_creation')) {
+      selection = { versionIds: await this.consents.currentBundleVersionIds('workspace_creation'), locale: this.i18n.locale, channel: 'api' };
+      autoAccepted = true;
+    }
+    let consentsAfterCommit: (() => Promise<void>) | null = null;
     const ws = await this.db.$transaction(async (tx) => {
       // Потолок «сколько организаций во владении» — тариф человека (core/entitlements):
       // COUNT под advisory-локом в этой же транзакции, два одновременных создания
@@ -202,9 +224,27 @@ export class WorkspacesService implements OnModuleInit {
           ...this.legal.defaultSignBasis(),
         },
       });
+      // Запись приёмки — в ЭТОЙ ЖЕ транзакции: организации без принятых условий не существует
+      if (selection) {
+        const accepted = await this.consents.accept(tx, {
+          subject: { type: 'workspace', id: w.id },
+          actorUserId: userId,
+          actorRole: 'org_owner',
+          actorBasis: autoAccepted ? 'dev_auto' : 'workspace_owner',
+          versionIds: selection.versionIds,
+          locale: selection.locale,
+          channel: selection.channel,
+          bundleKey: 'workspace_creation',
+          requireBundle: 'workspace_creation',
+          evidence: { ip: evidence.ip ?? null, userAgent: evidence.userAgent ?? null },
+          notify: !autoAccepted,
+        });
+        consentsAfterCommit = accepted.afterCommit;
+      }
       await this.analytics.track(tx, 'workspaces.workspace.created', {}, { userId, workspaceId: w.id });
       return w;
     });
+    await (consentsAfterCommit as (() => Promise<void>) | null)?.().catch(() => undefined);
 
     // The role row was written directly in the tx (bypassing RolesService), so its
     // cache wasn't busted — do it now, after commit.
@@ -623,6 +663,7 @@ export class WorkspacesService implements OnModuleInit {
     const chatIds = chats.map((c) => c.id);
     const refIds = [workspaceId, ...taskIds];
 
+    let consentsAfterPurge: (() => Promise<void>) | null = null;
     await this.db.$transaction(async (tx) => {
       // Ключи API и боты организации гаснут, KEK — на уничтожение (crypto-shredding, 30 дней)
       await this.keysCascades.onWorkspacePurge(tx, workspaceId);
@@ -630,6 +671,9 @@ export class WorkspacesService implements OnModuleInit {
       await this.entitlements.forgetSubject(tx, { type: 'workspace', id: workspaceId });
       // Аналитика: роллапы с измерением организации — сразу, сырьё — джобом
       await this.analytics.forgetWorkspace(tx, workspaceId);
+      // Согласия организации (условия для организаций, соглашение об обработке ПДн) прекращаются
+      // вместе с ней; сами записи приёмки остаются — это доказательство, а не данные организации
+      consentsAfterPurge = (await this.consents.revokeAllForSubject(tx, { type: 'workspace', id: workspaceId }, 'workspace_purged', null)).afterCommit;
       await tx.searchDocument.deleteMany({ where: { chatId: { in: chatIds } } });
       await tx.chat.deleteMany({ where: { id: { in: chatIds } } }); // каскад: сообщения, участники, отложенные
       await tx.chatterEntry.deleteMany({
@@ -665,6 +709,8 @@ export class WorkspacesService implements OnModuleInit {
 
     // KEK организации ушёл на уничтожение — кэши keystore сбрасываются ПОСЛЕ коммита
     await this.keysCascades.afterScopeDestroyCommitted();
+    // Кэш мягкого шлюза согласий организации — после коммита
+    await (consentsAfterPurge as (() => Promise<void>) | null)?.().catch(() => undefined);
     await this.roles.invalidateUserCache(ws.ownerId);
     await this.redis.invalidateUserProfile(ws.ownerId);
     this.logger.log(`Workspace ${workspaceId} purged by the archive retention`);

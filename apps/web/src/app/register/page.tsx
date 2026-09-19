@@ -2,7 +2,9 @@
 
 /**
  * Регистрация — verify-first, 3 шага (модель Kaspi/WhatsApp, движок core/verify):
- *   1. номер → SMS-код (занятый номер узнаётся СРАЗУ, не после заполнения формы)
+ *   1. номер + СОГЛАСИЯ → SMS-код (занятый номер узнаётся СРАЗУ, не после заполнения формы).
+ *      Галочки стоят здесь, ДО SMS: отправка кода — уже обработка номера (core/consents);
+ *      сервер кладёт принятое в SMS-цепочку и строит записи приёмки из неё, а не из шага 3.
  *   2. код из SMS → одноразовый verifyToken
  *   3. имя/пароль → аккаунт (verifyToken гасится в транзакции создания)
  * Аккаунт не существует, пока номер не подтверждён — «занять чужой номер и получить
@@ -22,6 +24,7 @@ import { OtpStep } from '@/components/verify/OtpStep';
 import { Alert, Button, Input } from '@/components/ui';
 import { useTranslations } from 'next-intl';
 import { AuthLayout } from '../auth-ui';
+import { ConsentBundleField, useConsentBundle } from '@/components/consents/ConsentBundleField';
 
 type Step = 'phone' | 'code' | 'profile';
 
@@ -34,7 +37,10 @@ const STEPS: Array<{ key: Step; labelKey: string }> = [
 
 export default function RegisterPage() {
   const t = useTranslations('auth');
+  const shell = useTranslations('shell');
   const router = useRouter();
+  const consents = useConsentBundle('registration');
+  const [consentError, setConsentError] = useState('');
   const register = useAuthStore((s) => s.register);
   const flow = useOtpFlow();
 
@@ -58,15 +64,27 @@ export default function RegisterPage() {
   useEffect(() => {
     analytics.track('auth.registration.opened', {});
   }, []);
+  // Галочки пакета показаны (пакет загрузился) — начало воронки согласий
+  const bundleShown = !!consents.bundle && !consents.unavailable;
+  useEffect(() => {
+    if (bundleShown) analytics.track('consents.registration.shown', { bundle: 'registration' });
+  }, [bundleShown]);
 
   const requestCode = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    // Без обязательной галочки запрос не уходит вовсе: ошибка — строкой под галочкой
+    const selection = consents.selection();
+    if (!selection) {
+      setConsentError(shell('consents.registration.required'));
+      return;
+    }
+    setConsentError('');
     analytics.track('auth.registration.phone_submitted', {});
     setPhoneError('');
     setPhoneTaken(false);
     setPhoneBusy(true);
     try {
-      await flow.startPublic(normalizePhone(phone), 'register');
+      await flow.startPublic(normalizePhone(phone), 'register', selection);
       setStep('code');
     } catch (err) {
       if (isAxiosError(err) && err.response?.status === 409) setPhoneTaken(true);
@@ -94,7 +112,7 @@ export default function RegisterPage() {
       await register({
         firstName,
         lastName: lastName || undefined,
-        dateOfBirth: dateOfBirth || undefined,
+        dateOfBirth,
         phone: normalizePhone(phone),
         password,
         verifyToken,
@@ -147,7 +165,9 @@ export default function RegisterPage() {
             autoFocus
           />
 
-          <Button type="submit" variant="primary" size="lg" block loading={phoneBusy}>
+          <ConsentBundleField state={consents} variant="registration" error={consentError || null} />
+
+          <Button type="submit" variant="primary" size="lg" block loading={phoneBusy} disabled={consents.unavailable}>
             {phoneBusy ? t('register.sending') : t('register.getCode')}
           </Button>
 
@@ -190,7 +210,8 @@ export default function RegisterPage() {
             type="date"
             value={dateOfBirth}
             onChange={(e) => setDateOfBirth(e.target.value)}
-            hint={t('register.dobHint')}
+            hint={t('register.dobRequiredHint')}
+            required
           />
 
           <Input

@@ -23,6 +23,7 @@ import {
   type VerifyPurpose,
   type VerifyStartResponse,
   type VerifyCheckResponse,
+  type ConsentSelectionInput,
 } from '@superapp/shared';
 
 interface OtpState {
@@ -151,8 +152,10 @@ export function useOtpFlow() {
 
   /** Запуск для анонимных целей (register | password_reset). */
   const startPublic = useCallback(
-    (phone: string, purpose: Extract<VerifyPurpose, 'register' | 'password_reset'>) =>
-      runStart('/verify/start', { phone, purpose }),
+    // `consents` — цель register: что человек принял ДО отправки кода (core/consents). Ресенд
+    // повторяет то же тело, поэтому согласия доезжают и при повторной отправке.
+    (phone: string, purpose: Extract<VerifyPurpose, 'register' | 'password_reset'>, consents?: ConsentSelectionInput) =>
+      runStart('/verify/start', { phone, purpose, ...(consents ? { consents } : {}) }),
     [runStart],
   );
 
@@ -163,7 +166,7 @@ export function useOtpFlow() {
    */
   const startStepUp = useCallback(
     (
-      purpose: Extract<VerifyPurpose, 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage'>,
+      purpose: Extract<VerifyPurpose, 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete'>,
       password: string,
       newPhone?: string,
     ) => runStart('/verify/step-up', newPhone ? { purpose, password, newPhone } : { purpose, password }),

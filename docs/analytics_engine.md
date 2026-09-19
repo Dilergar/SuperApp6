@@ -51,3 +51,7 @@ IP и сырой UA не хранятся; свободного текста в 
 ## Связанные доки
 
 [analytics_ingest.md](analytics_ingest.md) · [analytics_reports.md](analytics_reports.md) · [platform_console.md](platform_console.md) · [jobs_engine.md](jobs_engine.md) · [entitlements_engine.md](entitlements_engine.md) · [security.md](security.md) · [contract_boundary.md](contract_boundary.md)
+
+## Отказ человека — согласие вида `analytics`
+
+Своей двери записи отказа у аналитики нет: правда — движок согласий ([consents_engine.md](consents_engine.md), вид `analytics`, режим opt-out), `users.analyticsOptOut` — её ЗЕРКАЛО, которое читает приём событий. `ConsentsService` ставит зеркало в транзакции приёмки/отзыва через `AnalyticsService.applyOptOut(tx, …)` и после коммита зовёт `publishOptOut` (кэш Redis). `GET /analytics/consent` остался для SDK; `PATCH` удалён. Область `consents` и события `consents.*` — `packages/shared/src/analytics/consents.ts`.

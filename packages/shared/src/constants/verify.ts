@@ -36,6 +36,10 @@ export const VERIFY_PURPOSES = [
   // на свой номер, окно 15 минут. Единая точка, куда позже встанут passkeys/ЭЦП.
   // Старт — /verify/step-up (залогинен); гашение — POST /keys/step-up/confirm.
   'keys_manage',
+  // Удаление аккаунта (= отзыв согласия на обработку ПДн): пароль + код на свой номер.
+  // Своя цель: пропуск смены пароля не должен уметь удалить аккаунт, и наоборот.
+  // Старт — /verify/step-up (залогинен); гашение — DELETE /users/me в транзакции удаления.
+  'account_delete',
 ] as const;
 
 export type VerifyPurpose = (typeof VERIFY_PURPOSES)[number];
@@ -124,6 +128,8 @@ export const SMS_OUTBOUND_LIMITS = {
   perWorkspaceDaily: 100,
   /** Кулдаун повторной отправки ОДНОМУ номеру про ОДИН объект */
   perTargetCooldownSec: 60,
+  /** Тревожная SMS владельцу аккаунта (запрошено удаление): не чаще одной за окно */
+  accountAlertCooldownSec: 3600,
 } as const;
 
 // Текст SMS контрагенту со ссылкой на подписание собирает СЕРВЕР

@@ -102,6 +102,28 @@ export class KeysDevController {
     return { success: true, data: { state: (await this.store.version(kid))?.state ?? null } };
   }
 
+  @Post('signing/disable')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Disable a non-primary signing version (kill-switch drill)' })
+  async disableSigning(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    this.assertDev();
+    const { kid } = kidBody.parse(body ?? {});
+    const v = await this.store.version(kid);
+    const key = v ? await this.store.getKey(v.scope, v.purpose, v.name) : null;
+    if (!v || v.purpose !== 'sign' || key?.primaryKid === kid) throw forbidden('dev.developmentOnly');
+    await this.store.disable(kid, { actorId: user.sub, reason: 'dev drill' });
+    return { success: true, data: { state: (await this.store.version(kid))?.state ?? null } };
+  }
+
+  @Post('signing/compromise')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Mark a signing version compromised (archival verification rejects it forever)' })
+  async compromiseSigning(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    this.assertDev();
+    const { audience, kid } = audienceBody.merge(kidBody).strict().parse(body ?? {});
+    return { success: true, data: await this.signing.compromise(audience, kid, { actorId: user.sub, actorKind: 'user', reason: 'dev drill' }) };
+  }
+
   @Post('kek/rotate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: '[dev] Rotate the KEK of a scope and rewrap its rows synchronously' })

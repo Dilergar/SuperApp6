@@ -14,6 +14,7 @@ import {
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
+import { isDevEnv } from '../../shared/config/env.validation';
 import { LedgerService } from '../wallet/ledger.service';
 import { EntitlementsService } from '../../core/entitlements/entitlements.service';
 
@@ -98,10 +99,16 @@ export class CardSkinsService {
     return { currencyId: currency.id, name: currency.name, icon: currency.icon, balance };
   }
 
-  /** TEST-ONLY top-up: mint platform currency to the user. Real payment rails come later. */
-  async topUp(userId: string, amount: number): Promise<CardSkinWallet> {
+  /**
+   * ТОЛЬКО dev/test: чеканит платформенную валюту без оплаты. Проверка среды стоит и здесь,
+   * а не только на маршруте: метод сервиса экспортируется модулем, и вызвать его может
+   * любой будущий код — деньги из воздуха в проде не должны зависеть от того, кто зовёт.
+   */
+  async devTopUp(userId: string, amount: number): Promise<CardSkinWallet> {
+    if (!isDevEnv()) throw notFound('dev.developmentOnly');
     const currency = await this.getPlatformCurrency();
-    await this.ledger.mint({ currencyId: currency.id, ownerType: 'user', ownerId: userId, amount });
+    // `system`: денег человека здесь нет. Настоящее пополнение придёт с рельсом как `real_money` (с 18 лет)
+    await this.ledger.mint({ currencyId: currency.id, ownerType: 'user', ownerId: userId, amount, funding: 'system' });
     return this.getWallet(userId);
   }
 

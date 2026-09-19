@@ -51,6 +51,18 @@ export const isDevEnv = (): boolean =>
 export const isProdEnv = (): boolean => !isDevEnv();
 
 /**
+ * Обязателен ли явный пакет согласий там, где среда вправе его не требовать (создание
+ * организации). Secure-by-default: всё, кроме объявленных development/test, — да;
+ * `CONSENTS_REQUIRED` перекрывает в обе стороны (образец — `VERIFY_REQUIRED`).
+ */
+export const consentsRequired = (): boolean => {
+  const flag = process.env.CONSENTS_REQUIRED;
+  if (flag === 'true') return true;
+  if (flag === 'false') return false;
+  return isProdEnv();
+};
+
+/**
  * IANA-зона, известная ICU этого Node. Неизвестная зона роняет `toLocaleString`/
  * `Intl.DateTimeFormat` RangeError'ом уже В МОМЕНТ подписи или расчёта календаря —
  * ловим её на старте, а не на первом документе.
@@ -228,6 +240,11 @@ const envSchema = z
     // Обязательность SMS-подтверждения: пусто = secure-by-default (production → да).
     // 'true' — форс полного пути в dev; 'false' — аварийный рубильник в production.
     VERIFY_REQUIRED: blank(z.enum(['true', 'false']).optional()),
+    // Движок согласий (core/consents): обязателен ли ЯВНЫЙ пакет согласий при создании организации.
+    // Пусто = secure-by-default (production → да). В development/test без поля `consents` сервер
+    // принимает действующие версии пакета сам (сиды и verify-сьюты живут без правок); `true` — форс в dev.
+    // Регистрация человека требует согласий ВСЕГДА — рубильника у неё нет.
+    CONSENTS_REQUIRED: blank(z.enum(['true', 'false']).optional()),
     // Тест-карта "+7700…:111111,…" — SMS не шлётся, код фиксированный (CI/verify-скрипты).
     // В production карта игнорируется, если не задан явный VERIFY_TEST_PHONES_ALLOW_PROD.
     VERIFY_TEST_PHONES: blank(z.string().min(1).optional()),
@@ -465,6 +482,13 @@ export function validateEnv(): void {
       '⚠️  TRUST_PROXY is not set in production: X-Forwarded-For is ignored and req.ip is the proxy address.\n' +
         '    If the API sits behind a balancer, set the hop count (usually TRUST_PROXY=1),\n' +
         '    otherwise every client shares one rate-limit counter. If the API faces the internet directly, this is fine.',
+    );
+  }
+  if (isProdEnv() && result.data.CONSENTS_REQUIRED === 'false') {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '⚠️  CONSENTS_REQUIRED=false in production: organizations are created WITHOUT an explicit consent bundle.\n' +
+        '    The platform accepts the business terms on behalf of the owner — this is not a proof of consent. Remove the variable.',
     );
   }
   if (isProdEnv() && result.data.VERIFY_REQUIRED === 'false') {

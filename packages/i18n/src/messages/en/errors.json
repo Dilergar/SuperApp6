@@ -54,7 +54,9 @@
     "verifyRequired": "The phone number must be confirmed by SMS",
     "verifyStale": "The confirmation is invalid or expired. Request a new code",
     "wrongCurrentPassword": "The current password is wrong",
-    "wrongPassword": "Wrong password"
+    "wrongPassword": "Wrong password",
+    "minorNotAllowed": "Registration is available from the age of {age}",
+    "dateOfBirthRequired": "Enter your date of birth"
   },
   "calendar": {
     "badPeriod": "The period is invalid",
@@ -572,6 +574,7 @@
     "role_required": "Only the owner and admins of the organization manage its keys",
     "root_missing": "The root key file is missing or unreadable",
     "root_same": "The new root file is the same as the current one",
+    "version_not_found": "Key version not found",
     "scope": {
       "denied": "This key is not allowed to access this service"
     },
@@ -1494,5 +1497,38 @@
     "ownerRoleImmutable": "The role of the owner is not changed — transfer the ownership instead",
     "roleNotAssignable": "This role is not assigned by hand",
     "tooManyBankAccounts": "There are too many accounts — delete the one you do not need"
+  },
+  "consents": {
+    "pending": "Accept the updated terms to continue",
+    "workspacePending": "The owner must accept the updated terms for organizations before managing the organization",
+    "required": "Accept the required documents first",
+    "versionMismatch": "The document has been updated. Reload the page and read the current version",
+    "notRevocable": "This consent cannot be withdrawn separately — withdrawing it means deleting the account",
+    "notFound": "Document not found",
+    "integrity": "The document failed the integrity check and cannot be shown. We are already looking into it",
+    "immutable": "A published version cannot be changed",
+    "urgentNeedsReason": "A version may take effect sooner than in {days} days only as an urgent publication with a detailed reason",
+    "effectiveInPast": "The effective date cannot be in the past",
+    "incompleteLocales": "Fill in the text, the summary and “What has changed” in all three languages",
+    "unknownPlaceholder": "Unknown placeholder in the text: {detail}",
+    "notPublished": "The platform documents are not published yet. Please try again later",
+    "personOnly": "Only a person can give or withdraw a consent",
+    "ownerOnly": "Only the owner can accept the terms on behalf of the organization",
+    "alreadyAttested": "This version is already certified",
+    "pdfUnavailable": "The PDF render is unavailable — the version cannot be sent for certification"
+  },
+  "payments": {
+    "minorNotAllowed": "Real-money payments are available from the age of {age}"
+  },
+  "account": {
+    "deletionBlocked": "The account cannot be deleted yet: there are unfinished obligations",
+    "deletionAlreadyScheduled": "The account deletion has already been requested"
+  },
+  "pd": {
+    "incident": {
+      "detectedInFuture": "The detection time cannot be in the future",
+      "wrongStatus": "The incident is not in a state that allows this step",
+      "notFound": "Incident not found"
+    }
   }
 }

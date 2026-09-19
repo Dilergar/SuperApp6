@@ -42,6 +42,7 @@ export const KEY_AUDIT_ACTIONS = {
   versionEnabled: 'key_version.enabled',
   versionDestroyScheduled: 'key_version.destroy_scheduled',
   versionDestroyed: 'key_version.destroyed',
+  versionCompromised: 'key_version.compromised',
   scopeFrozen: 'scope.frozen',
   scopeUnfrozen: 'scope.unfrozen',
   rootRotationStarted: 'root.rotation_started',

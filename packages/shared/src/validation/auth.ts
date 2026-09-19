@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { consentSelectionSchema } from './consents';
 import { isKzMobilePhone } from '../constants/verify';
 
 // XSS protection: reject HTML tags and dangerous characters
@@ -59,7 +60,13 @@ export const registerSchema = z.object({
   password: passwordSchema,
   firstName: z.string().min(1, 'validation.auth.firstNameRequired').max(50).refine(noHtml, noHtmlMsg),
   lastName: z.string().max(50).refine(noHtml, noHtmlMsg).optional(),
-  dateOfBirth: dateOfBirthSchema.optional(),
+  // Обязательна: регистрация — с 16 лет (ГК РК ст. 22; core/consents). Утверждение «мне
+  // исполнилось 16» человек делает галочкой на шаге 1, дата здесь — вторая, проверяемая линия.
+  dateOfBirth: dateOfBirthSchema,
+  // Согласия пакета `registration`. В production НЕ читаются: записи приёмки строятся из
+  // контекста SMS-цепочки (то, что человек принял ДО отправки кода). Поле живёт для сред без
+  // SMS-подтверждения (development/test: сиды и verify-сьюты регистрируются без кода).
+  consents: consentSelectionSchema.optional(),
   // Одноразовый пропуск движка подтверждений (POST /verify/check, purpose=register).
   // На уровне схемы опционален: ОБЯЗАТЕЛЬНОСТЬ решает сервер (secure-by-default —
   // в production без него регистрация отклоняется; dev/test живут без SMS).

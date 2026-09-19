@@ -1,5 +1,7 @@
 // Ключи React Query и загрузчики кабинета платформы. Один ключ = одна форма кэша.
 import type {
+  PdIncidentDto,
+  PlatformConsentsDocumentsDto,
   EntitlementCatalogDto,
   EntitlementSubjectDetailDto,
   EntitlementSubjectType,
@@ -57,3 +59,7 @@ export const runPlatformCommand = (key: string, body: PlatformCommandRunInput) =
   platformPost<PlatformCommandResultDto>(`/platform/commands/${encodeURIComponent(key)}`, body);
 export const previewPlatformCommand = (key: string, input: unknown) =>
   platformPost<PlatformCommandPreviewDto>(`/platform/commands/${encodeURIComponent(key)}/preview`, { input });
+
+// ---- core/consents: документы платформы, охват принятия, журнал инцидентов ПДн ----
+export const fetchPlatformConsentDocuments = () => platformGet<PlatformConsentsDocumentsDto>('/platform/consents/documents');
+export const fetchPlatformPdIncidents = () => platformGet<PdIncidentDto[]>('/platform/consents/incidents');

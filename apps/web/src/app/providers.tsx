@@ -9,6 +9,7 @@ import { registerQueryClient } from '@/lib/session-reset';
 import { Toaster } from '@/lib/toast';
 import { CallsWatcher } from '@/components/calls/CallsWatcher';
 import { NotesStickyLayer } from '@/components/notes/NotesStickyLayer';
+import { ConsentGate } from '@/components/consents/ConsentGate';
 import { AnalyticsRouteTracker } from '@/components/analytics/AnalyticsRouteTracker';
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -56,6 +57,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <CallsWatcher />
         {/* Слой стикеров Заметок: Alt+N на любой странице (контекст — из адреса) */}
         <NotesStickyLayer />
+        {/* Шлюз согласий: блокирующий экран новой версии условий и баннер «принять заранее» (core/consents) */}
+        <ConsentGate />
         {/* Сообщения об ошибках — вместо нативного alert() (см. lib/toast) */}
         <Toaster />
         {/* Аналитика переходов: шаблон маршрута без id (core/analytics) */}

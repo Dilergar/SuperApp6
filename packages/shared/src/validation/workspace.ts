@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { consentSelectionSchema } from './consents';
 import { SUPPORTED_LOCALES } from '../constants/i18n';
 import { phoneSchema } from './auth';
 
@@ -28,6 +29,9 @@ const assignableRoleSchema = z.enum(ASSIGNABLE_WORKSPACE_ROLES);
 export const createWorkspaceSchema = z.object({
   name: nameSchema,
   logo: logoSchema.optional(),
+  // Пакет `workspace_creation` (Условия для организаций + Соглашение об обработке ПДн): одна
+  // галочка владельца. В production обязателен; запись приёмки — в транзакции создания.
+  consents: consentSelectionSchema.optional(),
 });
 
 export const updateWorkspaceSchema = z

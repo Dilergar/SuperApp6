@@ -227,6 +227,10 @@ export type KeysBlindIndexRotateInput = z.infer<typeof keysBlindIndexRotateInput
 export const keysSigningRotateInputSchema = z.object({ audience: z.enum(SIGNING_AUDIENCES) }).strict();
 export type KeysSigningRotateInput = z.infer<typeof keysSigningRotateInputSchema>;
 
+/** Команда кабинета `keys.signing.compromise`: версия подписи признаётся скомпрометированной навсегда. */
+export const keysSigningCompromiseInputSchema = z.object({ audience: z.enum(SIGNING_AUDIENCES), kid: z.string().uuid() }).strict();
+export type KeysSigningCompromiseInput = z.infer<typeof keysSigningCompromiseInputSchema>;
+
 export const keysWorkspaceFreezeInputSchema = z.object({ workspaceId: uuid }).strict();
 export type KeysWorkspaceFreezeInput = z.infer<typeof keysWorkspaceFreezeInputSchema>;
 

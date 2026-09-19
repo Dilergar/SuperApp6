@@ -138,7 +138,9 @@ async function main() {
     const stamp = Date.now() % 10_000_000;
     const freshPhone = `+7701${String(stamp).padStart(7, '0')}`;
     cleanup.freshPhone = freshPhone;
-    const reg = await call('POST', '/auth/register', null, { phone: freshPhone, password: PW, firstName: 'Диана', lastName: 'Нурланова' });
+    // core/consents: регистрация требует дату рождения и пакет согласий `registration`
+    const regConsents = await require('./_consents.cjs').registrationConsents(process.env.API_URL || process.env.API_BASE || 'http://localhost:3001/api');
+    const reg = await call('POST', '/auth/register', null, { phone: freshPhone, password: PW, firstName: 'Диана', lastName: 'Нурланова', dateOfBirth: '1990-01-01', consents: regConsents });
     check('#7 подготовка: новый пользователь зарегистрирован', reg.ok, `status ${reg.status}`);
     const freshTok = reg.json?.data?.accessToken;
     await call('PATCH', '/users/me', freshTok, { bio: 'Секретное био', city: 'Алматы' });

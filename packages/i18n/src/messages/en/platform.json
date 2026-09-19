@@ -138,6 +138,10 @@
       "description": "Re-wrap every key version under the NEXT root. First the ceremony file is rolled out to every instance as KEYS_ROOT_KEY_FILE_NEXT; the command checks the fingerprint and the fleet, then re-wraps in the background in batches. When the job reports completion, make the new file KEYS_ROOT_KEY_FILE, remove the NEXT variable and restart every instance.",
       "title": "Rotate the root key"
     },
+    "keysSigningCompromise": {
+      "description": "The version is rejected by archival signature verification forever, in any state. If it is the primary one, a new version becomes primary first. Artifacts signed by it must be re-attested by their owner (consent versions — the re-attest command).",
+      "title": "Mark a signing version compromised"
+    },
     "keysSigningRotate": {
       "description": "New Ed25519 version for an audience: published in JWKS, activated after the cache window; the old one keeps verifying until the longest token expires.",
       "title": "Rotate a signing key"
@@ -180,6 +184,38 @@
     "keysBlindIndexRotate": {
       "description": "Only when the blind index key is compromised. A new version fills the second index column in the background while sign-in and search keep working, then search switches to it and the old column is cleared.",
       "title": "Rotate the blind index key"
+    },
+    "consentsDocumentDraftSave": {
+      "description": "Create or update the single draft of a platform document in three languages. Publishing is a separate command.",
+      "title": "Save a document draft"
+    },
+    "consentsDocumentPublish": {
+      "description": "The draft becomes an immutable signed version with an effective date. Before the date — a notification and an “accept in advance” banner; from the date — a blocking screen. Publishing sooner than the notice period requires the urgent flag and a detailed reason.",
+      "title": "Publish a document version"
+    },
+    "consentsDocumentAttest": {
+      "description": "Sends the PDF imprint of the version (three languages and hashes) to the named person for an electronic digital signature. Optional: the platform signature is already in place.",
+      "title": "Certify a version with the head’s digital signature"
+    },
+    "consentsVersionsReattest": {
+      "description": "After a signing key is marked compromised: versions signed with it are checked against the hashes in people’s acceptance records and re-signed with the current key. The old signature stays in the history.",
+      "title": "Re-sign document versions"
+    },
+    "pdIncidentOpen": {
+      "description": "Registers a security breach. The deadline for notifying the authorised body — one business day from detection — is calculated at once; the owners are alerted now and 4 hours before the deadline.",
+      "title": "Open a personal data incident"
+    },
+    "pdIncidentNotifyAuthority": {
+      "description": "Marks that the authorised body has been notified. State the outgoing number or the channel in the note.",
+      "title": "Record the notification of the authorised body"
+    },
+    "pdIncidentNotifySubjects": {
+      "description": "Marks that the affected people have been notified.",
+      "title": "Record the notification of the data subjects"
+    },
+    "pdIncidentClose": {
+      "description": "Closes the incident. State the outcome and the measures taken in the note.",
+      "title": "Close the incident"
     }
   },
   "fields": {
@@ -263,7 +299,8 @@
     "entitlements": "Plans",
     "requests": "Requests",
     "search": "Search",
-    "staff": "Staff"
+    "staff": "Staff",
+    "consents": "Consents"
   },
   "noAccess": {
     "text": "This account is not on the platform staff, or it has been suspended.",
@@ -288,7 +325,8 @@
     "workspaceWebhooks": "Webhooks",
     "workspaceKeys": "Keys and bots",
     "workspaceMembersSummary": "Members",
-    "workspaceProfile": "Profile"
+    "workspaceProfile": "Profile",
+    "userConsents": "Consents"
   },
   "picker": {
     "change": "change",
@@ -394,7 +432,9 @@
     "soloDualControl": "a two-person command ran alone (no second holder)",
     "staffAdded": "a staff member was added",
     "staffSuspended": "a staff member was suspended",
-    "stepUpBurst": "failed step-up passwords in a row"
+    "stepUpBurst": "failed step-up passwords in a row",
+    "pdIncidentOpened": "a personal data incident is opened",
+    "pdIncidentDeadline": "less than 4 hours left to notify the authorised body of an incident"
   },
   "shell": {
     "logout": "Sign out",

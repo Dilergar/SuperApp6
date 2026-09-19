@@ -432,7 +432,8 @@
     "wallet": "Wallet",
     "workspaces": "Organizations",
     "keys": "Keys and bots",
-    "webhooks": "Webhooks"
+    "webhooks": "Webhooks",
+    "consents": "Consents and documents"
   },
   "events": {
     "analytics": {
@@ -648,6 +649,34 @@
         "disabled": {
           "title": "Webhook endpoint disabled",
           "description": "An endpoint was switched off: failures, a failed signature audit or by a person"
+        }
+      }
+    },
+    "consents": {
+      "registration": {
+        "shown": {
+          "title": "Consent bundle shown",
+          "description": "Step 1 of the registration showed the consent checkboxes"
+        }
+      },
+      "document": {
+        "accepted": {
+          "title": "Document accepted",
+          "description": "An acceptance record was written (registration, banner, blocking screen, toggle, integration)"
+        },
+        "revoked": {
+          "title": "Consent withdrawn",
+          "description": "A consent was withdrawn or an opt-out was recorded"
+        }
+      },
+      "gate": {
+        "shown": {
+          "title": "Blocking screen shown",
+          "description": "A person saw the screen of the new document versions"
+        },
+        "declined": {
+          "title": "New terms declined",
+          "description": "“I do not accept” was chosen on the blocking screen"
         }
       }
     }

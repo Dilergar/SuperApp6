@@ -34,3 +34,7 @@
 ## Связанные доки
 
 [keys_engine.md](keys_engine.md) · [security.md](security.md) · [testing_verify_suite.md](testing_verify_suite.md) · [platform_console.md](platform_console.md)
+
+## Доказательства согласия — платформенный ключ, не KEK человека
+
+IP и User-Agent записи приёмки (`consent_acceptances.ip_enc`, `user_agent_enc`, [consents_engine.md](consents_engine.md)) шифруются envelope под ПЛАТФОРМЕННЫМ скоупом, а не KEK человека: удаление аккаунта уничтожает KEK (crypto-shredding), а доказательство согласия обязано его пережить (ЦК ст. 41 п. 4 пп. 1). Колонки зарегистрированы в `KeysFieldRegistry` (перешивка после ротации платформенного KEK); триггер неизменяемости приёмки перешивку шифротекста допускает.

@@ -3,10 +3,12 @@ import {
   KEYS_ERROR_CODES,
   keysBlindIndexRotateInputSchema,
   keysRootRotateInputSchema,
+  keysSigningCompromiseInputSchema,
   keysSigningRotateInputSchema,
   keysWorkspaceFreezeInputSchema,
   type KeysBlindIndexRotateInput,
   type KeysRootRotateInput,
+  type KeysSigningCompromiseInput,
   type KeysSigningRotateInput,
   type KeysWorkspaceFreezeInput,
 } from '@superapp/shared';
@@ -23,6 +25,7 @@ import { KeysStoreService } from './keys.store.service';
  * Команды кабинета платформы (журнал append-only, step-up, «четыре глаза» — исполнитель
  * кабинета): ротация корня (critical, dualControl, dryRun; фоновая перешивка порциями на окне
  * двух корней), смена ключа слепых индексов (critical, dualControl), ротация подписи аудитории,
+ * компрометация версии подписи (critical, dualControl — метка навсегда для архивной проверки),
  * заморозка/разморозка KEK организации (critical, dualControl). Панель «Ключи» карточки
  * организации и отзыв ключа регистрирует `api-keys/keys.platform.panel.ts` (фаза E).
  */
@@ -104,6 +107,26 @@ export class KeysPlatformProvider implements OnModuleInit {
       execute: async (ctx, input) => {
         const { kid } = await this.signing.rotate(input.audience, { actorId: ctx.actor.userId, reason: ctx.reason, retireAfterSec: AUDIENCE_MAX_TTL_SEC[input.audience] });
         return { result: { kid, audience: input.audience } };
+      },
+    });
+
+    this.commands.register<KeysSigningCompromiseInput>({
+      key: 'keys.signing.compromise',
+      version: 1,
+      group: 'keys',
+      titleKey: 'platform.commands.keysSigningCompromise.title',
+      descriptionKey: 'platform.commands.keysSigningCompromise.description',
+      input: keysSigningCompromiseInputSchema,
+      capability: 'keys.write',
+      risk: 'critical',
+      dualControl: true,
+      target: (i) => ({ type: 'signing_key', id: i.audience }),
+      execute: async (ctx, input) => {
+        // Метка навсегда: архивная проверка отвергает версию в любом состоянии. Primary сначала
+        // заменяется новой версией (одна транзакция keystore). Перезаверение артефактов — их владелец.
+        const res = await this.signing.compromise(input.audience, input.kid, { actorId: ctx.actor.userId, actorKind: 'platform', reason: ctx.reason });
+        if (!res.compromised) throw badRequest('keys.version_not_found', undefined, { code: 'keys.version_not_found' });
+        return { result: { audience: input.audience, kid: input.kid, newPrimaryKid: res.newPrimaryKid } };
       },
     });
 

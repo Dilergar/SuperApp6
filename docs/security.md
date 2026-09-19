@@ -84,3 +84,9 @@
 ## Связанные доки
 
 [verify_engine.md](verify_engine.md) (OTP, step-up) · [api_conventions.md](api_conventions.md) · [identity_roles.md](identity_roles.md) · [platform_console.md](platform_console.md) · [environment_variables.md](environment_variables.md).
+
+## Шлюз согласий и кэш «аккаунт жив»
+
+Значение кэша `auth:alive:<userId>` — `<tokenEpoch>:<consentEpoch>`: рядом с поколением токенов едет эпоха согласий человека ([consents_engine.md](consents_engine.md)). `SessionValidatorService.assertAlive` кладёт её в `req.user.cep` и ВСЕГДА переписывает (в токене поля нет); значение старого формата читается как «эпоха неизвестна». `ConsentGateGuard` — четвёртый глобальный гард (после `KeyScopeGuard`); сокет проверяется тем же валидатором (`verifyAccessToken(raw, { enforceConsents: true })`).
+
+Тестовое пополнение платформенной валюты (`POST /card-skins/wallet/topup`) — только development/test: дев-контроллер регистрируется модулем лишь при `isDevEnv()`, вторая проверка среды — в `CardSkinsService.devTopUp`. Чеканка платформенной валюты в леджере требует `funding` (`real_money` → проверка совершеннолетия).

@@ -56,6 +56,21 @@ import type {
 
 // ---- Keys (stable, shared between pages) ----
 // Тариф и лимиты: один ключ на контекст (`personal` | id организации) = одна форма кэша (снимок)
+// ---- core/consents: документы платформы, согласия человека, «Мои данные» ----
+export const consentBundleKey = (bundle: string) => ['consents', 'bundle', bundle] as const;
+export const consentDocumentKey = (documentKey: string, locale: string, version?: number | null) => ['consents', 'document', documentKey, locale, version ?? 'current'] as const;
+export const consentVersionKey = (versionId: string, locale: string) => ['consents', 'version', versionId, locale] as const;
+export const consentArchiveKey = (documentKey: string) => ['consents', 'archive', documentKey] as const;
+/** Корень личных согласий: приёмка/отзыв инвалидируют его целиком (pending, state, history, receipt) */
+export const consentsMineRootKey = ['consents', 'mine'] as const;
+export const consentsPendingKey = ['consents', 'mine', 'pending'] as const;
+export const consentsStateKey = ['consents', 'mine', 'state'] as const;
+export const consentReceiptKey = (acceptanceId: string) => ['consents', 'mine', 'receipt', acceptanceId] as const;
+/** Лента «Кому передавались мои данные» — useInfiniteQuery, своя форма кэша, отдельный ключ */
+export const consentTransfersKey = ['consents', 'mine', 'transfers'] as const;
+export const accountDeletionBlockersKey = ['users', 'me', 'deletion-blockers'] as const;
+export const platformConsentsDocumentsKey = ['platform', 'consents', 'documents'] as const;
+export const platformConsentsIncidentsKey = ['platform', 'consents', 'incidents'] as const;
 /** Отказ человека от аналитики использования (`GET /analytics/consent`). */
 export const analyticsConsentKey = ['analytics', 'consent'] as const;
 // ---- core/keys: реестр ключей организации, боты, личные ключи, step-up ----

@@ -26,6 +26,9 @@ import { invalidatePersonSkins } from '@/lib/person-skins';
 import { useTranslations } from 'next-intl';
 import { useFormatters } from '@/lib/format';
 
+/** Тестовое пополнение есть только в development: в остальных средах маршрута API нет. */
+const DEV_TOPUP = process.env.NODE_ENV === 'development';
+
 function errMsg(e: unknown, fallback: string): string {
   const ax = e as { response?: { data?: { message?: string; error?: string } } };
   return ax?.response?.data?.message || ax?.response?.data?.error || fallback;
@@ -140,7 +143,9 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
           <div className="label-sm" style={{ opacity: 0.7 }}>{t('skins.balance')}</div>
           <div className="title-md">{wallet?.icon} {fmt(wallet?.balance ?? 0)} <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>{wallet?.name}</span></div>
         </div>
-        <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end' }}>
+        {/* Тестовое пополнение: маршрут существует только в development (в проде 404) —
+            UI несуществующей фичи не показываем. Настоящее пополнение придёт с платёжным рельсом. */}
+        {DEV_TOPUP && <div style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'flex-end' }}>
           <Input
             label={t('skins.topUpLabel')}
             type="number"
@@ -151,7 +156,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
             style={{ padding: '0.3rem 0.5rem', fontSize: '0.85rem' }}
           />
           <button className="btn-success" disabled={busy} onClick={topUp} style={{ fontSize: '0.8rem' }}>{t('skins.topUp')}</button>
-        </div>
+        </div>}
       </div>
 
       {/* ===== Live preview ===== */}

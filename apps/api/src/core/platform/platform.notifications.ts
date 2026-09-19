@@ -17,7 +17,10 @@ export type PlatformSecurityEvent =
   | 'deniedBurst'
   | 'stepUpBurst'
   | 'soloDualControl'
-  | 'bootstrap';
+  | 'bootstrap'
+  // Журнал инцидентов ПДн (core/consents): открыт инцидент · до срока уведомления органа 4 часа
+  | 'pdIncidentOpened'
+  | 'pdIncidentDeadline';
 
 /**
  * Уведомления кабинета: security-alert всем владельцам (critical, in-app + SMS по opt-in),

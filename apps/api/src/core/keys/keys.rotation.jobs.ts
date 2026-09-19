@@ -24,6 +24,9 @@ export const AUDIENCE_MAX_TTL_SEC: Record<SigningAudience, number> = {
   share_link: 24 * 3600,
   files_url: 3600,
   webhook: 3600,
+  // Подписи версий согласий живут годами и проверяются `verifyArchival` (по окну жизни версии),
+  // поэтому старой версии незачем оставаться `active` дольше кэша соседних инстансов
+  consents: 3600,
 };
 
 /**

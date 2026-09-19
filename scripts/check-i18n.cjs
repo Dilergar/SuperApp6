@@ -613,6 +613,36 @@ for (const ns of NAMESPACES) {
   }
 }
 
+// ---------- 13. юридический текст согласий — контент в БД, не каталог (ошибка) ----------
+//
+// Документы платформы (core/consents) — неизменяемые подписанные версии в базе: человек
+// принимает конкретную версию, а каталог правится релизом и версий не имеет. Текст документа,
+// попавший в каталог, менялся бы задним числом под уже данными согласиями. В каталоге живут
+// только короткие подписи интерфейса; длинная строка или ключ «текста документа» в
+// `consents.*` / `shell.consents.*` — признак того, что документ пытаются провезти через i18n.
+{
+  const LEGAL_TEXT_MAX = 700;
+  const LEGAL_KEY = /(^|\.)(body|bodies|fullText|documentText|summaryText|legalText)(\.|$)/;
+  for (const locale of LOCALES) {
+    const scopes = [
+      ['consents', flat[locale]?.consents, () => true],
+      ['shell', flat[locale]?.shell, (key) => key.startsWith('consents.')],
+    ];
+    for (const [ns, cat, inScope] of scopes) {
+      for (const [key, message] of cat ?? []) {
+        if (!inScope(key)) continue;
+        if (LEGAL_KEY.test(key) || message.length > LEGAL_TEXT_MAX) {
+          err(
+            `messages/${locale}/${ns}.json → ${key}: текст документа согласий в каталоге i18n. Юридический текст — ` +
+              `контент в БД (ConsentVersion: версии, хэш, подпись), исходники — apps/api/consents-texts/*.md; ` +
+              `в каталоге — только короткие подписи (≤ ${LEGAL_TEXT_MAX} символов)`,
+          );
+        }
+      }
+    }
+  }
+}
+
 // ---------- отчёт ----------
 const total = Object.values(flat[SOURCE_LOCALE] ?? {}).reduce((n, m) => n + m.size, 0);
 for (const w of warnings) console.warn(`  ! ${w}`);

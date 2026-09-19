@@ -41,6 +41,7 @@ import m_en_platform from './en/platform.json';
 import m_en_analytics from './en/analytics.json';
 import m_en_templates from './en/templates.json';
 import m_en_keys from './en/keys.json';
+import m_en_consents from './en/consents.json';
 import m_kk_common from './kk/common.json';
 import m_kk_shell from './kk/shell.json';
 import m_kk_auth from './kk/auth.json';
@@ -79,6 +80,7 @@ import m_kk_platform from './kk/platform.json';
 import m_kk_analytics from './kk/analytics.json';
 import m_kk_templates from './kk/templates.json';
 import m_kk_keys from './kk/keys.json';
+import m_kk_consents from './kk/consents.json';
 import m_ru_common from './ru/common.json';
 import m_ru_shell from './ru/shell.json';
 import m_ru_auth from './ru/auth.json';
@@ -117,6 +119,7 @@ import m_ru_platform from './ru/platform.json';
 import m_ru_analytics from './ru/analytics.json';
 import m_ru_templates from './ru/templates.json';
 import m_ru_keys from './ru/keys.json';
+import m_ru_consents from './ru/consents.json';
 
 /** Дерево сообщений одного неймспейса (значения — ICU-строки). */
 export type MessageTree = { [key: string]: string | MessageTree };
@@ -161,6 +164,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "analytics": m_en_analytics,
     "templates": m_en_templates,
     "keys": m_en_keys,
+    "consents": m_en_consents,
   },
   kk: {
     "common": m_kk_common,
@@ -201,6 +205,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "analytics": m_kk_analytics,
     "templates": m_kk_templates,
     "keys": m_kk_keys,
+    "consents": m_kk_consents,
   },
   ru: {
     "common": m_ru_common,
@@ -241,5 +246,6 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "analytics": m_ru_analytics,
     "templates": m_ru_templates,
     "keys": m_ru_keys,
+    "consents": m_ru_consents,
   },
 };

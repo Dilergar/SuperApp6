@@ -61,3 +61,9 @@
 ## Связанные доки
 
 [keys_api_access.md](keys_api_access.md) · [keys_pii.md](keys_pii.md) · [webhooks_engine.md](webhooks_engine.md) · [security.md](security.md) · [verify_engine.md](verify_engine.md) · [platform_console.md](platform_console.md) · [module_graph.md](module_graph.md)
+
+## Архивная проверка подписи и компрометация версии
+
+Аудитория `consents` подписывает версии документов платформы ([consents_engine.md](consents_engine.md)) — подпись ставится один раз и обязана проверяться годами, а версии ключа ротируются раз в 90 дней и уходят в `destroyed` (стирается `wrappedMaterial`, публичный ключ остаётся). Поэтому рядом со строгой `verifyRaw` (только `active`) есть **`verifyArchival(audience, { kid, data, sig, signedAt })`**: принимает `active | destroy_scheduled | destroyed`, отвергает `pending`/`disabled`, любую версию с меткой `compromisedAt` и подпись, чей `signedAt` лежит вне окна жизни версии (активирована … выключена, допуск `archivalClockToleranceSec`). Момент подписи потребитель обязан включать В ПОДПИСАННОЕ — иначе его можно поправить в базе.
+
+`crypto_key_versions.compromised_at` — отдельная колонка, а не `state = disabled`: `disabled` уходит в `destroy_scheduled` → `destroyed`, и без метки компрометация «отмывалась» бы для архивной проверки. Метка ставится при любом состоянии, не снимается никогда; `enable` скомпрометированную версию не оживляет. `KeysSigningService.compromise(audience, kid)` для primary сначала создаёт новую `active`-версию и помечает старую В ОДНОЙ транзакции keystore. Команда Кабинета — `keys.signing.compromise` (critical, dualControl); артефакты перезаверяет их владелец (`consents.versions.reattest`). Дев-полигон: `/keys/dev/signing/disable|compromise`.

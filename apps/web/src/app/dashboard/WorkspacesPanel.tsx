@@ -2,6 +2,7 @@
 
 import { Button, Input } from '@/components/ui';
 import { useState } from 'react';
+import { ConsentBundleField, useConsentBundle } from '@/components/consents/ConsentBundleField';
 import { useTranslations } from 'next-intl';
 import { useFormatters } from '@/lib/format';
 import Link from 'next/link';
@@ -37,6 +38,11 @@ const EMPTY_INVITES: WorkspaceInvitation[] = [];
  */
 export function WorkspacesPanel() {
   const t = useTranslations('workspaces');
+  const shell = useTranslations('shell');
+  // Создание организации = одна галочка пакета `workspace_creation` (core/consents): владелец
+  // принимает «Условия для организаций» и «Соглашение об обработке ПДн» от её имени
+  const wsConsents = useConsentBundle('workspace_creation');
+  const [consentError, setConsentError] = useState('');
   const tc = useTranslations('common');
   const ownedGate = useEntitlementGate('workspaces.maxOwned', null, 'ent-lock-workspaces');
   const denied = useEntitlementDenied();
@@ -110,11 +116,18 @@ export function WorkspacesPanel() {
 
   const create = async () => {
     if (!name.trim()) return;
+    const selection = wsConsents.selection();
+    if (!selection) {
+      setConsentError(shell('consents.registration.required'));
+      return;
+    }
+    setConsentError('');
     setCreating(true);
     setError('');
     try {
-      await apiPost('/workspaces', { name: name.trim() });
+      await apiPost('/workspaces', { name: name.trim(), consents: selection });
       setName('');
+      wsConsents.setAccepted(false);
       setShowCreate(false);
       await refreshAll();
     } catch (err) {
@@ -172,7 +185,10 @@ export function WorkspacesPanel() {
             wrapClassName="ws-create-field"
             onKeyDown={(e) => e.key === 'Enter' && create()}
           />
-          <Button onClick={create} disabled={!name.trim()} loading={creating} variant="primary" tone="success" icon="add">{t('panel.create')}</Button>
+          <Button onClick={create} disabled={!name.trim() || wsConsents.unavailable} loading={creating} variant="primary" tone="success" icon="add">{t('panel.create')}</Button>
+          <div style={{ flexBasis: '100%' }}>
+            <ConsentBundleField state={wsConsents} variant="workspace" error={consentError || null} />
+          </div>
         </div>
       )}
 

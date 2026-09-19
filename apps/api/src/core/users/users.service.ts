@@ -6,7 +6,12 @@ import {
   OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
-import { forbidden, notFound, unauthorized } from '../../shared/errors/api-error';
+import { badRequest, conflict, forbidden, notFound, unauthorized } from '../../shared/errors/api-error';
+import { coerceLocale } from '@superapp/i18n';
+import { ConsentsService } from '../consents/consents.service';
+import { ConsentsActionsService } from '../consents/consents.actions.service';
+import { ConsentsGateService } from '../consents/gate/consents-gate.service';
+import { SmsOutboundService } from '../verify/sms-outbound.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
@@ -30,10 +35,15 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { KeysCascadesService } from '../keys/api-keys/keys.cascades.service';
 import { KeysEnvelopeService } from '../keys/keys.envelope.service';
 import {
+  CONSENT_AGE,
+  CONSENT_ERROR_CODES,
   SOURCE_LOCALE,
+  ageOnDate,
   maskPhone,
+  platformTodayIso,
   resolveCardVisibility,
   type CardVisibility,
+  type AccountDeletionBlockersDto,
   type ChangePasswordInput,
   type ChangePhoneInput,
   type SessionInfo,
@@ -45,7 +55,9 @@ import {
 } from '@superapp/shared';
 
 /** Days a deleted account stays recoverable before permanent anonymization. */
-export const ACCOUNT_GRACE_DAYS = 30;
+// 14 календарных дней: от отзыва согласия до прекращения обработки закон даёт 15 РАБОЧИХ дней
+// (ЗоПД ст. 8 п. 7) — грейс обязан укладываться в них с запасом на саму анонимизацию.
+export const ACCOUNT_GRACE_DAYS = 14;
 
 // Джоб активации приглашений: константа общая с регистрацией (см. user-jobs.ts),
 // реэкспорт — чтобы прежние импорты из этого файла продолжали работать.
@@ -73,6 +85,10 @@ export class UsersService implements OnModuleInit {
     private analytics: AnalyticsService,
     private keysCascades: KeysCascadesService,
     private keysEnvelope: KeysEnvelopeService,
+    private consents: ConsentsService,
+    private consentsGate: ConsentsGateService,
+    private pdActions: ConsentsActionsService,
+    private smsOutbound: SmsOutboundService,
   ) {}
 
   onModuleInit(): void {
@@ -239,6 +255,14 @@ export class UsersService implements OnModuleInit {
       }) as unknown as Prisma.InputJsonValue;
     };
 
+    // Дата рождения — опора возрастных правил (регистрация с 16, реальные деньги с 18): её нельзя
+    // ни стереть, ни сдвинуть ниже порога регистрации. «Сегодня» — в поясе платформы.
+    if (dateOfBirth !== undefined) {
+      if (!dateOfBirth) throw badRequest('auth.dateOfBirthRequired');
+      const age = ageOnDate(dateOfBirth, platformTodayIso());
+      if (!Number.isFinite(age) || age < CONSENT_AGE.minRegistration) throw forbidden(CONSENT_ERROR_CODES.minorNotAllowed, { age: CONSENT_AGE.minRegistration });
+    }
+
     const needsVisibilityMerge =
       cardVisibility !== undefined || companyCardVisibility !== undefined;
     const currentVisibility = needsVisibilityMerge
@@ -299,6 +323,12 @@ export class UsersService implements OnModuleInit {
     // Invalidate cache
     await this.redis.invalidateUserProfile(userId);
 
+    // Учёт действий с ПДн: смена видимости карточки меняет то, что о человеке видят другие
+    // (распространение по его собственному действию). Пишется факт, не значения полей.
+    if (cardVisibility !== undefined) {
+      await this.pdActions.record(null, { subjectId: userId, actionType: 'publication', basis: 'subject_action', fields: ['public_card'], purpose: 'card_visibility_changed', refType: 'user', refId: userId });
+    }
+
     if (rest.avatar !== undefined && prevAvatar !== user.avatar) {
       await this.files
         .reapReplacedPublicFile('user', userId, prevAvatar, user.avatar)
@@ -315,26 +345,75 @@ export class UsersService implements OnModuleInit {
   }
 
   /**
-   * Request account deletion. Nothing is destroyed yet — the account enters a
-   * recoverable grace window (logging in restores it; see AuthService.login).
-   * A cron permanently anonymizes accounts whose window elapses. Requires the
-   * current password to confirm.
+   * Что мешает удалить аккаунт прямо сейчас — МОТИВИРОВАННЫЙ ОТКАЗ (ЗоПД ст. 8 п. 2 и п. 7:
+   * отзыв согласия невозможен при неисполненном обязательстве). Показывается ДО ввода пароля:
+   *  - `sole_owner` — человек владеет живой организацией (владелец один: передать либо удалить её);
+   *  - `open_escrow` — есть замороженные средства по сделкам, где он плательщик или получатель;
+   *  - `debt` — есть незавершённые заказы, где он покупатель или продавец.
    */
-  async scheduleDeletion(userId: string, password: string) {
+  async deletionBlockers(userId: string): Promise<AccountDeletionBlockersDto> {
+    const [owned, escrow, orders] = await Promise.all([
+      this.db.workspace.findMany({ where: { ownerId: userId, archivedAt: null }, select: { id: true, name: true, _count: { select: { members: true } } }, take: 50 }),
+      this.db.escrowHold.count({ where: { status: 'active', OR: [{ payerType: 'user', payerUserId: userId }, { beneficiaryType: 'user', beneficiaryUserId: userId }] } }),
+      this.db.order.count({ where: { status: { in: ['funding', 'pending', 'confirmed'] }, OR: [{ buyerId: userId }, { sellerId: userId }] } }),
+    ]);
+    const blockers: AccountDeletionBlockersDto['blockers'] = [];
+    if (owned.length) blockers.push({ code: 'sole_owner', workspaces: owned.map((w) => ({ id: w.id, name: w.name, members: w._count.members })) });
+    if (escrow > 0) blockers.push({ code: 'open_escrow', count: escrow });
+    if (orders > 0) blockers.push({ code: 'debt', count: orders });
+    return { canDelete: blockers.length === 0, blockers, graceDays: ACCOUNT_GRACE_DAYS, verifyRequired: this.verify.required };
+  }
+
+  /**
+   * Удаление аккаунта = ОТЗЫВ СОГЛАСИЯ на обработку ПДн (core/consents). Порядок дверей:
+   * блокеры (мотивированный отказ) → пароль → SMS-пропуск `account_delete` (в production
+   * обязателен) → одна транзакция: гашение пропуска, отметка удаления, отзыв всех согласий
+   * с записью в учёт действий с ПДн, уведомление. Грейс `ACCOUNT_GRACE_DAYS` укладывается в
+   * 15 рабочих дней (ЗоПД ст. 8 п. 7); вход в грейс восстанавливает аккаунт, а согласия человек
+   * принимает заново (шлюз). После коммита владельцу уходит SMS «не вы? войдите, чтобы отменить» —
+   * защита от удаления с угнанной сессии.
+   */
+  async scheduleDeletion(userId: string, input: { password: string; verifyToken?: string }) {
     const user = await this.db.user.findUnique({ where: { id: userId } });
     if (!user || user.deletedAt) {
       throw notFound('auth.accountNotFound');
     }
-    const ok = await bcrypt.compare(password, user.password);
+    const state = await this.deletionBlockers(userId);
+    if (!state.canDelete) {
+      throw conflict('account.deletionBlocked', undefined, { blockers: state.blockers });
+    }
+    const ok = await bcrypt.compare(input.password, user.password);
     if (!ok) {
       throw unauthorized('auth.wrongPassword');
     }
-    await this.db.user.update({
-      where: { id: userId },
-      data: { deletionScheduledAt: new Date() },
+    if (this.verify.required && !input.verifyToken) {
+      throw badRequest('auth.verifyRequired');
+    }
+    const scheduledAt = new Date();
+    const purgeAt = new Date(scheduledAt.getTime() + ACCOUNT_GRACE_DAYS * 86_400_000);
+    let consentsAfterCommit: (() => Promise<void>) | null = null;
+    await this.db.$transaction(async (tx) => {
+      if (input.verifyToken) {
+        await this.verify.consume(tx, { verifyToken: input.verifyToken, purpose: 'account_delete', expectedUserId: userId });
+      }
+      // status-guarded: два одновременных запроса не дают двух отзывов и двух SMS
+      const { count } = await tx.user.updateMany({ where: { id: userId, deletionScheduledAt: null, deletedAt: null }, data: { deletionScheduledAt: scheduledAt } });
+      if (count === 0) throw conflict('account.deletionAlreadyScheduled');
+      consentsAfterCommit = (await this.consents.revokeAllForSubject(tx, { type: 'user', id: userId }, 'account_deleted', userId)).afterCommit;
+      // SMS уходит отдельной дверью ниже (безусловно), поэтому канал sms движка выключен — иначе две SMS
+      await this.notifications.send(tx, {
+        type: 'account.deletionScheduled',
+        to: [{ userId }],
+        payload: { days: ACCOUNT_GRACE_DAYS, purgeAtIso: purgeAt.toISOString() },
+        actorId: userId,
+        includeActor: true,
+        channels: { sms: false },
+        actionUrl: '/login',
+        reason: 'system',
+      });
+      // Log out everywhere; the account stays hidden until restored via login.
+      await tx.session.deleteMany({ where: { userId } });
     });
-    // Log out everywhere; the account stays hidden until restored via login.
-    await this.db.session.deleteMany({ where: { userId } });
     // Личные ключи API гаснут сразу: восстановление аккаунта их не вернёт (ключ = сессия без срока)
     await this.keysCascades.onDeletionScheduled(userId);
     // Кабинет платформы — отдельный контур со своими строками сессий: «выйти везде»
@@ -343,9 +422,18 @@ export class UsersService implements OnModuleInit {
     await this.redis.invalidateUserProfile(userId);
     // JWT-guard кэширует «аккаунт жив» на 60с — удаление обязано сбросить кэш сразу.
     await this.redis.del(authAliveKey(userId)).catch(() => undefined);
+    await this.consentsGate.forgetUser(userId);
+    // Эффекты отзыва согласий вне базы (отзыв токена у Google) — после коммита, best-effort
+    await (consentsAfterCommit as (() => Promise<void>) | null)?.().catch(() => undefined);
     // Live messenger sockets must drop too (socket auth is handshake-only).
     this.events.emit('auth.sessions.revoked', { userId }, 'users');
-    return { scheduled: true, gracePeriodDays: ACCOUNT_GRACE_DAYS };
+    // SMS владельцу — best-effort: аккаунт УЖЕ скрыт, и 500 из-за упавшего шлюза читался бы как «не удалился»
+    const locale = coerceLocale(user.locale);
+    this.smsOutbound
+      .sendAccountAlert(userId, user.phone, this.i18n.translateFor(locale, 'notifications.sms.accountDeletionScheduled', { days: ACCOUNT_GRACE_DAYS }))
+      .then((sent) => (sent ? this.pdActions.record(null, { subjectId: userId, recipient: 'kazinfoteh', fields: ['phone', 'notification_text'], purpose: 'service_sms', refType: 'account_deletion', refId: userId }) : undefined))
+      .catch((err) => this.logger.warn(`The account deletion SMS was not sent: ${(err as Error).message}`));
+    return { scheduled: true, gracePeriodDays: ACCOUNT_GRACE_DAYS, purgeAt: purgeAt.toISOString() };
   }
 
   /**

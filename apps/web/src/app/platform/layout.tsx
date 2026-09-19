@@ -7,7 +7,7 @@ import { PlatformShell } from '@/components/platform/PlatformShell';
 
 export default function PlatformLayout({ children }: { children: ReactNode }) {
   return (
-    <ServiceMessages ns={['platform', 'entitlements', 'circles', 'auth', 'analytics']}>
+    <ServiceMessages ns={['platform', 'entitlements', 'circles', 'auth', 'analytics', 'consents']}>
       <PlatformShell>{children}</PlatformShell>
     </ServiceMessages>
   );

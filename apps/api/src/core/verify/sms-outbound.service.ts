@@ -90,6 +90,29 @@ export class SmsOutboundService {
     await this.slidingRecord(budgetPrefix, 24 * 3600).catch(() => undefined);
   }
 
+  /**
+   * Тревожная SMS ВЛАДЕЛЬЦУ АККАУНТА на его собственный номер (запрошено удаление аккаунта).
+   * Не зависит от opt-in на SMS-уведомления: это защита от угона сессии, а не рассылка.
+   * Гео-щита нет (номер не выбирает клиент), потолок — одна SMS на человека за `accountAlertCooldownSec`.
+   * Best-effort: `false` — не отправлено (кулдаун, шлюз, mock в production); действие вызывающего не откатывается.
+   */
+  async sendAccountAlert(userId: string, phone: string, text: string): Promise<boolean> {
+    if (!this.live && !isDevEnv()) return false;
+    const client = this.redis.getClient();
+    const cdKey = `smsout:account:${userId}`;
+    const won = await client.set(cdKey, '1', 'EX', SMS_OUTBOUND_LIMITS.accountAlertCooldownSec, 'NX').catch(() => null);
+    if (won !== 'OK') return false;
+    try {
+      const res = await this.sms.driver.send(phone, text);
+      if (!res.ok) throw new Error(res.error ?? 'no reason given');
+      return true;
+    } catch (e) {
+      await client.del(cdKey).catch(() => undefined);
+      this.logger.warn(`Account alert SMS → ${maskPhone(phone)} was not sent: ${(e as Error).message}`);
+      return false;
+    }
+  }
+
   /** Ключи двух корзин скользящего окна + доля прошедшего окна */
   private windowOf(prefix: string, windowSec: number) {
     const nowSec = Date.now() / 1000;

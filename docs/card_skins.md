@@ -19,7 +19,7 @@
 
 ## API (кратко)
 
-`GET /card-skins/catalog` · `GET/POST /card-skins/wallet(+topup — ТЕСТ-пополнение)` · `POST /:skinId/buy` · `GET /inventory` · `GET/PUT /equip` (default | group) · `GET /resolve?userIds=` (слой для гридов).
+`GET /card-skins/catalog` · `GET /card-skins/wallet` · `POST /card-skins/wallet/topup` (**только development/test**: дев-контроллер `card-skins.dev.ts` регистрируется модулем лишь при `isDevEnv()`, в остальных средах маршрута нет — 404; это чеканка валюты без оплаты, вторая проверка среды стоит в `CardSkinsService.devTopUp`) · `POST /:skinId/buy` · `GET /inventory` · `GET/PUT /equip` (default | group) · `GET /resolve?userIds=` (слой для гридов).
 
 ## Отложено
 

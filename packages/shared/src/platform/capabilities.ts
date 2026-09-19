@@ -45,6 +45,14 @@ export const PLATFORM_CAPABILITIES = [
   'keys.read',
   'keys.write',
   'keys.approve',
+  // Движок согласий (core/consents): документы платформы и охват принятия · черновики ·
+  // публикация версии — ВСЕГДА через второго сотрудника (пара «пишет / одобряет»)
+  'consents.read',
+  'consents.write',
+  'consents.approve',
+  // Журнал инцидентов ПДн (ЗоПД ст. 25 п. 2 пп. 8): чтение · открытие и шаги уведомления
+  'pd.incidents.read',
+  'pd.incidents.write',
 ] as const;
 
 export type PlatformCapability = (typeof PLATFORM_CAPABILITIES)[number];

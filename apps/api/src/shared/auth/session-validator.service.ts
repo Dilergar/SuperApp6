@@ -1,9 +1,11 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { unauthorized } from '../errors/api-error';
+import { forbidden, unauthorized } from '../errors/api-error';
 import { DatabaseService } from '../database/database.service';
 import { RedisService } from '../redis/redis.service';
 import { KeysSigningService } from '../../core/keys/keys.signing.service';
 import { legacySecret } from '../../core/keys/keys.legacy';
+import { ConsentsGateService } from '../../core/consents/gate/consents-gate.service';
+import { CONSENT_ERROR_CODES } from '@superapp/shared';
 import type { JwtPayload } from '../decorators/current-user.decorator';
 
 /**
@@ -28,6 +30,12 @@ import type { JwtPayload } from '../decorators/current-user.decorator';
  * но открывал сокет и продолжал получать переписку до истечения своих 15 минут —
  * socket.io переподключается сам, поэтому «выброс» живых сокетов по событию эту дыру
  * не закрывал. Теперь оба входа обязаны идти сюда.
+ *
+ * Рядом с поколением токенов в том же значении кэша едет ЭПОХА СОГЛАСИЙ человека
+ * (`users.consent_epoch`, core/consents) — формат `<tokenEpoch>:<consentEpoch>`. Шлюз согласий
+ * сравнивает её с глобальной без единого обращения к базе или Redis сверх уже сделанного.
+ * Значение старого формата (без двоеточия, окно раскатки) читается как «эпоха неизвестна» —
+ * шлюз проверит человека по базе.
  */
 const ALIVE_TTL_SECONDS = 60;
 export const authAliveKey = (userId: string) => `auth:alive:${userId}`;
@@ -38,7 +46,15 @@ export class SessionValidatorService {
     private db: DatabaseService,
     private redis: RedisService,
     private signing: KeysSigningService,
+    private consentsGate: ConsentsGateService,
   ) {}
+
+  /** Значение кэша → поколение токенов и эпоха согласий (старый формат — только поколение). */
+  private parseCached(cached: string): { tokenEpoch: number; consentEpoch: number | undefined } {
+    const [t, c] = cached.split(':');
+    const consentEpoch = c === undefined || c === '' ? undefined : Number(c);
+    return { tokenEpoch: Number(t), consentEpoch: Number.isFinite(consentEpoch) ? consentEpoch : undefined };
+  }
 
   /**
    * Живость по УЖЕ РАСПАКОВАННОМУ payload — подпись проверил вызывающий
@@ -50,10 +66,12 @@ export class SessionValidatorService {
     try {
       const cached = await this.redis.get(key);
       if (cached !== null) {
-        if (Number(cached) !== tokenEpoch) {
+        const parsed = this.parseCached(cached);
+        if (parsed.tokenEpoch !== tokenEpoch) {
           throw unauthorized('auth.sessionExpired');
         }
-        return payload;
+        // `cep` всегда переписывается сервером: значение из токена (если бы оно там оказалось) не доверяется
+        return { ...payload, cep: parsed.consentEpoch };
       }
     } catch (err) {
       // ВАЖНО: отзыв не должен выглядеть как сбой Redis — пробрасываем как есть.
@@ -64,7 +82,7 @@ export class SessionValidatorService {
     // Verify user still exists.
     const user = await this.db.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, deletedAt: true, deletionScheduledAt: true, tokenEpoch: true },
+      select: { id: true, deletedAt: true, deletionScheduledAt: true, tokenEpoch: true, consentEpoch: true },
     });
 
     // Block both permanently-anonymized and grace-window (pending) accounts —
@@ -74,7 +92,7 @@ export class SessionValidatorService {
     }
 
     try {
-      await this.redis.set(key, String(user.tokenEpoch), ALIVE_TTL_SECONDS);
+      await this.redis.set(key, `${user.tokenEpoch}:${user.consentEpoch}`, ALIVE_TTL_SECONDS);
     } catch {
       /* кэш — best-effort */
     }
@@ -84,7 +102,7 @@ export class SessionValidatorService {
       throw unauthorized('auth.sessionExpired');
     }
 
-    return payload;
+    return { ...payload, cep: user.consentEpoch };
   }
 
   /**
@@ -93,7 +111,7 @@ export class SessionValidatorService {
    * эпохи принимается только на окне `KEYS_LEGACY_HS256_UNTIL`. Refresh-токен как
    * access не проходит: новый несёт `typ: refresh+jwt`, legacy — `jti`.
    */
-  async verifyAccessToken(raw: string): Promise<JwtPayload> {
+  async verifyAccessToken(raw: string, opts: { enforceConsents?: boolean } = {}): Promise<JwtPayload> {
     let payload: JwtPayload & { jti?: string };
     try {
       payload = await this.signing.verify<JwtPayload>('product', raw, {
@@ -106,7 +124,21 @@ export class SessionValidatorService {
       throw unauthorized('auth.invalidToken');
     }
     if (!payload?.sub || payload.jti) throw unauthorized('auth.invalidToken');
-    return this.assertAlive(payload);
+    const alive = await this.assertAlive(payload);
+    // Транспорт без маршрутов и декораторов (сокет): шлюз согласий применяется здесь же —
+    // человек за блокирующим экраном не получает живую ленту событий в обход HTTP-гарда.
+    if (opts.enforceConsents) await this.assertConsents(alive);
+    return alive;
+  }
+
+  /** Шлюз согласий для транспортов без гарда: быстрый путь — сравнение эпох, иначе проверка по базе. */
+  async assertConsents(payload: JwtPayload): Promise<void> {
+    if (payload.kind === 'bot') return;
+    const g = await this.consentsGate.globalEpoch();
+    if (g === 0 || (typeof payload.cep === 'number' && payload.cep >= g)) return;
+    if (await this.consentsGate.isUserBlocked(payload.sub)) {
+      throw forbidden('consents.pending', undefined, { code: CONSENT_ERROR_CODES.pending });
+    }
   }
 
   /**
@@ -117,7 +149,7 @@ export class SessionValidatorService {
   async cachedEpoch(userId: string): Promise<number | null> {
     try {
       const cached = await this.redis.get(authAliveKey(userId));
-      return cached === null ? null : Number(cached);
+      return cached === null ? null : this.parseCached(cached).tokenEpoch;
     } catch {
       return null;
     }

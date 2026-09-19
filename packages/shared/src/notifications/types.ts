@@ -185,6 +185,8 @@ export const NOTIFICATION_SERVICES = {
   processes: { contexts: 'workspace', order: 150 },
   office: { contexts: 'workspace', order: 160 },
   security: { contexts: 'personal', order: 900 },
+  /** Согласия и документы платформы (core/consents): новые версии условий, квитанции, удаление аккаунта */
+  consents: { contexts: 'both', order: 905 },
   /** Кабинет платформы (core/platform): security-alert владельцам, заявки four-eyes — только сотрудникам платформы */
   platform: { contexts: 'personal', order: 940 },
   system: { contexts: 'both', order: 950 },

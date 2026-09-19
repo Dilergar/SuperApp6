@@ -20,6 +20,7 @@ import { TASKS_ANALYTICS_EVENTS } from './tasks';
 import { MESSENGER_ANALYTICS_EVENTS } from './messenger';
 import { CALENDAR_ANALYTICS_EVENTS } from './calendar';
 import { KEYS_ANALYTICS_EVENTS } from './keys';
+import { CONSENTS_ANALYTICS_EVENTS } from './consents';
 
 export * from './types';
 export * from './routes';
@@ -30,6 +31,7 @@ const REGISTRY_RAW = {
   ...MESSENGER_ANALYTICS_EVENTS,
   ...CALENDAR_ANALYTICS_EVENTS,
   ...KEYS_ANALYTICS_EVENTS,
+  ...CONSENTS_ANALYTICS_EVENTS,
 } as const satisfies Record<string, AnalyticsEventDef>;
 
 /** Union ключей — выводится из реестра. Ключ вне реестра в `track()` — ошибка компиляции. */

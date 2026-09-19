@@ -303,6 +303,7 @@
       "key_version_enabled": "Версия ключа включена",
       "key_version_destroy_scheduled": "Версия ключа назначена к уничтожению",
       "key_version_destroyed": "Версия ключа уничтожена",
+      "key_version_compromised": "Версия ключа признана скомпрометированной",
       "scope_frozen": "Шифрование заморожено",
       "scope_unfrozen": "Шифрование разморожено",
       "scope_rewrapped": "Ключи перезавёрнуты",

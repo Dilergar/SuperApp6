@@ -34,6 +34,8 @@ export interface LoadedVersion {
   deactivatedAt: Date | null;
   destroyScheduledAt: Date | null;
   destroyedAt: Date | null;
+  /** Метка компрометации: архивная проверка подписи отвергает версию навсегда */
+  compromisedAt: Date | null;
 }
 
 export interface LoadedKey {
@@ -188,6 +190,7 @@ export class KeysStoreService {
           deactivatedAt: v.deactivatedAt,
           destroyScheduledAt: v.destroyScheduledAt,
           destroyedAt: v.destroyedAt,
+          compromisedAt: v.compromisedAt,
         })),
     };
   }
@@ -240,6 +243,7 @@ export class KeysStoreService {
       deactivatedAt: row.deactivatedAt,
       destroyScheduledAt: row.destroyScheduledAt,
       destroyedAt: row.destroyedAt,
+      compromisedAt: row.compromisedAt,
     };
     this.versionCache.set(kid, { at: Date.now(), epoch, v });
     return v;
@@ -289,6 +293,7 @@ export class KeysStoreService {
           deactivatedAt: row.deactivatedAt,
           destroyScheduledAt: row.destroyScheduledAt,
           destroyedAt: row.destroyedAt,
+          compromisedAt: row.compromisedAt,
         },
       });
     }
@@ -495,12 +500,34 @@ export class KeysStoreService {
     return ok;
   }
 
+  /**
+   * Признать версию скомпрометированной. Метка `compromisedAt` ставится при ЛЮБОМ состоянии
+   * (в т.ч. `destroyed`: закрытый ключ могли унести до уничтожения) и не снимается никогда —
+   * `enable` её не трогает. Рабочая версия (`active`/`pending`) заодно выключается. Primary
+   * не помечается: сначала вызывающий переводит primary на новую версию (`KeysSigningService.compromise`).
+   */
+  async markCompromised(kid: string, actor: { actorId?: string | null; actorKind?: string; reason?: string | null } = {}, tx?: Tx): Promise<boolean> {
+    const run = async (t: Tx) => {
+      const v = await t.cryptoKeyVersion.findUnique({ where: { id: kid }, include: { key: true } });
+      if (!v || v.key.primaryVersionId === kid) return false;
+      const now = new Date();
+      const { count } = await t.cryptoKeyVersion.updateMany({ where: { id: kid, compromisedAt: null }, data: { compromisedAt: now } });
+      if (count === 0) return false;
+      await t.cryptoKeyVersion.updateMany({ where: { id: kid, state: { in: ['active', 'pending'] } }, data: { state: 'disabled', deactivatedAt: now, frozenFrom: null } });
+      await this.audit.log(t, { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'system', workspaceId: this.workspaceOf(v.key.scope), subjectType: 'key_version', subjectId: kid, subjectName: `${v.key.scope}/${v.key.purpose}/${v.key.name} v${v.version}`, action: KEY_AUDIT_ACTIONS.versionCompromised, reason: actor.reason ?? null, details: { stateBefore: v.state } });
+      return true;
+    };
+    const ok = tx ? await run(tx) : await this.db.$transaction(run);
+    if (ok) await this.bumpAfter(tx);
+    return ok;
+  }
+
   /** `disabled` | `destroy_scheduled` → `active` (восстановление; primary-указатель ключа не менялся). */
   async enable(kid: string, actor: { actorId?: string | null; actorKind?: string; reason?: string | null } = {}, tx?: Tx): Promise<boolean> {
     const run = async (t: Tx) => {
       const v = await t.cryptoKeyVersion.findUnique({ where: { id: kid }, include: { key: true } });
       if (!v) return false;
-      const { count } = await t.cryptoKeyVersion.updateMany({ where: { id: kid, state: { in: ['disabled', 'destroy_scheduled'] } }, data: { state: 'active', deactivatedAt: null, destroyScheduledAt: null, frozenFrom: null } });
+      const { count } = await t.cryptoKeyVersion.updateMany({ where: { id: kid, state: { in: ['disabled', 'destroy_scheduled'] }, compromisedAt: null }, data: { state: 'active', deactivatedAt: null, destroyScheduledAt: null, frozenFrom: null } });
       if (count === 0) return false;
       await this.audit.log(t, { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'system', workspaceId: this.workspaceOf(v.key.scope), subjectType: 'key_version', subjectId: kid, subjectName: `${v.key.scope}/${v.key.purpose}/${v.key.name} v${v.version}`, action: KEY_AUDIT_ACTIONS.versionEnabled, reason: actor.reason ?? null });
       return true;

@@ -8,9 +8,12 @@ import {
 } from '../context/workspace-context.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { forbidden } from '../errors/api-error';
+import { ConsentsGateService } from '../../core/consents/gate/consents-gate.service';
+import { workspaceManagementTarget } from '../../core/consents/gate/workspace-management';
+import { SKIP_CONSENT_GATE_KEY } from '../decorators/skip-consent-gate.decorator';
 import type { JwtPayload } from '../decorators/current-user.decorator';
 import { DEFER_WORKSPACE_CHECK_KEY } from '../decorators/defer-workspace-check.decorator';
-import { ANALYTICS_HEADERS, KEYS_ERROR_CODES, LOCALE_HEADER, WORKSPACE_ROLE_RANK } from '@superapp/shared';
+import { ANALYTICS_HEADERS, CONSENT_ERROR_CODES, KEYS_ERROR_CODES, LOCALE_HEADER, WORKSPACE_ROLE_RANK } from '@superapp/shared';
 import { countryFromHeaders, negotiateLocale } from '@superapp/i18n';
 
 const ROLE_RANK: Record<string, number> = WORKSPACE_ROLE_RANK;
@@ -32,6 +35,7 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
     private readonly wsContext: WorkspaceContextService,
     private readonly roles: RolesService,
     private readonly reflector: Reflector,
+    private readonly consentsGate: ConsentsGateService,
   ) {}
 
   async intercept(
@@ -41,6 +45,9 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
     const req = execContext.switchToHttp().getRequest<{
       user?: JwtPayload;
       headers?: Record<string, unknown>;
+      method?: string;
+      originalUrl?: string;
+      url?: string;
     }>();
 
     const userId = req?.user?.sub;
@@ -99,6 +106,21 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
       context.role = roles
         .map((r) => r.role)
         .sort((a, b) => (ROLE_RANK[b] ?? 0) - (ROLE_RANK[a] ?? 0))[0];
+    }
+
+    // Мягкий шлюз согласий организации (core/consents): владелец, не принявший вступившие в силу
+    // условия для организаций, не может УПРАВЛЯТЬ ею (настройки, состав, ключи, тариф). Работа
+    // сотрудников и самого владельца в сервисах не останавливается никогда. Бот — не субъект.
+    if (userId && req?.user?.kind !== 'bot') {
+      const target = workspaceManagementTarget(req?.method, req?.originalUrl ?? req?.url, context.activeWorkspaceId);
+      const skip = target ? this.reflector.getAllAndOverride<boolean>(SKIP_CONSENT_GATE_KEY, [execContext.getHandler(), execContext.getClass()]) : true;
+      if (target && !skip && (await this.consentsGate.isWorkspaceBlocked(target))) {
+        const isOwner =
+          target === context.activeWorkspaceId
+            ? context.role === 'owner'
+            : (await this.roles.getRolesInContext(userId, 'workspace', target)).some((r) => r.role === 'owner');
+        if (isOwner) throw forbidden('consents.workspacePending', undefined, { code: CONSENT_ERROR_CODES.workspacePending, workspaceId: target });
+      }
     }
 
     // Wrap the handler's execution in the ALS scope so downstream DB queries

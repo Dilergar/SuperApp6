@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConsentsActionsService } from '../consents/consents.actions.service';
 import { Prisma, type ShareLink } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcrypt';
@@ -46,6 +47,7 @@ export class ShareLinksService {
     private readonly registry: ShareLinksRegistry,
     private readonly chatter: ChatterService,
     private readonly i18n: I18nService,
+    private readonly pdActions: ConsentsActionsService,
   ) {}
 
   // ============================================================
@@ -82,7 +84,7 @@ export class ShareLinksService {
         throw badRequest('shareLink.maxActiveGeneric');
       }
 
-      return tx.shareLink.create({
+      const created = await tx.shareLink.create({
         data: {
           token: randomBytes(SHARE_LINK_LIMITS.tokenBytes).toString('base64url'),
           refType: dto.refType,
@@ -111,6 +113,10 @@ export class ShareLinksService {
           passwordHash,
         },
       });
+      // Учёт действий с ПДн (Правила № 179/НҚ п. 9 пп. 5): ссылка наружу — распространение по
+      // действию самого человека; значения не пишутся, только факт и тип объекта
+      await this.pdActions.record(tx, { subjectId: userId, actionType: 'publication', basis: 'subject_action', fields: ['shared_content'], purpose: 'share_link_created', workspaceId: ctx.workspaceId ?? null, refType: dto.refType, refId: dto.refId });
+      return created;
     });
 
     await this.logChatter(userId, link, 'share.link_created');

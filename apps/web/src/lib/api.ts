@@ -1,6 +1,8 @@
 import { readLocaleCookie } from '@/i18n/locale';
 import { analytics } from '@/lib/analytics';
+import { CONSENTS_PENDING_CODE, CONSENTS_PENDING_EVENT } from '@/lib/consents-events';
 import {
+  apiErrorDetails,
   createApiClient,
   ACCESS_TOKEN_KEY,
   REFRESH_TOKEN_KEY,
@@ -48,6 +50,16 @@ const client = createApiClient({
 });
 
 export const api = client.api;
+
+// Шлюз согласий (core/consents): сервер отвечает `403 consents.pending` на любом запросе, когда
+// вступила в силу новая версия обязательного документа. Транспорт только СООБЩАЕТ об этом
+// каркасу (событие окна) — экран рисует `ConsentGate`; сам отказ доезжает до вызывающего как есть.
+client.api.interceptors.response.use(undefined, (error: unknown) => {
+  if (typeof window !== 'undefined' && apiErrorDetails(error)?.code === CONSENTS_PENDING_CODE) {
+    window.dispatchEvent(new Event(CONSENTS_PENDING_EVENT));
+  }
+  return Promise.reject(error);
+});
 export const apiGet = client.apiGet;
 export const apiPost = client.apiPost;
 export const apiPatch = client.apiPatch;
@@ -56,5 +68,6 @@ export const apiDelete = client.apiDelete;
 export const apiGetRaw = client.apiGetRaw;
 export const apiPostRaw = client.apiPostRaw;
 
-export { apiErrorMessage, apiErrorDetails } from '@superapp/api-client';
+export { apiErrorMessage } from '@superapp/api-client';
+export { apiErrorDetails };
 export { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY };

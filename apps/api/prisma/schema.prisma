@@ -63,6 +63,10 @@ model User {
   // Отказ от аналитики использования (core/analytics): применяется НА СЕРВЕРЕ при приёме —
   // product/telemetry-события не пишутся, business-факты сервера пишутся всегда.
   analyticsOptOut  Boolean   @default(false) @map("analytics_opt_out")
+  // Эпоха согласий человека (core/consents): глобальная эпоха, ДО которой включительно у него
+  // принято всё обязательное. Шлюз сравнивает её с глобальной без ввода-вывода: значение едет
+  // в кэше «аккаунт жив» рядом с tokenEpoch. Отстаёт от глобальной → ленивая перепроверка.
+  consentEpoch     Int       @default(0) @map("consent_epoch")
   // person | bot. Бот (core/keys) — теневая строка users: все FK, хроника, уведомления и
   // проекции core/access работают без переписывания; вход, SMS и роли системы боту закрыты.
   // Клиент рисует `kind: 'bot'` бот-чипом, а не PersonChip. Телефон бота — `bot:<id>`.
@@ -72,17 +76,17 @@ model User {
   // В личном окружении (Группы) НЕ показываются вовсе; коллегам — по тумблерам
   // companyCardVisibility.extras (по умолчанию скрыты); управляющим организаций
   // (manager+) — всегда, выключить нельзя (второй уровень «Видимости в Компаниях»).
-  iin                String? // 12 цифр, контрольная сумма проверяется схемой
-  iinEnc             String?   @map("iin_enc")
-  iinBi              String?   @map("iin_bi")
-  iinBiAlt           String?   @map("iin_bi_alt")
-  residentialAddress String?   @map("residential_address")
-  residentialAddressEnc String? @map("residential_address_enc")
-  idDocNumber        String?   @map("id_doc_number") // удостоверение личности
-  idDocNumberEnc     String?   @map("id_doc_number_enc")
-  idDocIssuedBy      String?   @map("id_doc_issued_by")
-  idDocIssuedByEnc   String?   @map("id_doc_issued_by_enc")
-  idDocIssuedAt      DateTime? @map("id_doc_issued_at") @db.Date
+  iin                   String? // 12 цифр, контрольная сумма проверяется схемой
+  iinEnc                String?   @map("iin_enc")
+  iinBi                 String?   @map("iin_bi")
+  iinBiAlt              String?   @map("iin_bi_alt")
+  residentialAddress    String?   @map("residential_address")
+  residentialAddressEnc String?   @map("residential_address_enc")
+  idDocNumber           String?   @map("id_doc_number") // удостоверение личности
+  idDocNumberEnc        String?   @map("id_doc_number_enc")
+  idDocIssuedBy         String?   @map("id_doc_issued_by")
+  idDocIssuedByEnc      String?   @map("id_doc_issued_by_enc")
+  idDocIssuedAt         DateTime? @map("id_doc_issued_at") @db.Date
 
   // Contact card visibility — per-field flags controlling what others see on your card
   // Shape: { lastName: bool, dateOfBirth: bool, age: bool, onlineStatus: bool, maritalStatus: bool, extras: {...} }
@@ -184,13 +188,13 @@ model UserRole {
 }
 
 model Session {
-  id         String   @id @default(uuid())
-  userId     String   @map("user_id")
-  token      String   @unique // refresh token hash
-  deviceInfo String?  @map("device_info")
-  lastActive DateTime @default(now()) @map("last_active")
-  expiresAt  DateTime @map("expires_at")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id           String    @id @default(uuid())
+  userId       String    @map("user_id")
+  token        String    @unique // refresh token hash
+  deviceInfo   String?   @map("device_info")
+  lastActive   DateTime  @default(now()) @map("last_active")
+  expiresAt    DateTime  @map("expires_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
   // Семейство refresh-цепочки одного устройства (RFC 9700 §2.2.2): вход = новое
   // семейство, ротация наследует. Прокрученная строка НЕ удаляется — помечается
   // rotatedAt/replacedById; её повторное предъявление вне grace 10 с = утечка →
@@ -262,15 +266,15 @@ model ContactLink {
 }
 
 model ContactInvitation {
-  id         String  @id @default(uuid())
-  fromUserId String  @map("from_user_id")
+  id           String  @id @default(uuid())
+  fromUserId   String  @map("from_user_id")
   // Null when recipient is NOT yet on the platform (invitation by phone only).
   // Filled in when the phone registers → then the invitation is surfaced to them.
-  toUserId   String? @map("to_user_id")
-  toPhone    String  @map("to_phone") // normalized E.164
+  toUserId     String? @map("to_user_id")
+  toPhone      String  @map("to_phone") // normalized E.164
   // ПДн под движком ключей: envelope (KEK отправителя) + слепой индекс для поиска по номеру
-  toPhoneEnc String? @map("to_phone_enc")
-  toPhoneBi  String? @map("to_phone_bi")
+  toPhoneEnc   String? @map("to_phone_enc")
+  toPhoneBi    String? @map("to_phone_bi")
   toPhoneBiAlt String? @map("to_phone_bi_alt")
 
   // Roles each side proposes. Recipient can override at accept-time.
@@ -1088,11 +1092,11 @@ model WorkspaceInvitation {
   workspaceId String @map("workspace_id")
   invitedBy   String @map("invited_by") // user_id who sent the invite
 
-  toUserId String? @map("to_user_id") // null until the invited phone is on the platform
-  toPhone  String  @map("to_phone") // normalized E.164
+  toUserId     String? @map("to_user_id") // null until the invited phone is on the platform
+  toPhone      String  @map("to_phone") // normalized E.164
   // ПДн под движком ключей: envelope (KEK организации) + слепой индекс
-  toPhoneEnc String? @map("to_phone_enc")
-  toPhoneBi  String? @map("to_phone_bi")
+  toPhoneEnc   String? @map("to_phone_enc")
+  toPhoneBi    String? @map("to_phone_bi")
   toPhoneBiAlt String? @map("to_phone_bi_alt")
 
   role       String   @default("trainee") // всегда trainee для новых приглашений
@@ -2635,16 +2639,16 @@ model ProcessStepRun {
 // ============================================================
 
 model ProcessTrigger {
-  id           String    @id @default(uuid())
-  definitionId String    @map("definition_id")
-  workspaceId  String    @map("workspace_id")
-  type         String // event | schedule | webhook
-  enabled      Boolean   @default(true)
+  id              String    @id @default(uuid())
+  definitionId    String    @map("definition_id")
+  workspaceId     String    @map("workspace_id")
+  type            String // event | schedule | webhook
+  enabled         Boolean   @default(true)
   // Тип события для event-триггера (P4): денормализован из config в колонку → роутер
   // фильтрует индексом, а не JSONB-path-запросом. Заполняется при публикации.
-  eventType    String?   @map("event_type")
+  eventType       String?   @map("event_type")
   // event: {nodeId, eventType}; schedule: {nodeId, everyValue, everyUnit}; webhook/telegram: {nodeId, credentialId?}
-  config       Json      @default("{}")
+  config          Json      @default("{}")
   // Секрет публичного эндпоинта: в колонке — SHA-256 hex сырого токена (lookup по равенству),
   // сам токен — в webhookTokenEnc (envelope core/keys, показывается редакторам холста).
   // Строки прошлой эпохи держат сырой токен (32 символа base64url) до бэкфилла.
@@ -2653,12 +2657,12 @@ model ProcessTrigger {
   // Telegram: момент регистрации вебхука с secret_token (проверяется заголовком приёмника);
   // NULL = зарегистрирован без секрета (до движка ключей) — крон перерегистрирует.
   webhookSecretAt DateTime? @map("webhook_secret_at")
-  runAsUserId  String    @map("run_as_user_id") // процесс запускается «от имени» этого сотрудника
-  nextRunAt    DateTime? @map("next_run_at") // schedule: следующий запуск
-  lastRunAt    DateTime? @map("last_run_at")
-  createdById  String    @map("created_by_id")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
+  runAsUserId     String    @map("run_as_user_id") // процесс запускается «от имени» этого сотрудника
+  nextRunAt       DateTime? @map("next_run_at") // schedule: следующий запуск
+  lastRunAt       DateTime? @map("last_run_at")
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   definition ProcessDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
 
@@ -3266,6 +3270,9 @@ model VerifyChallenge {
   consumedAt        DateTime? @map("consumed_at")
   verifyTokenHash   String?   @unique @map("verify_token_hash")
   requestIp         String?   @map("request_ip")
+  // Что человек принял ДО отправки SMS (цель register): {versionIds, locale, channel} —
+  // записи приёмки строятся ИЗ этого контекста, а не из тела запроса шага 3 (core/consents)
+  context           Json?
   userId            String?   @map("user_id") // владелец цели: step-up залогиненных И password_reset (привязка к аккаунту, не только к номеру)
   // Ответ SMS-шлюза на последнюю отправку: id сообщения у провайдера (доказательство
   // отправки для поддержки «мне не пришла SMS») и признак «код никуда не уходил»
@@ -3923,14 +3930,14 @@ model Counterparty {
   signBasisDate   DateTime? @map("sign_basis_date") @db.Date
   signBasisText   String?   @map("sign_basis_text") // своя формулировка целиком (kind = custom)
 
-  phone   String?
-  email   String?
+  phone      String?
+  email      String?
   // ПДн под движком ключей (KEK организации): телефон ещё и слепым индексом (сверка ПЭП)
-  phoneEnc String? @map("phone_enc")
-  phoneBi  String? @map("phone_bi")
+  phoneEnc   String? @map("phone_enc")
+  phoneBi    String? @map("phone_bi")
   phoneBiAlt String? @map("phone_bi_alt")
-  emailEnc String? @map("email_enc")
-  comment String?
+  emailEnc   String? @map("email_enc")
+  comment    String?
 
   createdById String    @map("created_by_id")
   archivedAt  DateTime? @map("archived_at") // архив вместо удаления: на карточке висят документы
@@ -3961,15 +3968,15 @@ model CounterpartyContact {
   counterpartyId String @map("counterparty_id")
   workspaceId    String @map("workspace_id") // денормализован: гейты и выборки идут по организации
 
-  name     String
-  position String?
-  phone    String? // нормализованный (+7…): канал SMS и сверка ПЭП
-  email    String?
+  name       String
+  position   String?
+  phone      String? // нормализованный (+7…): канал SMS и сверка ПЭП
+  email      String?
   // ПДн под движком ключей (KEK организации)
-  phoneEnc String? @map("phone_enc")
-  phoneBi  String? @map("phone_bi")
+  phoneEnc   String? @map("phone_enc")
+  phoneBi    String? @map("phone_bi")
   phoneBiAlt String? @map("phone_bi_alt")
-  emailEnc String? @map("email_enc")
+  emailEnc   String? @map("email_enc")
 
   archivedAt DateTime? @map("archived_at")
   createdAt  DateTime  @default(now()) @map("created_at")
@@ -3987,8 +3994,8 @@ model CounterpartyContact {
 /// Банковские счета контрагента — СПИСОК с основным (клон WorkspaceBankAccount:
 /// «ровно один основной» держит сервис в транзакции, partial-unique не нужен).
 model CounterpartyBankAccount {
-  id             String @id @default(uuid())
-  counterpartyId String @map("counterparty_id")
+  id             String  @id @default(uuid())
+  counterpartyId String  @map("counterparty_id")
   // Денормализовано (как у CounterpartyContact): скоуп KEK шифрования IBAN — организация
   workspaceId    String? @map("workspace_id")
 
@@ -4322,19 +4329,19 @@ model SignAct {
   cmsFileId String? @map("cms_file_id")
   cmsSha256 String? @map("cms_sha256")
 
-  certSubjectCn  String?   @map("cert_subject_cn")
+  certSubjectCn       String?   @map("cert_subject_cn")
   // ИИН/БИН разбираются из сертификата. Расхождение с users.iin — ОТКАЗ, а не
   // предупреждение: иначе подпись доказывает не того человека.
-  certSubjectIin String?   @map("cert_subject_iin")
+  certSubjectIin      String?   @map("cert_subject_iin")
   // ПДн под движком ключей: ИИН подписанта — envelope (платформенный KEK) + слепой индекс «все подписи ИИН»
-  certSubjectIinEnc String? @map("cert_subject_iin_enc")
-  certSubjectIinBi  String? @map("cert_subject_iin_bi")
-  certSubjectIinBiAlt String? @map("cert_subject_iin_bi_alt")
-  certSubjectBin String?   @map("cert_subject_bin")
-  certSerial     String?   @map("cert_serial")
-  certIssuerCn   String?   @map("cert_issuer_cn")
-  certNotBefore  DateTime? @map("cert_not_before")
-  certNotAfter   DateTime? @map("cert_not_after")
+  certSubjectIinEnc   String?   @map("cert_subject_iin_enc")
+  certSubjectIinBi    String?   @map("cert_subject_iin_bi")
+  certSubjectIinBiAlt String?   @map("cert_subject_iin_bi_alt")
+  certSubjectBin      String?   @map("cert_subject_bin")
+  certSerial          String?   @map("cert_serial")
+  certIssuerCn        String?   @map("cert_issuer_cn")
+  certNotBefore       DateTime? @map("cert_not_before")
+  certNotAfter        DateTime? @map("cert_not_after")
 
   // Вердикты ЗАМОРАЖИВАЮТСЯ в момент подписи и НИКОГДА не пересчитываются:
   // юридически значим статус сертификата ТОГДА (приказ № 1187 требует проверки
@@ -5233,10 +5240,10 @@ model PlatformCommandRequest {
 /// привязка того же anonymous_id к другому аккаунту помечает строку `contested` —
 /// склейка по ней больше не применяется (общий компьютер).
 model AnalyticsIdentityLink {
-  anonymousId String   @id @map("anonymous_id") @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  linkedAt    DateTime @default(now()) @map("linked_at")
-  contested   Boolean  @default(false)
+  anonymousId String    @id @map("anonymous_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  linkedAt    DateTime  @default(now()) @map("linked_at")
+  contested   Boolean   @default(false)
   contestedAt DateTime? @map("contested_at")
   source      String // identify | login
 
@@ -5417,6 +5424,10 @@ model CryptoKeyVersion {
   deactivatedAt      DateTime? @map("deactivated_at")
   destroyScheduledAt DateTime? @map("destroy_scheduled_at")
   destroyedAt        DateTime? @map("destroyed_at")
+  /// Версия признана скомпрометированной: архивная проверка подписи (`verifyArchival`) отвергает её
+  /// НАВСЕГДА, в каком бы состоянии она ни была. Отдельная колонка, а не `state = disabled`:
+  /// `disabled` уходит в `destroy_scheduled` → `destroyed`, и без метки компрометация «отмывалась» бы.
+  compromisedAt      DateTime? @map("compromised_at")
 
   key CryptoKey @relation(fields: [keyId], references: [id], onDelete: Cascade)
 
@@ -5527,35 +5538,35 @@ model Bot {
 /// ротация с перекрытием (≤ 2 живых, grace старого до 7 дней). Срок обязателен, кроме
 /// ключа бота, выпущенного владельцем с IP-списком. Статус вычисляется из строки.
 model ApiKey {
-  id            String    @id @default(uuid())
+  id              String    @id @default(uuid())
   /// bot | pat
-  kind          String
-  botId         String?   @map("bot_id")
-  userId        String?   @map("user_id")
+  kind            String
+  botId           String?   @map("bot_id")
+  userId          String?   @map("user_id")
   /// null у личного ключа для собственных данных человека
-  workspaceId   String?   @map("workspace_id")
-  familyId      String    @map("family_id")
-  name          String
-  purpose       String
-  prefix        String
-  last4         String
-  hash          String    @unique
-  hashKid       String    @map("hash_kid")
-  scopes        Json      @default("{}")
-  ipAllowlist   Json      @default("[]") @map("ip_allowlist")
-  expiresAt     DateTime? @map("expires_at")
-  lastUsedAt    DateTime? @map("last_used_at")
-  lastUsedIp    String?   @map("last_used_ip")
-  lastUsedCountry String? @map("last_used_country")
-  useCount      Int       @default(0) @map("use_count")
-  revokedAt     DateTime? @map("revoked_at")
-  revokedReason String?   @map("revoked_reason")
-  revokedNote   String?   @map("revoked_note")
-  rotatedFromId String?   @map("rotated_from_id")
-  graceUntil    DateTime? @map("grace_until")
-  storedHint    String?   @map("stored_hint")
-  createdById   String    @map("created_by_id")
-  createdAt     DateTime  @default(now()) @map("created_at")
+  workspaceId     String?   @map("workspace_id")
+  familyId        String    @map("family_id")
+  name            String
+  purpose         String
+  prefix          String
+  last4           String
+  hash            String    @unique
+  hashKid         String    @map("hash_kid")
+  scopes          Json      @default("{}")
+  ipAllowlist     Json      @default("[]") @map("ip_allowlist")
+  expiresAt       DateTime? @map("expires_at")
+  lastUsedAt      DateTime? @map("last_used_at")
+  lastUsedIp      String?   @map("last_used_ip")
+  lastUsedCountry String?   @map("last_used_country")
+  useCount        Int       @default(0) @map("use_count")
+  revokedAt       DateTime? @map("revoked_at")
+  revokedReason   String?   @map("revoked_reason")
+  revokedNote     String?   @map("revoked_note")
+  rotatedFromId   String?   @map("rotated_from_id")
+  graceUntil      DateTime? @map("grace_until")
+  storedHint      String?   @map("stored_hint")
+  createdById     String    @map("created_by_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   bot Bot? @relation(fields: [botId], references: [id], onDelete: Cascade)
 
@@ -5663,4 +5674,194 @@ model WorkspaceKeyPolicy {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@map("workspace_key_policies")
+}
+
+// ============================================================
+// core/consents — движок согласий (24-й) + учёт действий с ПДн + журнал инцидентов
+// ============================================================
+
+/// Версия документа платформы = комплект kk + ru + en. Юридический текст — КОНТЕНТ В БД,
+/// не каталог i18n: версия неизменяема и подписана платформой (аудитория `consents`).
+/// Неизменяемость держит ТРИГГЕР `consent_versions_guard` (миграция `core_consents`):
+/// у не-черновика меняются только статус, подпись (перезаверение), заверение ЭЦП и отметка
+/// активации; DELETE разрешён только черновику. Сервис дополнительно правит строго
+/// `updateMany where status = draft`.
+/// Частичный уникум (руками в миграции): один черновик на документ —
+/// `consent_versions_one_draft` (document_key) WHERE status = draft.
+model ConsentVersion {
+  id                       String    @id @default(uuid())
+  /// Ключ реестра `CONSENT_KINDS` (shared)
+  documentKey              String    @map("document_key")
+  version                  Int
+  /// draft | published | superseded | withdrawn (отозвана до вступления в силу новой публикацией)
+  status                   String    @default("draft")
+  /// Полный текст {kk, ru, en} (markdown; реквизиты оператора подставлены при публикации)
+  bodies                   Json
+  /// «Коротко о главном» {kk, ru, en}
+  summaries                Json
+  /// «Что изменилось» {kk, ru, en}; у первой версии — NULL
+  changeSummary            Json?     @map("change_summary")
+  /// sha256 показанного текста по языкам {kk, ru, en} — с ним сверяется `ConsentAcceptance.contentHash`
+  hashes                   Json?
+  /// sha256 манифеста версии (ключ, номер, хэши, дата вступления, существенность, prev) — его подписывает платформа
+  manifestHash             String?   @map("manifest_hash")
+  /// Цепочка версий: manifestHash предыдущей опубликованной версии того же документа
+  prevManifestHash         String?   @map("prev_manifest_hash")
+  /// Существенная версия поднимает шлюз после даты вступления; несущественная — нет
+  material                 Boolean   @default(true)
+  effectiveFrom            DateTime? @map("effective_from")
+  /// Срочная публикация «сегодня»: причина (обязательна)
+  urgentReason             String?   @map("urgent_reason")
+  /// Ed25519-подпись manifestHash (base64url) и версия ключа (`kid`) аудитории `consents`
+  signature                String?
+  signatureKid             String?   @map("signature_kid")
+  signedAt                 DateTime? @map("signed_at")
+  /// Прошлые подписи после перезаверения (компрометация ключа): [{kid, signature, signedAt, replacedAt}]
+  signatureHistory         Json      @default("[]") @map("signature_history")
+  /// Необязательное заверение ЭЦП руководителя оператора (заявка core/sign)
+  attestationSignRequestId String?   @map("attestation_sign_request_id")
+  /// PDF-отпечаток версии, отданный на заверение (движок подписи замораживает СВОЮ копию)
+  attestationFileId        String?   @map("attestation_file_id")
+  /// Момент, когда джоб активации поднял шлюз (идемпотентность джоба)
+  activatedAt              DateTime? @map("activated_at")
+  publishedAt              DateTime? @map("published_at")
+  publishedById            String?   @map("published_by_id")
+  createdById              String?   @map("created_by_id")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  acceptances ConsentAcceptance[]
+
+  @@unique([documentKey, version])
+  @@index([documentKey, status, effectiveFrom])
+  @@index([signatureKid])
+  @@map("consent_versions")
+}
+
+/// Запись приёмки — доказательство согласия (ЗоПД ст. 8 п. 1, ст. 25 п. 2 пп. 5).
+/// Пишется `ConsentsService.accept(tx, …)` ТОЛЬКО в транзакции вызывающего.
+/// Триггер `consent_acceptances_guard`: DELETE запрещён; UPDATE — только однократный отзыв
+/// (`revoked_at`/`revoked_reason` из NULL). Строка переживает удаление аккаунта: это
+/// доказательство, а не ПДн профиля (ЦК ст. 41 п. 4 пп. 1) — поэтому FK на users нет.
+/// Частичный уникум (руками в миграции): одна ЖИВАЯ приёмка на (субъект, версия) —
+/// `consent_acceptances_live_uq` (subject_type, subject_id, version_id) WHERE revoked_at IS NULL;
+/// иначе «маркетинг вкл → выкл → вкл» упирался бы в уникальность.
+model ConsentAcceptance {
+  id                String    @id @default(uuid())
+  /// user | workspace
+  subjectType       String    @map("subject_type")
+  subjectId         String    @map("subject_id")
+  documentKey       String    @map("document_key")
+  versionId         String    @map("version_id")
+  /// Язык, на котором человеку ПОКАЗАЛИ текст
+  locale            String
+  /// sha256 показанного текста (= hashes[locale] версии на момент приёмки)
+  contentHash       String    @map("content_hash")
+  /// Кто нажал «принимаю»
+  actorUserId       String    @map("actor_user_id")
+  /// self | guardian | org_owner
+  actorRole         String    @default("self") @map("actor_role")
+  /// Основание полномочий принявшего (роль в организации, документ представителя)
+  actorBasis        String?   @map("actor_basis")
+  acceptedAt        DateTime  @default(now()) @map("accepted_at")
+  /// web | mobile | api | terminal
+  channel           String    @default("web")
+  /// IP и User-Agent — envelope ПЛАТФОРМЕННЫМ ключом core/keys (не KEK человека:
+  /// крипто-шреддинг аккаунта не должен уничтожать доказательство согласия)
+  ipEnc             String?   @map("ip_enc")
+  userAgentEnc      String?   @map("user_agent_enc")
+  /// SMS-цепочка, до отправки которой человек принял документы (регистрация)
+  verifyChallengeId String?   @map("verify_challenge_id")
+  bundleKey         String?   @map("bundle_key")
+  revokedAt         DateTime? @map("revoked_at")
+  /// user_revoked | declined | account_deleted | superseded | integration_disconnected | workspace_purged
+  revokedReason     String?   @map("revoked_reason")
+
+  version ConsentVersion @relation(fields: [versionId], references: [id], onDelete: Restrict)
+
+  @@index([subjectType, subjectId, documentKey, acceptedAt])
+  @@index([versionId, revokedAt])
+  @@index([actorUserId])
+  @@map("consent_acceptances")
+}
+
+/// Учёт действий с ПДн (Правила защиты ПДн № 179/НҚ п. 9 пп. 5): передача третьим лицам,
+/// трансграничная передача, распространение, срок согласия. Append-only, МЕСЯЧНЫЕ ПАРТИЦИИ
+/// по `occurred_at` (написано руками в миграции `core_consents`; зеркало — составной PK;
+/// партиции вперёд — `MonthlyPartitions.ensureAhead()`). `fields` — КОДЫ полей, никогда значения.
+model PdActionRecord {
+  id                  BigInt   @default(autoincrement())
+  /// transfer | cross_border | publication | consent_term
+  actionType          String   @map("action_type")
+  /// user | workspace
+  subjectType         String   @default("user") @map("subject_type")
+  subjectId           String   @map("subject_id")
+  /// Ключ реестра получателей `PD_RECIPIENTS`; NULL у распространения и срока согласия
+  recipientKey        String?  @map("recipient_key")
+  crossBorder         Boolean  @default(false) @map("cross_border")
+  /// ISO 3166-1 alpha-2
+  country             String?
+  /// consent | subject_action | controller_instruction | legal_obligation
+  basis               String
+  consentAcceptanceId String?  @map("consent_acceptance_id")
+  fields              String[] @default([])
+  /// Машинный код назначения (`PD_PURPOSES`)
+  purpose             String
+  workspaceId         String?  @map("workspace_id")
+  refType             String?  @map("ref_type")
+  refId               String?  @map("ref_id")
+  occurredAt          DateTime @default(now()) @map("occurred_at")
+
+  @@id([id, occurredAt])
+  @@index([subjectType, subjectId, occurredAt])
+  @@index([recipientKey, occurredAt])
+  @@index([occurredAt])
+  @@map("pd_action_records")
+}
+
+/// Инцидент безопасности ПДн (ЗоПД ст. 25 п. 2 пп. 8; Правила № 179/НҚ п. 11): уведомить
+/// уполномоченный орган за 1 рабочий день с момента обнаружения, затем субъектов.
+/// Переходы статуса — status-guarded `updateMany`; история — `PdIncidentEvent` (append-only).
+model PdIncident {
+  id                  String    @id @default(uuid())
+  /// unauthorized_access | leak | loss | alteration | availability | other
+  kind                String
+  /// open | authority_notified | subjects_notified | closed
+  status              String    @default("open")
+  scope               String
+  summary             String
+  affectedEstimate    Int?      @map("affected_estimate")
+  detectedAt          DateTime  @map("detected_at")
+  /// detectedAt + 1 рабочий день
+  notifyDeadlineAt    DateTime  @map("notify_deadline_at")
+  authorityNotifiedAt DateTime? @map("authority_notified_at")
+  subjectsNotifiedAt  DateTime? @map("subjects_notified_at")
+  closedAt            DateTime? @map("closed_at")
+  /// Тревога «до дедлайна 4 часа» уже отправлена (идемпотентность джоба)
+  deadlineAlertedAt   DateTime? @map("deadline_alerted_at")
+  /// Сотрудник платформы, открывший инцидент
+  actorUserId         String    @map("actor_user_id")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  events PdIncidentEvent[]
+
+  @@index([status, notifyDeadlineAt])
+  @@map("pd_incidents")
+}
+
+/// События инцидента — append-only (триггеры immutable + no_truncate в миграции `core_consents`).
+model PdIncidentEvent {
+  id          BigInt   @id @default(autoincrement())
+  incidentId  String   @map("incident_id")
+  /// opened | authority_notified | subjects_notified | note | closed | deadline_alert
+  type        String
+  note        String?
+  actorUserId String?  @map("actor_user_id")
+  occurredAt  DateTime @default(now()) @map("occurred_at")
+
+  incident PdIncident @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+
+  @@index([incidentId, occurredAt])
+  @@map("pd_incident_events")
 }

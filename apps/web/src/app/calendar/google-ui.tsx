@@ -1,15 +1,22 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useFormatters } from '@/lib/format';
-import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
+import { apiDelete, apiErrorDetails, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
+import { ConsentDocumentView } from '@/components/consents/ConsentDocumentView';
+import { fetchConsentDocument } from '@/lib/public-api';
 import { Alert, Button, Card, Chip, Field, Icon, Modal } from '@/components/ui';
-import type { GoogleConnectionStatus, GoogleCalendarListItem, GoogleSyncResult } from '@superapp/shared';
+import { CONSENT_ERROR_CODES, type GoogleConnectionStatus, type GoogleCalendarListItem, type GoogleSyncResult, type Locale } from '@superapp/shared';
 
 export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }) {
   const t = useTranslations('calendar');
   const tc = useTranslations('common');
+  const shell = useTranslations('shell');
+  const uiLocale = useLocale() as Locale;
+  // Подключение Google — трансграничная передача: отдельное согласие В МОМЕНТ подключения (core/consents)
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [consentLocale, setConsentLocale] = useState<Locale>(uiLocale);
   const f = useFormatters();
   const [status, setStatus] = useState<GoogleConnectionStatus | null>(null);
   const [calendars, setCalendars] = useState<GoogleCalendarListItem[] | null>(null);
@@ -31,8 +38,24 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
       window.location.href = url; // redirect to Google consent
     } catch (e) {
       const a = e as { response?: { status?: number } };
-      if (a.response?.status === 400) setNotConfigured(true);
+      // Сервер просит согласие `integration_google` — показываем текст; «не настроено» — другой отказ
+      if (apiErrorDetails(e)?.code === CONSENT_ERROR_CODES.required) setConsentOpen(true);
+      else if (a.response?.status === 400) setNotConfigured(true);
       else setError(apiErrorMessage(e));
+      setBusy(false);
+    }
+  };
+
+  const acceptAndConnect = async () => {
+    setBusy(true); setError('');
+    try {
+      // Принимается версия, показанная на экране, на языке показа; затем подключение повторяется
+      const doc = await fetchConsentDocument('integration_google', consentLocale);
+      await apiPost('/consents/accept', { versionIds: [doc.versionId], locale: consentLocale, channel: 'web' });
+      setConsentOpen(false);
+      if (status?.connected) { await load(); setBusy(false); } else await connect();
+    } catch (e) {
+      setError(apiErrorMessage(e));
       setBusy(false);
     }
   };
@@ -110,6 +133,23 @@ export function GooglePanel({ onClose }: { onClose: (changed: boolean) => void }
       <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
         {error && <Alert tone="danger" onClose={() => setError('')}>{error}</Alert>}
         {msg && <Alert tone="success" onClose={() => setMsg('')}>{msg}</Alert>}
+        {/* Подключение прошлой эпохи без согласия: синхронизация стоит, пока человек его не даст */}
+        {connected && status?.consentRequired && (
+          <Alert tone="warning" action={<Button size="sm" variant="matte" tone="warning" onClick={() => setConsentOpen(true)}>{shell('consents.banner.action')}</Button>}>
+            {shell('consents.google.needed')}
+          </Alert>
+        )}
+        {consentOpen && (
+          <Modal
+            open
+            onClose={() => setConsentOpen(false)}
+            size="lg"
+            title={shell('consents.google.title')}
+            footer={<Button variant="primary" loading={busy} onClick={acceptAndConnect}>{shell('consents.google.accept')}</Button>}
+          >
+            <ConsentDocumentView documentKey="integration_google" onLocaleChange={setConsentLocale} />
+          </Modal>
+        )}
 
         {notConfigured ? (
           <Alert tone="warning" icon="plug" title={t('google.notConfigured')}>

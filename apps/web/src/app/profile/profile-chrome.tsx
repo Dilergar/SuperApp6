@@ -7,7 +7,7 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { useTranslations } from 'next-intl';
 
 type Section =
-  | 'card' | 'form' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'notifications' | 'links' | 'security' | 'keys';
+  | 'card' | 'form' | 'skins' | 'wallet' | 'stats' | 'roles' | 'subscription' | 'settings' | 'notifications' | 'links' | 'security' | 'keys' | 'my-data';
 
 /** Реестр секций несёт КЛЮЧИ; слова даёт каталог `profile`. */
 const SECTIONS: { key: Section; labelKey: string }[] = [
@@ -26,6 +26,8 @@ const SECTIONS: { key: Section; labelKey: string }[] = [
   // завтра счета и витрины.
   { key: 'keys', labelKey: 'nav.keys' },
   { key: 'links', labelKey: 'nav.links' },
+  // Согласия и «кому передавались мои данные» (core/consents) — сосед «Ссылок наружу» и «Безопасности»
+  { key: 'my-data', labelKey: 'nav.myData' },
   { key: 'security', labelKey: 'nav.security' },
 ];
 

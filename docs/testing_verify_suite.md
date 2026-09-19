@@ -71,3 +71,7 @@ API должен быть запущен. ⚠️ Перед прогоном у�
 ## Связанные доки
 
 [dev_environment.md](dev_environment.md) · [contract_boundary.md](contract_boundary.md) · [platform_gotchas.md](platform_gotchas.md).
+
+## Согласия в сьютах
+
+Регистрация без пакета `registration` и даты рождения отвергается, поэтому сьюты, создающие людей, берут поле `consents` из `apps/api/scripts/_consents.cjs` (`registrationConsents`). `verify-consents.cjs` публикует СУЩЕСТВЕННЫЕ версии документов и ротирует ключ подписи `consents` — шлюз поднимается у всех аккаунтов базы разработки; в конце сьют принимает новое за suite1–3 и tester1–3 (`acceptAllPending`). После ручной dev-публикации (`POST /consents/dev/publish`) — `node apps/api/scripts/seed-test-accounts.cjs` (идемпотентно принимает всё, что ждёт принятия). Отчёты аналитики кэшируются на час: два прогона `verify-analytics.cjs` в пределах часа на стыке суток могут читать кэш прошлого прогона (`analytics:q:*`).

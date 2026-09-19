@@ -87,7 +87,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       const header = client.handshake.headers?.authorization;
       const token = auth?.token || (header ? header.replace(/^Bearer\s+/i, '') : undefined);
       if (!token) throw new Error('no token');
-      const payload = await this.sessions.verifyAccessToken(token);
+      // Шлюз согласий — тем же валидатором: человек за блокирующим экраном сокет не открывает
+      const payload = await this.sessions.verifyAccessToken(token, { enforceConsents: true });
       client.data.userId = payload.sub;
       client.data.epoch = payload.epoch ?? 0;
       await client.join(`user:${payload.sub}`);

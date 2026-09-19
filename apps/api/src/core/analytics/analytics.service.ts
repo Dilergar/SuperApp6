@@ -247,21 +247,25 @@ export class AnalyticsService implements OnModuleDestroy {
   }
 
   /**
-   * Тумблер человека. Отказ применяется НА СЕРВЕРЕ при приёме (product/telemetry не
-   * пишутся); факт смены — business-событие в той же транзакции. Кэш отказа в Redis
-   * обновляется после коммита, чтобы консьюмер увидел его без минутной задержки.
+   * Отказ человека от аналитики использования. ПРАВДА — движок согласий (`core/consents`, вид
+   * `analytics`, режим opt-out); `users.analytics_opt_out` — её ЗЕРКАЛО, которое читает приём
+   * событий. Поэтому своей двери записи у аналитики нет: зеркало ставит `ConsentsService`
+   * в транзакции приёмки/отзыва через `applyOptOut(tx, …)`, а после коммита зовёт `publishOptOut`.
+   * Отказ применяется НА СЕРВЕРЕ при приёме (product/telemetry не пишутся); факт смены —
+   * business-событие в той же транзакции.
    */
-  async setOptOut(userId: string, optOut: boolean): Promise<{ optOut: boolean }> {
-    await this.db.$transaction(async (tx) => {
-      await tx.user.update({ where: { id: userId }, data: { analyticsOptOut: optOut } });
-      await this.track(tx, 'analytics.consent.changed', { optOut }, { userId, workspaceId: null });
-    });
+  async applyOptOut(tx: Tx, userId: string, optOut: boolean): Promise<void> {
+    await tx.user.update({ where: { id: userId }, data: { analyticsOptOut: optOut } });
+    await this.track(tx, 'analytics.consent.changed', { optOut }, { userId, workspaceId: null });
+  }
+
+  /** После коммита: кэш отказа в Redis, чтобы консьюмер увидел его без минутной задержки. */
+  async publishOptOut(userId: string, optOut: boolean): Promise<void> {
     try {
       await this.redis.set(ANALYTICS_REDIS.optOut(userId), optOut ? '1' : '0', 300);
     } catch {
       /* консьюмер дочитает из БД */
     }
-    return { optOut };
   }
 
   // ============================================================

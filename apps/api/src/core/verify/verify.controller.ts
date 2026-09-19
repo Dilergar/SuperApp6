@@ -7,6 +7,7 @@ import { VerifyService } from './verify.service';
 import { Public } from '../../shared/decorators/public.decorator';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { verifyStartSchema, verifyStepUpSchema, verifyCheckSchema } from '@superapp/shared';
+import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
 
 /**
  * IP клиента для эшелонов лимитов — ТОЛЬКО через `req.ip`.
@@ -22,6 +23,8 @@ function clientIp(req: Request): string | undefined {
 }
 
 @ApiTags('Verify')
+// SMS-подтверждения нужны за блокирующим экраном согласий: удаление аккаунта идёт через step-up
+@SkipConsentGate()
 @Controller('verify')
 export class VerifyController {
   constructor(private verify: VerifyService) {}
@@ -45,7 +48,7 @@ export class VerifyController {
       // step-up цели доступны только залогиненным через /verify/step-up
       throw notFound('verify.badTarget');
     }
-    const result = await this.verify.startPublic(data.phone, data.purpose, clientIp(req));
+    const result = await this.verify.startPublic(data.phone, data.purpose, clientIp(req), data.consents);
     return { success: true, data: result };
   }
 

@@ -1,7 +1,6 @@
 import { Controller, Get, Post, Put, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import {
-  topUpSkinWalletSchema,
   equipDefaultSkinSchema,
   equipGroupSkinSchema,
 } from '@superapp/shared';
@@ -23,13 +22,6 @@ export class CardSkinsController {
   @ApiOperation({ summary: 'Platform currency balance (used to buy skins)' })
   async wallet(@CurrentUser() user: JwtPayload) {
     return { success: true, data: await this.skins.getWallet(user.sub) };
-  }
-
-  @Post('wallet/topup')
-  @ApiOperation({ summary: 'TEST: top up the platform currency (real payment comes later)' })
-  async topup(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
-    const { amount } = topUpSkinWalletSchema.parse(body);
-    return { success: true, data: await this.skins.topUp(user.sub, amount) };
   }
 
   @Post(':skinId/buy')

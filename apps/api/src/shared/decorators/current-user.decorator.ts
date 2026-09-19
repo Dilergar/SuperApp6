@@ -39,6 +39,12 @@ export interface JwtPayload {
   keyWorkspaceId?: string | null;
   /** Скоупы ключа — гард сверяет с сервисом маршрута; фактическое право = скоуп ∩ права носителя */
   scopes?: KeyScopes;
+  /**
+   * Эпоха согласий человека (core/consents). В ТОКЕНЕ ЕЁ НЕТ: поле выставляет сервер в
+   * `SessionValidatorService.assertAlive` из кэша «аккаунт жив» и всегда переписывает.
+   * `undefined` — эпоха неизвестна (ключ API, старый формат кэша): шлюз идёт медленным путём.
+   */
+  cep?: number;
 }
 
 export const CurrentUser = createParamDecorator(

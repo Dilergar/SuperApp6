@@ -29,15 +29,7 @@
     "until": "until"
   },
   "delete": {
-    "days": "30 days",
-    "deleting": "Deleting…",
-    "enterPassword": "Enter the password",
     "failed": "Could not delete the account",
-    "password": "Current password",
-    "passwordPlaceholder": "Confirm with the current password",
-    "submit": "Delete",
-    "textAfter": " to change your mind — just sign in again and it will be restored. After that the data is deleted permanently.",
-    "textBefore": "The account will be marked for deletion. You have ",
     "title": "Delete the account?"
   },
   "field": {
@@ -127,7 +119,8 @@
     "stats": "Statistics",
     "subscription": "Plan and limits",
     "wallet": "Wallet",
-    "keys": "Keys and apps"
+    "keys": "Keys and apps",
+    "myData": "My data"
   },
   "phone": {
     "codeToNew": "Code to the new number",
@@ -188,13 +181,6 @@
     "unknownDevice": "Unknown device"
   },
   "settings": {
-    "analytics": {
-      "collect": "We record which sections you open and what you do in them — without the content.",
-      "label": "Help improve the app",
-      "notCollect": "We never record texts, files, amounts or contacts.",
-      "remains": "When it is off, only the facts the services need are kept: tasks, plan limits, payments.",
-      "title": "Usage analytics"
-    },
     "online": {
       "contacts": "Contacts only",
       "everyone": "Everyone",

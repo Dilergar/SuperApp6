@@ -4,7 +4,8 @@ import { Throttle } from '@nestjs/throttler';
 import { badRequest } from '../../shared/errors/api-error';
 import { UsersService } from './users.service';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
-import { updateProfileSchema, changePasswordSchema, changePhoneSchema, maskLastName } from '@superapp/shared';
+import { updateProfileSchema, changePasswordSchema, changePhoneSchema, deleteAccountSchema, maskLastName, type AccountDeletionBlockersDto } from '@superapp/shared';
+import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -12,6 +13,16 @@ import { updateProfileSchema, changePasswordSchema, changePhoneSchema, maskLastN
 export class UsersController {
   constructor(private usersService: UsersService) {}
 
+  // Мотивированный отказ показывается ДО ввода пароля — и за блокирующим экраном согласий тоже
+  @SkipConsentGate()
+  @Get('me/deletion-blockers')
+  @ApiOperation({ summary: 'What prevents the account deletion right now (sole ownership, open escrow, unfinished orders)' })
+  async deletionBlockers(@CurrentUser() user: JwtPayload): Promise<{ success: true; data: AccountDeletionBlockersDto }> {
+    return { success: true, data: await this.usersService.deletionBlockers(user.sub) };
+  }
+
+  // Профиль нужен шапке блокирующего экрана согласий
+  @SkipConsentGate()
   @Get('me')
   @ApiOperation({ summary: 'The current user profile' })
   async getProfile(@CurrentUser() user: JwtPayload) {
@@ -68,20 +79,19 @@ export class UsersController {
     return { success: true, data: result };
   }
 
+  // «Не принимаю, удалить аккаунт» — единственный выход из блокирующего экрана помимо принятия
+  @SkipConsentGate()
   @Delete('me')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ long: { limit: 5, ttl: 900000 } })
   @ApiOperation({
     summary:
-      'Schedule the account deletion (30 days to restore it by signing in) — requires the password',
+      'Schedule the account deletion (= revoke the personal data consent): password + SMS step-up; 14 days to restore by signing in',
   })
-  async deleteAccount(
-    @CurrentUser() user: JwtPayload,
-    @Body() body: { password?: string },
-  ) {
-    if (!body?.password || typeof body.password !== 'string') {
-      throw badRequest('auth.passwordRequired');
-    }
-    return this.usersService.scheduleDeletion(user.sub, body.password);
+  async deleteAccount(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    const data = deleteAccountSchema.parse(body ?? {});
+    // Единый конверт ответа (контракт API↔клиенты): раньше ручка отдавала голый объект
+    return { success: true, data: await this.usersService.scheduleDeletion(user.sub, data) };
   }
 
   @Get('lookup')

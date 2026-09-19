@@ -4,6 +4,7 @@ import { WEBHOOK_LIMITS, WEBHOOK_SYSTEM_EVENTS } from '@superapp/shared';
 import type { Counter } from 'prom-client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { safeFetch } from '../../shared/http/safe-fetch';
+import { ConsentsActionsService } from '../consents/consents.actions.service';
 import { trustedFetch } from '../../shared/http/trusted-fetch';
 import { MetricsService } from '../../shared/metrics/metrics.service';
 import { redactSecrets } from '../../shared/utils/redact';
@@ -39,6 +40,7 @@ export class WebhooksDeliveryJobs implements OnModuleInit {
     private readonly webhooks: WebhooksService,
     private readonly audit: KeysAuditService,
     private readonly notifier: KeysNotifier,
+    private readonly pdActions: ConsentsActionsService,
     metrics: MetricsService,
   ) {
     this.deliveryFail = metrics.counter('webhooks_delivery_fail_total', 'Failed webhook delivery attempts by outcome', ['outcome']);
@@ -143,6 +145,11 @@ export class WebhooksDeliveryJobs implements OnModuleInit {
       await this.db.$transaction(async (tx) => {
         await tx.webhookDelivery.update({ where: { id: d.id }, data: { status: 'delivered', attempts: ctx.attempt, nextAt: null, lastStatus: res.status, lastError: null, deliveredAt: new Date() } });
         await tx.webhookEndpoint.update({ where: { id: e.id }, data: { failures: 0, failingSince: null, lastFailureAt: null, lastDeliveryAt: new Date() } });
+        // Учёт действий с ПДн: данные организации ушли на её адрес по её поручению (субъект — организация;
+        // страну получателя знает только она — в реестре получателей поле пустое). Пинг данных не несёт.
+        if (!isPing) {
+          await this.pdActions.record(tx, { subjectType: 'workspace', subjectId: e.workspaceId, recipient: 'webhook_subscriber', purpose: 'webhook_delivery', workspaceId: e.workspaceId, refType: 'webhook_delivery', refId: d.id });
+        }
         if (isPing && e.status === 'pending_verification') {
           const { count } = await tx.webhookEndpoint.updateMany({ where: { id: e.id, status: 'pending_verification' }, data: { status: 'active' } });
           if (count) {

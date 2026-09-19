@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -7,7 +7,6 @@ import {
   ANALYTICS_LIMITS,
   analyticsClientEventSchema,
   analyticsCollectSchema,
-  analyticsConsentSchema,
   analyticsEventDef,
   analyticsIdentifySchema,
   type AnalyticsCollectResultDto,
@@ -20,6 +19,7 @@ import { badRequest } from '../../shared/errors/api-error';
 import { analyticsEnv, type AnalyticsIngestEvent, type AnalyticsIngestReject } from './analytics.constants';
 import { normalizePageProps, parseUserAgent, sanitizeKey, shapeOf, templateRoute, uuidOrNull } from './analytics.enrich';
 import { AnalyticsService } from './analytics.service';
+import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
 
 /** Потолок тела авторизованного приёма: батч клиента режется по 60 КБ, плюс запас на обёртку. */
 const AUTHED_MAX_BYTES = 64_000;
@@ -70,6 +70,8 @@ export class AnalyticsController {
   ) {}
 
   @ApiBearerAuth()
+  // Приём событий работает и за блокирующим экраном согласий (иначе его показ не измерить)
+  @SkipConsentGate()
   @Post('collect')
   @HttpCode(HttpStatus.ACCEPTED)
   @DeferWorkspaceCheck()
@@ -108,13 +110,8 @@ export class AnalyticsController {
     return { success: true, data: { optOut: await this.analytics.getOptOut(user.sub) } };
   }
 
-  @ApiBearerAuth()
-  @Patch('consent')
-  @ApiOperation({ summary: 'Opt out of (or back into) usage analytics; business facts are still recorded' })
-  async setConsent(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
-    const dto = analyticsConsentSchema.parse(body ?? {});
-    return { success: true, data: await this.analytics.setOptOut(user.sub, dto.optOut) };
-  }
+  // Записи здесь нет: отказ от аналитики — согласие вида `analytics` движка согласий
+  // (`POST /consents/revoke` · `POST /consents/accept`), зеркало в users ставит он же.
 
   // ------------------------------------------------------------
 

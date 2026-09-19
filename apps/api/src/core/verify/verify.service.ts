@@ -1,4 +1,7 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { ConsentsDocumentsService } from '../consents/consents.documents.service';
+import { ConsentsActionsService } from '../consents/consents.actions.service';
+import type { ConsentSelectionInput } from '@superapp/shared';
 import { ApiError, badRequest, conflict, tooMany, unauthorized } from '../../shared/errors/api-error';
 import { createHmac, createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
@@ -61,6 +64,8 @@ type Delivery = 'sms' | 'simulated' | 'test_map';
 interface StartOptions {
   /** Нейтральная имитация: цепочка настоящая, SMS не шлём, код недостижим. */
   simulate?: boolean;
+  /** Что человек принял ДО отправки SMS (цель register) — ложится в `VerifyChallenge.context` */
+  context?: ConsentSelectionInput;
 }
 
 @Injectable()
@@ -73,6 +78,8 @@ export class VerifyService {
     private redis: RedisService,
     private sms: VerifySmsService,
     private mac: KeysMacService,
+    private consentDocs: ConsentsDocumentsService,
+    private pdActions: ConsentsActionsService,
   ) {
     // isProdEnv(): незаданный NODE_ENV — это ПРОД, а не «не прод». Иначе тест-карта с
     // фиксированными кодами пережила бы забытую переменную в контейнере.
@@ -135,8 +142,12 @@ export class VerifyService {
    * живому аккаунту; раньше пустышка отвечала мгновенно и никогда не упиралась в
    * лимиты, что само по себе было ответом «такого номера нет».
    */
-  async startPublic(phone: string, purpose: 'register' | 'password_reset', ip?: string): Promise<VerifyStartResponse> {
+  async startPublic(phone: string, purpose: 'register' | 'password_reset', ip?: string, consents?: ConsentSelectionInput): Promise<VerifyStartResponse> {
     if (purpose === 'register') {
+      // Согласия — ДО всего остального: отправка кода уже обработка номера (ЗоПД ст. 7), и без
+      // принятого пакета SMS не уходит. Принятое кладётся в цепочку: записи приёмки на шаге 3
+      // строятся ИЗ НЕЁ, а не из тела запроса.
+      await this.consentDocs.assertBundleSelection('registration', consents);
       const existing = await this.db.user.findUnique({ where: { phone }, select: { deletionScheduledAt: true, deletedAt: true } });
       if (existing) {
         if (existing.deletionScheduledAt && !existing.deletedAt) {
@@ -144,7 +155,7 @@ export class VerifyService {
         }
         throw conflict('auth.phoneTaken');
       }
-      return this.startChain(phone, purpose, null, ip);
+      return this.startChain(phone, purpose, null, ip, { context: consents });
     }
 
     // password_reset: цепочка привязывается к КОНКРЕТНОМУ аккаунту, а не только к
@@ -166,7 +177,7 @@ export class VerifyService {
    */
   async startStepUp(
     userId: string,
-    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage',
+    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete',
     password: string,
     newPhone: string | undefined,
     ip?: string,
@@ -356,6 +367,8 @@ export class VerifyService {
           expiresAt,
           providerMessageId,
           delivery,
+          // Ресенд с новым выбором (человек переставил галочку рассылок) — правда последняя
+          ...(opts.context ? { context: opts.context as unknown as Prisma.InputJsonValue } : {}),
         },
       });
       challengeId = active.id;
@@ -370,9 +383,16 @@ export class VerifyService {
           userId,
           providerMessageId,
           delivery,
+          ...(opts.context ? { context: opts.context as unknown as Prisma.InputJsonValue } : {}),
         },
       });
       challengeId = row.id;
+    }
+
+    // Учёт действий с ПДн: номер и текст ушли SMS-шлюзу. У цепочки без аккаунта (регистрация)
+    // субъекта ещё нет — запись делает регистрация в своей транзакции по данным `consume`.
+    if (delivery === 'sms' && userId) {
+      await this.pdActions.record(null, { subjectId: userId, recipient: 'kazinfoteh', fields: ['phone'], purpose: 'otp_sms', refType: 'verify_challenge', refId: challengeId });
     }
 
     // Dev-обвязка: код доступен dev-ручке /verify/dev/last-code (только development/test —
@@ -448,7 +468,7 @@ export class VerifyService {
   async consume(
     tx: Prisma.TransactionClient,
     opts: { verifyToken: string; purpose: VerifyPurpose; expectedUserId?: string; expectedPhone?: string },
-  ): Promise<{ phone: string; userId: string | null }> {
+  ): Promise<{ phone: string; userId: string | null; challengeId: string; context: unknown; startedAt: Date; smsSent: boolean }> {
     const tokenHash = this.hashToken(opts.verifyToken);
     const ch = await tx.verifyChallenge.findUnique({ where: { verifyTokenHash: tokenHash } });
     const fail = () =>
@@ -465,7 +485,7 @@ export class VerifyService {
       data: { consumedAt: new Date() },
     });
     if (count === 0) throw fail(); // параллельное гашение выиграл другой
-    return { phone: ch.phone, userId: ch.userId };
+    return { phone: ch.phone, userId: ch.userId, challengeId: ch.id, context: ch.context ?? null, startedAt: ch.createdAt, smsSent: ch.delivery === 'sms' };
   }
 
   // ------------------------------------------------------------------

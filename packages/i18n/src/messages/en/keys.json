@@ -303,6 +303,7 @@
       "key_version_enabled": "Key version enabled",
       "key_version_destroy_scheduled": "Key version scheduled for destruction",
       "key_version_destroyed": "Key version destroyed",
+      "key_version_compromised": "Key version marked compromised",
       "scope_frozen": "Encryption frozen",
       "scope_unfrozen": "Encryption unfrozen",
       "scope_rewrapped": "Keys re-wrapped",

@@ -365,7 +365,9 @@ async function main() {
         expiresAt: new Date(Date.now() + 30 * 24 * 3600 * 1000),
       },
     });
-    const reg = await call('POST', '/auth/register', null, { phone: PNEW, password: PW, firstName: 'Ревью' });
+    // core/consents: регистрация требует дату рождения и пакет согласий `registration`
+    const regConsents = await require('./_consents.cjs').registrationConsents(process.env.API_URL || process.env.API_BASE || 'http://localhost:3001/api');
+    const reg = await call('POST', '/auth/register', null, { phone: PNEW, password: PW, firstName: 'Ревью', dateOfBirth: '1990-01-01', consents: regConsents });
     check('подготовка: регистрация прошла', reg.ok, `status ${reg.status}`);
     const newUser = await prisma.user.findUnique({ where: { phone: PNEW }, select: { id: true } });
     if (newUser) created.userIds.push(newUser.id);

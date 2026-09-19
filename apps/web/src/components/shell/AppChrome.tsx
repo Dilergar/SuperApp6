@@ -20,6 +20,8 @@ function isBare(pathname: string): boolean {
   if (BARE_EXACT.has(pathname)) return true;
   if (pathname.startsWith('/s/')) return true;                          // гостевая ссылка: человек без аккаунта
   if (pathname === '/platform' || pathname.startsWith('/platform/')) return true; // кабинет платформы: свой каркас и свой вход
+  if (pathname === '/legal' || pathname.startsWith('/legal/')) return true; // публичная витрина документов платформы (core/consents)
+  if (pathname.startsWith('/account/delete')) return true;              // мастер удаления аккаунта: работает и за шлюзом согласий
   if (pathname.startsWith('/check')) return true;                       // открытая проверка подписи (ст. 61 ЦК РК)
   if (pathname.startsWith('/docs/')) return true;                       // редактор во весь экран
   if (/^\/workspaces\/[^/]+\/processes\/[^/]+$/.test(pathname)) return true; // канвас процесса

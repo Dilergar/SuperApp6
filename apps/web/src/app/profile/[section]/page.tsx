@@ -1,8 +1,8 @@
 'use client';
 
-import { Button, Chip, Input, ModalShell, Select } from '@/components/ui';
+import { Button, Chip, Input, Select } from '@/components/ui';
 import { useState, useEffect, useRef } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch } from '@/lib/api';
@@ -22,7 +22,6 @@ import { PersonCard } from '../../circles/PersonCard';
 import { WalletSection } from '../WalletSection';
 import { SkinsSection } from '../SkinsSection';
 import { NotificationsSection } from '../NotificationsSection';
-import { AnalyticsConsentSection } from '../AnalyticsConsentSection';
 import { KeysSection } from '../KeysSection';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import { ChangePasswordDialog, ChangePhoneDialog } from './security-dialogs';
@@ -80,13 +79,11 @@ export default function ProfileSectionPage() {
   const locale = useLocale();
   // Даты и числа — через форматтеры платформы (регион КЗ), а не toLocaleString('ru-RU').
   const fmt = useFormatters();
-  const router = useRouter();
   const params = useParams<{ section: string }>();
   const rawSection = (params?.section ?? 'card') as Section;
   const section: Section = KNOWN_SECTIONS.includes(rawSection) ? rawSection : 'card';
 
   const { isReady, user: profile } = useRequireAuth();
-  const logout = useAuthStore((s) => s.logout);
   const fetchProfile = useAuthStore((s) => s.fetchProfile);
 
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -94,12 +91,8 @@ export default function ProfileSectionPage() {
   const [groups, setGroups] = useState<Circle[]>([]);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = useState(false);
   const [showPhoneDialog, setShowPhoneDialog] = useState(false);
-  const [deletePassword, setDeletePassword] = useState('');
-  const [deleteError, setDeleteError] = useState('');
-  const [deleting, setDeleting] = useState(false);
 
   const [editData, setEditData] = useState({
     firstName: '', lastName: '', bio: '', city: '', email: '',
@@ -183,22 +176,6 @@ export default function ProfileSectionPage() {
   }, []);
 
   const clear = () => { setError(''); setSuccessMsg(''); };
-
-  const handleDeleteAccount = async () => {
-    setDeleteError('');
-    if (!deletePassword) { setDeleteError(t('delete.enterPassword')); return; }
-    setDeleting(true);
-    try {
-      // Schedules deletion (30-day grace) and revokes sessions server-side.
-      await apiDelete('/users/me', { data: { password: deletePassword } });
-      await logout(); // clear local state + redirect with a recovery hint
-      router.push('/login?deleted=1');
-    } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      setDeleteError(axiosErr.response?.data?.message || t('delete.failed'));
-      setDeleting(false);
-    }
-  };
 
   const handleSaveProfile = async () => {
     clear();
@@ -757,7 +734,6 @@ export default function ProfileSectionPage() {
               ]}
             />
           </div>
-          <AnalyticsConsentSection />
         </div>
       )}
 
@@ -808,12 +784,8 @@ export default function ProfileSectionPage() {
 
           <div style={{ marginTop: 'var(--spacing-8)' }}>
             <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)', color: 'var(--danger)' }}>{t('security.dangerZone')}</h3>
-            <button
-              onClick={() => { setShowDeleteModal(true); setDeletePassword(''); setDeleteError(''); }}
-              style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--danger)', background: 'none', border: '1.5px solid var(--danger)', borderRadius: '10px', padding: 'var(--spacing-2) var(--spacing-4)', cursor: 'pointer' }}
-            >
-              {t('security.deleteAccount')}
-            </button>
+            {/* Удаление = отзыв согласия на обработку ПДн: мастер с блокерами и SMS-подтверждением (core/consents) */}
+            <Button variant="outline" tone="danger" href="/account/delete">{t('security.deleteAccount')}</Button>
           </div>
         </div>
       )}
@@ -822,31 +794,6 @@ export default function ProfileSectionPage() {
       {showPasswordDialog && <ChangePasswordDialog onClose={() => setShowPasswordDialog(false)} />}
       {showPhoneDialog && <ChangePhoneDialog onClose={() => setShowPhoneDialog(false)} />}
 
-      {/* Delete-account confirmation */}
-      {showDeleteModal && (
-        <ModalShell onClose={() => !deleting && setShowDeleteModal(false)} zIndex={200}>
-          <div onClick={(e) => e.stopPropagation()} className="card" style={{ maxWidth: '440px', width: '100%', padding: 'var(--spacing-6)' }}>
-            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)', color: 'var(--danger)' }}>{t('delete.title')}</h3>
-            <p className="label-md" style={{ marginBottom: 'var(--spacing-4)', lineHeight: 1.55 }}>
-              {t('delete.textBefore')}<b>{t('delete.days')}</b>{t('delete.textAfter')}
-            </p>
-            <Input
-              label={t('delete.password')}
-              type="password"
-              autoComplete="current-password"
-              value={deletePassword}
-              onChange={(e) => setDeletePassword(e.target.value)}
-              placeholder={t('delete.passwordPlaceholder')}
-              wrapClassName="mb-3"
-            />
-            {deleteError && <p style={{ color: 'var(--danger)', fontSize: '0.8rem', marginBottom: 'var(--spacing-3)' }}>{deleteError}</p>}
-            <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-              <button className="btn-ghost-inline" disabled={deleting} style={{ fontSize: '0.85rem' }} onClick={() => { setShowDeleteModal(false); setDeletePassword(''); setDeleteError(''); }}>{common('actions.cancel')}</button>
-              <button disabled={deleting} onClick={handleDeleteAccount} style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--on-primary)', background: 'var(--danger)', border: 'none', borderRadius: '10px', padding: 'var(--spacing-2) var(--spacing-5)', cursor: deleting ? 'default' : 'pointer', opacity: deleting ? 0.6 : 1 }}>{deleting ? t('delete.deleting') : t('delete.submit')}</button>
-            </div>
-          </div>
-        </ModalShell>
-      )}
     </div>
   );
 }

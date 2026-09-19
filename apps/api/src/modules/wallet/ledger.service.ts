@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { assertAdultForPayment } from './adult-gate';
 import { Prisma } from '@prisma/client';
 import { WALLET_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -166,9 +167,31 @@ export class LedgerService {
    * issuance is auditable. Enforces the "in hand" ceiling (a user's own balance ≤ maxInHand).
    * Ownership of the currency is validated by the caller (CurrencyService).
    */
-  async mint(input: { currencyId: string; ownerType?: string; ownerId: string; amount: number }, tx?: Tx): Promise<void> {
+  async mint(
+    input: {
+      currencyId: string;
+      ownerType?: string;
+      ownerId: string;
+      amount: number;
+      /**
+       * Откуда ценность. ОБЯЗАТЕЛЬНО для платформенной валюты (`issuerType = platform`) — её
+       * чеканка и есть единственная дверь реальных денег на платформу: `real_money` — оплата
+       * человеком (платёжный рельс, внешнее пополнение) → проверяется совершеннолетие
+       * (`403 payments.minorNotAllowed`); `system` — начисление платформы без денег человека
+       * (дев-пополнение, бонус, возврат). Рельс не может «забыть» проверку: без поля чеканка
+       * платформенной валюты падает. Семейные и корпоративные коины поля не требуют.
+       */
+      funding?: 'real_money' | 'system';
+    },
+    tx?: Tx,
+  ): Promise<void> {
     const amount = this.toBig(input.amount);
     await this.run(tx, async (t) => {
+      const currency = await t.currency.findUnique({ where: { id: input.currencyId }, select: { issuerType: true } });
+      if (currency?.issuerType === 'platform') {
+        if (!input.funding) throw new Error('ledger.mint: `funding` is required for the platform currency (real_money | system)');
+        if (input.funding === 'real_money' && (input.ownerType ?? 'user') === 'user') await assertAdultForPayment(this.db, input.ownerId);
+      }
       const issuance = await this.getOrCreateIssuanceAccount(t, input.currencyId);
       const user = await this.getOrCreateHolderAccount(t, input.currencyId, input.ownerType ?? 'user', input.ownerId);
       const locks = await this.lock(t, [issuance.id, user.id]);

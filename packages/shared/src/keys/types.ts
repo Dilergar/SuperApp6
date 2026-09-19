@@ -32,7 +32,7 @@ export type KeyScopeType = (typeof KEY_SCOPE_TYPES)[number];
 export type KeyScopeRef = { type: 'platform' } | { type: 'workspace' | 'user'; id: string };
 
 /** Аудитории подписи — отдельная пара ключей на каждую (урок Storm-0558). */
-export const SIGNING_AUDIENCES = ['product', 'platform', 'wopi', 'share_link', 'files_url', 'webhook'] as const;
+export const SIGNING_AUDIENCES = ['product', 'platform', 'wopi', 'share_link', 'files_url', 'webhook', 'consents'] as const;
 export type SigningAudience = (typeof SIGNING_AUDIENCES)[number];
 
 /** Именованные HMAC-ключи платформы. */

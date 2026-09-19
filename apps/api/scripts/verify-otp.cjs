@@ -17,7 +17,22 @@ const PW2 = 'Test12345!';
 const TEST_MAP_PHONE = '+77099999999';
 const TEST_MAP_CODE = '424242';
 
+// Согласия (core/consents): старт регистрации и сама регистрация без пакета `registration`
+// отвергаются, дата рождения обязательна. Этот сьют — про SMS, поэтому помощник подставляет
+// действующий пакет и дату сам (про сами согласия — verify-consents.cjs).
+const { registrationConsents } = require('./_consents.cjs');
+let CONSENTS = null;
+async function withConsents(path, body) {
+  if (!body) return body;
+  const isStart = path === '/verify/start' && body.purpose === 'register';
+  const isRegister = path === '/auth/register';
+  if (!isStart && !isRegister) return body;
+  if (!CONSENTS) CONSENTS = await registrationConsents(BASE);
+  return { ...(isRegister ? { dateOfBirth: '1990-01-01' } : {}), consents: CONSENTS, ...body };
+}
+
 async function http(method, path, { token, body } = {}) {
+  body = await withConsents(path, body);
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {

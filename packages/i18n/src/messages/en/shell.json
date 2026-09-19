@@ -167,5 +167,67 @@
       "enable": "Turn on",
       "later": "Later"
     }
+  },
+  "consents": {
+    "documents": {
+      "terms": "Terms of Use",
+      "privacy": "Consent to personal data processing",
+      "cross_border": "Consent to cross-border data transfer",
+      "privacy_policy": "Personal Data Processing Policy",
+      "marketing": "Consent to news and offers",
+      "analytics": "Usage analytics",
+      "integration_google": "Consent to data transfer to Google Calendar",
+      "guardian": "Consent of a legal representative",
+      "business_terms": "Terms for Organizations",
+      "dpa": "Data Processing Agreement"
+    },
+    "viewer": {
+      "summaryTitle": "In brief",
+      "changesTitle": "What has changed",
+      "fullTitle": "Full text",
+      "version": "Version {version}",
+      "effectiveFrom": "In effect from {date}",
+      "notCurrent": "This is not the current version",
+      "print": "Print version",
+      "language": "Document language",
+      "archive": "All versions",
+      "loading": "Loading the document…",
+      "failed": "The document could not be loaded",
+      "retry": "Try again",
+      "close": "Back to the form"
+    },
+    "registration": {
+      "main": "I am 16 or older, I accept the <terms>Terms of Use</terms>, consent to the <privacy>processing of my personal data</privacy> and to its <crossBorder>cross-border transfer</crossBorder>, and have read the <policy>Data Processing Policy</policy>",
+      "minorNote": "If you are under 18, you confirm that your legal representative agrees",
+      "marketing": "I want to receive SuperApp6 news and offers — <marketing>terms</marketing>",
+      "required": "Tick the consent box to continue",
+      "unavailable": "The platform documents are temporarily unavailable. Please try again later"
+    },
+    "workspace": {
+      "main": "On behalf of the organization I accept the <businessTerms>Terms for Organizations</businessTerms> and the <dpa>Data Processing Agreement</dpa>"
+    },
+    "gate": {
+      "title": "We have updated the terms",
+      "subtitle": "Read what has changed and accept the new version to keep using SuperApp6",
+      "progress": "Document {current} of {total}",
+      "accept": "I accept",
+      "decline": "I do not accept, delete the account",
+      "logout": "Sign out"
+    },
+    "banner": {
+      "text": "New terms take effect on {date} — read and accept them now",
+      "action": "Read",
+      "workspaceUpcoming": "New terms for “{name}” take effect on {date}",
+      "workspaceBlocking": "“{name}”: accept the new terms to manage the organization again. Employees keep working",
+      "ownerOnly": "Only the owner can accept"
+    },
+    "review": {
+      "title": "New terms"
+    },
+    "google": {
+      "title": "Connecting Google Calendar",
+      "accept": "I accept and connect",
+      "needed": "Give the consent to continue syncing with Google"
+    }
   }
 }
