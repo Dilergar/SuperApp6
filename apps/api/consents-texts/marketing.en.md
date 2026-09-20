@@ -1,4 +1,4 @@
-<!-- DRAFT FOR LEGAL REVIEW. Operator details are substituted on publication. -->
+<!-- Source of the version 1 draft (consents-publish-initial.cjs). After publication the only source of the text is the database: a new version is drafted and published from the platform console. Operator details are substituted on publication. -->
 <!-- summary -->
 - You allow us to send you platform news, offers and selections — in the app, by push notifications, SMS and e-mail.
 - This is optional: the platform works the same with or without this consent.

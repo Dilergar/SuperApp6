@@ -1,4 +1,4 @@
-<!-- DRAFT FOR LEGAL REVIEW. Operator details are substituted on publication. -->
+<!-- Source of the version 1 draft (consents-publish-initial.cjs). After publication the only source of the text is the database: a new version is drafted and published from the platform console. Operator details are substituted on publication. -->
 <!-- summary -->
 - This is an agreement between you and {{legalName}}, the operator of the SuperApp6 platform. By accepting it you get the right to use the platform services.
 - You may register from the age of 16. If you are under 18, you confirm that your legal representative agrees. Real-money payments are available only from 18.

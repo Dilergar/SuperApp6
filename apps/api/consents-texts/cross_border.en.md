@@ -1,4 +1,4 @@
-<!-- DRAFT FOR LEGAL REVIEW. Operator details are substituted on publication. -->
+<!-- Source of the version 1 draft (consents-publish-initial.cjs). After publication the only source of the text is the database: a new version is drafted and published from the platform console. Operator details are substituted on publication. -->
 <!-- summary -->
 - To deliver notifications to your phone and browser, the platform uses the delivery services of Google, Mozilla, Apple and Microsoft. Their servers are located outside Kazakhstan.
 - Only the technical address of your device and the notification text are transferred to them.

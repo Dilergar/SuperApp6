@@ -1,4 +1,4 @@
-<!-- DRAFT FOR LEGAL REVIEW. Operator details are substituted on publication. -->
+<!-- Source of the version 1 draft (consents-publish-initial.cjs). After publication the only source of the text is the database: a new version is drafted and published from the platform console. Operator details are substituted on publication. -->
 <!-- summary -->
 - This document explains how {{legalName}} handles personal data: what is collected, why, how it is protected and to whom it is transferred.
 - The data is stored in Kazakhstan, sensitive fields are encrypted, staff access is restricted and logged.

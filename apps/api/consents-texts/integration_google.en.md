@@ -1,4 +1,4 @@
-<!-- DRAFT FOR LEGAL REVIEW. Operator details are substituted on publication. -->
+<!-- Source of the version 1 draft (consents-publish-initial.cjs). After publication the only source of the text is the database: a new version is drafted and published from the platform console. Operator details are substituted on publication. -->
 <!-- summary -->
 - You are connecting Google Calendar. Your calendar events will be transferred to Google LLC (USA) and received from it.
 - This is a cross-border transfer and it is needed only for synchronisation — without it the platform works as usual.

@@ -1,4 +1,4 @@
-<!-- DRAFT FOR LEGAL REVIEW. Operator details are substituted on publication. -->
+<!-- Source of the version 1 draft (consents-publish-initial.cjs). After publication the only source of the text is the database: a new version is drafted and published from the platform console. Operator details are substituted on publication. -->
 <!-- summary -->
 - You allow {{legalName}} to collect and process your personal data so that the SuperApp6 platform can work: your account, your connections with other people, tasks, documents, notifications.
 - The data is stored on servers in Kazakhstan. The term is for as long as the account exists; after that only what the law requires is kept.

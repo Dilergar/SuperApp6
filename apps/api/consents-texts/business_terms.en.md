@@ -1,4 +1,4 @@
-<!-- DRAFT FOR LEGAL REVIEW. Operator details are substituted on publication. -->
+<!-- Source of the version 1 draft (consents-publish-initial.cjs). After publication the only source of the text is the database: a new version is drafted and published from the platform console. Operator details are substituted on publication. -->
 <!-- summary -->
 - These are the terms on which an organization uses the SuperApp6 platform. The owner of the organization accepts them on its behalf.
 - The organization's data belongs to the organization. It can be exported; when the organization is deleted, the data is destroyed.

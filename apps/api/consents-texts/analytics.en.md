@@ -1,4 +1,4 @@
-<!-- DRAFT FOR LEGAL REVIEW. Operator details are substituted on publication. -->
+<!-- Source of the version 1 draft (consents-publish-initial.cjs). After publication the only source of the text is the database: a new version is drafted and published from the platform console. Operator details are substituted on publication. -->
 <!-- summary -->
 - The platform records which features people use in order to understand what is convenient and what is not. Action codes are recorded — not your texts, names or files.
 - Analytics is on by default. You can turn it off with a single switch in the "My data" section of the profile.

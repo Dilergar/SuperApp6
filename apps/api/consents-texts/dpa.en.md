@@ -1,4 +1,4 @@
-<!-- DRAFT FOR LEGAL REVIEW. Operator details are substituted on publication. -->
+<!-- Source of the version 1 draft (consents-publish-initial.cjs). After publication the only source of the text is the database: a new version is drafted and published from the platform console. Operator details are substituted on publication. -->
 <!-- summary -->
 - The personal data of employees, customers and counterparties that an organization enters into the platform belongs to the organization. It is the owner of the database; the platform is the operator acting on its instruction.
 - We process this data only to run the organization's services, store it in Kazakhstan and encrypt it with the organization's own key.
