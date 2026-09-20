@@ -11,6 +11,9 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
+import { apiErrorCode, isOutcomeUnknown, toastApiError } from '@/lib/api-errors';
+import { useIdempotencyIntent } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote } from '@/components/idempotency/OutcomeUnknownAlert';
 import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 import { contactsKey, fetchAllContacts, shopAccessibleKey, shopListingsKey, shopMineKey, shopOfKey } from '@/lib/queries';
 import { executeRichCardAction } from '@/lib/messenger-api';
@@ -50,6 +53,11 @@ export default function ShopPage() {
   const [sharePanel, setSharePanel] = useState<Showcase | null>(null);
   const [staffOpen, setStaffOpen] = useState(false);
   const [contributeModal, setContributeModal] = useState<Listing | null>(null);
+  // Намерение покупки: живёт до успеха, поэтому повтор того же клика = тот же заказ
+  // Ключ намерения покупки — на ЛОТ: двойное нажатие даёт ОДИН заказ, а не два
+  const buyIntent = useIdempotencyIntent();
+  const [buying, setBuying] = useState<string | null>(null);
+  const [unknownOutcome, setUnknownOutcome] = useState<unknown>(null);
   const [forwardListing, setForwardListing] = useState<Listing | null>(null);
   const [removingShowcase, setRemovingShowcase] = useState<Showcase | null>(null);
   const [removingListing, setRemovingListing] = useState<Listing | null>(null);
@@ -136,13 +144,23 @@ export default function ShopPage() {
     }
   };
   const buy = async (l: Listing) => {
-    setError(''); setOk('');
+    setError(''); setOk(''); setUnknownOutcome(null); setBuying(l.id);
     try {
-      await apiPost(`/shop/listings/${l.id}/buy`);
+      // Покупка необратима (эскроу): ключ намерения — на лот, а не на клик, поэтому
+      // двойное нажатие даёт ОДИН заказ, а не два
+      await apiPost(`/shop/listings/${l.id}/buy`, undefined, { idempotencyKey: buyIntent.keyFor('buy', l.id) });
+      buyIntent.reset();
       setOk(t('page.orderPlaced', { title: l.title }));
       setTimeout(() => setOk(''), 5000);
     } catch (e) {
-      setError(apiErrorMessage(e));
+      // «Могло пройти» — заказ мог создаться: веди в «Мои заказы», а не пугай красным
+      if (isOutcomeUnknown(e)) setUnknownOutcome(e);
+      // «Уже куплено» — это успех, а не беда: красная строка соврала бы и толкнула
+      // нажать «Купить» второй раз
+      else if (apiErrorCode(e)?.startsWith('idempotency.')) toastApiError(e);
+      else setError(apiErrorMessage(e));
+    } finally {
+      setBuying(null);
     }
   };
   // «Поговорить» — DM покупатель↔продавец с карточкой лота, затем переход в мессенджер.
@@ -202,8 +220,14 @@ export default function ShopPage() {
         <SegmentedControl aria-label={t('page.sections')} items={tabs} value={tab} onChange={setTab} />
       </div>
 
-      {(shownError || ok) && (
+      {(shownError || ok || unknownOutcome != null || buying !== null) && (
         <div style={{ marginBottom: 'var(--gap-grid)' }}>
+          {unknownOutcome != null && (
+            <OutcomeUnknownAlert error={unknownOutcome} onOpenHistory={() => { setTab('orders'); setUnknownOutcome(null); }} onDismiss={() => setUnknownOutcome(null)} />
+          )}
+          {/* Транспорт уже несколько секунд повторяет покупку сам — кнопка в это
+              время заблокирована, и без подписи это выглядит как зависший экран. */}
+          <SlowRequestNote pending={buying !== null} />
           {shownError && <Alert tone="danger" onClose={() => setError('')}>{shownError}</Alert>}
           {ok && <Alert tone="success" onClose={() => setOk('')}>{ok}</Alert>}
         </div>

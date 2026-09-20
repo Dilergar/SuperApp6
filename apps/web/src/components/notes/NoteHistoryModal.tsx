@@ -5,12 +5,12 @@ import { useTranslations } from 'next-intl';
 import type { NoteRevisionDto } from '@superapp/shared';
 import { Button, Chip, EmptyState, LoadingBlock, Modal, useConfirm } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { apiErrorMessage } from '@/lib/api';
+
 import { fetchNoteRevisions, restoreNoteRevision } from '@/lib/notes-api';
 import { useFormatters } from '@/lib/format';
 import { noteDetailKey, noteRevisionsKey, notesRootKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // История версий заметки: снимки сохранений (кап — 30). Откат делает НОВУЮ версию,
 // а не переписывает историю (модель Google Docs), поэтому вернуться можно и обратно.
@@ -32,7 +32,7 @@ export function NoteHistoryModal({ open, onClose, noteId, canEdit }: { open: boo
       void qc.invalidateQueries({ queryKey: noteDetailKey(noteId) });
       onClose();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

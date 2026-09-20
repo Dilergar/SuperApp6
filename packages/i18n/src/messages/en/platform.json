@@ -216,6 +216,10 @@
     "pdIncidentClose": {
       "description": "Closes the incident. State the outcome and the measures taken in the note.",
       "title": "Close the incident"
+    },
+    "idempotencyKeyLookup": {
+      "title": "Find by repeat key",
+      "description": "An integrator asks whether their request went through: find its attempts by the repeat key. Response bodies are never shown"
     }
   },
   "fields": {
@@ -274,7 +278,14 @@
     "validUntil": "Valid until",
     "value": "Value",
     "website": "Website",
-    "workspaces": "Organizations"
+    "workspaces": "Organizations",
+    "windowDays": "Window, days",
+    "repeated": "Came back again",
+    "unresolved": "Outcome unknown",
+    "committedWithoutAnswer": "Done, answer lost",
+    "released": "No effect",
+    "lastAt": "Last seen",
+    "hits": "Attempts"
   },
   "grantSource": {
     "addon": "add-on",
@@ -326,7 +337,8 @@
     "workspaceKeys": "Keys and bots",
     "workspaceMembersSummary": "Members",
     "workspaceProfile": "Profile",
-    "userConsents": "Consents"
+    "userConsents": "Consents",
+    "userIdempotency": "Disputed operations"
   },
   "picker": {
     "change": "change",
@@ -519,5 +531,11 @@
     "archived": "archived",
     "draft": "draft",
     "published": "published"
+  },
+  "idempotencyState": {
+    "in_progress": "Running",
+    "committed": "Done, answer lost",
+    "completed": "Finished",
+    "released": "No effect"
   }
 }

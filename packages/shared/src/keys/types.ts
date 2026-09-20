@@ -36,7 +36,7 @@ export const SIGNING_AUDIENCES = ['product', 'platform', 'wopi', 'share_link', '
 export type SigningAudience = (typeof SIGNING_AUDIENCES)[number];
 
 /** Именованные HMAC-ключи платформы. */
-export const MAC_KEY_NAMES = ['blind_index', 'verify_otp', 'oauth_state', 'api_key_pepper'] as const;
+export const MAC_KEY_NAMES = ['blind_index', 'verify_otp', 'oauth_state', 'api_key_pepper', 'idempotency', 'google_channel'] as const;
 export type MacKeyName = (typeof MAC_KEY_NAMES)[number];
 
 /** Алгоритмы — метка в каждом артефакте (crypto-agility: смена = новая версия ключа). */

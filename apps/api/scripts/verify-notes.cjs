@@ -343,7 +343,7 @@ async function main() {
     ']}}';
   const deepRes = await fetch(`${process.env.SA6_API_BASE || 'http://localhost:3001/api'}/notes`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + p1.token },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': require('crypto').randomUUID(), Authorization: 'Bearer ' + p1.token },
     body: abyssBody,
   });
   check(`документ глубиной ${depth} → 400 (не 500)`, deepRes.status === 400, String(deepRes.status));

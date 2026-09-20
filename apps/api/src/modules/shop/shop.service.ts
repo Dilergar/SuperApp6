@@ -40,6 +40,7 @@ import { AccessService } from '../../core/access/access.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { Principal, RelationTupleInput } from '../../core/access/access.types';
 import { EscrowService } from '../wallet/escrow.service';
+import { IdempotencyReplayRegistry, type ReplayContext } from '../../core/idempotency';
 import { TasksService } from '../tasks/tasks.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { ContactsService } from '../contacts/contacts.service';
@@ -83,9 +84,19 @@ export class ShopService implements OnModuleInit {
     private readonly i18n: I18nService,
     private readonly entitlements: EntitlementsService,
     private readonly usageProviders: UsageProviderRegistry,
+    private readonly replay: IdempotencyReplayRegistry,
   ) {}
 
   onModuleInit(): void {
+    // Повтор ПО ССЫЛКЕ (core/idempotency): у заказа есть статус — за 72 часа он
+    // успевает уйти в «подтверждён», «отменён», «возвращён», и снимок первой
+    // попытки показал бы покупателю давно неверную карточку. Права — в самом
+    // `getOrderDetail`. Форма — конверт ручки: снимок хранит именно её значение.
+    const orderReplay = async (orderId: string, ctx: ReplayContext) =>
+      ctx.userId ? { success: true, data: await this.getOrderDetail(ctx.userId, orderId) } : undefined;
+    this.replay.register('POST', '/api/shop/listings/:id/buy', orderReplay);
+    this.replay.register('POST', '/api/shop/listings/:id/contribute', orderReplay);
+
     // Расход ключа `shop.maxShowcases` — витрины магазина владельца (провайдер движка тарифов)
     this.usageProviders.register('shop.maxShowcases', {
       count: (subject, tx) => (tx ?? this.db).showcase.count({ where: { shop: { ownerType: subject.type, ownerId: subject.id } } }),

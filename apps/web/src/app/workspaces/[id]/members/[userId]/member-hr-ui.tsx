@@ -24,11 +24,11 @@ import {
   type UpsertEmploymentInput,
 } from '@superapp/shared';
 import { formatMoney } from '@superapp/i18n/format';
-import { apiErrorMessage, apiGet } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { dmyOrDash } from '@/lib/dates';
 import { cancelHrAction, createHrAction, upsertEmployment } from '@/lib/hr-api';
 import { hrMemberKey, hrRootKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
+
 import {
   Alert,
   Button,
@@ -48,6 +48,9 @@ import {
 import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
 
+import { toastApiError } from '@/lib/api-errors';
+import { useIdempotencyKey } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote, useOutcomeUnknown } from '@/components/idempotency/OutcomeUnknownAlert';
 // ---------- Утилиты ----------
 
 /** Формат один на весь веб — `lib/dates` (здесь только привычное для КЭДО имя) */
@@ -288,7 +291,7 @@ function EmploymentEditModal({
       void qc.invalidateQueries({ queryKey: hrRootKey(workspaceId) });
       onClose();
     },
-    onError: (err) => toastError(apiErrorMessage(err)),
+    onError: (err) => toastApiError(err),
   });
 
   return (
@@ -360,19 +363,37 @@ export function ActionsCard({
   const tc = useTranslations('common');
   const qc = useQueryClient();
   const [confirm, confirmUI] = useConfirm();
+  // Отмена приказа необратима так же, как и сам приказ: ключ намерения — на
+  // конкретное действие, двойной клик обязан дать ОДНУ отмену.
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const cancelKey = useIdempotencyKey([cancelling]);
+  const outcome = useOutcomeUnknown();
   const cancel = useMutation({
-    mutationFn: (actionId: string) => cancelHrAction(workspaceId, actionId),
+    mutationFn: (actionId: string) => cancelHrAction(workspaceId, actionId, cancelKey.key),
     onSuccess: () => {
+      cancelKey.reset();
+      setCancelling(null);
       void qc.invalidateQueries({ queryKey: hrMemberKey(workspaceId, card.user.id) });
       void qc.invalidateQueries({ queryKey: hrRootKey(workspaceId) });
     },
-    onError: (err) => toastError(apiErrorMessage(err)),
+    onError: (err) => {
+      // Исход неизвестен — перечитываем карточку: список приказов на этом же
+      // экране и сам покажет, отменился ли приказ.
+      if (outcome.capture(err)) {
+        void qc.invalidateQueries({ queryKey: hrMemberKey(workspaceId, card.user.id) });
+        return;
+      }
+      toastApiError(err);
+    },
   });
 
   if (!card.canSeeEmployment) return null;
   return (
     <Card>
       <CardHeader title={t('actions.title')} subtitle={t('actions.subtitle')} />
+      {/* «Исход неизвестен» тостом не показывают: отмена МОГЛА пройти, а список
+          приказов ниже — та самая история, по которой это видно. */}
+      <OutcomeUnknownAlert error={outcome.error} onDismiss={outcome.clear} />
       {card.actions.length === 0 ? (
         <EmptyState icon="list" title={t('actions.emptyTitle')} description={t('actions.emptyDescription')} />
       ) : (
@@ -394,8 +415,11 @@ export function ActionsCard({
                 ['draft', 'in_progress', 'scheduled'].includes(a.status) && (card.canManage || isOwnApplication)
               }
               cancelLabel={isOwnApplication && !card.canManage ? t('actions.withdraw') : tc('actions.cancel')}
-              onCancel={() =>
-                confirm(
+              onCancel={() => {
+                // Намерение объявляется ДО подтверждения: ключ успевает обновиться
+                // к моменту, когда человек нажмёт «Отменить» в диалоге.
+                setCancelling(a.id);
+                return confirm(
                   {
                     title: t('actions.cancelConfirmTitle'),
                     message: t(isOwnApplication ? 'actions.cancelConfirmOwn' : 'actions.cancelConfirmManager'),
@@ -405,8 +429,8 @@ export function ActionsCard({
                   async () => {
                     await cancel.mutateAsync(a.id);
                   },
-                )
-              }
+                );
+              }}
             />
             );
           })}
@@ -564,6 +588,12 @@ export function HrActionModal({
   const groundMeta = DISMISSAL_GROUNDS.find((g) => g.value === ground);
   const employerInitiative = !!groundMeta?.employerInitiative;
 
+  // Ключ НАМЕРЕНИЯ кадрового действия: приказ регистрируется номером и уходит на
+  // подписание — второй такой же отменять пришлось бы руками. Ключ обновляется
+  // сам, как только человек правит любое поле формы.
+  const createKey = useIdempotencyKey([kind, userId, effectiveAt, effectiveTo, ground, salary, chosenTemplateId]);
+  const createOutcome = useOutcomeUnknown();
+
   const create = useMutation({
     mutationFn: () => {
       if (!effectiveAt) throw new Error(t('form.effectiveAtRequired'));
@@ -604,14 +634,23 @@ export function HrActionModal({
             : {}),
         },
       };
-      return createHrAction(workspaceId, dto);
+      return createHrAction(workspaceId, dto, createKey.key);
     },
     onSuccess: () => {
+      createKey.reset();
       void qc.invalidateQueries({ queryKey: hrMemberKey(workspaceId, userId) });
       void qc.invalidateQueries({ queryKey: hrRootKey(workspaceId) });
       onClose();
     },
-    onError: (err) => toastError(apiErrorMessage(err)),
+    onError: (err) => {
+      // Исход неизвестен — окно НЕ закрываем и перечитываем карточку: приказ мог
+      // зарегистрироваться, и вторая попытка дала бы второй приказ.
+      if (createOutcome.capture(err)) {
+        void qc.invalidateQueries({ queryKey: hrMemberKey(workspaceId, userId) });
+        return;
+      }
+      toastApiError(err);
+    },
   });
 
   return (
@@ -744,7 +783,10 @@ export function HrActionModal({
           hint={t('form.templateHint')}
         />
 
-        <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end' }}>
+        <OutcomeUnknownAlert error={createOutcome.error} onDismiss={createOutcome.clear} />
+
+        <div style={{ display: 'flex', gap: 'var(--spacing-2)', justifyContent: 'flex-end', alignItems: 'center' }}>
+          <SlowRequestNote pending={create.isPending} />
           <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
           <Button variant="primary" loading={create.isPending} onClick={() => create.mutate()}>
             {t('form.createOrder')}

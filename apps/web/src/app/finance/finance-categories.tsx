@@ -19,15 +19,14 @@ import {
 } from '@/components/ui';
 import { bookParams } from './finance-lib';
 import { FinGlyph } from './finance-ui';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 type Kind = 'expense' | 'income';
 
 /** Что открыто в диалоге: создание (родитель уже известен) или правка. */
 type Editor =
   | { mode: 'create'; parentId: string | null }
   | { mode: 'edit'; category: FinAccountDto; hasChildren: boolean };
-
 
 export function CategoriesPanel({
   categories,
@@ -70,7 +69,7 @@ export function CategoriesPanel({
       setRemoving(null);
       onChanged();
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     } finally {
       setBusy(false);
     }

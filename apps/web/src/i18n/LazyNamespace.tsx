@@ -31,6 +31,15 @@ const LOADERS: Record<string, Record<string, () => Promise<{ default: Catalog }>
     kk: () => import('@superapp/i18n/messages/kk/calls.json'),
     ru: () => import('@superapp/i18n/messages/ru/calls.json'),
   },
+  // Сама стопка «Ждут решения» — ровно тот же случай: кнопка стоит в ТОПБАРЕ, то
+  // есть модалка открывается на любой странице. Каркас живёт в КОРНЕВОМ layout,
+  // выше провайдеров сервисов, поэтому словарь страницы до него не доходит — без
+  // этой загрузки стопка показывала человеку ключи (`approvals.inboxTitle`).
+  approvals: {
+    en: () => import('@superapp/i18n/messages/en/approvals.json'),
+    kk: () => import('@superapp/i18n/messages/kk/approvals.json'),
+    ru: () => import('@superapp/i18n/messages/ru/approvals.json'),
+  },
   // Подпись открывается из стопки «Ждут решения», а стопка живёт в каркасе —
   // то есть окно подписания может всплыть на любой странице платформы.
   sign: {

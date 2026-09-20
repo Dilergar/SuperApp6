@@ -13,12 +13,12 @@ import { useTranslations } from 'next-intl';
 import { useMutation } from '@tanstack/react-query';
 import { ATTENDANCE_OUTCOMES, type ShiftDto } from '@superapp/shared';
 import { Button, Input, Modal, SegmentedControl, Textarea } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { localToIso, timeIn } from '@/lib/objects-time';
 import { dmy } from '@/lib/dates';
 import { shiftsApi } from '../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 /** «09:05» → минуты от полуночи; неразборчивое — null */
 function minutesOf(hhmm: string): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
@@ -96,7 +96,7 @@ export function AttendanceModal({
       onSaved?.();
       onClose();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

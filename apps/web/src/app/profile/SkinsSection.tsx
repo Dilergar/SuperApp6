@@ -25,6 +25,9 @@ import { DEFAULT_SKIN, RARITY_META } from '../circles/card-skin';
 import { invalidatePersonSkins } from '@/lib/person-skins';
 import { useTranslations } from 'next-intl';
 import { useFormatters } from '@/lib/format';
+import { apiErrorCode, isOutcomeUnknown, toastApiError } from '@/lib/api-errors';
+import { useIdempotencyIntent } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote } from '@/components/idempotency/OutcomeUnknownAlert';
 
 /** Тестовое пополнение есть только в development: в остальных средах маршрута API нет. */
 const DEV_TOPUP = process.env.NODE_ENV === 'development';
@@ -95,17 +98,29 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
   const [ok, setOk] = useState('');
   const [topAmt, setTopAmt] = useState('1000');
   const inFlight = useRef(false);
+  // Покупка скина — платформенная валюта, то есть деньги: ключ намерения на ЛОТ
+  // (двойной клик = одна покупка), а не на клик.
+  const buyIntent = useIdempotencyIntent();
+  // «Исход неизвестен» за кнопкой покупки тостом не показывают
+  const [unknownOutcome, setUnknownOutcome] = useState<unknown>(null);
 
   const flash = (m: string) => { setOk(m); setError(''); setTimeout(() => setOk(''), 2500); };
   const run = async (fn: () => Promise<void>, keys: ReadonlyArray<readonly unknown[]>, success?: string) => {
     if (inFlight.current) return; // synchronous guard — blocks double-click double-submit (e.g. buying twice)
     inFlight.current = true;
-    setError(''); setBusy(true);
+    setError(''); setUnknownOutcome(null); setBusy(true);
     try {
       await fn();
       await Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
       if (success) flash(success);
-    } catch (e) { setError(errMsg(e, common('state.error'))); }
+    } catch (e) {
+      // «Операция могла пройти» — это не ошибка формы, а повод сходить в инвентарь
+      if (isOutcomeUnknown(e)) setUnknownOutcome(e);
+      // Прочие исходы движка повторов несут СВОЙ тон: «уже куплено» — успех, а не
+      // беда. Красная строка соврала бы и толкнула купить второй раз.
+      else if (apiErrorCode(e)?.startsWith('idempotency.')) toastApiError(e);
+      else setError(errMsg(e, common('state.error')));
+    }
     finally { setBusy(false); inFlight.current = false; }
   };
 
@@ -115,7 +130,10 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
     return run(async () => { await apiPost('/card-skins/wallet/topup', { amount: n }); }, [cardSkinsWalletKey], t('skins.toppedUp', { amount: fmt(n) }));
   };
   const buy = (id: string) =>
-    run(async () => { await apiPost(`/card-skins/${id}/buy`); }, [cardSkinsWalletKey, cardSkinsCatalogKey, cardSkinsInventoryKey], t('skins.bought'));
+    run(async () => {
+      await apiPost(`/card-skins/${id}/buy`, undefined, { idempotencyKey: buyIntent.keyFor('skin', id) });
+      buyIntent.reset();
+    }, [cardSkinsWalletKey, cardSkinsCatalogKey, cardSkinsInventoryKey], t('skins.bought'));
   const equipDefault = (instanceId: string | null) =>
     run(async () => { await apiPut('/card-skins/equip/default', { instanceId }); invalidatePersonSkins(); }, [cardSkinsEquipKey], instanceId ? t('skins.putOnDone') : t('skins.takenOff'));
   const equipGroup = (circleId: string, instanceId: string | null) =>
@@ -134,8 +152,15 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
         {t('skins.subtitle')}
       </p>
 
+      {unknownOutcome != null && (
+        <div style={{ marginBottom: 'var(--spacing-4)' }}>
+          {/* Покупка МОГЛА пройти: смотреть надо в «Мои скины», а не жать «Купить» */}
+          <OutcomeUnknownAlert error={unknownOutcome} onDismiss={() => setUnknownOutcome(null)} />
+        </div>
+      )}
       {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{error}</p>}
       {ok && <p style={{ color: 'var(--secondary)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{ok}</p>}
+      <SlowRequestNote pending={busy} />
 
       {/* ===== Wallet ===== */}
       <div className="card" style={{ padding: 'var(--spacing-4) var(--spacing-6)', maxWidth: 520, marginBottom: 'var(--spacing-8)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-4)', flexWrap: 'wrap' }}>

@@ -9,13 +9,13 @@ import { useTranslations } from 'next-intl';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import type { ShiftTemplateDto, StaffingTableDto } from '@superapp/shared';
 import { Alert, Button, Checkbox, Input, Modal, Select } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { dmy } from '@/lib/dates';
 import { useHoursLabel } from '@/lib/format';
 import { objectStaffingKey, shiftTemplatesKey } from '@/lib/queries';
 import { fetchShiftTemplates, fetchStaffing, shiftsApi } from '../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 function minutesOf(hhmm: string): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
   if (!m) return null;
@@ -129,7 +129,7 @@ export function ShiftForm({
       onSaved?.();
       onClose();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const durationMin = Number(duration);

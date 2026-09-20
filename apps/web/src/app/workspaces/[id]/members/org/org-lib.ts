@@ -9,14 +9,15 @@
 import { useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useQueryClient } from '@tanstack/react-query';
-import { apiErrorMessage } from '@/lib/api';
+
 import { dm } from '@/lib/dates';
 import { invalidateEntities } from '@/lib/entities';
 import { orgRootKey, workspaceMembersKey, workspaceStaffKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
+
 import type { OrgLayoutLabels } from './org-layout';
 import type { OrgChartDto, OrgManagerDto, OrgPersonLite } from '@superapp/shared';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Что выбрано на схеме: должность, рамка отдела, объект (из фильтра), панель «Вне структуры». */
 export type OrgSelection =
   | { type: 'position'; id: string }
@@ -119,4 +120,4 @@ export function useOrgRefresh(workspaceId: string) {
 }
 
 /** Единый обработчик ошибки API: текст сервера всплывашкой (400/403/409 — все). */
-export const showApiError = (e: unknown) => toastError(apiErrorMessage(e));
+export const showApiError = (e: unknown) => toastApiError(e);

@@ -250,5 +250,11 @@
     "hourShort": "h",
     "kb": "KB",
     "mb": "MB"
+  },
+  "idempotency": {
+    "outcomeUnknownTitle": "We could not confirm the result",
+    "outcomeUnknownBody": "The operation may have gone through. Check the history before repeating it",
+    "openHistory": "Open the history",
+    "checkingConnection": "Checking the connection…"
   }
 }

@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestj
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { z } from 'zod';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import {
   openDmSchema,
   sendMessageSchema,
@@ -68,6 +69,9 @@ export class MessengerController {
     return { success: true, data: await this.messenger.openDm(user.sub, userId) };
   }
 
+  // Повтор = ВТОРАЯ группа с теми же людьми: участников в неё уже добавили, и они
+  // её увидели. Личный чат (`chats/dm`) ключа не требует — он «найти или создать».
+  @Idempotent({ required: true })
   @Post('chats/group')
   @ApiOperation({ summary: 'Create a group chat' })
   async createGroup(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
@@ -165,6 +169,9 @@ export class MessengerController {
   }
 
   @Post('chats/:id/messages')
+  // Первая волна: у отправки нет «отменить» — дубль виден всем участникам чата
+  // навсегда. Ключ обязателен, клиент берёт его из `tempId` пузыря.
+  @Idempotent({ required: true })
   @ApiOperation({ summary: 'Send a message' })
   async send(
     @CurrentUser() user: JwtPayload,
@@ -176,6 +183,9 @@ export class MessengerController {
   }
 
   @Post('chats/:id/messages/attachments')
+  // Альбом приходит СПИСКОМ ID уже загруженных файлов (это JSON, не multipart),
+  // поэтому ключ здесь работает так же, как у обычного сообщения
+  @Idempotent({ required: true })
   @ApiOperation({ summary: 'Send attachments (an album of up to 10 engine files + a caption)' })
   async sendAttachments(
     @CurrentUser() user: JwtPayload,
@@ -197,6 +207,8 @@ export class MessengerController {
   }
 
   @Post('chats/:id/scheduled')
+  // Отложенное — то же сообщение, только позже: дубль так же неотменяем
+  @Idempotent({ required: true })
   @ApiOperation({ summary: 'Schedule a message' })
   async schedule(
     @CurrentUser() user: JwtPayload,
@@ -226,6 +238,9 @@ export class MessengerController {
   }
 
   @Post('chats/:id/read')
+  // «Прочитано до seq» — операция «стало так»: летит на каждую прокрутку ленты,
+  // и строка в `idem.keys` на каждый такой запрос была бы чистым расходом
+  @SkipIdempotency('naturally_idempotent')
   @ApiOperation({ summary: 'Mark read up to a seq' })
   async read(
     @CurrentUser() user: JwtPayload,

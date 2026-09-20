@@ -35,11 +35,17 @@ export async function fetchApproval(id: string): Promise<ApprovalRequestDto> {
   return apiGet<ApprovalRequestDto>(`/approvals/${id}`);
 }
 
+/**
+ * Решение по шагу необратимо (маршрут двигается, уведомления уходят), поэтому
+ * ручка требует ключ повтора. Клиент передаёт сюда ключ НАМЕРЕНИЯ формы: двойной
+ * клик по «Согласовать» — одно решение, а не два запроса с разными ключами.
+ */
 export async function decideApproval(
   stepId: string,
   body: { decision: ApprovalDecisionKind; comment?: string },
+  idempotencyKey?: string,
 ): Promise<ApprovalRequestDto> {
-  return apiPost<ApprovalRequestDto>(`/approvals/steps/${stepId}/decide`, body);
+  return apiPost<ApprovalRequestDto>(`/approvals/steps/${stepId}/decide`, body, { idempotencyKey });
 }
 
 export async function fetchMyApprovals(

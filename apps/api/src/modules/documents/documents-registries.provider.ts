@@ -10,6 +10,7 @@ import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { SearchRegistry } from '../../core/search/search.registry';
 import { SearchProjectionService } from '../../core/search/search-projection.service';
 import { TemplateFieldRegistry } from '../../core/templates/template-field.registry';
+import { IdempotencyReplayRegistry, type ReplayContext } from '../../core/idempotency';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
 import { DocumentsService } from './documents.service';
 
@@ -40,6 +41,7 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
     private readonly searchProjection: SearchProjectionService,
     private readonly templateFields: TemplateFieldRegistry,
     private readonly i18n: I18nService,
+    private readonly replay: IdempotencyReplayRegistry,
   ) {}
 
   /**
@@ -51,6 +53,18 @@ export class DocumentsRegistriesProvider implements OnModuleInit {
   }
 
   onModuleInit(): void {
+    // ---- Повтор отправки контрагенту: ПО ССЫЛКЕ, а не снимком ----
+    // У документа есть статус, и внешний этап живёт своей жизнью: контрагент
+    // подписывает, отказывается, срок истекает. Снимок первой попытки показал бы
+    // «отправлен», когда документ уже подписан обеими сторонами. Права проверяет
+    // сам `get` — тем же способом, что и обычное открытие карточки.
+    this.replay.register(
+      'POST',
+      '/api/workspaces/:workspaceId/documents/:documentId/send-external',
+      async (documentId, ctx: ReplayContext) =>
+        ctx.userId ? { success: true, data: await this.documents.get(ctx.userId, documentId) } : undefined,
+    );
+
     // ---- Согласования: документ как ПРЕДМЕТ решения ----
     // Право «отправить этот документ на решение» проверяем ЗДЕСЬ: через этот метод
     // проходит любое заведение заявки, и он же — единственное место, где движок может

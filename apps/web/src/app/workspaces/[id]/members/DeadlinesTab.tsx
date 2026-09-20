@@ -21,7 +21,7 @@ import {
   type HrActorLite,
   type HrDeadlineItemDto,
 } from '@superapp/shared';
-import { apiErrorMessage, apiGet } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { dmy } from '@/lib/dates';
 import { useFormatters } from '@/lib/format';
 import {
@@ -36,7 +36,10 @@ import {
   saveHrBlob,
 } from '@/lib/hr-api';
 import { hrDeadlinesKey, hrEsutdKey, hrRootKey } from '@/lib/queries';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { useIdempotencyKey } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote, useOutcomeUnknown } from '@/components/idempotency/OutcomeUnknownAlert';
+import { toast } from '@/lib/toast';
 import {
   Alert,
   Button,
@@ -174,12 +177,12 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
   const markSubmitted = useMutation({
     mutationFn: ({ id, num }: { id: string; num?: string }) => markEsutdSubmitted(workspaceId, id, num),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const markNotRequired = useMutation({
     mutationFn: (id: string) => markEsutdNotRequired(workspaceId, id),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   if (deadlinesQ.isPending) return <LoadingBlock />;
@@ -218,7 +221,7 @@ export function DeadlinesTab({ workspaceId }: { workspaceId: string }) {
               const blob = await fetchHrRegistryZip(workspaceId);
               saveHrBlob(blob, `${t('deadlines.registryFile')}.zip`);
             } catch (e) {
-              toastError(apiErrorMessage(e));
+              toastApiError(e);
             } finally {
               setZipBusy(false);
             }
@@ -526,6 +529,11 @@ function MassActionModal({
   const groundMeta = DISMISSAL_GROUNDS.find((g) => g.value === ground);
   const employerInitiative = !!groundMeta?.employerInitiative;
 
+  // Пакет = приказы СРАЗУ НА ВСЮ АУДИТОРИЮ: повтор дал бы второй такой же пакет,
+  // и отменять его пришлось бы по одному человеку. Ключ намерения — на форму.
+  const startKey = useIdempotencyKey([kind, effectiveAt, effectiveTo, ground, salary, chosenTemplateId, audience.map((p) => `${p.type}:${p.id}`).join(',')]);
+  const outcome = useOutcomeUnknown();
+
   const start = useMutation({
     mutationFn: () => {
       if (!effectiveAt) throw new Error(t('form.dateRequired'));
@@ -560,10 +568,15 @@ function MassActionModal({
           ...(salaryTiyn !== undefined ? { salaryAmount: salaryTiyn } : {}),
         },
       };
-      return createHrBatch(workspaceId, dto);
+      return createHrBatch(workspaceId, dto, startKey.key);
     },
-    onSuccess: (batch) => onStarted(batch.id),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onSuccess: (batch) => {
+      startKey.reset();
+      onStarted(batch.id);
+    },
+    onError: (e) => {
+      if (!outcome.capture(e)) toastApiError(e);
+    },
   });
 
   return (
@@ -673,7 +686,11 @@ function MassActionModal({
           placeholder={templatesQ.isPending ? t('form.loading') : t('form.pickTemplate')}
         />
         <Alert tone="accent">{t('batch.perPersonHint')}</Alert>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)' }}>
+        {/* Пакет МОГ запуститься: плашка ведёт в список пакетов, а не подталкивает
+            нажать «Запустить» второй раз. */}
+        <OutcomeUnknownAlert error={outcome.error} onDismiss={outcome.clear} />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)', alignItems: 'center' }}>
+          <SlowRequestNote pending={start.isPending} />
           <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
           <Button variant="primary" loading={start.isPending} onClick={() => start.mutate()}>{t('batch.start')}</Button>
         </div>

@@ -20,6 +20,7 @@ import { analyticsEnv, type AnalyticsIngestEvent, type AnalyticsIngestReject } f
 import { normalizePageProps, parseUserAgent, sanitizeKey, shapeOf, templateRoute, uuidOrNull } from './analytics.enrich';
 import { AnalyticsService } from './analytics.service';
 import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 
 /** Потолок тела авторизованного приёма: батч клиента режется по 60 КБ, плюс запас на обёртку. */
 const AUTHED_MAX_BYTES = 64_000;
@@ -73,6 +74,10 @@ export class AnalyticsController {
   // Приём событий работает и за блокирующим экраном согласий (иначе его показ не измерить)
   @SkipConsentGate()
   @Post('collect')
+  // На пути приёма НЕТ базы (инвариант движка аналитики), а ключ повтора — это
+  // запись в `idem.keys`: он один сломал бы весь смысл. Дубли гасит `eventId`
+  // события в консьюмере (`analytics.events` уникален по (event_id, ts)).
+  @SkipIdempotency('own_mechanism')
   @HttpCode(HttpStatus.ACCEPTED)
   @DeferWorkspaceCheck()
   @Throttle({ long: { limit: 120, ttl: 60_000, getTracker: personTracker } })
@@ -84,6 +89,7 @@ export class AnalyticsController {
 
   @Public()
   @Post('collect/anon')
+  @SkipIdempotency('own_mechanism')
   @HttpCode(HttpStatus.ACCEPTED)
   @Throttle({ long: { limit: 30, ttl: 60_000 } })
   @ApiOperation({ summary: 'Accept pre-login events: only registry keys marked anonymous' })
@@ -94,6 +100,8 @@ export class AnalyticsController {
 
   @ApiBearerAuth()
   @Post('identify')
+  // Склейка «первая побеждает»: повторная — no-op по построению
+  @SkipIdempotency('naturally_idempotent')
   @HttpCode(HttpStatus.OK)
   // Склейка пишет в БД и сканирует сырьё анонима: раз на вход человека, не сотни в минуту
   @Throttle({ long: { limit: 20, ttl: 60_000, getTracker: personTracker } })

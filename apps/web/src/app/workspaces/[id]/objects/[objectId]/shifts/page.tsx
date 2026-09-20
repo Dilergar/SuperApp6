@@ -31,8 +31,9 @@ import {
   useConfirm,
 } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { apiErrorMessage } from '@/lib/api';
-import { toast, toastError } from '@/lib/toast';
+
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import { dmy } from '@/lib/dates';
 import { useFormatters } from '@/lib/format';
 import { FALLBACK_TZ, minutesIn, todayIn } from '@/lib/objects-time';
@@ -144,13 +145,13 @@ export default function ShiftsPage() {
         toast(t('shifts.publishedPartly', { n: res.published }));
       }
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const take = useMutation({
     mutationFn: (shiftId: string) => shiftsApi.take(id, shiftId),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const move = useMutation({
@@ -174,13 +175,13 @@ export default function ShiftsPage() {
       invalidate();
       setMovingShift(null);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const cancelShift = useMutation({
     mutationFn: (shiftId: string) => shiftsApi.cancel(id, shiftId),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const caps = board?.caps;

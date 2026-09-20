@@ -5,8 +5,8 @@
 // ошибок API, склонения, фильтр/сортировка списка людей, пороги и палитры.
 // ============================================================
 
-import { apiErrorMessage } from '@/lib/api';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import type { Circle, Contact } from '@superapp/shared';
 
 /**
@@ -69,7 +69,7 @@ export async function runAction(action: () => Promise<void>, okMessage?: string)
     if (okMessage) toast(okMessage, 'success');
     return true;
   } catch (err) {
-    toastError(apiErrorMessage(err));
+    toastApiError(err);
     return false;
   }
 }

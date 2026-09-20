@@ -14,6 +14,7 @@ import { ContactsService } from '../contacts/contacts.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../../core/notifications/notifications.service';
 import { EscrowService } from '../wallet/escrow.service';
+import { IdempotencyReplayRegistry, type ReplayContext } from '../../core/idempotency';
 import { AccessService } from '../../core/access/access.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { Principal } from '../../core/access/access.types';
@@ -95,6 +96,7 @@ export class TasksService implements OnModuleInit {
     private i18n: I18nService,
     private analytics: AnalyticsService,
     private webhooks: WebhooksService,
+    private replay: IdempotencyReplayRegistry,
   ) {}
 
   /**
@@ -146,6 +148,17 @@ export class TasksService implements OnModuleInit {
   }
 
   onModuleInit(): void {
+    // Повтор ПО ССЫЛКЕ, а не снимком (core/idempotency): у задачи есть статус, и
+    // снимок трёхдневной давности показал бы «новая», когда работа уже сдана и
+    // принята. Права проверяет `getTask` — тем же способом, что и обычное чтение.
+    //
+    // Рендерер отдаёт РОВНО то, что вернула бы ручка (конверт `{ success, data }`):
+    // снимок хранит значение обработчика, и форма повтора обязана совпадать с ним.
+    const taskReplay = async (taskId: string, ctx: ReplayContext) =>
+      ctx.userId ? { success: true, data: await this.getTask(ctx.userId, taskId) } : undefined;
+    this.replay.register('POST', '/api/tasks', taskReplay);
+    this.replay.register('POST', '/api/tasks/:id/accept', taskReplay);
+
     // Phase 7: "Создать задачу" in the chat ＋-menu and a message's corner menu (a message
     // there prefills the task description). Form = modal; result = the task Rich Card in chat.
     this.quickActions.register({

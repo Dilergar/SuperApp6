@@ -16,12 +16,13 @@ import { useTranslations } from 'next-intl';
 import { SIGN_LEVEL_TONE, type SignSummaryDto } from '@superapp/shared';
 import { Button, Card, Chip, Icon } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { apiErrorMessage } from '@/lib/api';
+
 import { useFormatters } from '@/lib/format';
-import { toastError } from '@/lib/toast';
+
 import { SignFlowModal } from './SignFlowModal';
 import { fetchSignExport, fetchSignProtocol, saveBlob } from './sign-api';
 
+import { toastApiError } from '@/lib/api-errors';
 export function SignaturesBlock({
   sign,
   onChanged,
@@ -50,7 +51,7 @@ export function SignaturesBlock({
         kind === 'protocol' ? `${t('protocol.title')}.pdf` : `${t('block.packageFileName')}.zip`,
       );
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     } finally {
       setDownloading(null);
     }

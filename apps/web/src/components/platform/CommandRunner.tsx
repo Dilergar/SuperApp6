@@ -18,7 +18,8 @@ import {
 import { Alert, Button, Chip, DatePicker, Input, Modal, Select, Textarea, Toggle, type Tone } from '@/components/ui';
 import { apiErrorDetails, apiErrorMessage } from '@/lib/platform-api';
 import { previewPlatformCommand, runPlatformCommand, platformRootKey } from '@/lib/platform/api';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import { usePlatformAuth } from '@/lib/platform/usePlatformAuth';
 import { StepUpModal } from './StepUpModal';
 
@@ -381,5 +382,5 @@ export function isStepUpRequired(err: unknown): boolean {
 }
 
 export function notifyCommandError(err: unknown): void {
-  toastError(apiErrorMessage(err));
+  toastApiError(err);
 }

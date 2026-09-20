@@ -198,7 +198,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   private setRetryAfter(res: Response, status: number, details: Record<string, unknown>): void {
     const retryAfter = details.resendInSec ?? details.retryInSec;
-    if (status === 429 && typeof retryAfter === 'number' && retryAfter > 0) {
+    // 429 — темп; 409 — «попытка ещё в полёте» (core/idempotency) и прочие гонки:
+    // стандартный заголовок понимают браузеры, http-клиенты и боты
+    if ((status === 429 || status === 409) && typeof retryAfter === 'number' && retryAfter > 0) {
       res.setHeader('Retry-After', String(Math.ceil(retryAfter)));
     }
   }

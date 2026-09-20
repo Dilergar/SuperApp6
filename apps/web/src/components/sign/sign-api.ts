@@ -41,10 +41,25 @@ export function startPep(actId: string, pdConsentAccepted?: boolean): Promise<Si
   });
 }
 
-export function confirmPep(actId: string, challengeId: string, code: string): Promise<SignActStateDto> {
-  return apiPost<SignActStateDto>(`/sign/acts/${actId}/pep/confirm`, { challengeId, code });
+/**
+ * Ключ повтора здесь — ключ НАМЕРЕНИЯ «подписать этот акт этим кодом»: подпись
+ * необратима, и двойной клик обязан дать ОДНУ подпись, а не две попытки.
+ */
+export function confirmPep(
+  actId: string,
+  challengeId: string,
+  code: string,
+  idempotencyKey?: string,
+): Promise<SignActStateDto> {
+  return apiPost<SignActStateDto>(`/sign/acts/${actId}/pep/confirm`, { challengeId, code }, { idempotencyKey });
 }
 
+/**
+ * CMS ключа намерения НЕ получает намеренно: каждая новая подпись NCALayer —
+ * это новые байты, то есть ДРУГОЕ тело. Один ключ на два разных тела — `422
+ * key_reused`, и второй честный заход уткнулся бы в отказ движка. Двойной клик
+ * здесь невозможен и без ключа: кнопка уходит вместе с экраном выбора способа.
+ */
 export function submitCms(actId: string, cms: string): Promise<SignActStateDto> {
   return apiPost<SignActStateDto>(`/sign/acts/${actId}/cms`, { cms });
 }
@@ -53,8 +68,8 @@ export function startQr(actId: string): Promise<SignQrStartDto> {
   return apiPost<SignQrStartDto>(`/sign/acts/${actId}/qr/start`, {});
 }
 
-export function declineSign(actId: string, reason: string): Promise<SignActStateDto> {
-  return apiPost<SignActStateDto>(`/sign/acts/${actId}/decline`, { reason });
+export function declineSign(actId: string, reason: string, idempotencyKey?: string): Promise<SignActStateDto> {
+  return apiPost<SignActStateDto>(`/sign/acts/${actId}/decline`, { reason }, { idempotencyKey });
 }
 
 /**

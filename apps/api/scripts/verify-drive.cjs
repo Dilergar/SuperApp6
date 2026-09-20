@@ -25,6 +25,9 @@ async function call(method, p, token, body, headers) {
     method,
     headers: {
       'Content-Type': 'application/json',
+      // Ключ повтора (core/idempotency): ручки `required` (деньги, отправка, подпись)
+      // без него отвечают 400. Свой на каждый вызов — сьюту нужны разные намерения.
+      'Idempotency-Key': require('crypto').randomUUID(),
       // Язык ответов сьюты — ЯВНЫМ заголовком выбора: `Accept-Language` сервер
       // маршрутизирует под рынок (русский браузер → казахский), и русские ассерты
       // ниже покраснели бы разом. Скрипты про сам перевод шлют свои заголовки.

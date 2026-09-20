@@ -16,8 +16,7 @@ import { DRIVE_LIMITS } from '@superapp/shared';
 import { Alert, Button, Card, PageHeader, Tabs, TickBar, useConfirm } from '@/components/ui';
 import { EntitlementLock } from '@/components/entitlements';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import {
   driveNodeKey,
   driveOverviewKey,
@@ -37,6 +36,7 @@ import { DriveNodeList } from '../../../drive/_components/DriveNodeList';
 import { PhotoTimeline } from '../../../drive/_components/PhotoTimeline';
 import { useBytes } from '@/lib/format';
 
+import { toastApiError } from '@/lib/api-errors';
 type Tab = 'files' | 'photos' | 'trash';
 
 export default function WorkspaceDrivePage() {
@@ -94,7 +94,7 @@ export default function WorkspaceDrivePage() {
         size="sm"
         icon="restore"
         onClick={() =>
-          void restoreDriveNodes([node.id]).then(refresh).catch((e) => toastError(apiErrorMessage(e)))
+          void restoreDriveNodes([node.id]).then(refresh).catch((e) => toastApiError(e))
         }
       >
         {t('page.restore')}

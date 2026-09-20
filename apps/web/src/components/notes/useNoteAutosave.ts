@@ -3,11 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { NOTE_ERROR_CODES, type NoteDetailDto, type NoteDoc, type NoteSaveResultDto, type UpdateNoteInput } from '@superapp/shared';
-import { apiErrorDetails, apiErrorMessage } from '@/lib/api';
+import { apiErrorDetails } from '@/lib/api';
 import { fetchNote, updateNote } from '@/lib/notes-api';
 import { noteDetailKey, notesRootKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // Автосохранение заметки: debounce 800 мс + flush на размонтировании, ОДНА очередь на
 // заметку с версией (оптимистическая блокировка). 409 → подтягиваем свежую версию и
@@ -69,7 +69,7 @@ export function useNoteAutosave(
           void qc.invalidateQueries({ queryKey: notesRootKey });
         } catch (e) {
           if (apiErrorDetails(e)?.code === NOTE_ERROR_CODES.versionConflict) {
-            toastError(apiErrorMessage(e));
+            toastApiError(e);
             pendingDoc.current = null;
             try {
               const fresh = await fetchNote(noteId);
@@ -80,7 +80,7 @@ export function useNoteAutosave(
               /* карточка сама перечитает */
             }
           } else {
-            toastError(apiErrorMessage(e));
+            toastApiError(e);
           }
         } finally {
           setSaving(false);

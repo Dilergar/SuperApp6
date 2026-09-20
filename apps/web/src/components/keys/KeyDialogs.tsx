@@ -19,12 +19,12 @@ import {
   type BotKeyCreateInput,
   type KeyScopes,
 } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { Button, Checkbox, Field, Input, Modal, Select, Textarea } from '@/components/ui';
 import { KeyRevealOnce } from './KeyRevealOnce';
 import { ScopeMatrix } from './ScopeMatrix';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Причины отзыва, которые выбирает человек (остальные ставит система). */
 const MANUAL_REVOKE_REASONS: ApiKeyRevokeReason[] = API_KEY_REVOKE_REASONS.filter((r) => r === 'owner' || r === 'leaked' || r === 'policy');
 
@@ -136,7 +136,7 @@ export function PersonalKeyDialog({
         onCreated?.(res.key);
       }
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setBusy(false);
     }
@@ -202,7 +202,7 @@ export function BotKeyDialog({
       const res = await onCreate({ ...(name.trim() ? { name: name.trim() } : {}), ...(storedHint.trim() ? { storedHint: storedHint.trim() } : {}), ...(noExpiry ? { noExpiry: true } : { expiresInDays: days }) });
       if (res) setCreated(res);
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setBusy(false);
     }
@@ -252,7 +252,7 @@ export function RotateKeyDialog({
       const res = await onRotate(Number(grace));
       if (res) setCreated(res);
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setBusy(false);
     }
@@ -300,7 +300,7 @@ export function RevokeKeyDialog({
       await onRevoke(reason, note.trim() || undefined);
       close();
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setBusy(false);
     }

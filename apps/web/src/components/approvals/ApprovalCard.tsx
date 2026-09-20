@@ -35,14 +35,16 @@ import {
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { approvalKey, approvalsRootKey } from '@/lib/queries';
 import { cancelApproval, decideApproval, fetchApproval } from '@/lib/approvals-api';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { PersonChip } from '@/app/circles/PersonCard';
 import { SignStepModal } from '@/components/sign/SignStepModal';
 import {
   BentoGrid, Button, Card, CardHeader, Chip, EmptyState, Icon, Input, LoadingBlock, PageHeader,
 } from '@/components/ui';
 
+import { toastApiError } from '@/lib/api-errors';
+import { useIdempotencyKey } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote, useOutcomeUnknown } from '@/components/idempotency/OutcomeUnknownAlert';
 const STATUS_TONE: Record<string, 'accent' | 'success' | 'danger' | 'warning' | 'neutral'> = {
   pending: 'accent',
   approved: 'success',
@@ -86,15 +88,29 @@ export function ApprovalCard({
   // Шаг, который человек пошёл подписывать (подпись — своё окно, не кнопка списка)
   const [signingStepId, setSigningStepId] = useState<string | null>(null);
 
+  // Ключ НАМЕРЕНИЯ «решить по этой заявке»: решение необратимо, двойной клик
+  // обязан дать ОДНО решение. Правка причины — другое намерение (ключ обновится).
+  const decideKey = useIdempotencyKey([id, comment]);
+  const outcome = useOutcomeUnknown();
+
   const decide = useMutation({
     mutationFn: (decision: ApprovalDecisionKind) =>
-      decideApproval(q.data!.myStepId!, { decision, comment: comment || undefined }),
+      decideApproval(q.data!.myStepId!, { decision, comment: comment || undefined }, decideKey.key),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: approvalsRootKey });
+      decideKey.reset();
       setComment('');
       setArmed(null);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => {
+      // Исход неизвестен — перечитываем заявку: маршрут на ЭТОМ же экране, и он
+      // сам покажет, двинулся ли шаг. Отдельная «история» здесь была бы лишней.
+      if (outcome.capture(e)) {
+        void qc.invalidateQueries({ queryKey: approvalsRootKey });
+        return;
+      }
+      toastApiError(e);
+    },
   });
 
   const cancel = useMutation({
@@ -103,7 +119,7 @@ export function ApprovalCard({
       void qc.invalidateQueries({ queryKey: approvalsRootKey });
       setCancelArmed(false);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   if (!isReady || q.isPending) return <LoadingBlock />;
@@ -210,7 +226,11 @@ export function ApprovalCard({
                   </Button>
                 );
               })}
+              <SlowRequestNote pending={decide.isPending} />
             </div>
+            {/* «Исход неизвестен» тостом не показывают: решение МОГЛО пройти.
+                Проверить — в маршруте ниже: там видно, чей сейчас шаг. */}
+            <OutcomeUnknownAlert error={outcome.error} onDismiss={outcome.clear} />
           </Card>
         )}
 

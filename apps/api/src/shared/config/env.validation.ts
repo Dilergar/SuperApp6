@@ -219,6 +219,20 @@ const envSchema = z
     ANALYTICS_READ_DATABASE_URL: blank(z.string().min(1).optional()),
     // statement_timeout запроса Кабинета по сырью, мс.
     ANALYTICS_QUERY_TIMEOUT_MS: blank(z.coerce.number().int().min(500).max(120_000).optional()),
+    // --- Идемпотентность повторов (core/idempotency) ---
+    // Режим движка. Пусто = `enforce` (защита с первого запуска); `observe` — окно
+    // выката (заявки заводятся, отказов нет), `off` — полный стоп-кран.
+    IDEMPOTENCY_MODE: blank(z.enum(['off', 'observe', 'enforce']).optional()),
+    // Сколько дней живёт запись о ключе (окно защиты от повтора).
+    IDEMPOTENCY_KEY_TTL_DAYS: blank(z.coerce.number().int().min(1).max(90).optional()),
+    // Сколько часов живёт СНИМОК тела ответа (реплей с телом).
+    IDEMPOTENCY_RESPONSE_TTL_HOURS: blank(z.coerce.number().int().min(1).max(720).optional()),
+    // Аренда исполнения, мс: дольше — и упавший процесс держит ключ зря.
+    IDEMPOTENCY_LEASE_MS: blank(z.coerce.number().int().min(5_000).max(600_000).optional()),
+    // Потолок снимаемого тела, байт; больше — повтор отвечает `already_completed` без тела.
+    IDEMPOTENCY_MAX_RESPONSE_BYTES: blank(z.coerce.number().int().min(1024).max(4 * 1024 * 1024).optional()),
+    // Метка сборки в строке ключа — диагностика снимков старой формы DTO после деплоя.
+    APP_BUILD: blank(z.string().min(1).max(64).optional()),
     // --- Движок уведомлений (core/notifications) — web push (VAPID). Пусто → push выключен:
     // тумблер «уведомления браузера» в вебе не показывается, доставки `skipped: driver_not_configured`.
     // Пара генерируется один раз: `npx web-push generate-vapid-keys`.

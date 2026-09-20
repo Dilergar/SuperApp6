@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { webhookDeliveriesQuerySchema, webhookEndpointCreateSchema, webhookEndpointUpdateSchema, webhookRotateSecretSchema } from '@superapp/shared';
 import { NoApiKeys } from '../../shared/decorators/api-keys.decorator';
+import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
 import type { KeyActor } from '../keys/api-keys/api-keys.service';
 import { WebhooksRegistry } from './webhooks.registry';
@@ -43,6 +44,8 @@ export class WebhooksController {
     return { success: true, data: await this.webhooks.list(this.actor(user, req), workspaceId) };
   }
 
+  // Ответ показывает СЕКРЕТ один раз: снимка не существует
+  @Idempotent({ required: true, store: 'none' })
   @Post('endpoints')
   @ApiOperation({ summary: 'Create an endpoint (signing secret shown once; verification ping is sent)' })
   async create(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string, @Body() body: unknown, @Req() req: Request) {
@@ -55,6 +58,8 @@ export class WebhooksController {
     return { success: true, data: await this.webhooks.update(this.actor(user, req), workspaceId, id, webhookEndpointUpdateSchema.parse(body ?? {})) };
   }
 
+  // Ответ показывает СЕКРЕТ один раз: снимка не существует
+  @Idempotent({ required: true, store: 'none' })
   @Post('endpoints/:id/rotate-secret')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Rotate the signing secret (old one keeps signing for prevHours)' })
@@ -62,6 +67,8 @@ export class WebhooksController {
     return { success: true, data: await this.webhooks.rotateSecret(this.actor(user, req), workspaceId, id, webhookRotateSecretSchema.parse(body ?? {})) };
   }
 
+  // Пинг наружу: эффект ТОЛЬКО вне базы — ответ обязан стать финальным
+  @Idempotent({ effects: 'external' })
   @Post('endpoints/:id/probe')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Send a verification ping now' })

@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import { badRequest, forbidden } from '../../shared/errors/api-error';
 import {
   createCurrencySchema,
@@ -126,6 +127,9 @@ export class WalletController {
     return { success: true };
   }
 
+  // Деньги: необратимо и неотменяемо. Ключ ОБЯЗАТЕЛЕН, ровно одна транзакция
+  // (`atomic`), второй ремень — производный ключ на самой проводке леджера.
+  @Idempotent({ required: true, atomic: true })
   @Post('currency/mint')
   @ApiOperation({ summary: 'Mint coins onto my own balance (10M in-hand cap)' })
   async mint(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
@@ -141,6 +145,9 @@ export class WalletController {
     return { success: true, data };
   }
 
+  // Деньги: необратимо и неотменяемо. Ключ ОБЯЗАТЕЛЕН, ровно одна транзакция
+  // (`atomic`), второй ремень — производный ключ на самой проводке леджера.
+  @Idempotent({ required: true, atomic: true })
   @Post('burn')
   @ApiOperation({ summary: "Burn someone else's currency from my balance (irreversible)" })
   async burn(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
@@ -190,6 +197,9 @@ export class WalletController {
     return { success: true };
   }
 
+  // Деньги: необратимо и неотменяемо. Ключ ОБЯЗАТЕЛЕН, ровно одна транзакция
+  // (`atomic`), второй ремень — производный ключ на самой проводке леджера.
+  @Idempotent({ required: true, atomic: true })
   @Post('company/currency/mint')
   @ApiOperation({ summary: 'Mint coins into the company treasury (10M cap)' })
   async mintCompany(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
@@ -198,6 +208,9 @@ export class WalletController {
     return { success: true, data: await this.currency.mintToTreasury(workspaceId, amount) };
   }
 
+  // Деньги: необратимо и неотменяемо. Ключ ОБЯЗАТЕЛЕН, ровно одна транзакция
+  // (`atomic`), второй ремень — производный ключ на самой проводке леджера.
+  @Idempotent({ required: true, atomic: true })
   @Post('company/pay')
   @ApiOperation({ summary: 'Pay company coins to an employee from the treasury' })
   async payEmployee(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {

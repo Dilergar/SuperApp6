@@ -6,13 +6,14 @@ import { useTranslations } from 'next-intl';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { NoteBlock, NoteDoc, NoteSpaceRef } from '@superapp/shared';
 import { Button, Modal, Textarea } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
+
 import { createNote } from '@/lib/notes-api';
 import { notesRootKey } from '@/lib/queries';
 import { useNotesLayer } from '@/lib/stores/notes-layer';
-import { toastError } from '@/lib/toast';
+
 import { noteScopeFromPath } from './note-target-from-path';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // Быстрое действие чата «В заметку» (core/quick-actions, scope=message): текст
 // сообщения становится цитатой новой заметки в пространстве чата (организация или
@@ -52,7 +53,7 @@ export function NoteFromMessageModal({ text, scope: scopeProp, onClose }: { text
       onClose();
       layer.requestPin(note.id);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   return (
     <Modal

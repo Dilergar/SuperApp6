@@ -20,8 +20,8 @@ import {
   parseMoneyInput, ymdToDate,
 } from './finance-lib';
 import { FinList, FinRow, Money } from './finance-ui';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 type EntryTab = 'expense' | 'income' | 'transfer';
 
 /**
@@ -460,7 +460,7 @@ export function TransactionFeed({
       setRemoving(null);
       onDeleted();
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     } finally {
       setBusy(false);
     }

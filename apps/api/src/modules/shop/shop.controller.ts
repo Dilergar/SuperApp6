@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import {
   createShowcaseSchema,
   updateShowcaseSchema,
@@ -192,6 +193,9 @@ export class ShopController {
   }
 
   // ---- Orders (Phase 3: purchase with escrow) ----
+  // Деньги: эскроу и движение коинов — необратимо. Ключ ОБЯЗАТЕЛЕН; второй ремень —
+  // производный ключ на самой проводке леджера (docs/idempotency_engine.md).
+  @Idempotent({ required: true })
   @Post('listings/:id/buy')
   @ApiOperation({ summary: 'Buy a listing (the price is held in escrow)' })
   async buy(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
@@ -199,6 +203,9 @@ export class ShopController {
     return { success: true, data };
   }
 
+  // Деньги: эскроу и движение коинов — необратимо. Ключ ОБЯЗАТЕЛЕН; второй ремень —
+  // производный ключ на самой проводке леджера (docs/idempotency_engine.md).
+  @Idempotent({ required: true })
   @Post('listings/:id/contribute')
   @ApiOperation({ summary: 'Chip in on a crowdfunding listing (the pledge is held)' })
   async contribute(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: Record<string, unknown>) {
@@ -228,6 +235,9 @@ export class ShopController {
     return { success: true, data };
   }
 
+  // Деньги: эскроу и движение коинов — необратимо. Ключ ОБЯЗАТЕЛЕН; второй ремень —
+  // производный ключ на самой проводке леджера (docs/idempotency_engine.md).
+  @Idempotent({ required: true })
   @Post('orders/:id/confirm')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Confirm an order → payout to the seller' })
@@ -236,6 +246,9 @@ export class ShopController {
     return { success: true, data };
   }
 
+  // Деньги: эскроу и движение коинов — необратимо. Ключ ОБЯЗАТЕЛЕН; второй ремень —
+  // производный ключ на самой проводке леджера (docs/idempotency_engine.md).
+  @Idempotent({ required: true })
   @Post('orders/:id/reject')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Reject an order → refund to the buyer' })
@@ -244,6 +257,9 @@ export class ShopController {
     return { success: true, data };
   }
 
+  // Деньги: эскроу и движение коинов — необратимо. Ключ ОБЯЗАТЕЛЕН; второй ремень —
+  // производный ключ на самой проводке леджера (docs/idempotency_engine.md).
+  @Idempotent({ required: true })
   @Post('orders/:id/cancel')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Cancel my unconfirmed order → refund' })
@@ -252,6 +268,9 @@ export class ShopController {
     return { success: true, data };
   }
 
+  // Деньги: эскроу и движение коинов — необратимо. Ключ ОБЯЗАТЕЛЕН; второй ремень —
+  // производный ключ на самой проводке леджера (docs/idempotency_engine.md).
+  @Idempotent({ required: true })
   @Post('orders/:id/refund')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refund an order in progress (owner / co-manager) → the hold is released' })
@@ -260,6 +279,9 @@ export class ShopController {
     return { success: true, data };
   }
 
+  // Деньги: эскроу и движение коинов — необратимо. Ключ ОБЯЗАТЕЛЕН; второй ремень —
+  // производный ключ на самой проводке леджера (docs/idempotency_engine.md).
+  @Idempotent({ required: true })
   @Post('orders/:id/withdraw')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Withdraw my pledge from a crowdfunding campaign → refund' })
@@ -296,6 +318,9 @@ export class ShopController {
     return { success: true, data: await this.shop.unshareWishlist(user.sub, principalType, principalId) };
   }
 
+  // Деньги: эскроу и движение коинов — необратимо. Ключ ОБЯЗАТЕЛЕН; второй ремень —
+  // производный ключ на самой проводке леджера (docs/idempotency_engine.md).
+  @Idempotent({ required: true })
   @Post('wishes/:id/fulfill')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark a wish fulfilled' })

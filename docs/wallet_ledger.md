@@ -53,3 +53,19 @@
 ## Проверка
 
 `verify-wallet.cjs`, `verify-escrow.cjs`, `verify-ledger-invariants.cjs`, `verify-burn.cjs`, `verify-b2b-wallet.cjs`.
+
+## Второй ремень: ключ идемпотентности проводки
+
+Денежные ручки (`wallet/currency/mint`, `wallet/burn`, `wallet/company/currency/mint`, `wallet/company/pay`) объявлены `@Idempotent({ required: true, atomic: true })` — повтор запроса не создаёт второй проводки. Но HTTP-защита живёт 7 дней (столько хранится строка `idem.keys`), а деньги — всегда, поэтому у проводки есть СВОЙ ключ:
+
+```ts
+await this.ledger.mint({ …, idempotencyKey: this.idem.deriveKey('wallet.mint') ?? undefined });
+```
+
+`deriveKey` считается из СТАБИЛЬНЫХ входов (скоуп запроса + ключ клиента + имя шага), а не из id строки заявки: строка умирает через неделю, и ключ от её id сменился бы — ремень отвалился бы ровно на повторе через неделю. `LedgerTransfer.idempotencyKey` уникален; `mint`/`burn`/`transfer` проверяют дубль ДО вставки и при находке не трогают остатки вовсе.
+
+Почему проверка до вставки, а не ловля `P2002` после: конфликт уникума внутри транзакции Postgres абортит ВСЮ транзакцию вызывающего.
+
+Эскроу собственного ключа не требует: `fund` идемпотентен по (соглашение, плательщик, получатель, валюта), `capture`/`release` — статус-гвардами.
+
+Детали — [idempotency_engine.md](idempotency_engine.md).

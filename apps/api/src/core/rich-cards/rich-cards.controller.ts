@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { RICH_CARD_REF_TYPES } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { RichCardsService } from './rich-cards.service';
 
 const refSchema = z.object({
@@ -31,6 +32,9 @@ const shareSchema = z
 export class RichCardsController {
   constructor(private readonly richCards: RichCardsService) {}
 
+  // Общий диспетчер действий карточек: за ключом действия у потребителя могут
+  // стоять и деньги, и подпись — ключ обязателен для ЛЮБОГО из них
+  @Idempotent({ required: true })
   @Post(':actionKey/execute')
   @ApiOperation({ summary: 'Run a card action (re-renders the card)' })
   async execute(

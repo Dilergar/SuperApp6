@@ -55,3 +55,13 @@ TURN 443/TLS + wss + use_external_ip («не подключается из оф�
 ## Проверка
 
 `verify-calls.cjs`, `verify-messenger-calls.cjs`, `verify-call-recording.cjs`, `verify-office.cjs`.
+
+## Повторная доставка вебхука LiveKit
+
+Приёмник `POST /calls/livekit/webhook` объявлен `@SkipIdempotency('inbound_webhook')`: своего ключа у LiveKit нет. Дедуп — «входящий ящик» движка идемпотентности по `event.id`, и отметка ставится **только после проверки подписи** (иначе кто угодно травит ящик поддельным id, и настоящее событие гасится как дубль).
+
+Обработка живёт не в одной транзакции с отметкой (внутри есть вызовы LiveKit — `deleteRoom`), поэтому используется пара `firstTime()` / `forget()`: упала обработка — отметка снимается, и редоставка пройдёт заново.
+
+`POST /calls/token` объявлен `@Idempotent({ store: 'none' })`: ответ — токен доступа к комнате, снимка такого ответа не существует.
+
+Детали — [idempotency_engine.md](idempotency_engine.md).

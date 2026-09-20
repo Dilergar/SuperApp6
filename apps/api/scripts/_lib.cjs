@@ -35,10 +35,17 @@ const SUITE = {
 // разом. Скрипты, которые проверяют САМ перевод, шлют свои заголовки явно.
 const SUITE_LOCALE = process.env.SA6_SUITE_LOCALE || 'ru';
 
+const MUTATIONS = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
+
 async function call(method, p, token, body, headers) {
   const merged = {
     'Content-Type': 'application/json',
     'X-Locale': SUITE_LOCALE,
+    // Ключ повтора (core/idempotency) — АВТОМАТИЧЕСКИ на каждой мутации: иначе
+    // ручки `required` (деньги, подпись, отправка сообщения) отвечали бы сьютам
+    // `400 idempotency.key_required`. Ключ свой на каждый вызов — сьюту нужны
+    // РАЗНЫЕ намерения; проверку повтора скрипты делают, передавая свой заголовок.
+    ...(MUTATIONS.has(String(method).toUpperCase()) ? { 'Idempotency-Key': require('crypto').randomUUID() } : {}),
     ...(token ? { Authorization: 'Bearer ' + token } : {}),
     ...(headers || {}),
   };
@@ -55,7 +62,16 @@ async function call(method, p, token, body, headers) {
   try {
     json = await res.json();
   } catch {}
-  return { status: res.status, ok: res.ok, json, code: json?.details?.code ?? null };
+  return {
+    status: res.status,
+    ok: res.ok,
+    json,
+    code: json?.details?.code ?? null,
+    // Ответ собран из снимка движка идемпотентности, а не исполнен заново
+    replayed: res.headers.get('idempotent-replayed') === 'true',
+    shouldRetry: res.headers.get('x-should-retry'),
+    retryAfter: res.headers.get('retry-after'),
+  };
 }
 
 // Логин без лишнего запроса: id берётся из `sub` самого токена (профиль логин не отдаёт).

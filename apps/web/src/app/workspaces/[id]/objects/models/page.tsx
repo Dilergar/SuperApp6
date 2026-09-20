@@ -43,6 +43,7 @@ import {
   type TableColumn,
 } from '@/components/ui';
 import { apiErrorDetails, apiErrorMessage } from '@/lib/api';
+import { toastApiError } from '@/lib/api-errors';
 import { toastError } from '@/lib/toast';
 import { assetModelFilesKey, assetModelsKey, objectsTreeKey } from '@/lib/queries';
 import { AttachmentsSection } from '@/components/files/AttachmentsSection';
@@ -126,7 +127,7 @@ export default function AssetModelsPage() {
       setDraft(null);
       invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const remove = useMutation({
@@ -379,12 +380,12 @@ function ModelFilesModal({
   const attach = useMutation({
     mutationFn: (fileId: string) => assetModelsApi.attachFile(workspaceId, model.id, fileId),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const detach = useMutation({
     mutationFn: (fileId: string) => assetModelsApi.detachFile(workspaceId, model.id, fileId),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

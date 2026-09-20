@@ -30,6 +30,14 @@ export const AUDIENCE_MAX_TTL_SEC: Record<SigningAudience, number> = {
 };
 
 /**
+ * Имя таблицы для сырого SQL перешивки: со схемой, если колонка живёт не в `public`
+ * (служебные хранилища движков — `idem.responses`). Идентификаторы валидированы
+ * реестром (`KeysFieldRegistry.register`), пользовательского ввода тут нет.
+ */
+const qualifiedTable = (def: EncryptedColumnDef): Prisma.Sql =>
+  Prisma.raw(def.schema ? `"${def.schema}"."${def.table}"` : `"${def.table}"`);
+
+/**
  * Фон движка: активация/вывод версий подписи, перешивка DEK'ов после ротации KEK,
  * переиндексация слепых индексов, уничтожение по сроку; крон — автоматическая ротация
  * (подпись 90 дней, KEK год) и sweep. Батчи по 500 строк с курсором, идемпотентно,
@@ -103,7 +111,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
   }
 
   private async reencryptColumn(def: EncryptedColumnDef): Promise<number> {
-    const table = Prisma.raw(`"${def.table}"`);
+    const table = qualifiedTable(def);
     const col = Prisma.raw(`"${def.column}"`);
     const idCol = Prisma.raw(`"${def.idColumn}"`);
     const scopeCol = def.scopeColumn ? Prisma.raw(`"${def.scopeColumn}"`) : null;
@@ -228,7 +236,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
     for (const def of defs) {
       const col = Prisma.raw(`"${def.column}"`);
       const rows = await this.db.$queryRaw<Array<{ kid: string }>>`
-        SELECT DISTINCT split_part(${col}, ':', 3) AS kid FROM ${Prisma.raw(`"${def.table}"`)}
+        SELECT DISTINCT split_part(${col}, ':', 3) AS kid FROM ${qualifiedTable(def)}
         WHERE ${this.ownerWhere(def, scope)} AND ${col} LIKE 'sa6e:1:%' AND ${col} NOT LIKE ${`sa6e:1:${key.primaryKid}:%`}`;
       for (const r of rows) if (scheduled.has(r.kid)) referenced.add(r.kid);
     }
@@ -251,7 +259,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
 
   /** Сколько строк колонки этого скоупа всё ещё лежит НЕ под primary-версией KEK. */
   private async countUnderOtherVersions(def: EncryptedColumnDef, scope: KeyScopeRef, primaryKid: string): Promise<number> {
-    const table = Prisma.raw(`"${def.table}"`);
+    const table = qualifiedTable(def);
     const col = Prisma.raw(`"${def.column}"`);
     const rows = await this.db.$queryRaw<Array<{ n: bigint }>>`
       SELECT COUNT(*)::bigint AS n FROM ${table}
@@ -260,7 +268,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
   }
 
   private async rewrapColumn(def: EncryptedColumnDef, scope: KeyScopeRef, primaryKid: string): Promise<{ rewrapped: number; broken: number }> {
-    const table = Prisma.raw(`"${def.table}"`);
+    const table = qualifiedTable(def);
     const col = Prisma.raw(`"${def.column}"`);
     const idCol = Prisma.raw(`"${def.idColumn}"`);
     const ctx = { entity: def.entity, field: def.field, ownerType: scope.type, ownerId: scope.type === 'platform' ? 'platform' : scope.id };
@@ -391,7 +399,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
     let n = 0;
     for (const def of this.fields.all()) {
       if (!def.blindIndex) continue;
-      const rows = await this.db.$queryRaw<Array<{ n: bigint }>>`SELECT COUNT(*)::bigint AS n FROM ${Prisma.raw(`"${def.table}"`)} WHERE ${this.outsideSlotWhere(def, target)}`;
+      const rows = await this.db.$queryRaw<Array<{ n: bigint }>>`SELECT COUNT(*)::bigint AS n FROM ${qualifiedTable(def)} WHERE ${this.outsideSlotWhere(def, target)}`;
       n += Number(rows[0]?.n ?? 0);
     }
     return n;
@@ -402,7 +410,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
     for (const def of this.fields.all()) {
       if (!def.blindIndex) continue;
       const bi = def.blindIndex;
-      const table = Prisma.raw(`"${def.table}"`);
+      const table = qualifiedTable(def);
       const col = Prisma.raw(`"${def.column}"`);
       const slotCol = this.slotColumn(def, target);
       const idCol = Prisma.raw(`"${def.idColumn}"`);
@@ -467,7 +475,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
     let cleared = 0;
     for (const def of this.fields.all()) {
       if (!def.blindIndex) continue;
-      const table = Prisma.raw(`"${def.table}"`);
+      const table = qualifiedTable(def);
       const idCol = Prisma.raw(`"${def.idColumn}"`);
       const slotCol = this.slotColumn(def, old);
       for (;;) {

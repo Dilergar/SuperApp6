@@ -153,7 +153,10 @@
     "read": "Оқылды",
     "reply": "Жауап беру",
     "sent": "Жіберілді",
-    "yesterday": "кеше"
+    "yesterday": "кеше",
+    "sending": "Жіберілуде",
+    "notSent": "Жіберілмеді",
+    "retrySend": "Қайталау"
   },
   "newChat": {
     "createGroup": "Топ құру",

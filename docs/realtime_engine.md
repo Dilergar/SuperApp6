@@ -38,3 +38,11 @@ RealtimeService.emitToUsers(userIds, name, payload) / emitToRooms(rooms, name, p
 ## Связанные доки
 
 [messenger.md](messenger.md) · [notifications_engine.md](notifications_engine.md) · [event_bus.md](event_bus.md) · [security.md](security.md) · [contract_boundary.md](contract_boundary.md)
+
+## Мутации — только по HTTP
+
+**Правило платформы: сокет не создаёт сущностей.** Защита от повтора живёт на HTTP-пути (`core/idempotency`: ключ, отпечаток, снимок ответа), и у сокет-команды её нет вовсе — переподключение с переотправкой очереди создало бы второй экземпляр молча. Команда сокета вправе менять эфемерное состояние (набор текста, присутствие, курсор) и подтверждать чтение; всё, что остаётся в базе как факт, идёт обычным `POST` с ключом повтора.
+
+Если сокет-команда всё же обязана создать сущность (будущая офлайн-очередь mobile), она несёт `clientId` — тот же uuid, что клиент поставил бы в `Idempotency-Key`, — и обработчик гасит дубль по нему уникальным индексом.
+
+Детали — [idempotency_engine.md](idempotency_engine.md).

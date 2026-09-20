@@ -10,9 +10,10 @@ import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { WEBHOOK_LIMITS, type WebhookDeliveryDto, type WebhookEndpointCreatedDto, type WebhookEndpointDto, type WebhookEventKey, type WebhookSigning } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
+
 import { useFormatters } from '@/lib/format';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import { createWebhookEndpoint, deleteWebhookEndpoint, fetchWebhookDeliveries, fetchWebhookEndpoints, fetchWebhookEvents, probeWebhookEndpoint, redeliverWebhook, rotateWebhookSecret, updateWebhookEndpoint } from '@/lib/keys-api';
 import { keysRegistryRootKey, webhooksDeliveriesKey, webhooksEndpointsKey, webhooksEventsKey } from '@/lib/queries';
 import { useRealtime } from '@/lib/realtime/useRealtime';
@@ -51,7 +52,7 @@ export function WebhooksTab({ workspaceId, focusEndpointId }: { workspaceId: str
       invalidate();
       if (done) toast(done, 'success');
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     }
   };
 
@@ -183,7 +184,7 @@ function EndpointDialog({
         if (res) { setCreated(res); onCreated?.(); }
       }
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setBusy(false);
     }
@@ -244,7 +245,7 @@ function Deliveries({ workspaceId, endpointId }: { workspaceId: string; endpoint
       toast(t('webhook.redeliverToast'), 'success');
       void q.refetch();
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     }
   };
   if (q.isPending) return <Skeleton height={48} />;

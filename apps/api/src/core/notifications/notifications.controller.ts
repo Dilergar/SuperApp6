@@ -21,6 +21,7 @@ import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-us
 import { isDevEnv } from '../../shared/config/env.validation';
 import { notFound } from '../../shared/errors/api-error';
 import { NotificationsService } from './notifications.service';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { NotificationsPreferencesService } from './notifications.preferences.service';
 import { NotificationsSettingsService } from './notifications.settings.service';
 import { NotificationsCron } from './notifications.cron';
@@ -96,6 +97,9 @@ export class NotificationsController {
     return { success: true, data: { rows, events, deliveries } };
   }
 
+  // Операция «стало так», а не «сделай ещё раз»: повтор ничего не добавляет.
+  // Без исключения каждый показ ленты писал бы строку в `idem.keys` на пустом месте.
+  @SkipIdempotency('naturally_idempotent')
   @Post('seen')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Shown rows are seen (badge clears); empty = all' })
@@ -104,6 +108,9 @@ export class NotificationsController {
     return { success: true, data: await this.notifications.markSeen(user.sub, ids) };
   }
 
+  // Операция «стало так», а не «сделай ещё раз»: повтор ничего не добавляет.
+  // Без исключения каждый показ ленты писал бы строку в `idem.keys` на пустом месте.
+  @SkipIdempotency('naturally_idempotent')
   @Post('read')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mark read: ids or all (within a context)' })
@@ -114,6 +121,9 @@ export class NotificationsController {
 
   // ---- mute объекта ----
 
+  // Операция «стало так», а не «сделай ещё раз»: повтор ничего не добавляет.
+  // Без исключения каждый показ ленты писал бы строку в `idem.keys` на пустом месте.
+  @SkipIdempotency('naturally_idempotent')
   @Post('mute')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Mute an object (personal mention and critical break through)' })
@@ -123,6 +133,9 @@ export class NotificationsController {
     return { success: true };
   }
 
+  // Операция «стало так», а не «сделай ещё раз»: повтор ничего не добавляет.
+  // Без исключения каждый показ ленты писал бы строку в `idem.keys` на пустом месте.
+  @SkipIdempotency('naturally_idempotent')
   @Delete('mute')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Unmute an object' })
@@ -141,6 +154,9 @@ export class NotificationsController {
     return { success: true, data: await this.preferences.getPreferences(user.sub, context ?? NOTIFICATION_PERSONAL_CONTEXT) };
   }
 
+  // Операция «стало так», а не «сделай ещё раз»: повтор ничего не добавляет.
+  // Без исключения каждый показ ленты писал бы строку в `idem.keys` на пустом месте.
+  @SkipIdempotency('naturally_idempotent')
   @Put('preferences')
   @ApiOperation({ summary: 'Sparse overrides (enabled: null clears one)' })
   async putPreferences(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
@@ -164,6 +180,9 @@ export class NotificationsController {
     return { success: true, data: await this.settings.getQuiet(user.sub) };
   }
 
+  // Операция «стало так», а не «сделай ещё раз»: повтор ничего не добавляет.
+  // Без исключения каждый показ ленты писал бы строку в `idem.keys` на пустом месте.
+  @SkipIdempotency('naturally_idempotent')
   @Put('quiet')
   @ApiOperation({ summary: 'Quiet schedule (in the user timezone)' })
   async putQuiet(@CurrentUser() user: JwtPayload, @Body() body: unknown) {

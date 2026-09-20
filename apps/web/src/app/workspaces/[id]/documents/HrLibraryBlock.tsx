@@ -11,10 +11,11 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import type { HrLibraryItemDto } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
+
 import { fetchHrLibrary, installHrLibraryItem } from '@/lib/hr-api';
 import { docTemplatesKey, docTypesKey, hrLibraryKey } from '@/lib/queries';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import { Alert, Button, Card, CardHeader, Chip, LoadingBlock, Modal, SegmentedControl } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
@@ -137,7 +138,7 @@ function InstallWizard({
       toast(t('library.installedToast', { title: item.title }), 'success');
       onDone();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

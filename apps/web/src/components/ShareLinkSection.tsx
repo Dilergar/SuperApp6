@@ -14,7 +14,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { SHARE_LINK_LIMITS, type ShareLinkDto, type ShareLinkStatus } from '@superapp/shared';
 import { Button, Chip, Icon, Input, LoadingBlock, Select, Toggle, useConfirm } from '@/components/ui';
 import type { Tone } from '@/components/ui/tones';
-import { apiErrorMessage } from '@/lib/api';
+
+import { toastApiError } from '@/lib/api-errors';
 import { toastError } from '@/lib/toast';
 import { useFormatters } from '@/lib/format';
 import { shareLinkVisitsKey, shareLinksKey } from '@/lib/queries';
@@ -103,13 +104,13 @@ export function ShareLinkSection({ refType, refId }: { refType: string; refId: s
       setRequireIdentity(false);
       void invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const revoke = useMutation({
     mutationFn: (id: string) => revokeShareLink(id),
     onSuccess: () => void invalidate(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const copy = async (link: ShareLinkDto) => {
@@ -408,7 +409,7 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
         requireIdentity,
       }),
     onSuccess: onDone,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   /**
@@ -419,7 +420,7 @@ function EditLinkForm({ link, onDone }: { link: ShareLinkDto; onDone: () => void
   const rotate = useMutation({
     mutationFn: () => rotateShareLink(link.id),
     onSuccess: onDone,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

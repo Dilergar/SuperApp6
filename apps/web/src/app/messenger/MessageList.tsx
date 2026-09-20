@@ -15,7 +15,8 @@ import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import type { ChatMessage, QuickActionDescriptor, RichCardPayload } from '@superapp/shared';
 import { PersonChip } from '../circles/PersonCard';
 import { useTranslations } from 'next-intl';
-import { StatusTicks, useBubbleTime } from './messenger-ui';
+import { SendState, StatusTicks, useBubbleTime } from './messenger-ui';
+import { localStateOf } from './local-message';
 import { AttachmentContent } from './AttachmentContent';
 import { RichCardWidget } from './RichCardWidget';
 import { renderMessageContent } from './mention-render';
@@ -88,6 +89,8 @@ export const MessageList = forwardRef<MessageListHandle, {
   onJumpTo: (messageId: string) => void;
   onMessageAction: (kind: 'task' | 'schedule' | 'note', text: string) => void;
   onCardUpdated?: (messageId: string, card: RichCardPayload) => void;
+  /** Повторить отправку неотправленного пузыря — ТЕМ ЖЕ ключом (id пузыря). */
+  onRetrySend?: (localId: string) => void;
 }>(function MessageList(
   {
     messages,
@@ -105,6 +108,7 @@ export const MessageList = forwardRef<MessageListHandle, {
     onJumpTo,
     onMessageAction,
     onCardUpdated,
+    onRetrySend,
   },
   ref,
 ) {
@@ -275,6 +279,7 @@ export const MessageList = forwardRef<MessageListHandle, {
             onReply={onReply}
             onJumpTo={onJumpTo}
             onMessageAction={onMessageAction}
+            onRetrySend={onRetrySend}
           />
         )}
       </div>
@@ -290,6 +295,7 @@ export const MessageList = forwardRef<MessageListHandle, {
       onJumpTo,
       onMessageAction,
       onCardUpdated,
+      onRetrySend,
     ],
   );
 
@@ -423,6 +429,7 @@ const MessageBubble = memo(function MessageBubble({
   onReply,
   onJumpTo,
   onMessageAction,
+  onRetrySend,
 }: {
   message: ChatMessage;
   mine: boolean;
@@ -442,10 +449,14 @@ const MessageBubble = memo(function MessageBubble({
   onJumpTo: (messageId: string) => void;
   /** Open a message-scope quick-action modal prefilled with this message's text. */
   onMessageAction: (kind: 'task' | 'schedule' | 'note', text: string) => void;
+  /** Повторить отправку неотправленного пузыря (тот же ключ повтора = id пузыря). */
+  onRetrySend?: (localId: string) => void;
 }) {
   const t = useTranslations('messenger');
   const tc = useTranslations('common');
   const bubbleTime = useBubbleTime();
+  // Пузырь в пути либо не отправленный — местное состояние клиента, а не провода
+  const sendState = localStateOf(message);
   const [editing, setEditing] = useState(false);
   const [editDraft, setEditDraft] = useState(message.content ?? '');
   // Кнопка «⋯» больше не завязана на mouse-state: она ВСЕГДА в DOM (Tab до неё
@@ -765,7 +776,12 @@ const MessageBubble = memo(function MessageBubble({
               {t('messages.edited')}
             </span>
           )}
-          {mine && !deleted && <StatusTicks status={message.status} />}
+          {mine && !deleted &&
+            (sendState ? (
+              <SendState state={sendState} onRetry={onRetrySend ? () => onRetrySend(message.id) : undefined} />
+            ) : (
+              <StatusTicks status={message.status} />
+            ))}
         </div>
       )}
       {confirmDeleteUI}

@@ -29,6 +29,7 @@ import {
 import { ShiftsService } from './shifts.service';
 import { AttendanceService } from './attendance.service';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 
 /** График смен объекта: шаблоны, ротации, план и факт. */
 @ApiTags('Objects · shifts')
@@ -129,6 +130,9 @@ export class ShiftsController {
     return { success: true, data: { ok: true } };
   }
 
+  // Генерация раскладывает смены ЛЮДЯМ на период целиком: повтор = второй
+  // комплект смен в графике, который придётся выбирать руками.
+  @Idempotent({ required: true })
   @Post('shift-patterns/:patId/generate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Generate the missing shifts of a rotation (idempotent)' })

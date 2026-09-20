@@ -20,9 +20,8 @@ import { Button, Chip, EmptyState, Icon, LoadingBlock, SegmentedControl } from '
 import { PersonChip } from '@/app/circles/PersonCard';
 import { myApprovalsKey, approvalsRootKey, type ApprovalScope } from '@/lib/queries';
 import { cancelApproval, fetchMyApprovals } from '@/lib/approvals-api';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Корзина списка. Со скоупом движка (чьи заявки) не путать — это «какие» */
 type Bucket = 'active' | 'archived';
 
@@ -56,7 +55,7 @@ export function MyApprovalsList({ scope }: { scope?: ApprovalScope }) {
       void qc.invalidateQueries({ queryKey: approvalsRootKey });
       setArmed(null);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const items = listQ.data?.items ?? [];

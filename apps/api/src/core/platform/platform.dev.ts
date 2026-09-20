@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { forbidden } from '../../shared/errors/api-error';
 import { CurrentPlatformActor, PlatformRoute, PlatformSession, type PlatformActor } from '../../shared/decorators/platform.decorator';
 import { PLATFORM_REDIS } from './platform.constants';
@@ -15,6 +16,10 @@ import { PLATFORM_REDIS } from './platform.constants';
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/dev')
 export class PlatformDevController {
   constructor(

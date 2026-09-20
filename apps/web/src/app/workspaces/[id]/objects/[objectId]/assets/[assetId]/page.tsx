@@ -39,13 +39,14 @@ import { AttachmentsSection } from '@/components/files/AttachmentsSection';
 import { ChronicleFeed } from '@/components/chatter/ChronicleFeed';
 import { EntitySelector } from '@/components/EntitySelector';
 import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { dmyOrDash } from '@/lib/dates';
 import { useFormatters } from '@/lib/format';
 import { moneyTiyn } from '@/lib/objects-money';
 import { assetChatterKey, assetFilesKey, assetKey, objectAssetsKey } from '@/lib/queries';
 import { assetsApi, fetchAssetCard } from '../../../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 type TabKey = 'data' | 'files' | 'moves' | 'service' | 'history';
 
 const STATUS_META = new Map(ASSET_STATUSES.map((s) => [s.value, s]));
@@ -106,34 +107,34 @@ export default function AssetCardPage() {
   const saveFields = useMutation({
     mutationFn: (body: Record<string, unknown>) => assetsApi.update(id, assetId, body),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const setHolding = useMutation({
     mutationFn: (holdingKind: string) => assetsApi.setHolding(id, assetId, { holdingKind }),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const closeService = useMutation({
     mutationFn: (recId: string) =>
       assetsApi.updateService(id, assetId, recId, { status: 'done', finishedAt: new Date().toISOString() }),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const setStatus = useMutation({
     mutationFn: (status: string) => assetsApi.setStatus(id, assetId, { status }),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const setCustodian = useMutation({
     mutationFn: (custodianUserId: string | null) => assetsApi.setCustodian(id, assetId, { custodianUserId }),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const moveAsset = useMutation({
     mutationFn: (branchId: string) => assetsApi.move(id, assetId, { branchId }),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const attach = useMutation({
     mutationFn: (fileId: string) => apiPost(`/workspaces/${id}/assets/${assetId}/files`, { fileId }),
@@ -141,7 +142,7 @@ export default function AssetCardPage() {
       invalidateFiles();
       invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const detach = useMutation({
     mutationFn: (fileId: string) => apiDelete(`/workspaces/${id}/assets/${assetId}/files/${fileId}`),
@@ -149,7 +150,7 @@ export default function AssetCardPage() {
       invalidateFiles();
       invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   if (!isReady) return null;
@@ -459,7 +460,7 @@ function ServiceTab({
       setDescription('');
       onSaved();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

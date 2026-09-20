@@ -12,13 +12,13 @@ import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ShiftPatternDto, ShiftTemplateDto, StaffingTableDto } from '@superapp/shared';
 import { Alert, Button, Chip, DatePicker, Divider, Input, Modal, Select, useConfirm } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { dmy } from '@/lib/dates';
 import { dateToIso, isoToDate, monthIn, tint, todayIn } from '@/lib/objects-time';
 import { objectShiftsKey, objectStaffingKey, shiftPatternsKey, shiftTemplatesKey } from '@/lib/queries';
 import { fetchShiftTemplates, fetchStaffing, shiftsApi } from '../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 export function PatternForm({
   workspaceId,
   objectId,
@@ -114,7 +114,7 @@ export function PatternForm({
       onSaved?.();
       onClose();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   // Догенерация: ротация порождает смены на горизонт, и после сдвига горизонта
@@ -127,7 +127,7 @@ export function PatternForm({
       void qc.invalidateQueries({ queryKey: objectShiftsKey(workspaceId, objectId, '', '').slice(0, -2) });
       onSaved?.();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const remove = useMutation({
@@ -136,7 +136,7 @@ export function PatternForm({
       void qc.invalidateQueries({ queryKey: shiftPatternsKey(workspaceId, objectId) });
       onSaved?.();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

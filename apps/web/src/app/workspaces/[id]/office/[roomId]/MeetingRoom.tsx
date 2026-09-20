@@ -30,8 +30,8 @@ import { useMessengerSocket } from '@/lib/hooks/useMessengerSocket';
 import type { WsMessageDeleted, WsMessageNew, WsMessageUpdated, WsReceipt } from '@superapp/shared';
 import { Button, Card, EmptyState, LoadingBlock, useConfirm, type IconName } from '@/components/ui';
 import type { CallTokenDto, ChatMessage } from '@superapp/shared';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 // Ключ сообщений — общий messengerMessagesKey из lib/queries.ts (кэш чата встречи
 // делится со страницей /messenger; локальная копия литерала разорвала бы его)
 
@@ -482,7 +482,7 @@ export default function MeetingRoom() {
                 confirmLabel: t('actions.end'),
                 danger: true,
               },
-              () => endCallSession(call.sessionId).catch((e) => toastError(apiErrorMessage(e))),
+              () => endCallSession(call.sessionId).catch((e) => toastApiError(e)),
             )}
           />
         </div>

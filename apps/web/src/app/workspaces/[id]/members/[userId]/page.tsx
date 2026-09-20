@@ -17,11 +17,11 @@ import { useParams } from 'next/navigation';
 import { useRoleLabel } from '../members-lib';
 import { useQuery } from '@tanstack/react-query';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { apiGet, apiErrorMessage } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { fetchHrMemberCard, fetchPersonalFileZip, saveHrBlob } from '@/lib/hr-api';
 import { fetchOrgLine } from '@/lib/org-api';
 import { dmy } from '@/lib/dates';
-import { toastError } from '@/lib/toast';
+
 import { hrMemberKey, orgLineKey, workspaceMemberKey } from '@/lib/queries';
 import {
   Alert,
@@ -58,6 +58,7 @@ import { ActionsCard, EmploymentCard, HrActionModal } from './member-hr-ui';
 import { MemberRequisitesBlock } from '../members-lib';
 import { isTopOfStructure } from '../org/org-lib';
 
+import { toastApiError } from '@/lib/api-errors';
 type Tab = 'overview' | 'employment' | 'requisites' | 'documents' | 'chronicle';
 
 export default function MemberCardPage() {
@@ -220,7 +221,7 @@ export default function MemberCardPage() {
                         const blob = await fetchPersonalFileZip(workspaceId, card.user.id);
                         saveHrBlob(blob, t('card.personalFileName', { name: fullName }));
                       } catch (err) {
-                        toastError(apiErrorMessage(err));
+                        toastApiError(err);
                       } finally {
                         setZipBusy(false);
                       }

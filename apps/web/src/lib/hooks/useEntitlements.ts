@@ -10,13 +10,13 @@ import {
   type EntitlementUnlockDto,
   type EntitlementValueDto,
 } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
+
 import { fetchEntitlements } from '@/lib/entitlements-api';
 import { entitlementsKey, entitlementsRootKey } from '@/lib/queries';
 import { useRealtime } from '@/lib/realtime/useRealtime';
 import { useAuthStore } from '@/lib/stores/auth';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // Тариф и лимиты на клиенте (core/entitlements).
 //
@@ -140,7 +140,7 @@ export function useEntitlementDenied(): (err: unknown) => boolean {
   return useCallback(
     (err: unknown) => {
       if (!isAxiosError(err) || err.response?.status !== 402) return false;
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
       invalidateEntitlements(qc);
       return true;
     },

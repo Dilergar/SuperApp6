@@ -8,11 +8,11 @@ import { Button, Chip, EmptyState, IconButton, LoadingBlock, Modal, Select } fro
 import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { apiErrorMessage } from '@/lib/api';
+
 import { fetchFolderShares, fetchNoteShares, shareFolder, shareNote, unshareFolder, unshareNote } from '@/lib/notes-api';
 import { noteFolderSharesKey, noteSharesKey, notesRootKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // Доступ к заметке или папке: кому и с каким правом. Пикер не предлагает того, что
 // сервер отвергнет: в личном пространстве — люди из окружения и мои Группы; в
@@ -63,13 +63,13 @@ export function NoteShareModal({ open, onClose, scope, target, canManage }: Prop
       refresh(data);
       setPrincipals([]);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const remove = useMutation({
     mutationFn: (s: NoteShareDto) => (target.kind === 'note' ? unshareNote(target.id, s.principalType, s.principalId) : unshareFolder(target.id, s.principalType, s.principalId)),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const shareToWorkspace = () => {

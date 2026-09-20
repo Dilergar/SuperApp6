@@ -9,6 +9,7 @@ import { validateEnv } from './shared/config/env.validation';
 import { wopiRawBodyMiddleware } from './core/docs/wopi-raw-body.middleware';
 import { DocsTokenService } from './core/docs/docs-token.service';
 import { isAllowedWebOrigin, webOrigins } from './shared/config/web-origins';
+import { IDEMPOTENCY_EXPOSED_HEADERS, IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY_RE } from '@superapp/shared';
 
 // Защитная сеть: одна «забытая» асинхронная ошибка (unhandled rejection) в новых
 // версиях Node роняет ВЕСЬ процесс. Логируем и продолжаем работать — сервер не падает
@@ -143,6 +144,10 @@ async function bootstrap() {
   app.enableCors({
     origin: (origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) => cb(null, isAllowedWebOrigin(origin)),
     credentials: true,
+    // Ответы движка идемпотентности читает КЛИЕНТСКИЙ КОД в браузере, а веб и API
+    // стоят на разных портах (в проде — на разных доменах). Без этого списка браузер
+    // просто не отдаёт заголовки скрипту, и авто-повтор терял бы подсказки.
+    exposedHeaders: [...IDEMPOTENCY_EXPOSED_HEADERS],
   });
 
   // Validation pipe — auto-validate all incoming DTOs
@@ -163,6 +168,15 @@ async function bootstrap() {
       .setDescription('The SuperApp6 API — one app for everything')
       .setVersion('0.1.0')
       .addBearerAuth()
+      // Ключ повтора (core/idempotency) — глобальный заголовок: интегратор видит его
+      // на КАЖДОЙ мутации, а не ищет по документации
+      .addGlobalParameters({
+        name: IDEMPOTENCY_KEY_HEADER,
+        in: 'header',
+        required: false,
+        description: 'Repeat-protection key: the same key returns the first outcome instead of repeating the effect',
+        schema: { type: 'string', pattern: IDEMPOTENCY_KEY_RE.source },
+      })
       .build();
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document);

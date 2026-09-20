@@ -198,7 +198,8 @@
     "uniqueViolation": "Such a record already exists"
   },
   "dev": {
-    "developmentOnly": "The dev playground is available only in development"
+    "developmentOnly": "The dev playground is available only in development",
+    "simulatedFailure": "A failure simulated by the dev playground"
   },
   "docs": {
     "accessRevoked": "The access to the document was revoked",
@@ -1530,5 +1531,14 @@
       "wrongStatus": "The incident is not in a state that allows this step",
       "notFound": "Incident not found"
     }
+  },
+  "idempotency": {
+    "key_required": "The app did not send a repeat-protection key for this operation. Refresh the page and try again",
+    "key_invalid": "The repeat-protection key has an invalid form",
+    "key_reused": "This key has already been used for a different request. Refresh the page and try again",
+    "in_flight": "The previous attempt is still running. Wait a couple of seconds",
+    "already_completed": "This operation has already been completed",
+    "outcome_unknown": "We could not confirm the result. The operation may have gone through — check the history before repeating it",
+    "unavailable": "Repeat protection is temporarily unavailable. Try again in a few seconds"
   }
 }

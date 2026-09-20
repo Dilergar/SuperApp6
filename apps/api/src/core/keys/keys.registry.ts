@@ -11,6 +11,12 @@ import type { KeyScopeType } from '@superapp/shared';
 export interface EncryptedColumnDef {
   /** Таблица БД (snake_case) */
   table: string;
+  /**
+   * Схема таблицы, если это не `public` (служебные хранилища движков: `idem`,
+   * `analytics`). Без неё сырой SQL перешивки искал бы таблицу по search_path и
+   * молча ничего не находил — старая версия KEK осталась бы `active` навсегда.
+   */
+  schema?: string;
   idColumn: string;
   /** Колонка с шифротекстом `sa6e:` */
   column: string;
@@ -48,12 +54,13 @@ export class KeysFieldRegistry {
   private readonly defs: EncryptedColumnDef[] = [];
 
   register(def: EncryptedColumnDef): void {
-    for (const ident of [def.table, def.idColumn, def.column, def.scopeColumn, def.blindIndex?.column, def.blindIndex?.altColumn, def.scopeDiscriminator?.column]) {
+    for (const ident of [def.schema, def.table, def.idColumn, def.column, def.scopeColumn, def.blindIndex?.column, def.blindIndex?.altColumn, def.scopeDiscriminator?.column]) {
       if (ident !== undefined && !IDENT.test(ident)) throw new Error(`keys registry: bad identifier "${ident}"`);
     }
     if (def.scope !== 'platform' && !def.scopeColumn) throw new Error(`keys registry: ${def.table}.${def.column} needs scopeColumn for scope ${def.scope}`);
     // Повторная регистрация той же колонки того же скоупа (HMR, двойной onModuleInit) — не дубль прохода
-    const same = (d: EncryptedColumnDef) => d.table === def.table && d.column === def.column && d.scope === def.scope && d.scopeDiscriminator?.value === def.scopeDiscriminator?.value;
+    const same = (d: EncryptedColumnDef) =>
+      d.schema === def.schema && d.table === def.table && d.column === def.column && d.scope === def.scope && d.scopeDiscriminator?.value === def.scopeDiscriminator?.value;
     if (this.defs.some(same)) return;
     this.defs.push(def);
   }

@@ -123,8 +123,13 @@ export const documentsApi = {
   /** Номер печатается в тексте ДО отправки — в отличие от кадровой регистрации */
   assignNumber: (wsId: string, docId: string) =>
     apiPost<OrgDocumentDto>(`${base(wsId)}/${docId}/assign-number`),
-  sendExternal: (wsId: string, docId: string, body: Record<string, unknown>) =>
-    apiPost<OrgDocumentDto>(`${base(wsId)}/${docId}/send-external`, body),
+  /**
+   * Отправка наружу необратима: контрагенту уходит ссылка и SMS, а документ
+   * замораживается под подпись. Ручка требует ключ повтора — модалка передаёт
+   * сюда ключ своего НАМЕРЕНИЯ (двойной клик = одна отправка).
+   */
+  sendExternal: (wsId: string, docId: string, body: Record<string, unknown>, idempotencyKey?: string) =>
+    apiPost<OrgDocumentDto>(`${base(wsId)}/${docId}/send-external`, body, { idempotencyKey }),
   revokeExternal: (wsId: string, docId: string) =>
     apiPost<OrgDocumentDto>(`${base(wsId)}/${docId}/revoke-external`),
   returnToDraft: (wsId: string, docId: string) =>

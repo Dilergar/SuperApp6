@@ -7,14 +7,15 @@ import { useTranslations } from 'next-intl';
 import type { NoteListItemDto, NoteRelatedTargetType, NoteSpaceRef } from '@superapp/shared';
 import { Button, EmptyState, Icon, LoadingBlock, Modal, SearchField } from '@/components/ui';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
-import { apiErrorMessage } from '@/lib/api';
+
 import { addNoteRelated, createNote, fetchNotes, fetchNotesByTarget, noteScopeKey } from '@/lib/notes-api';
 import { notesAttachPickerKey, notesByTargetKey, notesRootKey } from '@/lib/queries';
 import { useNotesLayer } from '@/lib/stores/notes-layer';
-import { toastError } from '@/lib/toast';
+
 import { dmyOrDash } from '@/lib/dates';
 import './notes.css';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // Панель «Заметки» на карточке сущности (задача, контрагент, объект, документ) —
 // модель Salesforce «Notes» related list: что записано об этой сущности, новая
@@ -39,7 +40,7 @@ export function NotesPanel({ target, scope }: { target: { type: NoteRelatedTarge
       void qc.invalidateQueries({ queryKey: notesRootKey });
       layer.requestPin(note.id);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const attach = useMutation({
@@ -48,7 +49,7 @@ export function NotesPanel({ target, scope }: { target: { type: NoteRelatedTarge
       void qc.invalidateQueries({ queryKey: notesRootKey });
       setAttachOpen(false);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const openNote = (n: NoteListItemDto) => router.push(scope.workspaceId ? `/workspaces/${scope.workspaceId}/notes?note=${n.id}` : `/notes/${n.id}`);

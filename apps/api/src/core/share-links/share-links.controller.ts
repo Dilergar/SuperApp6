@@ -9,6 +9,7 @@ import {
   updateShareLinkSchema,
 } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import { ShareLinksService } from './share-links.service';
 
 /**
@@ -21,6 +22,9 @@ import { ShareLinksService } from './share-links.service';
 export class ShareLinksController {
   constructor(private readonly links: ShareLinksService) {}
 
+  // Ссылка живёт НАРУЖУ и работает без аккаунта: повтор = вторая живая ссылка,
+  // о которой автор не знает, — отзывать её пришлось бы отдельно.
+  @Idempotent({ required: true })
   @Post()
   @ApiOperation({ summary: 'Create a guest link to an item' })
   async create(@CurrentUser() user: JwtPayload, @Body() body: unknown) {

@@ -27,6 +27,14 @@ const SCOPES = [
 ];
 const NEW_CALENDAR = '__new__';
 const SYNC_CAL_NAME = 'SuperApp6';
+/** Сравнение секретов постоянного времени: длина утечкой не является, значение — да. */
+function constantTimeEquals(a: string, b: string): boolean {
+  const ba = Buffer.from(a, 'utf8');
+  const bb = Buffer.from(b, 'utf8');
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
+
 /** Имя календаря задач в Google — создаётся ОДИН раз, в языке источника. */
 const TASKS_CAL_NAME_KEY = 'calendar.google.tasksCalendarName';
 
@@ -481,10 +489,14 @@ export class GoogleCalendarService implements OnModuleInit {
     if (!c.syncCalendarId) return;
     const cal = await this.client(c);
     const channelId = crypto.randomUUID();
+    // Токен канала — HMAC keystore от id канала, а НЕ id человека: адрес приёмника
+    // публичен, и без секрета кто угодно мог бы дёргать синхронизацию за чужой аккаунт,
+    // зная только id канала. Проверка в приёмнике — константного времени.
+    const channelToken = await this.mac.tagged('google_channel', channelId);
     try {
       const r = await cal.events.watch({
         calendarId: c.syncCalendarId,
-        requestBody: { id: channelId, type: 'web_hook', address: webhook, token: userId },
+        requestBody: { id: channelId, type: 'web_hook', address: webhook, token: channelToken },
       });
       await this.db.googleConnection.update({
         where: { userId },
@@ -497,11 +509,33 @@ export class GoogleCalendarService implements OnModuleInit {
     } catch (e) { this.logger.warn(`watch register: ${e instanceof Error ? e.message : e}`); }
   }
 
-  async handleWebhook(channelId: string, resourceState: string): Promise<void> {
+  /**
+   * Приёмник push-уведомлений Google. Аутентификация = `X-Goog-Channel-Token`: его
+   * знает только тот, кто регистрировал канал. Без неё приёмник верил бы одному лишь
+   * id канала из заголовка — то есть был бы открыт.
+   *
+   * Наследие: каналы, зарегистрированные до секрета, несут id человека. Такой токен
+   * принимается ОДИН раз (сравнение константного времени) и тут же перерегистрирует
+   * канал с настоящим секретом — окно наследия закрывается первым же уведомлением.
+   *
+   * Ящика ровно-одного-раза тут нет намеренно: синхронизация инкрементальна по
+   * `syncToken` Google и естественно идемпотентна — повтор просто не находит нового.
+   */
+  async handleWebhook(channelId: string, resourceState: string, channelToken?: string): Promise<void> {
     if (resourceState === 'sync') return; // initial handshake
     const c = await this.db.googleConnection.findFirst({ where: { channelId } });
     if (!c) return;
+    const token = (channelToken ?? '').trim();
+    let legacy = false;
+    if (!token || !(await this.mac.verifyTagged('google_channel', channelId, token))) {
+      legacy = !!token && constantTimeEquals(token, c.userId);
+      if (!legacy) {
+        this.logger.warn(`google push for channel ${channelId} rejected: bad channel token`);
+        return;
+      }
+    }
     await this.pullIncremental(c.userId).catch((e) => this.logger.warn(`webhook sync: ${e instanceof Error ? e.message : e}`));
+    if (legacy) await this.registerWatch(c.userId).catch(() => undefined);
   }
 
   /** Cron: renew channels nearing expiry + poll fallback for everyone. */

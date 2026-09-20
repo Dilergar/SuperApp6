@@ -31,11 +31,14 @@ export const fetchHrMemberCard = (wsId: string, userId: string) =>
 export const upsertEmployment = (wsId: string, userId: string, dto: UpsertEmploymentInput) =>
   apiPut<EmploymentDto>(`${base(wsId)}/members/${userId}/employment`, dto);
 
-export const createHrAction = (wsId: string, dto: CreateHrActionInput) =>
-  apiPost<HrActionDto>(`${base(wsId)}/actions`, dto);
+// Кадровое действие необратимо: приказ регистрируется, маршрут подписания уходит
+// людям, ЕСУТД получает отправку. Повтор обязан быть ОДНИМ приказом — поэтому
+// ручки требуют ключ, а форма передаёт сюда ключ своего НАМЕРЕНИЯ.
+export const createHrAction = (wsId: string, dto: CreateHrActionInput, idempotencyKey?: string) =>
+  apiPost<HrActionDto>(`${base(wsId)}/actions`, dto, { idempotencyKey });
 
-export const cancelHrAction = (wsId: string, actionId: string) =>
-  apiPost<HrActionDto>(`${base(wsId)}/actions/${actionId}/cancel`);
+export const cancelHrAction = (wsId: string, actionId: string, idempotencyKey?: string) =>
+  apiPost<HrActionDto>(`${base(wsId)}/actions/${actionId}/cancel`, undefined, { idempotencyKey });
 
 /**
  * ZIP-выгрузки — БАЙТАМИ через транспорт с токеном (урок ревью core/sign):
@@ -88,8 +91,8 @@ export const installHrLibraryItem = (
   dto: { key: string; signerUserId?: string; signerPositionId?: string },
 ) => apiPost<HrLibraryItemDto>(`${base(wsId)}/library/install`, dto);
 
-export const createHrBatch = (wsId: string, dto: CreateHrBatchInput) =>
-  apiPost<HrActionBatchDto>(`${base(wsId)}/batches`, dto);
+export const createHrBatch = (wsId: string, dto: CreateHrBatchInput, idempotencyKey?: string) =>
+  apiPost<HrActionBatchDto>(`${base(wsId)}/batches`, dto, { idempotencyKey });
 
 export const fetchHrBatch = (wsId: string, batchId: string) =>
   apiGet<HrActionBatchDto>(`${base(wsId)}/batches/${batchId}`);
@@ -102,8 +105,9 @@ export const fetchCampaigns = (wsId: string) =>
 export const fetchCampaignDetail = (wsId: string, campaignId: string) =>
   apiGet<DocCampaignDetailDto>(`/workspaces/${wsId}/doc-campaigns/${campaignId}`);
 
-export const createCampaign = (wsId: string, dto: CreateCampaignInput) =>
-  apiPost<DocCampaignDto>(`/workspaces/${wsId}/doc-campaigns`, dto);
+/** Кампания ознакомления = РАССЫЛКА людям: второй экземпляр отозвать уже нечем. */
+export const createCampaign = (wsId: string, dto: CreateCampaignInput, idempotencyKey?: string) =>
+  apiPost<DocCampaignDto>(`/workspaces/${wsId}/doc-campaigns`, dto, { idempotencyKey });
 
 export const cancelCampaign = (wsId: string, campaignId: string) =>
   apiPost<void>(`/workspaces/${wsId}/doc-campaigns/${campaignId}/cancel`);

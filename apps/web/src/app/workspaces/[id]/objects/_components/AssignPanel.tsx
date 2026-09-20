@@ -10,12 +10,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { RATE_TYPES, type StaffingRowDto } from '@superapp/shared';
 import { Button, DatePicker, Input, Modal, Select } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { dateToIso, isoToDate, todayIn } from '@/lib/objects-time';
 import { objectStaffingKey } from '@/lib/queries';
 import { staffingApi } from '../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Типы ставок, которые предлагаются человеку (`revenue_share` зарезервирован). */
 const RATE_VALUES = RATE_TYPES.filter((r) => !('reserved' in r && r.reserved)).map((r) => r.value);
 
@@ -81,7 +81,7 @@ export function AssignPanel({
       onSaved?.();
       onClose();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

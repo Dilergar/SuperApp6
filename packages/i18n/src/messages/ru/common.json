@@ -250,5 +250,11 @@
     "hourShort": "ч",
     "kb": "КБ",
     "mb": "МБ"
+  },
+  "idempotency": {
+    "outcomeUnknownTitle": "Не удалось подтвердить результат",
+    "outcomeUnknownBody": "Операция могла пройти. Проверьте историю, прежде чем повторять",
+    "openHistory": "Открыть историю",
+    "checkingConnection": "Проверяем соединение…"
   }
 }

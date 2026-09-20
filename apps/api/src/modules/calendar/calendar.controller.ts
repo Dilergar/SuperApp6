@@ -5,6 +5,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CalendarService } from './calendar.service';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import {
   createCalendarEventSchema,
   updateCalendarEventSchema,
@@ -64,6 +65,9 @@ export class CalendarController {
     return { success: true, data };
   }
 
+  // Запись зовёт УЧАСТНИКОВ: повтор = вторая встреча в их календарях и второе
+  // приглашение, а «отменить» её они увидят отдельным событием.
+  @Idempotent({ required: true })
   @Post('events')
   @ApiOperation({ summary: 'Create an event (with participants)' })
   async createEvent(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {

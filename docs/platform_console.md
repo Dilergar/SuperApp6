@@ -65,3 +65,16 @@ PlatformCommandsRegistry.register({
 ## Согласия и инциденты ПДн
 
 От `core/consents` ([consents_engine.md](consents_engine.md)): группа команд `consents` — `consents.document.draft.save` (medium, тексты в журнал не дублируются — `redact`), `consents.document.publish` (critical, dualControl, step-up, причина; срочная — `urgent` с развёрнутой причиной), `consents.document.attest` (high; эффекты вне транзакции молчат в предпросмотре), `consents.versions.reattest` (critical, dualControl), `pd.incident.open|notify_authority|notify_subjects|close` (critical, step-up); от `core/keys` — `keys.signing.compromise` (critical, dualControl). Панель `user.consents` карточки 360; общие чтения — `GET /platform/consents/documents|incidents` (раздел «Согласия» кабинета, `/platform/consents`). События тревоги владельцам: `pdIncidentOpened`, `pdIncidentDeadline`.
+
+## Идемпотентность повторов в кабинете
+
+Маршруты `/platform/*` выведены из-под движка `core/idempotency` (`@SkipIdempotency('own_mechanism')`): у КАЖДОЙ команды реестра уже есть свой ключ идемпотентности (`@@unique([actorId, commandKey, idempotencyKey])`), журнал и «четыре глаза». Второй механизм поверх был бы не защитой, а вторым источником правды.
+
+Сам движок даёт кабинету раздел поддержки:
+
+- команда **`idempotency.key.lookup`** (способность `platform.lookup.read`, причина обязательна, сам ключ в журнале замаскирован, `dryRun` — результат виден прямо в модалке): по сырому ключу интегратора находятся его заявки — маршрут, состояние, число повторов, статус ответа, ссылка на созданную сущность;
+- панель **`user.idempotency`** карточки 360 — сводка «спорных операций» человека за окно: сколько раз приходил повторно, у скольких исход остался неизвестным, сколько закоммичено без ответа.
+
+**Тела ответов кабинет не раскрывает никогда** — ни командой, ни панелью: они лежат под KEK владельца, а спор решают факты, а не содержимое.
+
+Детали — [idempotency_engine.md](idempotency_engine.md).

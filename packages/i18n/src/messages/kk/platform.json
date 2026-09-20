@@ -216,6 +216,10 @@
     "pdIncidentClose": {
       "description": "Инцидентті жабады. Ескертпеде нәтиже мен қабылданған шараларды көрсетіңіз.",
       "title": "Инцидентті жабу"
+    },
+    "idempotencyKeyLookup": {
+      "title": "Қайталау кілті бойынша іздеу",
+      "description": "Интегратор сұрауының өткенін білгісі келеді: әрекеттерін қайталау кілті бойынша табамыз. Жауап мәтіні ашылмайды"
     }
   },
   "fields": {
@@ -274,7 +278,14 @@
     "validUntil": "Дейін",
     "value": "Мән",
     "website": "Сайт",
-    "workspaces": "Ұйымдар"
+    "workspaces": "Ұйымдар",
+    "windowDays": "Терезе, күн",
+    "repeated": "Қайта келді",
+    "unresolved": "Нәтижесі белгісіз",
+    "committedWithoutAnswer": "Өтті, жауап жоғалды",
+    "released": "Әсері жоқ",
+    "lastAt": "Соңғы өтініш",
+    "hits": "Әрекеттер"
   },
   "grantSource": {
     "addon": "қосымша",
@@ -326,7 +337,8 @@
     "workspaceKeys": "Кілттер мен боттар",
     "workspaceMembersSummary": "Қатысушылар",
     "workspaceProfile": "Профиль",
-    "userConsents": "Келісімдер"
+    "userConsents": "Келісімдер",
+    "userIdempotency": "Даулы операциялар"
   },
   "picker": {
     "change": "өзгерту",
@@ -519,5 +531,11 @@
     "archived": "мұрағатта",
     "draft": "қаралама",
     "published": "жарияланған"
+  },
+  "idempotencyState": {
+    "in_progress": "Орындалуда",
+    "committed": "Өтті, жауап жоғалды",
+    "completed": "Аяқталды",
+    "released": "Әсері жоқ"
   }
 }

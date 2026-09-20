@@ -34,7 +34,8 @@ import type {
 } from '@superapp/shared';
 import { usePresenceLine } from '../messenger/presence-ui';
 import { getPresence } from '@/lib/messenger-api';
-import { apiErrorMessage, apiPatch } from '@/lib/api';
+import { apiPatch } from '@/lib/api';
+import { toastApiError } from '@/lib/api-errors';
 import { toastError } from '@/lib/toast';
 import type { CardSize, CardSkinRender } from './card-skin';
 import {
@@ -378,7 +379,6 @@ function SkinEffect({ preset, level, accent }: {
 
   return null;
 }
-
 
 // ============================================================
 // Card body — avatar + name + fields, sized + skinned
@@ -924,7 +924,7 @@ function RoleEditor({ ctx, skin }: { ctx: RoleEditContext; skin: CardSkinRender 
       // ПЕРЕЗАПРОСА не должен показывать ошибку сохранения, которое прошло.
       void queryClient.invalidateQueries({ queryKey: contactsKey });
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setSaving(false);
     }

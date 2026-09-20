@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DEFAULT_LOCALE, type Locale } from '@superapp/i18n';
+import type { IdemBinding } from '../idempotency/binding';
 
 export interface WorkspaceContext {
   userId?: string;
@@ -22,6 +23,13 @@ export interface WorkspaceContext {
   claimedWorkspaceId?: string;
   /** Клиентский контекст для серверных событий аналитики (core/analytics). */
   client?: AnalyticsClientContext;
+  /**
+   * Заявка движка идемпотентности (core/idempotency): что писать в отметку «эффект
+   * закоммичен» и что уже случилось в этом запросе. Ставит интерцептор движка ПОСЛЕ
+   * того, как заявка заведена; читает обёртка `$transaction` в фабрике клиента базы.
+   * Нет заявки (запрос без ключа, джоб, крон) — обёртка строгий no-op.
+   */
+  idem?: IdemBinding;
 }
 
 /**

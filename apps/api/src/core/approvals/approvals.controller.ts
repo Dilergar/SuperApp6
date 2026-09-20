@@ -7,6 +7,7 @@ import {
   approvalMineQuerySchema,
 } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { ApprovalsService } from './approvals.service';
 
 /**
@@ -73,6 +74,9 @@ export class ApprovalsController {
     return { success: true };
   }
 
+  // Решение по шагу маршрута двигает документ дальше и рассылает уведомления:
+  // повтор без ключа означал бы второе решение по тому же шагу
+  @Idempotent({ required: true })
   @Post('steps/:stepId/decide')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Approve · Decline · Send back' })

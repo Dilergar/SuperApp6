@@ -21,7 +21,7 @@ const EICAR = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$
 let fails = 0;
 const check = (n, ok, extra) => { console.log(`${ok ? '✓' : '✗ FAIL'}  ${n}${extra ? `  (${extra})` : ''}`); if (!ok) fails++; };
 async function call(method, p, token, body) {
-  const res = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const res = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': require('crypto').randomUUID(), 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
   let json = null; try { json = await res.json(); } catch {}
   return { status: res.status, ok: res.ok, json };
 }

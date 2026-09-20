@@ -20,8 +20,7 @@ import {
   formatDocNumber,
   type DocTypeDto,
 } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { docTypesKey } from '@/lib/queries';
 import {
   BentoGrid,
@@ -39,6 +38,7 @@ import {
 } from '@/components/ui';
 import { documentsApi, fetchDocTypes } from './documents-api';
 
+import { toastApiError } from '@/lib/api-errors';
 interface Draft {
   name: string;
   category: string;
@@ -77,7 +77,7 @@ export function DocTypesTab({ workspaceId }: { workspaceId: string }) {
   const archive = useMutation({
     mutationFn: (typeId: string) => documentsApi.archiveType(workspaceId, typeId),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (
@@ -237,7 +237,7 @@ function TypeModal({
       qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] });
       onClose();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

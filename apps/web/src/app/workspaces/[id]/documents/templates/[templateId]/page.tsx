@@ -29,7 +29,8 @@ import {
   type DocTemplateDto,
   type ProcessDefinitionDto,
 } from '@superapp/shared';
-import { apiErrorMessage, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
+import { toastApiError } from '@/lib/api-errors';
 import { toast, toastError } from '@/lib/toast';
 import { documentHref } from '@/lib/docs-api';
 import { uploadFile } from '@/lib/files-api';
@@ -99,7 +100,7 @@ export default function TemplateConstructorPage() {
       refresh();
       toast(tr('template.published'), 'success');
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   /**
@@ -141,7 +142,7 @@ export default function TemplateConstructorPage() {
       qc.invalidateQueries({ queryKey: ['workspaces', id, 'documents'] });
       router.push(`/workspaces/${id}/processes/${defId}`);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const uploadBlank = useMutation({
@@ -152,7 +153,7 @@ export default function TemplateConstructorPage() {
       return documentsApi.updateTemplate(id, templateId, { fileId: uploaded.id });
     },
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   if (templatesQuery.isPending) return <LoadingBlock />;
@@ -407,7 +408,7 @@ function FormFieldsEditor({
       onSaved();
       toast(tr('template.formSaved'), 'success');
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const update = (i: number, patch: Partial<DocFormFieldDto>) =>
@@ -519,14 +520,14 @@ function TemplateGrants({
       setPicked([]);
       refresh();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const remove = useMutation({
     mutationFn: (g: { principalType: string; principalId: string }) =>
       documentsApi.removeGrant(workspaceId, template.id, g.principalType, g.principalId),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

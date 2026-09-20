@@ -36,7 +36,13 @@ async function main() {
     check('signing keys for all 7 audiences', JSON.stringify(audiences) === JSON.stringify(['consents', 'files_url', 'platform', 'product', 'share_link', 'webhook', 'wopi']), audiences.join(','));
     check('every audience has a primary kid', (st.json?.data?.signing ?? []).every((s) => !!s.primaryKid));
     const macs = (st.json?.data?.mac ?? []).map((m) => m.name).sort();
-    check('mac keys: api_key_pepper, blind_index, oauth_state, verify_otp', JSON.stringify(macs) === JSON.stringify(['api_key_pepper', 'blind_index', 'oauth_state', 'verify_otp']), macs.join(','));
+    // `idempotency` — отпечаток формы запроса (core/idempotency); `google_channel` — токен
+    // канала push-уведомлений Google (проверка отправителя в приёмнике)
+    check(
+      'mac keys: api_key_pepper, blind_index, google_channel, idempotency, oauth_state, verify_otp',
+      JSON.stringify(macs) === JSON.stringify(['api_key_pepper', 'blind_index', 'google_channel', 'idempotency', 'oauth_state', 'verify_otp']),
+      macs.join(','),
+    );
 
     // ===== A2. JWKS =====
     const wk = await fetch(`${BASE_ROOT}/.well-known/jwks.json`);

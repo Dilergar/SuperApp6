@@ -12,6 +12,7 @@ import {
   passwordResetCompleteSchema,
 } from '@superapp/shared';
 import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 
 /**
  * User-Agent берём из заголовка ЗДЕСЬ и передаём в сервис: он уезжает в
@@ -27,6 +28,12 @@ function deviceInfoOf(userAgent?: string): string | null {
 @ApiTags('Auth')
 // Вход, выход и обновление токена работают и за блокирующим экраном согласий
 @SkipConsentGate()
+// Поток входа вне движка идемпотентности: повтор здесь безопасен по построению
+// (регистрация и сброс защищены уникумом номера и одноразовым кодом core/verify,
+// `refresh` — ротацией строки сессии с окном повторного предъявления, logout —
+// операция «стало так»), а ключ повтора ломал бы саму ротацию: сохранённый ответ
+// отдал бы УЖЕ ОТОЗВАННУЮ пару токенов.
+@SkipIdempotency('auth_flow')
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}

@@ -19,8 +19,8 @@ import { analytics } from '@/lib/analytics';
 import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { useFormatters } from '@/lib/format';
 import { analyticsConsentKey, consentReceiptKey, consentsMineRootKey, consentsStateKey, consentTransfersKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 const STATUS_TONE: Record<ConsentStateItemDto['status'], Tone> = {
   accepted: 'success',
   outdated: 'waiting',
@@ -51,7 +51,7 @@ export default function MyDataPage() {
       if (item.documentKey === 'analytics') analytics.setOptOut(false);
       await refresh();
     },
-    onError: (err) => toastError(apiErrorMessage(err)),
+    onError: (err) => toastApiError(err),
   });
   const revoke = useMutation({
     mutationFn: (item: ConsentStateItemDto) => apiPost<{ revoked: number }>('/consents/revoke', { documentKey: item.documentKey }),
@@ -59,7 +59,7 @@ export default function MyDataPage() {
       if (item.documentKey === 'analytics') analytics.setOptOut(true);
       await refresh();
     },
-    onError: (err) => toastError(apiErrorMessage(err)),
+    onError: (err) => toastApiError(err),
   });
   const busy = accept.isPending || revoke.isPending;
 

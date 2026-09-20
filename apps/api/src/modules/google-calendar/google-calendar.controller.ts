@@ -5,6 +5,7 @@ import {
 import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { GoogleCalendarService } from './google-calendar.service';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { Public } from '../../shared/decorators/public.decorator';
 import { selectGoogleCalendarSchema } from '@superapp/shared';
@@ -54,6 +55,8 @@ export class GoogleCalendarController {
     return { success: true };
   }
 
+  // Ручная синхронизация: инкрементальна по `syncToken` Google — повтор не создаёт второго
+  @SkipIdempotency('naturally_idempotent')
   @Post('sync')
   @ApiOperation({ summary: 'Sync now' })
   async sync(@CurrentUser() user: JwtPayload) {
@@ -71,12 +74,16 @@ export class GoogleCalendarController {
   @Public()
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
+  // Входящее уведомление чужой системы: аутентификация — токен канала (см. сервис),
+  // дедуп не нужен — инкрементальная синхронизация естественно идемпотентна
+  @SkipIdempotency('inbound_webhook')
   @ApiOperation({ summary: 'Receiver for Google push notifications' })
   async webhook(
     @Headers('x-goog-channel-id') channelId: string,
     @Headers('x-goog-resource-state') resourceState: string,
+    @Headers('x-goog-channel-token') channelToken?: string,
   ) {
-    if (channelId) await this.google.handleWebhook(channelId, resourceState || '');
+    if (channelId) await this.google.handleWebhook(channelId, resourceState || '', channelToken);
     return { success: true };
   }
 }

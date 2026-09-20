@@ -12,7 +12,8 @@ import {
   type WorkspaceNotificationPolicyServiceDto,
 } from '@superapp/shared';
 import { Alert, Button, Card, CardHeader, Icon, IconButton, LoadingBlock, SegmentedControl, useConfirm } from '@/components/ui';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import { apiErrorDetails, apiErrorMessage } from '@/lib/api';
 import { workspaceNotificationPolicyKey } from '@/lib/queries';
 import { fetchWorkspaceNotificationPolicy, putWorkspaceNotificationPolicy } from '@/lib/notifications-api';
@@ -63,7 +64,7 @@ export function WorkspaceNotificationPolicySection({ workspaceId }: { workspaceI
       qc.setQueryData(workspaceNotificationPolicyKey(workspaceId), data);
       toast(t('policy.saved'), 'success');
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   if (q.isLoading) return <LoadingBlock />;

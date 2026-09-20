@@ -17,6 +17,7 @@ import {
 import { PlatformCommandRegistry } from '../platform/platform-commands.registry';
 import { PlatformPanelRegistry } from '../platform/platform-lookup.registry';
 import { CurrentPlatformActor, PlatformCapability, PlatformRoute, type PlatformActor } from '../../shared/decorators/platform.decorator';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { RedisService } from '../../shared/redis/redis.service';
 import { tooMany } from '../../shared/errors/api-error';
 import { JobsService } from '../jobs/jobs.service';
@@ -136,6 +137,10 @@ export class AnalyticsPlatformProvider implements OnModuleInit {
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/analytics')
 export class AnalyticsPlatformController {
   constructor(

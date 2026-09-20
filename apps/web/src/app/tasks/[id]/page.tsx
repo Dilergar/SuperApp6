@@ -35,6 +35,9 @@ import { TASK_STATUS_ICON, useDueFormat } from '../tasks-ui';
 import { Conversation } from '../../messenger/Conversation';
 import { ShareCardModal } from '../../messenger/ShareCardModal';
 import { AttachmentsSection } from '@/components/files/AttachmentsSection';
+import { apiErrorCode, isOutcomeUnknown, toastApiError } from '@/lib/api-errors';
+import { useIdempotencyIntent } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote } from '@/components/idempotency/OutcomeUnknownAlert';
 import { messengerMessagesKey, taskAttachmentsKey } from '@/lib/queries';
 import type { FileDto } from '@superapp/shared';
 
@@ -71,10 +74,21 @@ export default function TaskDetailPage() {
 
   useEffect(() => { if (isReady) load(); }, [isReady, load]);
 
+  // Приёмка работы ВЫПЛАЧИВАЕТ награду из эскроу — это деньги, и повтор обязан
+  // быть одной выплатой. Ключ намерения — на пару «эта попытка × этот исполнитель»
+  // (кнопка стоит у каждого участника, поэтому хук на форму здесь не подходит).
+  const reviewIntent = useIdempotencyIntent();
+  // «Исход неизвестен» за кнопкой приёмки тостом не показывают: выплата могла пройти
+  const [unknownOutcome, setUnknownOutcome] = useState<unknown>(null);
+
   const act = async (fn: () => Promise<unknown>) => {
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setUnknownOutcome(null);
     try { await fn(); await load(); }
     catch (err: unknown) {
+      // «Могло пройти» — награда могла уйти: веди смотреть карточку, а не пугай
+      if (isOutcomeUnknown(err)) { setUnknownOutcome(err); return; }
+      // Исходы движка повторов несут СВОЙ тон: «уже принято» — успех, а не беда
+      if (apiErrorCode(err)?.startsWith('idempotency.')) { toastApiError(err); await load(); return; }
       const a = err as { response?: { data?: { message?: string } } };
       setError(a.response?.data?.message || tc('state.error'));
     } finally { setBusy(false); }
@@ -82,8 +96,20 @@ export default function TaskDetailPage() {
 
   const start = () => act(() => apiPatch(`/tasks/${id}`, { status: 'in_progress' }));
   const submit = () => act(() => apiPost(`/tasks/${id}/submit`, {}));
-  const accept = (participantUserId?: string) => act(() => apiPost(`/tasks/${id}/accept`, { participantUserId }));
-  const returnWork = (participantUserId?: string) => act(() => apiPost(`/tasks/${id}/return`, { participantUserId }));
+  const accept = (participantUserId?: string) =>
+    act(async () => {
+      await apiPost(`/tasks/${id}/accept`, { participantUserId }, {
+        idempotencyKey: reviewIntent.keyFor('accept', id, participantUserId),
+      });
+      reviewIntent.reset();
+    });
+  const returnWork = (participantUserId?: string) =>
+    act(async () => {
+      await apiPost(`/tasks/${id}/return`, { participantUserId }, {
+        idempotencyKey: reviewIntent.keyFor('return', id, participantUserId),
+      });
+      reviewIntent.reset();
+    });
   const cancel = () => act(() => apiPatch(`/tasks/${id}`, { status: 'cancelled' }));
   const remove = () => act(async () => { await apiDelete(`/tasks/${id}`); router.push('/tasks'); });
 
@@ -371,6 +397,18 @@ export default function TaskDetailPage() {
       </div>
 
       <div style={{ paddingBottom: 'var(--spacing-16)' }}>
+        {unknownOutcome != null && (
+          <div style={{ marginBottom: 'var(--spacing-4)' }}>
+            {/* Приёмка МОГЛА пройти (награда ушла): плашка ведёт перечитать карточку,
+                а не подталкивает нажать «Принять» второй раз. */}
+            <OutcomeUnknownAlert
+              error={unknownOutcome}
+              onOpenHistory={() => { setUnknownOutcome(null); void load(); }}
+              onDismiss={() => setUnknownOutcome(null)}
+            />
+          </div>
+        )}
+        <SlowRequestNote pending={busy} />
         {error && <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>{error}</div>}
 
         {/* Header */}

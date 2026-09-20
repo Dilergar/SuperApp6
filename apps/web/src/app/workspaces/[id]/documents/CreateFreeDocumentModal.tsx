@@ -9,13 +9,13 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { docTypesKey } from '@/lib/queries';
 import { Button, Input, Modal, Select } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
 import { documentsApi, fetchDocTypes } from './documents-api';
 
+import { toastApiError } from '@/lib/api-errors';
 export function CreateFreeDocumentModal({
   workspaceId,
   open,
@@ -55,7 +55,7 @@ export function CreateFreeDocumentModal({
       onClose();
       router.push(`/workspaces/${workspaceId}/documents/${doc.id}/edit`);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const noTypes = !typesQuery.isPending && (typesQuery.data ?? []).length === 0;

@@ -16,8 +16,7 @@ import {
   type KeyScopes,
   type WorkspaceKeyPolicyDto,
 } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import type { Principal } from '@/lib/entities';
 import { EntitySelector } from '@/components/EntitySelector';
 import { Button, Field, GlyphField, Input, Modal, Select, TickBar } from '@/components/ui';
@@ -25,6 +24,7 @@ import { KeyRevealOnce } from './KeyRevealOnce';
 import { ScopeMatrix } from './ScopeMatrix';
 import { AllowlistField, ExpiryFields } from './KeyDialogs';
 
+import { toastApiError } from '@/lib/api-errors';
 type Step = 1 | 2 | 3;
 
 export function BotWizard({
@@ -91,7 +91,7 @@ export function BotWizard({
         setStep(3);
       }
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setBusy(false);
     }

@@ -391,14 +391,28 @@ async function main() {
     // Поблажка «один владелец»: политика включена, второго держателя нет (suite2
     // приостановлен) — команды штата и политики исполняются напрямую, иначе кабинет
     // заперся бы насмерть (второго некому добавить, политику некому выключить).
-    const polOnSolo = await run(t1, 'platform.policy.set', { dualControlEnabled: true }, { reason: `suite ${tag}: enable dual control solo` });
-    check('включение политики единственным владельцем → ok', polOnSolo.ok && polOnSolo.json.data.after?.dualControlEnabled === true, `${polOnSolo.status} ${polOnSolo.code}`);
-    const soloAdd = await run(t1, 'platform.staff.add', { userId: s3.id, note: `suite ${tag} solo` }, { reason: `suite ${tag}: add staff while alone` });
-    check('штат при включённой политике и одном владельце → исполнено напрямую (не заперлись)', soloAdd.ok && soloAdd.json.data.status === 'ok', `${soloAdd.status} ${soloAdd.json?.data?.status} ${soloAdd.code}`);
-    const soloAudit = await prisma.platformAuditEntry.findFirst({ where: { commandKey: 'platform.staff.add', targetId: s3.id, outcome: 'ok' }, orderBy: { occurredAt: 'desc' } });
-    check('строка одиночного исполнения отличима: approvalId пуст', !!soloAudit && soloAudit.approvalId === null);
-    const polOffSolo = await run(t1, 'platform.policy.set', { dualControlEnabled: false }, { reason: `suite ${tag}: disable dual control solo` });
-    check('выключение политики единственным владельцем → ok (замка нет)', polOffSolo.ok && polOffSolo.json.data.status === 'ok', `${polOffSolo.status} ${polOffSolo.json?.data?.status}`);
+    //
+    // ПРЕМИССА ПРОВЕРЯЕТСЯ: на боевой базе у кабинета бывает ВТОРОЙ живой владелец —
+    // личный вход основателя, заведённый при первом запуске платформы. Тогда поблажки
+    // нет по построению (второй одобряющий существует), и проверять её нечего:
+    // молча красить сьют в такой обстановке значило бы врать о причине.
+    const approvers = await prisma.platformStaffRole.findMany({
+      where: { role: 'platform_owner', staff: { status: 'active' } },
+      select: { userId: true },
+    });
+    const solo = approvers.filter((a) => a.userId !== s2.id && a.userId !== s3.id).length <= 1;
+    if (!solo) {
+      console.log(`  ~ поблажка «один владелец» не проверяется: живых владельцев кабинета ${approvers.length} (личный вход основателя)`);
+    } else {
+      const polOnSolo = await run(t1, 'platform.policy.set', { dualControlEnabled: true }, { reason: `suite ${tag}: enable dual control solo` });
+      check('включение политики единственным владельцем → ok', polOnSolo.ok && polOnSolo.json.data.after?.dualControlEnabled === true, `${polOnSolo.status} ${polOnSolo.code}`);
+      const soloAdd = await run(t1, 'platform.staff.add', { userId: s3.id, note: `suite ${tag} solo` }, { reason: `suite ${tag}: add staff while alone` });
+      check('штат при включённой политике и одном владельце → исполнено напрямую (не заперлись)', soloAdd.ok && soloAdd.json.data.status === 'ok', `${soloAdd.status} ${soloAdd.json?.data?.status} ${soloAdd.code}`);
+      const soloAudit = await prisma.platformAuditEntry.findFirst({ where: { commandKey: 'platform.staff.add', targetId: s3.id, outcome: 'ok' }, orderBy: { occurredAt: 'desc' } });
+      check('строка одиночного исполнения отличима: approvalId пуст', !!soloAudit && soloAudit.approvalId === null);
+      const polOffSolo = await run(t1, 'platform.policy.set', { dualControlEnabled: false }, { reason: `suite ${tag}: disable dual control solo` });
+      check('выключение политики единственным владельцем → ok (замка нет)', polOffSolo.ok && polOffSolo.json.data.status === 'ok', `${polOffSolo.status} ${polOffSolo.json?.data?.status}`);
+    }
 
     const staffList = await call('GET', '/platform/staff', t1);
     check('GET /platform/staff: suite2 suspended с ролью', staffList.ok && staffList.json.data.some((s) => s.userId === s2.id && s.status === 'suspended'));

@@ -9,7 +9,7 @@ const CREDS = {
 async function http(method, path, { token, body } = {}) {
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': require('crypto').randomUUID(), 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   const text = await res.text();

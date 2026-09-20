@@ -2,7 +2,11 @@
 // сразу был в правильном виде (развёрнут/рейл) — без «прыжка» (модель
 // shadcn/ui Sidebar, образец — finance/layout.tsx). Он же кладёт в клиентский
 // провайдер неймспейсы страницы (`common` и `shell` ServiceMessages добавит сам).
-// `notes` — потому что карточка задачи рисует панель «Заметки».
+// `notes` — потому что карточка задачи рисует панель «Заметки», `messenger` —
+// потому что она же рисует ЧАТ задачи (`Conversation`) и «Переслать в чат». Без
+// него страница показывала человеку сырые ключи (`messenger.chat.send`), а консоль
+// сыпала MISSING_MESSAGE: словарь неймспейса кладёт layout сервиса, и чужой
+// компонент на странице — это тоже её словарь.
 
 import { Suspense } from 'react';
 import { cookies } from 'next/headers';
@@ -16,7 +20,7 @@ export default async function TasksLayout({ children }: { children: React.ReactN
   const collapsed = store.get(SIDEBAR_COOKIE)?.value === 'collapsed';
 
   return (
-    <ServiceMessages ns={['tasks', 'notes']}>
+    <ServiceMessages ns={['tasks', 'notes', 'messenger']}>
       <Suspense
         fallback={
           <div className="min-h-screen flex items-center justify-center">

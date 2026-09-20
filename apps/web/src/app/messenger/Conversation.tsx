@@ -66,6 +66,7 @@ export function Conversation({
   onCardAttached,
   onMessagesChanged,
   onSendAttachments,
+  onRetrySend,
   callsEnabled,
   activeCall,
   inCall,
@@ -103,6 +104,8 @@ export function Conversation({
   onMessagesChanged?: () => void;
   /** Ф9: отправить альбом вложений (файлы уже загружены; ids + подпись + цитата). */
   onSendAttachments?: (fileIds: string[], caption: string, replyToId?: string) => void;
+  /** Повторить отправку неотправленного пузыря — ТЕМ ЖЕ ключом повтора (id пузыря). */
+  onRetrySend?: (localId: string) => void;
   /** Движок звонков поднят (GET /calls/status) — иначе кнопка 📞 скрыта. */
   callsEnabled?: boolean;
   /** Живой созвон в этом чате (call:state поверх DTO) — баннер «Идёт звонок». */
@@ -652,6 +655,7 @@ export function Conversation({
         onJumpTo={jumpToMessage}
         onMessageAction={openMsgModal}
         onCardUpdated={onCardUpdated}
+        onRetrySend={onRetrySend}
       />
 
       {/* Reply / quote bar — shown once replying; ✕ cancels (Phase 7). */}

@@ -14,12 +14,12 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isDocDateRangeValue, type AvailableTemplateDto, type DocFormFieldDto } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { availableTemplatesKey, orgDocumentsKey } from '@/lib/queries';
 import { Alert, Button, Card, DatePicker, EmptyState, Input, LoadingBlock, Modal, Select, Textarea, Toggle } from '@/components/ui';
 import { documentsApi, fetchAvailableTemplates } from './documents-api';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Значения формы: строки у обычных полей, {from,to} у периода дат */
 export type DocFormValues = Record<string, unknown>;
 
@@ -90,7 +90,7 @@ export function SubmitDocumentModal({
       onClose();
       router.push(`/workspaces/${workspaceId}/documents/${id}`);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const tr = useTranslations('documents');

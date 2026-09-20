@@ -30,6 +30,7 @@ import {
   type CursorPage,
 } from '@superapp/shared';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { NotesAccessService } from './notes-access.service';
 import { NotesBoardService } from './notes-board.service';
 import { NotesFoldersService } from './notes-folders.service';
@@ -141,6 +142,9 @@ export class NotesController {
     return { success: true, data };
   }
 
+  // Раскладка доски летит при каждом перетаскивании карточки: «стало так», повтор
+  // ничего не добавляет, а запись в `idem.keys` на каждый кадр была бы чистым расходом
+  @SkipIdempotency('naturally_idempotent')
   @Put('board/:noteId')
   @ApiOperation({ summary: 'Remember the card position on my board' })
   async putBoard(@CurrentUser() user: JwtPayload, @Param('noteId') noteId: string, @Body() body: unknown) {
@@ -213,6 +217,9 @@ export class NotesController {
     return note.contentMd;
   }
 
+  // Автосохранение заметки: свой оптимистичный номер версии (409 на расхождении) —
+  // это и есть защита от «второго применения», ключ повтора ей не нужен
+  @SkipIdempotency('own_mechanism')
   @Patch(':id')
   @ApiOperation({ summary: 'Save the note (optimistic version; 409 on a conflict)' })
   async update(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {

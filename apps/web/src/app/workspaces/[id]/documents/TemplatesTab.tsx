@@ -13,8 +13,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DocTemplateDto } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { uploadFile } from '@/lib/files-api';
 import { docTemplatesKey, docTypesKey } from '@/lib/queries';
 import {
@@ -32,6 +31,7 @@ import {
 import { documentsApi, fetchDocTemplates, fetchDocTypes } from './documents-api';
 import { HrLibraryBlock } from './HrLibraryBlock';
 
+import { toastApiError } from '@/lib/api-errors';
 export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
   const router = useRouter();
   const qc = useQueryClient();
@@ -47,7 +47,7 @@ export function TemplatesTab({ workspaceId }: { workspaceId: string }) {
   const publish = useMutation({
     mutationFn: (tplId: string) => documentsApi.publishTemplate(workspaceId, tplId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['workspaces', workspaceId, 'documents'] }),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (
@@ -201,7 +201,7 @@ function CreateTemplateModal({
       onClose();
       router.push(`/workspaces/${workspaceId}/documents/templates/${tpl.id}`);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

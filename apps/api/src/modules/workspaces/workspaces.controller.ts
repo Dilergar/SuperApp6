@@ -20,6 +20,7 @@ import {
   CurrentUser,
   type JwtPayload,
 } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import {
   createWorkspaceSchema,
   updateWorkspaceProfileSchema,
@@ -46,6 +47,9 @@ export class WorkspacesController {
     return { success: true, data };
   }
 
+  // Повтор = ВТОРАЯ организация: она съедает место в тарифе, а убирается только
+  // архивом с последующей чисткой — «отменить» её одним движением нельзя.
+  @Idempotent({ required: true })
   @Post()
   @ApiOperation({ summary: 'Create an organization' })
   async create(@CurrentUser() user: JwtPayload, @Body() body: unknown, @Req() req: Request) {
@@ -217,6 +221,9 @@ export class WorkspacesController {
     return { success: true };
   }
 
+  // Передача владения необратима: прежний владелец теряет права на организацию и
+  // вернуть их сам уже не может.
+  @Idempotent({ required: true })
   @SkipConsentGate()
   @NoApiKeys()
   @Post(':id/transfer')
@@ -289,6 +296,9 @@ export class WorkspacesController {
 
   // ----- Outgoing invitations -----
 
+  // Приглашение УХОДИТ человеку (SMS на номер): повтор — второе приглашение,
+  // которое отзывать придётся отдельно.
+  @Idempotent({ required: true })
   @Post(':id/invitations')
   @ApiOperation({ summary: 'Hire by phone number — always as a Trainee (manager+)' })
   async invite(

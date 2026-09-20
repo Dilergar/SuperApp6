@@ -41,6 +41,7 @@ import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useNotificationCounts } from '@/lib/hooks/useNotificationCounts';
 import { useNotesLayer } from '@/lib/stores/notes-layer';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
+import { LazyNamespace } from '@/i18n/LazyNamespace';
 // Стопка — динамическим импортом по той же причине, что и барабан кита: она
 // тянет Modal и клиент движка, а шелл сидит в корневом графе каждой страницы.
 const DecisionStack = dynamic(
@@ -347,7 +348,14 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
       {/* Стопка решений монтируется, только когда её открыли: она тянет кит и
           клиент движка, а шелл живёт в графе каждой страницы. */}
       {/* Скоуп не передаём — стопка топбара сквозная, как и его счётчик */}
-      {stackOpen && <DecisionStack open onClose={() => setStackOpen(false)} />}
+      {/* Словарь стопки доезжает ОТДЕЛЬНЫМ чанком: каркас живёт в корневом layout,
+          выше провайдеров сервисов, и `approvals` до него не доходит ни с одной
+          страницы. Возить его в корне значило бы грузить на каждый экран. */}
+      {stackOpen && (
+        <LazyNamespace ns="approvals">
+          <DecisionStack open onClose={() => setStackOpen(false)} />
+        </LazyNamespace>
+      )}
     </div>
   );
 }

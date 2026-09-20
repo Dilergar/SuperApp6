@@ -43,3 +43,11 @@
 ## Связанные доки
 
 [api_conventions.md](api_conventions.md) · [web_conventions.md](web_conventions.md) · [i18n.md](i18n.md) · [testing_verify_suite.md](testing_verify_suite.md).
+
+## Ключ повтора в транспорте
+
+`@superapp/api-client` ставит `Idempotency-Key` на КАЖДУЮ мутацию с `Authorization` сам — клиенту об этом думать не нужно. Ключ живёт в config запроса, поэтому `401 → refresh` и авто-повтор уходят с ТЕМ ЖЕ ключом: сервер видит одно намерение, а не N разных. Анонимные запросы ключа не получают намеренно — без принципала у него нет скоупа.
+
+Хелперы мутаций принимают `IdempotentRequestConfig` с полем `idempotencyKey`: туда веб передаёт ключ НАМЕРЕНИЯ формы (`useIdempotencyKey`), чтобы двойной клик считался одним делом. Авто-повтор транспорта — не больше 3 раз, full jitter 0.5→8 с, `Retry-After` сервера сильнее паузы; поводы: ответа нет вовсе, 502/503/504, `409 idempotency.in_flight`, `X-Should-Retry: true`. Multipart не повторяется (тело — поток, и сервер его не отпечатывает).
+
+Детали — [idempotency_engine.md](idempotency_engine.md).

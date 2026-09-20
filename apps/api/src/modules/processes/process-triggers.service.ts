@@ -16,6 +16,7 @@ import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
 import { KeysMacService } from '../../core/keys/keys.mac.service';
 import { JobDiscardError, JobsRegistry } from '../../core/jobs/jobs.registry';
 import { JobsService } from '../../core/jobs/jobs.service';
+import { IdempotencyInboxService } from '../../core/idempotency/idempotency.inbox.service';
 
 /**
  * Ф3 — роутер триггеров: ловит события платформы (EventBus) и стартует подписанные
@@ -37,6 +38,7 @@ export class ProcessTriggerRouter implements OnModuleInit {
     private mac: KeysMacService,
     private jobsRegistry: JobsRegistry,
     private jobs: JobsService,
+    private inbox: IdempotencyInboxService,
   ) {}
 
   onModuleInit(): void {
@@ -230,6 +232,16 @@ export class ProcessTriggerRouter implements OnModuleInit {
     }
     if (!(await this.runAsAllowed(trigger))) return null;
 
+    // Секрет проверен — только теперь апдейт вправе попасть в «входящий ящик».
+    // Telegram повторяет доставку, пока не увидит 2xx, и без дедупа один и тот же
+    // `update_id` запускал бы процесс столько раз, сколько было повторов.
+    const updateId = update.update_id;
+    const inboxRef =
+      typeof updateId === 'number' || typeof updateId === 'string'
+        ? { source: 'telegram', account: trigger.id, eventId: String(updateId) }
+        : null;
+    if (inboxRef && !(await this.inbox.firstTime(inboxRef))) return null; // редоставка
+
     const msg = (update.message ?? update.edited_message) as Record<string, unknown> | undefined;
     const text = typeof msg?.text === 'string' ? msg.text : null;
     const chat = msg?.chat as { id?: unknown } | undefined;
@@ -251,7 +263,14 @@ export class ProcessTriggerRouter implements OnModuleInit {
       messageId: msg.message_id != null ? String(msg.message_id) : '',
     };
     const nodeId = ((trigger.config ?? {}) as { nodeId?: string }).nodeId;
-    const id = await this.processes.startInstanceProgrammatic(trigger.definitionId, trigger.runAsUserId, variables, 'telegram', nodeId);
+    let id: string | null;
+    try {
+      id = await this.processes.startInstanceProgrammatic(trigger.definitionId, trigger.runAsUserId, variables, 'telegram', nodeId);
+    } catch (err) {
+      // Запуск живёт не в одной транзакции с отметкой: не сняв её, мы потеряли бы апдейт
+      if (inboxRef) await this.inbox.forget(inboxRef).catch(() => undefined);
+      throw err;
+    }
     if (id) await this.db.processTrigger.update({ where: { id: trigger.id }, data: { lastRunAt: new Date() } });
     return id;
   }

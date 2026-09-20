@@ -13,8 +13,9 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import type { OrgDocumentDto, OrgDocumentExternalDto, SignActStatus } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
+
 import { useFormatters } from '@/lib/format';
+import { toastApiError } from '@/lib/api-errors';
 import { toast, toastError } from '@/lib/toast';
 import { Alert, Button, Card, CardHeader, Chip, Divider, useConfirm } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
@@ -49,12 +50,12 @@ export function ExternalStageBlock({
   const revoke = useMutation({
     mutationFn: () => documentsApi.revokeExternal(workspaceId, doc.id),
     onSuccess: onChanged,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const sms = useMutation({
     mutationFn: () => documentsApi.resendExternalSms(workspaceId, doc.id),
     onSuccess: () => toast(t('external.smsSent')),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const copyLink = async () => {

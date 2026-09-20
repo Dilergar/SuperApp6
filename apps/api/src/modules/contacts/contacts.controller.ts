@@ -17,6 +17,7 @@ import {
   CurrentUser,
   type JwtPayload,
 } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import {
   sendInvitationSchema,
   acceptInvitationSchema,
@@ -68,6 +69,9 @@ export class ContactsController {
     };
   }
 
+  // Приглашение УХОДИТ человеку (уведомление, SMS): повтор — второе приглашение
+  // в его ленте, которое отзывать придётся отдельно.
+  @Idempotent({ required: true })
   @Post('invitations')
   @Throttle({ long: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Send a contact invitation' })

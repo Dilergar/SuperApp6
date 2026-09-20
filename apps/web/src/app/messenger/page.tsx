@@ -46,6 +46,9 @@ import {
   getPresence,
 } from '@/lib/messenger-api';
 import { useIsMobile } from '@/lib/hooks/useIsMobile';
+import { analytics } from '@/lib/analytics';
+import { isOutcomeUnknown } from '@/lib/api-errors';
+import { sendFailureReason, type LocalChatMessage, type LocalSendDraft } from './local-message';
 import { ChatList } from './ChatList';
 import { Conversation } from './Conversation';
 import { NewChatModal } from './NewChatModal';
@@ -729,10 +732,84 @@ function MessengerInner() {
     [queryClient, router],
   );
 
+  /**
+   * Черновики неотправленных пузырей: `id пузыря (= ключ повтора) → что отправлять`.
+   * Живут в ref, а не в кэше запросов: в кэше лежит форма провода, а это местное
+   * состояние отправки.
+   */
+  const sendDrafts = useRef(new Map<string, { chatId: string; draft: LocalSendDraft }>());
+
+  /** Пометить пузырь «в пути» / «не отправлено» (подмена ИДЁТ ПО КЛЮЧУ, не по тексту). */
+  const markLocal = useCallback(
+    (chatId: string, localId: string, state: 'pending' | 'failed' | null) => {
+      queryClient.setQueryData<LocalChatMessage[]>(messengerMessagesKey(chatId), (old) =>
+        old?.map((m) => (m.id === localId ? { ...m, local: state ? { state } : undefined } : m)),
+      );
+    },
+    [queryClient],
+  );
+
+  /**
+   * Одна попытка доставки пузыря. Ключ повтора — id самого пузыря, поэтому и
+   * авто-повтор транспорта, и «Повторить» человека — это ОДНО намерение.
+   *
+   * Отказ пузырь не удаляет: раньше он молча исчезал, и человек не знал, дошло
+   * сообщение или нет. Теперь он остаётся с пометкой «Не отправлено · Повторить».
+   */
+  const deliver = useCallback(
+    async (chatId: string, localId: string) => {
+      const entry = sendDrafts.current.get(localId);
+      if (!entry) return;
+      const { draft } = entry;
+      markLocal(chatId, localId, 'pending');
+      try {
+        const saved =
+          draft.kind === 'attachment'
+            ? await sendAttachmentMessage(chatId, draft.fileIds ?? [], draft.content || undefined, draft.replyToId, localId)
+            : await sendMessage(chatId, draft.content, draft.replyToId, localId);
+        // Подмена ПО КЛЮЧУ (id пузыря), а не по содержимому: у альбома подпись
+        // бывает пустой, и сверка по тексту спотыкалась именно на нём.
+        queryClient.setQueryData<LocalChatMessage[]>(messengerMessagesKey(chatId), (old) => {
+          if (!old) return [saved];
+          const withoutTemp = old.filter((m) => m.id !== localId);
+          if (withoutTemp.some((m) => m.id === saved.id)) return [...withoutTemp].sort((a, b) => a.seq - b.seq);
+          return [...withoutTemp, saved].sort((a, b) => a.seq - b.seq);
+        });
+        sendDrafts.current.delete(localId);
+        bumpInboxPreview(chatId, saved);
+      } catch (err) {
+        markLocal(chatId, localId, 'failed');
+        analytics.track('messenger.message.send_failed', {
+          kind: draft.kind,
+          reason: sendFailureReason(err, isOutcomeUnknown(err)),
+          // Транспорт уже повторял сам; счётчик лежит в конфиге запроса
+          autoRetries: Math.min(
+            10,
+            Number((err as { config?: { _idemAttempts?: number } } | null)?.config?._idemAttempts ?? 0),
+          ),
+        });
+      }
+    },
+    [queryClient, markLocal, bumpInboxPreview],
+  );
+
+  /** «Повторить» у неотправленного пузыря — тем же ключом. */
+  const handleRetrySend = useCallback(
+    (localId: string) => {
+      const entry = sendDrafts.current.get(localId);
+      if (!entry) return;
+      analytics.track('messenger.message.send_retried', { kind: entry.draft.kind });
+      void deliver(entry.chatId, localId);
+    },
+    [deliver],
+  );
+
   const handleSend = useCallback(
     async (content: string, replyToId?: string) => {
       if (!activeChatId) return;
-      const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      // id пузыря И ЕСТЬ ключ повтора: «Повторить» уходит с тем же ключом, и сервер
+      // отдаёт исход ПЕРВОЙ попытки вместо второго сообщения в чате.
+      const tempId = crypto.randomUUID();
       const now = new Date().toISOString();
       // Seed the optimistic bubble's quoted preview from the message being replied to.
       const quoted = replyToId
@@ -740,8 +817,9 @@ function MessengerInner() {
             .getQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId))
             ?.find((m) => m.id === replyToId)
         : undefined;
-      const optimistic: ChatMessage = {
+      const optimistic: LocalChatMessage = {
         id: tempId,
+        local: { state: 'pending' },
         chatId: activeChatId,
         authorId: currentUserId,
         authorName: user?.firstName ?? null,
@@ -764,46 +842,53 @@ function MessengerInner() {
             }
           : null,
       };
-      queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId), (old) =>
+      queryClient.setQueryData<LocalChatMessage[]>(messengerMessagesKey(activeChatId), (old) =>
         old ? [...old, optimistic] : [optimistic],
       );
-
-      try {
-        const saved = await sendMessage(activeChatId, content, replyToId);
-        // Replace the temp bubble with the persisted message; dedupe socket echo.
-        queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId), (old) => {
-          if (!old) return [saved];
-          const withoutTemp = old.filter((m) => m.id !== tempId);
-          if (withoutTemp.some((m) => m.id === saved.id)) {
-            return [...withoutTemp].sort((a, b) => a.seq - b.seq);
-          }
-          return [...withoutTemp, saved].sort((a, b) => a.seq - b.seq);
-        });
-        bumpInboxPreview(activeChatId, saved);
-      } catch {
-        // Drop the optimistic bubble on failure.
-        queryClient.setQueryData<ChatMessage[]>(messengerMessagesKey(activeChatId), (old) =>
-          old ? old.filter((m) => m.id !== tempId) : old,
-        );
-      }
+      sendDrafts.current.set(tempId, { chatId: activeChatId, draft: { kind: 'text', content, replyToId } });
+      await deliver(activeChatId, tempId);
     },
-    [activeChatId, currentUserId, user, queryClient, bumpInboxPreview],
+    [activeChatId, currentUserId, user, queryClient, deliver],
   );
 
-  // Ф9: альбом вложений — БЕЗ temp-пузыря (реконсиляция temp идёт по content и
-  // споткнулась бы о пустую подпись): await POST → upsert; id-дедуп гасит socket-эхо.
+  /**
+   * Ф9: альбом вложений. Temp-пузырь у него ТЕПЕРЬ ЕСТЬ: подмена идёт по ключу
+   * (id пузыря), а не по содержимому, — именно из-за сверки по тексту альбом с
+   * пустой подписью раньше приходилось отправлять вслепую, без пузыря.
+   */
   const handleSendAttachments = useCallback(
     async (fileIds: string[], caption: string, replyToId?: string) => {
       if (!activeChatId) return;
-      try {
-        const saved = await sendAttachmentMessage(activeChatId, fileIds, caption || undefined, replyToId);
-        upsertMessageInCache(activeChatId, saved);
-        bumpInboxPreview(activeChatId, saved);
-      } catch (e) {
-        console.error('Failed to send the attachments', e);
-      }
+      const tempId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const optimistic: LocalChatMessage = {
+        id: tempId,
+        local: { state: 'pending' },
+        chatId: activeChatId,
+        authorId: currentUserId,
+        authorName: user?.firstName ?? null,
+        authorAvatar: user?.avatar ?? null,
+        type: 'attachment',
+        content: caption,
+        payload: null,
+        seq: Number.MAX_SAFE_INTEGER,
+        editedAt: null,
+        deletedAt: null,
+        createdAt: now,
+        mine: true,
+        status: 'sent',
+        replyTo: null,
+      };
+      queryClient.setQueryData<LocalChatMessage[]>(messengerMessagesKey(activeChatId), (old) =>
+        old ? [...old, optimistic] : [optimistic],
+      );
+      sendDrafts.current.set(tempId, {
+        chatId: activeChatId,
+        draft: { kind: 'attachment', content: caption, replyToId, fileIds },
+      });
+      await deliver(activeChatId, tempId);
     },
-    [activeChatId, upsertMessageInCache, bumpInboxPreview],
+    [activeChatId, currentUserId, user, queryClient, deliver],
   );
 
   const handleEdit = useCallback(
@@ -959,6 +1044,7 @@ function MessengerInner() {
               onLoadOlder={handleLoadOlder}
               onSend={handleSend}
               onSendAttachments={handleSendAttachments}
+              onRetrySend={handleRetrySend}
               onEdit={handleEdit}
               onDelete={handleDelete}
               onManage={() => setShowManage(true)}

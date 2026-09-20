@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { NOTE_RELATED_TARGET_TYPES, type NoteRelatedRefInput, type NoteRelatedTargetType, type NoteSpaceRef, type NoteTargetSearchItemDto } from '@superapp/shared';
 import { EmptyState, Icon, LoadingBlock, Modal, SearchField, SegmentedControl, type IconName } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
-import { searchNoteTargets } from '@/lib/notes-api';
-import { toastError } from '@/lib/toast';
 
+import { searchNoteTargets } from '@/lib/notes-api';
+
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // «Привязать к…»: задача / контрагент / объект / документ. Кандидаты приходят от
 // модулей-целей уже обрезанными правами (сервер), пикер их только показывает.
@@ -34,7 +34,7 @@ export function NoteRelatedPicker({ open, onClose, scope, onPick }: { open: bool
           if (!cancelled) setItems(rows);
         })
         .catch((e) => {
-          if (!cancelled) toastError(apiErrorMessage(e));
+          if (!cancelled) toastApiError(e);
         })
         .finally(() => {
           if (!cancelled) setBusy(false);

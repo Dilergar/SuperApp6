@@ -24,6 +24,7 @@ import {
   PlatformSession,
   type PlatformActor,
 } from '../../shared/decorators/platform.decorator';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { PlatformAccessService } from './platform-access.service';
 import { PlatformAuditService } from './platform-audit.service';
 import { PlatformAuthService } from './platform-auth.service';
@@ -42,6 +43,10 @@ const userAgent = (req: Request): string | null => (typeof req.headers['user-age
 
 @ApiTags('Platform console')
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/auth')
 export class PlatformAuthController {
   constructor(private readonly auth: PlatformAuthService) {}
@@ -98,6 +103,10 @@ export class PlatformAuthController {
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform')
 export class PlatformMeController {
   constructor(
@@ -149,6 +158,10 @@ export class PlatformMeController {
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/audit')
 export class PlatformAuditController {
   constructor(private readonly audit: PlatformAuditService) {}
@@ -165,6 +178,10 @@ export class PlatformAuditController {
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/lookup')
 export class PlatformLookupController {
   constructor(private readonly lookup: PlatformLookupService) {}
@@ -182,6 +199,10 @@ export class PlatformLookupController {
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/entities')
 export class PlatformEntitiesController {
   constructor(private readonly lookup: PlatformLookupService) {}
@@ -206,6 +227,10 @@ export class PlatformEntitiesController {
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/requests')
 export class PlatformRequestsController {
   constructor(private readonly requests: PlatformRequestsService) {}

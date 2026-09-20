@@ -11,12 +11,12 @@ import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ShiftTemplateDto } from '@superapp/shared';
 import { Button, Card, Chip, Divider, EmptyState, Input, Modal, useConfirm } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { useHoursLabel } from '@/lib/format';
 import { shiftTemplatesKey } from '@/lib/queries';
 import { fetchShiftTemplates, shiftsApi } from '../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 const DEFAULT_COLOR = '#588cd3';
 
 function minutesOf(hhmm: string): number | null {
@@ -103,7 +103,7 @@ export function ShiftTemplatesPanel({
       resetForm();
       invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   // Правка НЕ трогает branchId: общий шаблон организации не должен «приватизироваться»
@@ -114,7 +114,7 @@ export function ShiftTemplatesPanel({
       resetForm();
       invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const remove = useMutation({
@@ -123,7 +123,7 @@ export function ShiftTemplatesPanel({
       resetForm();
       invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const busy = create.isPending || update.isPending;

@@ -10,14 +10,14 @@ import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RATE_TYPES, type StaffRateDto } from '@superapp/shared';
 import { Button, Chip, DatePicker, Divider, Input, Modal, Select } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { dmy } from '@/lib/dates';
 import { moneyTiyn } from '@/lib/objects-money';
 import { dateToIso, isoToDate, todayIn } from '@/lib/objects-time';
 import { assignmentRatesKey } from '@/lib/queries';
 import { staffingApi } from '../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Типы ставок, которые предлагаются человеку (`revenue_share` зарезервирован). */
 const RATE_VALUES = RATE_TYPES.filter((r) => !('reserved' in r && r.reserved)).map((r) => r.value);
 const RATE_KNOWN = new Set<string>(RATE_TYPES.map((r) => r.value));
@@ -89,7 +89,7 @@ export function RateHistory({
         ...(share.trim() ? { rateShare: Number(share.replace(',', '.')) } : {}),
       }),
     onSuccess: () => onSaved?.(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const save = useMutation({
@@ -107,7 +107,7 @@ export function RateHistory({
       void qc.invalidateQueries({ queryKey: assignmentRatesKey(workspaceId, assignmentId) });
       onSaved?.();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

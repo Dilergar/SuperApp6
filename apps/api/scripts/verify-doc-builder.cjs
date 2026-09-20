@@ -63,7 +63,7 @@ async function fetchFileBytes(token, fileId) {
 async function previewPdf(token, path, builderDoc) {
   const res = await fetch(BASE + path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': require('crypto').randomUUID(), Authorization: 'Bearer ' + token },
     body: JSON.stringify(builderDoc ? { builderDoc } : {}),
   });
   const bytes = Buffer.from(await res.arrayBuffer());

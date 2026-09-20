@@ -6,8 +6,9 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KEYS_LIMITS } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
-import { toast, toastError } from '@/lib/toast';
+
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import { fetchKeysPolicy, updateKeysPolicy } from '@/lib/keys-api';
 import { keysPolicyKey } from '@/lib/queries';
 import { Alert, Button, Card, CardHeader, Checkbox, Input, LoadingBlock, Toggle } from '@/components/ui';
@@ -37,7 +38,7 @@ export function PolicyTab({ workspaceId, isOwner }: { workspaceId: string; isOwn
       qc.setQueryData(keysPolicyKey(workspaceId), res);
       toast(t('policy.saved'), 'success');
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setBusy(false);
     }

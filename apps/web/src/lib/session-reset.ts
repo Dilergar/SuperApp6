@@ -24,6 +24,11 @@ export function registerQueryClient(client: QueryClient) {
   queryClient = client;
 }
 
+/** Клиент запросов этой вкладки — для модульных помощников вне дерева React. */
+export function getQueryClient(): QueryClient | null {
+  return queryClient;
+}
+
 /** Забыть всё, что относилось к прошлому пользователю. */
 export function resetSessionCaches() {
   queryClient?.clear();

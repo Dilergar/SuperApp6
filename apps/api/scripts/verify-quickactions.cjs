@@ -18,7 +18,7 @@ const CREDS = {
   t3: { phone: '+77009990003', password: 'Test1234!' }, // outsider
 };
 async function http(method, p, { token, body } = {}) {
-  const res = await fetch(`${BASE}${p}`, { method, headers: { 'Content-Type': 'application/json', 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+  const res = await fetch(`${BASE}${p}`, { method, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': require('crypto').randomUUID(), 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
   const t = await res.text(); let j; try { j = t ? JSON.parse(t) : null; } catch { j = { raw: t }; }
   return { status: res.status, json: j };
 }

@@ -95,11 +95,18 @@ export async function sendMessage(
   chatId: string,
   content: string,
   replyToId?: string,
+  /**
+   * Ключ повтора (core/idempotency) = id оптимистичного пузыря. Один пузырь —
+   * одно намерение: сколько бы раз человек ни нажал «Повторить», в чате окажется
+   * ровно одно сообщение. Ручка объявлена `required` — без ключа она отвечает 400.
+   */
+  idempotencyKey?: string,
 ): Promise<ChatMessage> {
-  return apiPost<ChatMessage>(`/messenger/chats/${chatId}/messages`, {
-    content,
-    ...(replyToId ? { replyToId } : {}),
-  });
+  return apiPost<ChatMessage>(
+    `/messenger/chats/${chatId}/messages`,
+    { content, ...(replyToId ? { replyToId } : {}) },
+    idempotencyKey ? { idempotencyKey } : undefined,
+  );
 }
 
 /** Ф9: альбом до 10 файлов движка + подпись (файлы уже загружены через files-api) */
@@ -108,12 +115,14 @@ export async function sendAttachmentMessage(
   fileIds: string[],
   caption?: string,
   replyToId?: string,
+  /** Тот же ключ намерения, что и у текстового сообщения (id temp-пузыря альбома). */
+  idempotencyKey?: string,
 ): Promise<ChatMessage> {
-  return apiPost<ChatMessage>(`/messenger/chats/${chatId}/messages/attachments`, {
-    fileIds,
-    ...(caption ? { caption } : {}),
-    ...(replyToId ? { replyToId } : {}),
-  });
+  return apiPost<ChatMessage>(
+    `/messenger/chats/${chatId}/messages/attachments`,
+    { fileIds, ...(caption ? { caption } : {}), ...(replyToId ? { replyToId } : {}) },
+    idempotencyKey ? { idempotencyKey } : undefined,
+  );
 }
 
 export async function editMessage(messageId: string, content: string): Promise<ChatMessage> {

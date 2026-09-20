@@ -16,6 +16,7 @@ import {
 } from '@superapp/shared';
 import { z } from 'zod';
 import { NoApiKeys } from '../../../shared/decorators/api-keys.decorator';
+import { Idempotent, SkipIdempotency } from '../../../shared/decorators/idempotency.decorator';
 import { CurrentUser, type JwtPayload } from '../../../shared/decorators/current-user.decorator';
 import { Public } from '../../../shared/decorators/public.decorator';
 import { ApiKeysService } from './api-keys.service';
@@ -59,6 +60,9 @@ export class KeysController {
     return { success: true, data: await this.stepUp.status(user.sub) };
   }
 
+  // Шаг подтверждения личности (OTP): ответ несёт пропуск step-up, а сам код
+  // одноразовый — повтор с тем же кодом отвергнет core/verify
+  @SkipIdempotency('own_mechanism')
   @Post('step-up/confirm')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Consume the verifyToken (purpose keys_manage) → 15-minute window' })
@@ -67,6 +71,9 @@ export class KeysController {
     return { success: true, data: await this.stepUp.confirm(user.sub, verifyToken) };
   }
 
+  // Шаг подтверждения личности (OTP): ответ несёт пропуск step-up, а сам код
+  // одноразовый — повтор с тем же кодом отвергнет core/verify
+  @SkipIdempotency('own_mechanism')
   @Post('step-up/end')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Close the strong-confirmation window now' })
@@ -81,6 +88,9 @@ export class KeysController {
     return { success: true, data: await this.keys.listPersonal(user.sub, null) };
   }
 
+  // Ответ показывает СЕКРЕТ один раз (тело ключа): снимка не существует —
+  // повтор получит `409 already_completed` со ссылкой на выпущенный ключ
+  @Idempotent({ required: true, store: 'none' })
   @Post('personal')
   @ApiOperation({ summary: 'Create a personal key for my own data (secret shown once)' })
   async createPersonal(@CurrentUser() user: JwtPayload, @Body() body: unknown, @Req() req: Request) {
@@ -94,6 +104,9 @@ export class KeysController {
     return { success: true, data: await this.keys.update({ userId: user.sub, ip: ipOf(req) }, id, null, apiKeyUpdateSchema.parse(body ?? {})) };
   }
 
+  // Ответ показывает СЕКРЕТ один раз (тело ключа): снимка не существует —
+  // повтор получит `409 already_completed` со ссылкой на выпущенный ключ
+  @Idempotent({ required: true, store: 'none' })
   @Post('personal/:id/rotate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Rotate my personal key (new secret shown once; the old one lives through the grace window)' })
@@ -111,6 +124,9 @@ export class KeysController {
 
   /** Сигнал сканера секретов (GitHub secret scanning partner program и т.п.): найденные ключи гаснут. */
   @Public()
+  // Сканер секретов нашего заголовка не шлёт и прислать не может, а повтор безопасен
+  // по построению: уже отозванный ключ пропускается (`row.revokedAt` → continue)
+  @SkipIdempotency('naturally_idempotent')
   @Post('leaked')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 30, ttl: 60_000 } })
@@ -123,6 +139,8 @@ export class KeysController {
   // Только POST: секрет в query-строке (`GET ?key=`) осел бы в логах балансировщика,
   // CDN и истории браузера — проверка утечки сама становилась бы утечкой.
   @Public()
+  // Диагностика интегратора: состояние ключа, ничего не меняет
+  @SkipIdempotency('no_side_effects')
   @Post('verify')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 60, ttl: 60_000 } })

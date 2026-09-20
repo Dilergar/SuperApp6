@@ -59,6 +59,16 @@ export default [
           message:
             'Конверт { success, data } распаковывают хелперы транспорта — `data.data` после деструктуризации это тот же обход компилятора, что и `res.data.data`.',
         },
+        {
+          // ЕДИНАЯ ДВЕРЬ ОТКАЗОВ. Пара «взять текст → красный тост» была
+          // написана 179 раз, и каждый новый машинный код отказа (повтор уже
+          // прошёл, попытка ещё в полёте, тариф, согласия) пришлось бы вносить
+          // во все 179 мест. Теперь ветвление живёт в одном toastApiError.
+          selector:
+            "CallExpression[callee.name='toastError'] > CallExpression[callee.name='apiErrorMessage']",
+          message:
+            'Отказ API показывает toastApiError(err) из @/lib/api-errors: он ветвится по details.code (уже выполнено — тон успеха, попытка в полёте — спокойный тост, ключ занят — сброс ключа). toastError(apiErrorMessage(e)) не знает ни одного из этих смыслов.',
+        },
       ],
       'no-restricted-globals': [
         'error',

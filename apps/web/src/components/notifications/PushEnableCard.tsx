@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Alert } from '@/components/ui/Alert';
 import { Button } from '@/components/ui/Button';
-import { toastError } from '@/lib/toast';
-import { apiErrorMessage } from '@/lib/api';
+
 import { usePushSubscription } from '@/lib/notifications/usePushSubscription';
 
+import { toastApiError } from '@/lib/api-errors';
 const DISMISS_KEY = 'sa6_push_card_dismissed';
 
 /**
@@ -43,7 +43,7 @@ export function PushEnableCard() {
         title={t('notifications.pushCard.title')}
         action={
           <span style={{ display: 'inline-flex', gap: '0.375rem' }}>
-            <Button size="sm" variant="primary" loading={busy} onClick={() => void enable().catch((e) => toastError(apiErrorMessage(e)))}>
+            <Button size="sm" variant="primary" loading={busy} onClick={() => void enable().catch((e) => toastApiError(e))}>
               {t('notifications.pushCard.enable')}
             </Button>
             <Button size="sm" variant="ghost" onClick={later}>

@@ -39,7 +39,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function call(method, p, token, body, headers) {
   const res = await fetch(`${BASE}${p}`, {
     method,
-    headers: { 'Content-Type': 'application/json', 'X-Locale': 'ru', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(headers || {}) },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': require('crypto').randomUUID(), 'X-Locale': 'ru', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(headers || {}) },
     ...(body !== undefined && body !== null ? { body: JSON.stringify(body) } : {}),
   });
   const text = await res.text();

@@ -2,10 +2,10 @@
 
 import { useTranslations } from 'next-intl';
 import { Alert, Toggle } from '@/components/ui';
-import { toastError } from '@/lib/toast';
-import { apiErrorMessage } from '@/lib/api';
+
 import { usePushSubscription } from '@/lib/notifications/usePushSubscription';
 
+import { toastApiError } from '@/lib/api-errors';
 /**
  * Тумблер «Уведомления в этом браузере» (настройки). Без VAPID на сервере или без
  * поддержки push в браузере — не рисуется/объясняется: UI несуществующих фич не показываем.
@@ -22,7 +22,7 @@ export function PushToggle() {
       checked={on}
       disabled={busy}
       onChange={(next) => {
-        void (next ? enable() : disable()).catch((e) => toastError(apiErrorMessage(e)));
+        void (next ? enable() : disable()).catch((e) => toastApiError(e));
       }}
       label={t('settings.devices.browser')}
       description={t('settings.devices.browserHint')}

@@ -151,6 +151,9 @@ async function guest(method, p, session, body) {
     method,
     headers: {
       'Content-Type': 'application/json',
+      // Ключ повтора (core/idempotency): ручки `required` (деньги, отправка, подпись)
+      // без него отвечают 400. Свой на каждый вызов — сьюту нужны разные намерения.
+      'Idempotency-Key': require('crypto').randomUUID(),
       ...(session ? { 'x-share-session': session } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,

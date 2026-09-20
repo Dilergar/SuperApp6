@@ -182,11 +182,21 @@ export class LedgerService {
        * платформенной валюты падает. Семейные и корпоративные коины поля не требуют.
        */
       funding?: 'real_money' | 'system';
+      /**
+       * Второй ремень идемпотентности (docs/idempotency_engine.md): производный ключ
+       * запроса. Переживает строку `idem.keys` (та живёт 7 дней), поэтому повтор
+       * перевода даже через месяц не создаёт второй проводки.
+       */
+      idempotencyKey?: string;
     },
     tx?: Tx,
   ): Promise<void> {
     const amount = this.toBig(input.amount);
     await this.run(tx, async (t) => {
+      // Повтор по производному ключу: проводка уже есть — ничего не делаем и не
+      // трогаем остатки. Проверка ДО вставки, а не ловля P2002 после: конфликт
+      // уникума внутри транзакции Postgres абортит ВСЮ транзакцию вызывающего.
+      if (input.idempotencyKey && (await t.ledgerTransfer.findUnique({ where: { idempotencyKey: input.idempotencyKey } }))) return;
       const currency = await t.currency.findUnique({ where: { id: input.currencyId }, select: { issuerType: true } });
       if (currency?.issuerType === 'platform') {
         if (!input.funding) throw new Error('ledger.mint: `funding` is required for the platform currency (real_money | system)');
@@ -207,6 +217,7 @@ export class LedgerService {
         amount,
         kind: 'posted',
         memo: 'mint',
+        idempotencyKey: input.idempotencyKey,
       });
       await this.write(t, issuance.id, i.balance - amount, i.held);
       await this.write(t, user.id, u.balance + amount, u.held);
@@ -214,9 +225,16 @@ export class LedgerService {
   }
 
   /** Irreversibly destroy coins from a holder's balance: a posted transfer holder → issuance. */
-  async burn(input: { currencyId: string; ownerType?: string; ownerId: string; amount: number }, tx?: Tx): Promise<void> {
+  async burn(
+    input: { currencyId: string; ownerType?: string; ownerId: string; amount: number; idempotencyKey?: string },
+    tx?: Tx,
+  ): Promise<void> {
     const amount = this.toBig(input.amount);
     await this.run(tx, async (t) => {
+      // Повтор по производному ключу: проводка уже есть — ничего не делаем и не
+      // трогаем остатки. Проверка ДО вставки, а не ловля P2002 после: конфликт
+      // уникума внутри транзакции Postgres абортит ВСЮ транзакцию вызывающего.
+      if (input.idempotencyKey && (await t.ledgerTransfer.findUnique({ where: { idempotencyKey: input.idempotencyKey } }))) return;
       const holder = await this.getOrCreateHolderAccount(t, input.currencyId, input.ownerType ?? 'user', input.ownerId);
       const issuance = await this.getOrCreateIssuanceAccount(t, input.currencyId);
       const locks = await this.lock(t, [holder.id, issuance.id]);
@@ -232,6 +250,7 @@ export class LedgerService {
         amount,
         kind: 'posted',
         memo: 'burn',
+        idempotencyKey: input.idempotencyKey,
       });
       await this.write(t, holder.id, h.balance - amount, h.held);
       await this.write(t, issuance.id, i.balance + amount, i.held);

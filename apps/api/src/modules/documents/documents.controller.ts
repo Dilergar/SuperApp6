@@ -19,6 +19,7 @@ import {
 } from '@superapp/shared';
 import { z } from 'zod';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { DocumentsService } from './documents.service';
 
 /**
@@ -126,6 +127,8 @@ export class DocumentsController {
 
   @Post('templates/:templateId/preview')
   @ApiOperation({ summary: 'A PDF preview of a block template with sample data (Manager and above)' })
+  // Предпросмотр отдаёт БАЙТЫ PDF и ничего не меняет — повтор безопасен по определению
+  @SkipIdempotency('raw_response')
   async previewTemplate(
     @CurrentUser() user: JwtPayload,
     @Param('workspaceId') workspaceId: string,
@@ -249,6 +252,8 @@ export class DocumentsController {
 
   @Post(':documentId/preview')
   @ApiOperation({ summary: 'A PDF preview of a block document (the current or the sent blocks)' })
+  // Тот же предпросмотр: байты PDF, состояние не меняется
+  @SkipIdempotency('raw_response')
   async previewDocument(
     @CurrentUser() user: JwtPayload,
     @Param('documentId') documentId: string,
@@ -295,6 +300,9 @@ export class DocumentsController {
     return { success: true, data };
   }
 
+  // Номер реестра НЕ переиспользуется: повтор сжигает следующее значение счётчика,
+  // и в нумерации остаётся дыра, которую не закрыть.
+  @Idempotent({ required: true })
   @Post(':documentId/assign-number')
   @ApiOperation({ summary: 'Assign a number to a draft (the external circuit: the number is printed before sending)' })
   async assignNumber(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {
@@ -304,6 +312,8 @@ export class DocumentsController {
 
   // ---- Внешний этап (категория «С контрагентами») ----
 
+  // Отправка во внешний ЭДО необратима: документ уходит контрагенту
+  @Idempotent({ required: true })
   @Post(':documentId/send-external')
   @ApiOperation({ summary: 'Send to a counterparty: freezing, a signing request, a guest link, an SMS' })
   async sendExternal(
@@ -330,6 +340,8 @@ export class DocumentsController {
     return { success: true, data };
   }
 
+  // SMS уходит НАРУЖУ (и стоит денег): повтор — второе сообщение контрагенту.
+  @Idempotent({ required: true })
   @Post(':documentId/external/sms')
   @ApiOperation({ summary: 'Resend the SMS with the link to the counterparty (a 60 s cooldown)' })
   async resendExternalSms(@CurrentUser() user: JwtPayload, @Param('documentId') documentId: string) {

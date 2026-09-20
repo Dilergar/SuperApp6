@@ -13,8 +13,9 @@ import { Menu, type MenuAction } from '@/components/ui/Menu';
 import { Avatar, PersonAvatar } from '@/app/messenger/messenger-ui';
 import { BotAvatar } from '@/components/keys/BotChip';
 import { useFormatters } from '@/lib/format';
-import { toast, toastError } from '@/lib/toast';
-import { apiErrorMessage } from '@/lib/api';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
+
 import { notificationsRootKey } from '@/lib/queries';
 import {
   muteNotificationRef,
@@ -80,7 +81,7 @@ export const NotificationRow = memo(function NotificationRow({ n, actors, worksp
   const act = useMutation({
     mutationFn: async (action: 'read' | 'unread' | 'archive' | 'save' | 'unsave' | 'unsnooze') => notificationAction(n.id, action),
     onSuccess: () => void invalidate(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const snooze = useMutation({
     mutationFn: async (option: SnoozeOption) => snoozeNotification(n.id, snoozeUntil(option).toISOString()),
@@ -88,7 +89,7 @@ export const NotificationRow = memo(function NotificationRow({ n, actors, worksp
       setSnoozeOpen(false);
       void invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const mute = useMutation({
     mutationFn: async () => {
@@ -96,7 +97,7 @@ export const NotificationRow = memo(function NotificationRow({ n, actors, worksp
       await muteNotificationRef(n.ref.type, n.ref.id);
     },
     onSuccess: () => toast(t('notifications.row.mutedToast'), 'success'),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const disableType = useMutation({
     mutationFn: async () =>
@@ -111,7 +112,7 @@ export const NotificationRow = memo(function NotificationRow({ n, actors, worksp
       toast(t('notifications.row.typeDisabledToast'), 'success');
       void qc.invalidateQueries({ queryKey: notificationsRootKey });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const open = () => {

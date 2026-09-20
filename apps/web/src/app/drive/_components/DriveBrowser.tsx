@@ -29,7 +29,8 @@ import {
   type TableColumn,
 } from '@/components/ui';
 import { UploadProgressList } from '@/components/files/UploadProgressList';
-import { apiErrorMessage } from '@/lib/api';
+
+import { toastApiError } from '@/lib/api-errors';
 import { toastError } from '@/lib/toast';
 import {
   createDriveFolder,
@@ -121,7 +122,7 @@ export function DriveBrowser({
         const { url } = await getDownloadUrl(node.file.id);
         window.open(url, '_blank', 'noopener');
       } catch (err) {
-        toastError(apiErrorMessage(err));
+        toastApiError(err);
       }
     },
     [onOpenFolder],
@@ -136,7 +137,7 @@ export function DriveBrowser({
       setRenaming(null);
       refresh();
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     }
   }, [renaming, refresh]);
 
@@ -148,7 +149,7 @@ export function DriveBrowser({
       setNewFolder(null);
       refresh();
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     }
   }, [newFolder, driveRef, parentId, refresh]);
 
@@ -167,7 +168,7 @@ export function DriveBrowser({
         key: 'star',
         label: node.starred ? t('browser.unstar') : t('browser.star'),
         icon: 'star',
-        onClick: () => void setDriveStar(node.id, !node.starred).then(refresh).catch((e) => toastError(apiErrorMessage(e))),
+        onClick: () => void setDriveStar(node.id, !node.starred).then(refresh).catch((e) => toastApiError(e)),
       });
       if (!canEdit || node.systemKey) return actions;
       actions.push(

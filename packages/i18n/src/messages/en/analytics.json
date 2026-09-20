@@ -543,6 +543,14 @@
         "sent": {
           "description": "A message was sent — its content is never recorded",
           "title": "Message sent"
+        },
+        "send_failed": {
+          "title": "Message not sent",
+          "description": "The client could not send a message: the bubble stays as \"Not sent · Retry\""
+        },
+        "send_retried": {
+          "title": "Message send retried",
+          "description": "The person pressed Retry on an unsent bubble (the same repeat key)"
         }
       }
     },

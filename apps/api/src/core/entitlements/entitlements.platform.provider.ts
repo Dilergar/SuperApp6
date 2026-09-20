@@ -26,6 +26,7 @@ import { PlatformPanelRegistry } from '../platform/platform-lookup.registry';
 import { PlatformAuditService } from '../platform/platform-audit.service';
 import { PlatformRateService } from '../platform/platform-rate.service';
 import { CurrentPlatformActor, PlatformCapability, PlatformRoute, type PlatformActor } from '../../shared/decorators/platform.decorator';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { Controller, Get, Param } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { EntitlementsCatalogService } from './entitlements.catalog.service';
@@ -213,6 +214,10 @@ export class EntitlementsPlatformProvider implements OnModuleInit {
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/entitlements')
 export class EntitlementsPlatformController {
   constructor(

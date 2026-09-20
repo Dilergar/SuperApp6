@@ -21,14 +21,15 @@ import { useLocale, useTranslations } from 'next-intl';
 import type { ConsentAcceptResultDto, ConsentPendingDto, ConsentPendingItemDto, Locale } from '@superapp/shared';
 import { Alert, Button, Modal } from '@/components/ui';
 import { analytics } from '@/lib/analytics';
-import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
+import { apiGet, apiPost } from '@/lib/api';
 import { CONSENTS_PENDING_EVENT } from '@/lib/consents-events';
 import { useFormatters } from '@/lib/format';
 import { consentsMineRootKey, consentsPendingKey } from '@/lib/queries';
 import { useAuthStore } from '@/lib/stores/auth';
-import { toastError } from '@/lib/toast';
+
 import { ConsentDocumentView } from './ConsentDocumentView';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Страницы, которые шлюз не накрывает: вход, публичная витрина и мастер удаления аккаунта. */
 const UNGATED = ['/login', '/register', '/reset-password', '/legal', '/account/delete', '/platform', '/s/', '/check'];
 
@@ -41,7 +42,7 @@ function useAccept(onDone?: () => void) {
       await qc.invalidateQueries({ queryKey: consentsMineRootKey });
       onDone?.();
     },
-    onError: (err) => toastError(apiErrorMessage(err)),
+    onError: (err) => toastApiError(err),
   });
 }
 

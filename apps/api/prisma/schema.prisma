@@ -5865,3 +5865,29 @@ model PdIncidentEvent {
   @@index([incidentId, occurredAt])
   @@map("pd_incident_events")
 }
+
+// ============================================================
+// core/idempotency (25-й движок) — «входящий ящик» ровно-одного-раза
+// ============================================================
+// HTTP-ключ повтора живёт в СВОЕЙ схеме `idem` (партиции, сырой SQL миграции —
+// Prisma их не выражает и не видит). Здесь — единственная модель движка: отметка
+// «событие источника уже обработано», которую ставит `IdempotencyInboxService.once`
+// В ТРАНЗАКЦИИ вызывающего. Потребители: входящие вебхуки (ТОЛЬКО после проверки
+// подписи — иначе ящик травится поддельным id) и пакеты планировщика (`eventId`
+// = ключ периода). Ретенция — 30 дней (> окна редоставки у всех источников).
+
+/// Отметка «это событие источника уже обработано» (docs/idempotency_engine.md).
+model IdempotencyInbox {
+  id         BigInt   @id @default(autoincrement())
+  /// Источник: livekit | telegram | scheduler | …
+  source     String
+  /// Аккаунт/канал внутри источника (id бота, id комнаты, ключ расписания)
+  account    String
+  /// Идентификатор события у источника (event.id, update_id, periodKey)
+  eventId    String   @map("event_id")
+  receivedAt DateTime @default(now()) @map("received_at")
+
+  @@unique([source, account, eventId])
+  @@index([receivedAt])
+  @@map("idempotency_inbox")
+}

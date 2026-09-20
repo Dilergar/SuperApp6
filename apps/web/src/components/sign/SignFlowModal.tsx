@@ -21,7 +21,7 @@ import { Alert, Button, Checkbox, Icon, Modal, Spinner, Textarea, type IconName 
 import { CodeInput } from '@/components/verify/CodeInput';
 import { apiErrorMessage } from '@/lib/api';
 import { useBytes } from '@/lib/format';
-import { toastError } from '@/lib/toast';
+
 import {
   confirmPep,
   declineSign,
@@ -35,6 +35,9 @@ import {
 } from './sign-api';
 import { NcaLayerError, signWithNcaLayer } from './ncalayer';
 
+import { apiErrorCode, toastApiError } from '@/lib/api-errors';
+import { useIdempotencyKey } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote, useOutcomeUnknown } from '@/components/idempotency/OutcomeUnknownAlert';
 type Screen = 'choose' | 'pep-consent' | 'pep-code' | 'qr' | 'ncalayer' | 'decline' | 'done';
 
 export function SignFlowModal({
@@ -68,10 +71,35 @@ export function SignFlowModal({
   const flow = flowQuery.data;
   const actId = flow?.myAct?.id ?? null;
 
+  // Ключи НАМЕРЕНИЯ необратимых шагов подписания: «подписать ЭТОТ акт по ЭТОЙ
+  // цепочке» и «отказаться от ЭТОГО акта с ЭТОЙ причиной». Двойной клик по
+  // «Подписать» обязан дать одну подпись, а не две попытки по одному коду.
+  const confirmKey = useIdempotencyKey([actId, challengeId]);
+  const declineKey = useIdempotencyKey([actId, reason]);
+  // «Исход неизвестен» за кнопкой подписи тостом не показывают: акт МОГ быть
+  // подписан, и подталкивать к повтору здесь — худшее, что может сделать экран.
+  const outcome = useOutcomeUnknown();
+
   const finish = () => {
     setScreen('done');
     qc.invalidateQueries({ queryKey: signFlowKey(requestId) });
     onSigned?.();
+  };
+
+  /**
+   * Единая развилка отказов окна. Исходы движка повторов несут СВОЙ тон: «уже
+   * выполнено» — это про состояние мира (акт подписан), а не про ошибку формы, и
+   * красная строка под кнопкой соврала бы. Плюс перечитываем заявку: экран мог
+   * остаться со старым состоянием.
+   */
+  const onFail = (e: unknown, fallback?: (e: unknown) => void) => {
+    if (outcome.capture(e)) return;
+    if (apiErrorCode(e)?.startsWith('idempotency.')) {
+      toastApiError(e);
+      void qc.invalidateQueries({ queryKey: signFlowKey(requestId) });
+      return;
+    }
+    (fallback ?? ((err: unknown) => setError(apiErrorMessage(err))))(e);
   };
 
   // ---- ПЭП ----
@@ -89,12 +117,16 @@ export function SignFlowModal({
   });
 
   const pepConfirm = useMutation({
-    mutationFn: (value: string) => confirmPep(actId!, challengeId!, value),
-    onSuccess: finish,
-    onError: (e) => {
-      setError(apiErrorMessage(e));
-      setCode('');
+    mutationFn: (value: string) => confirmPep(actId!, challengeId!, value, confirmKey.key),
+    onSuccess: () => {
+      confirmKey.reset();
+      finish();
     },
+    onError: (e) =>
+      onFail(e, (err) => {
+        setError(apiErrorMessage(err));
+        setCode('');
+      }),
   });
 
   // ---- ЭЦП через NCALayer ----
@@ -117,7 +149,7 @@ export function SignFlowModal({
         setScreen('choose');
         return;
       }
-      setError(e instanceof NcaLayerError ? t(e.key) : apiErrorMessage(e));
+      onFail(e, (err) => setError(err instanceof NcaLayerError ? t(err.key) : apiErrorMessage(err)));
     },
   });
 
@@ -128,7 +160,7 @@ export function SignFlowModal({
       setScreen('qr');
       setError(null);
     },
-    onError: (e) => setError(apiErrorMessage(e)),
+    onError: (e) => onFail(e),
   });
 
   // Пока открыт QR — спрашиваем сервер, подписали ли уже: телефон нам не сообщит.
@@ -152,13 +184,14 @@ export function SignFlowModal({
   }, [state.data?.status]);
 
   const decline = useMutation({
-    mutationFn: () => declineSign(actId!, reason.trim()),
+    mutationFn: () => declineSign(actId!, reason.trim(), declineKey.key),
     onSuccess: () => {
+      declineKey.reset();
       setScreen('done');
       qc.invalidateQueries({ queryKey: signFlowKey(requestId) });
       onSigned?.();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => onFail(e, (err) => toastApiError(err)),
   });
 
   const busy =
@@ -172,6 +205,18 @@ export function SignFlowModal({
       {flow && (
         <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
           <SubjectHeader flow={flow} />
+
+          {/* Проверить, прошло ли, можно ровно здесь: экран выбора способа сам
+              скажет «уже подписано», если подпись всё-таки легла. */}
+          <OutcomeUnknownAlert
+            error={outcome.error}
+            onOpenHistory={() => {
+              void qc.invalidateQueries({ queryKey: signFlowKey(requestId) });
+              outcome.clear();
+              setScreen('choose');
+            }}
+            onDismiss={outcome.clear}
+          />
 
           {error && <Alert tone="danger">{error}</Alert>}
 
@@ -235,6 +280,7 @@ export function SignFlowModal({
                   {t('flow.devCode')} <b>{devCode}</b>
                 </Alert>
               )}
+              <SlowRequestNote pending={pepConfirm.isPending} />
               <Button variant="ghost" onClick={() => setScreen('pep-consent')} disabled={busy}>
                 {tc('actions.back')}
               </Button>
@@ -296,6 +342,7 @@ export function SignFlowModal({
                 <Button variant="ghost" onClick={() => setScreen('choose')} disabled={busy}>
                   {tc('actions.back')}
                 </Button>
+                <SlowRequestNote pending={decline.isPending} />
               </div>
             </div>
           )}

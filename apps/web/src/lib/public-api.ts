@@ -1,6 +1,7 @@
 import axios, { isAxiosError, type AxiosRequestConfig } from 'axios';
 import { readLocaleCookie } from '@/i18n/locale';
 import {
+  IDEMPOTENCY_KEY_HEADER,
   LOCALE_HEADER,
   type ApiOk,
   type ConsentBundleDto,
@@ -141,16 +142,31 @@ export async function shareDriveList(
 /**
  * ДЕЙСТВИЕ гостя над объектом ссылки (движок core/share-links, слот `actions`).
  * Первый потребитель — подпись документа внешним контрагентом.
+ *
+ * Ключ повтора ОБЯЗАТЕЛЕН (`core/idempotency`): за ключом действия у потребителя
+ * могут стоять деньги и подпись. Гостевой клиент — отдельный axios без наших
+ * перехватчиков (второй ремень против 401-ловушки), поэтому ключ ставится здесь
+ * руками. `idempotencyKey` вызывающего — ключ НАМЕРЕНИЯ страницы: двойной клик
+ * по «Подписать» даёт одну подпись, а не две.
  */
 export async function shareAction<T>(
   token: string,
   session: string,
   key: string,
   body?: unknown,
+  idempotencyKey?: string,
 ): Promise<T> {
   return guestPost<T>(`/share-links/guest/${encodeURIComponent(token)}/actions/${key}`, body ?? {}, {
-    headers: sessionHeaders(session),
+    headers: { ...sessionHeaders(session), [IDEMPOTENCY_KEY_HEADER]: idempotencyKey ?? newGuestKey() },
   });
+}
+
+/** uuid браузера; в средах без него — случайная строка того же вида. */
+function newGuestKey(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  let out = '';
+  for (let i = 0; i < 32; i++) out += Math.floor(Math.random() * 16).toString(16);
+  return out;
 }
 
 /**

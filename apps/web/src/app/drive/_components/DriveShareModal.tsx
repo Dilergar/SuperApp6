@@ -16,13 +16,13 @@ import { Button, Chip, Icon, LoadingBlock, Modal, Select } from '@/components/ui
 import { EntitySelector } from '@/components/EntitySelector';
 import { ShareLinkSection } from '@/components/ShareLinkSection';
 import type { Principal } from '@/lib/entities';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { driveNodeKey, driveSharesKey } from '@/lib/queries';
 import { fetchDriveNode, fetchDriveShares, shareDriveNode, unshareDriveNode } from '@/lib/drive-api';
 import { useTranslations } from 'next-intl';
 import { PersonChip } from '../../circles/PersonCard';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Ступени доступа: реестр называет СМЫСЛ, слово даёт каталог. */
 const ROLE_VALUES: DriveRole[] = ['viewer', 'editor', 'manager'];
 
@@ -79,13 +79,13 @@ export function DriveShareModal({
       setPicked([]);
       refresh();
     },
-    onError: (err) => toastError(apiErrorMessage(err)),
+    onError: (err) => toastApiError(err),
   });
 
   const revoke = useMutation({
     mutationFn: (s: DriveShareDto) => unshareDriveNode(node.id, s.principalType, s.principalId),
     onSuccess: refresh,
-    onError: (err) => toastError(apiErrorMessage(err)),
+    onError: (err) => toastApiError(err),
   });
 
   const own = (shares ?? []).filter((s) => !s.inherited);

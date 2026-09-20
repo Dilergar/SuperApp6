@@ -11,8 +11,7 @@ import { useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CounterpartyDto, FileDto } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { counterpartiesKey, counterpartyKey, docTypesKey, orgDocumentsPrefix } from '@/lib/queries';
 import { Alert, Button, Dropzone, Input, Modal, Select } from '@/components/ui';
 import { UploadProgressList } from '@/components/files/UploadProgressList';
@@ -20,6 +19,7 @@ import { useFileUpload } from '@/lib/hooks/useFileUpload';
 import { fetchCounterparties, fetchCounterparty } from '../counterparties/counterparties-api';
 import { documentsApi, fetchDocTypes } from './documents-api';
 
+import { toastApiError } from '@/lib/api-errors';
 const ACCEPT = '.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export function UploadDocumentModal({
@@ -94,7 +94,7 @@ export function UploadDocumentModal({
       onClose();
       router.push(`/workspaces/${workspaceId}/documents/${doc.id}`);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const badExt = useMemo(

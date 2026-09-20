@@ -10,6 +10,7 @@ import { Card, CardHeader, Chip, EmptyState, LoadingBlock, PageHeader } from '@/
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { fetchPlatformLookup, platformLookupKey } from '@/lib/platform/api';
 import { PLATFORM_RECENT_KEY } from '@/lib/platform-api';
+import { IdempotencyLookup } from '@/components/platform/IdempotencyLookup';
 
 // ============================================================
 // Поиск — главный вход кабинета. Тип запроса распознаётся на лету (чип-подсказка),
@@ -89,6 +90,12 @@ export default function PlatformSearchPage() {
         chip={q ? <Chip tone={active ? 'accent' : 'warning'} size="sm">{t(`search.kind.${parsed.kind}`)}</Chip> : undefined}
         description={t('search.description')}
       />
+      {/* Разбор с интегратором «мой запрос прошёл?» — рядом с поиском, а не отдельной страницей */}
+      {!q && (
+        <div style={{ marginBottom: 'var(--spacing-4)' }}>
+          <IdempotencyLookup />
+        </div>
+      )}
       {!q ? (
         recent.length ? (
           <Card>

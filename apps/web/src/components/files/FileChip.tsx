@@ -9,11 +9,11 @@ import { getDownloadUrl } from '../../lib/files-api';
 import { createDocumentFromFile, documentHref, getDocsStatus, isEditableDocument } from '../../lib/docs-api';
 import type { DocsPlace } from '../../lib/docs-api';
 import { docsStatusKey } from '../../lib/queries';
-import { apiErrorMessage } from '../../lib/api';
+
 import { useBytes } from '../../lib/format';
 import { Icon, IconButton, toneVars, type IconName } from '@/components/ui';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Вид файла → иконка кита. */
 const KIND_ICON: Record<string, IconName> = {
   image: 'image', video: 'video', audio: 'speaker',
@@ -103,7 +103,7 @@ export function FileChip({ file, onRemove, onClick, docPlace }: FileChipProps) {
       else router.push(href); // попап всё-таки заблокирован — открываем на месте
     } catch (err) {
       tab?.close();
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setOpening(false);
     }

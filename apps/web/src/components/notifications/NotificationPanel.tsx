@@ -11,8 +11,7 @@ import { Icon } from '@/components/ui/Icon';
 import { Menu, type MenuAction } from '@/components/ui/Menu';
 import { Tabs } from '@/components/ui/Tabs';
 import { useFormatters } from '@/lib/format';
-import { toastError } from '@/lib/toast';
-import { apiErrorMessage } from '@/lib/api';
+
 import { notificationQuietKey, notificationsRootKey } from '@/lib/queries';
 import {
   fetchNotificationQuiet,
@@ -24,6 +23,7 @@ import {
 import { NotificationList } from './NotificationList';
 import { PushEnableCard } from './PushEnableCard';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // Панель у колокольчика (Salesforce tray + GitHub inbox): вкладки Все / Непрочитанные /
 // @Упоминания, чипы контекста (только если у человека ≥1 организация), общий список,
@@ -65,12 +65,12 @@ export function NotificationPanel({
   const readAll = useMutation({
     mutationFn: () => markNotificationsRead({ all: true, ...(context ? { context } : {}) }),
     onSuccess: () => void invalidate(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const pause = useMutation({
     mutationFn: pauseNotifications,
     onSuccess: () => void qc.invalidateQueries({ queryKey: notificationQuietKey }),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const onShown = useCallback((ids: string[]) => seen.mutate(ids), [seen]);
 

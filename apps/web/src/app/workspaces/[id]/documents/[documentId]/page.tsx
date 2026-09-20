@@ -24,10 +24,10 @@ import {
   type ChatterPageDto,
   type DocFormFieldDto,
 } from '@superapp/shared';
-import { apiErrorMessage, apiGet } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { dmy } from '@/lib/dates';
 import { useFormatters } from '@/lib/format';
-import { toastError } from '@/lib/toast';
+
 import { documentHref } from '@/lib/docs-api';
 import { approvalsRootKey, orgDocumentKey, orgDocumentsPrefix } from '@/lib/queries';
 import {
@@ -55,6 +55,7 @@ import { ShareCardModal } from '@/app/messenger/ShareCardModal';
 import { DocStatusChip } from '../documents-ui';
 import { CampaignAckBanner, DeliveryBlock } from '../HrDocBlocks';
 
+import { toastApiError } from '@/lib/api-errors';
 /**
  * Значение поля читабельной строкой: период — «с … по … (N дней)», не [object Object].
  * Слова приходят параметром: функция чистая, каталога у неё нет.
@@ -131,32 +132,32 @@ export default function OrgDocumentPage() {
   const submit = useMutation({
     mutationFn: () => documentsApi.submit(id, documentId),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const cancel = useMutation({
     mutationFn: () => documentsApi.cancel(id, documentId),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const withdraw = useMutation({
     mutationFn: () => documentsApi.withdraw(id, documentId),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const saveFields = useMutation({
     mutationFn: (fields: Record<string, unknown>) => documentsApi.updateDocument(id, documentId, { fields }),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const assignNumber = useMutation({
     mutationFn: () => documentsApi.assignNumber(id, documentId),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const returnToDraft = useMutation({
     mutationFn: () => documentsApi.returnToDraft(id, documentId),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const [sendOpen, setSendOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
@@ -551,6 +552,6 @@ async function downloadFile(fileId: string, variant?: string) {
     });
     window.open(res.url, '_blank', 'noopener');
   } catch (e) {
-    toastError(apiErrorMessage(e));
+    toastApiError(e);
   }
 }

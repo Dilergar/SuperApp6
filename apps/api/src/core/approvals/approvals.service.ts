@@ -35,6 +35,7 @@ import { I18nService } from '../../shared/i18n/i18n.service';
 import { ApiError, badRequest, forbidden, notFound, type ErrorParams } from '../../shared/errors/api-error';
 import { AccessService } from '../access/access.service';
 import { AudiencesService } from '../audiences/audiences.service';
+import { IdempotencyReplayRegistry, type ReplayContext } from '../idempotency';
 import { JobsService } from '../jobs/jobs.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ApprovalsRegistry, type ApprovalRefContext } from './approvals.registry';
@@ -82,6 +83,7 @@ export class ApprovalsService implements OnModuleInit {
     private readonly notifications: NotificationsService,
     private readonly audiences: AudiencesService,
     private readonly i18n: I18nService,
+    private readonly replay: IdempotencyReplayRegistry,
   ) {}
 
   /**
@@ -112,6 +114,14 @@ export class ApprovalsService implements OnModuleInit {
       count: (userId, scope) => this.countPending(userId, scope),
       list: (userId, limit, scope) => this.listPending(userId, limit, scope),
     });
+
+    // Повтор решения ПО ССЫЛКЕ, а не снимком (core/idempotency): маршрут после
+    // моего шага живёт дальше — соседи решают, документ уходит на подпись, — и
+    // снимок трёхдневной давности показал бы заявку, которой давно нет. Права и
+    // видимость считает `get` — тем же способом, что и обычное чтение карточки.
+    this.replay.register('POST', '/api/approvals/steps/:stepId/decide', async (requestId, ctx: ReplayContext) =>
+      ctx.userId ? { success: true, data: await this.get(ctx.userId, requestId) } : undefined,
+    );
   }
 
   // ============================================================

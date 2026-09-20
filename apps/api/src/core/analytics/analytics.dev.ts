@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { forbidden } from '../../shared/errors/api-error';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { PlatformCapability, PlatformRoute } from '../../shared/decorators/platform.decorator';
 import { AnalyticsIngestService } from './analytics.ingest.service';
 import { AnalyticsPartitions } from './analytics.partitions';
@@ -18,6 +19,10 @@ const dayBody = z.object({ day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).stric
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/analytics/dev')
 export class AnalyticsDevController {
   constructor(

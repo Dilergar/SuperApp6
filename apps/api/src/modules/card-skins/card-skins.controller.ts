@@ -5,6 +5,7 @@ import {
   equipGroupSkinSchema,
 } from '@superapp/shared';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import { CardSkinsService } from './card-skins.service';
 
 @ApiTags('card-skins')
@@ -24,6 +25,9 @@ export class CardSkinsController {
     return { success: true, data: await this.skins.getWallet(user.sub) };
   }
 
+  // Деньги: эскроу и движение коинов — необратимо. Ключ ОБЯЗАТЕЛЕН; второй ремень —
+  // производный ключ на самой проводке леджера (docs/idempotency_engine.md).
+  @Idempotent({ required: true })
   @Post(':skinId/buy')
   @ApiOperation({ summary: 'Buy a skin (charges the currency, mints an instance with a serial number)' })
   async buy(@CurrentUser() user: JwtPayload, @Param('skinId') skinId: string) {

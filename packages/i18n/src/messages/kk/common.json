@@ -250,5 +250,11 @@
     "hourShort": "сағ",
     "kb": "КБ",
     "mb": "МБ"
+  },
+  "idempotency": {
+    "outcomeUnknownTitle": "Нәтижені растау мүмкін болмады",
+    "outcomeUnknownBody": "Операция өтуі мүмкін. Қайталамас бұрын тарихты тексеріңіз",
+    "openHistory": "Тарихты ашу",
+    "checkingConnection": "Байланыс тексерілуде…"
   }
 }

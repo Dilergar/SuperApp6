@@ -49,7 +49,8 @@ import {
   updateAnalyticsDashboard,
   updateAnalyticsReport,
 } from '@/lib/platform/analytics';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import { dashboardTitle } from './DashboardView';
 import { EventPicker } from './EventPicker';
 import { ReportViz, defaultViz } from './ReportViz';
@@ -186,7 +187,7 @@ export function ReportBuilder({ reportId }: { reportId?: string }) {
       toast(t('builder.saved'), 'success');
       router.push(params.href(dashboardId ? `/platform/analytics/d/${dashboardId}` : `/platform/analytics/reports/${report.id}`));
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const leave = () => {
@@ -202,7 +203,7 @@ export function ReportBuilder({ reportId }: { reportId?: string }) {
         void qc.invalidateQueries({ queryKey: analyticsReportsKey });
         router.push(params.href('/platform/analytics/reports'));
       } catch (e) {
-        toastError(apiErrorMessage(e));
+        toastApiError(e);
       }
     });
 

@@ -14,8 +14,8 @@ import { weekdaysShortIso, currencySymbol, formatMoney, parseMoneyInput } from '
 import { FinList, FinRow, Money, MoneyStack } from './finance-ui';
 import { PersonChip } from '../circles/PersonCard';
 import { useFormatters } from '@/lib/format';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 /** Обёртка выбора вокруг карточки человека (сама карточка — PersonChip, принцип 2). */
 function PersonPick({
   selected,
@@ -507,7 +507,7 @@ export function RecurringPanel({
       await apiPatch(`/finance/recurring/${r.id}`, { active: !r.active }, cfg);
       changed();
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     }
   };
   const recordNow = async (r: FinRecurringRuleDto) => {
@@ -515,7 +515,7 @@ export function RecurringPanel({
       await apiPost(`/finance/recurring/${r.id}/record-now`, {}, cfg);
       changed();
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     }
   };
   const remove = async () => {
@@ -526,7 +526,7 @@ export function RecurringPanel({
       setRemoving(null);
       changed();
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     } finally {
       setBusy(false);
     }

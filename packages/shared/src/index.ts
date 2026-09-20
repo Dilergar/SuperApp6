@@ -125,6 +125,8 @@ export * from './keys';
 export * from './constants/keys';
 // Движок согласий (core/consents): виды, пакеты, получатели ПДн, учёт действий, реквизиты оператора
 export * from './consents';
+// Идемпотентность повторов (core/idempotency): заголовки, коды, лимиты, форма ключа
+export * from './idempotency';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';

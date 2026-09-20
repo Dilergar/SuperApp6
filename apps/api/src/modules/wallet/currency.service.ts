@@ -16,6 +16,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { badRequest, conflict, notFound } from '../../shared/errors/api-error';
 import { LedgerService } from './ledger.service';
+import { IdempotencyService } from '../../core/idempotency/idempotency.service';
 
 type CurrencyRow = Prisma.CurrencyGetPayload<object>;
 type TransferRow = Prisma.LedgerTransferGetPayload<object>;
@@ -31,6 +32,7 @@ export class CurrencyService {
     private readonly db: DatabaseService,
     private readonly ledger: LedgerService,
     private readonly i18n: I18nService,
+    private readonly idem: IdempotencyService,
   ) {}
 
   // ============================================================
@@ -135,7 +137,9 @@ export class CurrencyService {
   async mint(userId: string, amount: number): Promise<WalletEntry> {
     const row = await this.activeCurrencyOf('user', userId);
     if (!row) throw badRequest('wallet.createCurrencyFirst');
-    await this.ledger.mint({ currencyId: row.id, ownerId: userId, amount });
+    // Второй ремень: производный ключ живёт дольше строки `idem.keys` (7 дней) —
+    // повтор чеканки даже через месяц не создаст второй проводки
+    await this.ledger.mint({ currencyId: row.id, ownerId: userId, amount, idempotencyKey: this.idem.deriveKey('wallet.mint') ?? undefined });
     return this.walletEntry(row, userId, true);
   }
 
@@ -146,7 +150,7 @@ export class CurrencyService {
     if (currency.issuerType === 'user' && currency.issuerId === userId) {
       throw badRequest('wallet.cannotBurnOwn');
     }
-    await this.ledger.burn({ currencyId, ownerId: userId, amount });
+    await this.ledger.burn({ currencyId, ownerId: userId, amount, idempotencyKey: this.idem.deriveKey('wallet.burn') ?? undefined });
     return this.walletEntry(currency, userId, false);
   }
 
@@ -344,7 +348,7 @@ export class CurrencyService {
   async mintToTreasury(workspaceId: string, amount: number): Promise<WalletEntry> {
     const row = await this.activeCurrencyOf('workspace', workspaceId);
     if (!row) throw badRequest('wallet.createCompanyCurrencyFirst');
-    await this.ledger.mint({ currencyId: row.id, ownerType: 'workspace', ownerId: workspaceId, amount });
+    await this.ledger.mint({ currencyId: row.id, ownerType: 'workspace', ownerId: workspaceId, amount, idempotencyKey: this.idem.deriveKey('wallet.companyMint') ?? undefined });
     return this.companyEntry(row, workspaceId);
   }
 
@@ -367,6 +371,7 @@ export class CurrencyService {
         toAccountId: employee.id,
         amount,
         memo: 'company payout',
+        idempotencyKey: this.idem.deriveKey('wallet.companyPay') ?? undefined,
       });
     });
     return this.companyEntry(row, workspaceId);

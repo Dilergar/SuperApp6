@@ -8,6 +8,7 @@ import { useFormatters } from '@/lib/format';
 import { Icon } from '@/components/ui/Icon';
 import type { MessageDeliveryStatus, CardSkinRender } from '@superapp/shared';
 import { usePersonSkin } from '@/lib/person-skins';
+import type { LocalSendState } from './local-message';
 import { ensureReadableInk } from '@/lib/contrast';
 
 // ============================================================
@@ -113,6 +114,51 @@ export function StatusTicks({ status }: { status?: MessageDeliveryStatus }) {
     >
       <Icon name="check" size={12} />
       {doubled && <Icon name="check" size={12} style={{ marginLeft: -6 }} />}
+    </span>
+  );
+}
+
+/**
+ * Состояние ОТПРАВКИ моего пузыря вместо галочек: «отправляется» — пока запрос в
+ * пути, «Не отправлено · Повторить» — когда он не удался. Пузырь при этом НЕ
+ * исчезает: повтор уходит с тем же ключом, и в чате окажется одно сообщение.
+ */
+export function SendState({ state, onRetry }: { state: LocalSendState; onRetry?: () => void }) {
+  const t = useTranslations('messenger');
+  if (state === 'pending') {
+    return (
+      <span
+        className="label-sm"
+        style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', fontSize: '0.66rem', opacity: 0.7 }}
+      >
+        <Icon name="clock" size={11} />
+        {t('messages.sending')}
+      </span>
+    );
+  }
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+      <span className="label-sm" style={{ fontSize: '0.66rem', color: 'var(--danger)' }}>
+        {t('messages.notSent')}
+      </span>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="label-sm"
+          style={{
+            fontSize: '0.66rem',
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            color: 'var(--primary)',
+            textDecoration: 'underline',
+          }}
+        >
+          {t('messages.retrySend')}
+        </button>
+      )}
     </span>
   );
 }

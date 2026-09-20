@@ -18,7 +18,7 @@ import {
   type DocCampaignDto,
   type OrgDocumentDto,
 } from '@superapp/shared';
-import { apiErrorMessage } from '@/lib/api';
+
 import {
   cancelCampaign,
   createCampaign,
@@ -29,7 +29,10 @@ import {
 } from '@/lib/hr-api';
 import { fetchOrgDocuments } from './documents-api';
 import { hrCampaignKey, hrCampaignsKey } from '@/lib/queries';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { useIdempotencyKey } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote, useOutcomeUnknown } from '@/components/idempotency/OutcomeUnknownAlert';
+import { toast } from '@/lib/toast';
 import {
   Alert,
   Button,
@@ -71,7 +74,7 @@ export function CampaignsTab({ workspaceId }: { workspaceId: string }) {
   const cancel = useMutation({
     mutationFn: (id: string) => cancelCampaign(workspaceId, id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: hrCampaignsKey(workspaceId) }),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   // «Догнать сейчас» (standing): приняли человека — не ждать ночного крона
@@ -81,7 +84,7 @@ export function CampaignsTab({ workspaceId }: { workspaceId: string }) {
       toast(tr('campaigns.sweepStarted'), 'success');
       void qc.invalidateQueries({ queryKey: hrCampaignsKey(workspaceId) });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (
@@ -228,7 +231,7 @@ function CampaignDetailModal({
       void qc.invalidateQueries({ queryKey: hrCampaignKey(workspaceId, campaignId) });
       void qc.invalidateQueries({ queryKey: hrCampaignsKey(workspaceId) });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const thr = useTranslations('hr');
   const tr = useTranslations('documents');
@@ -323,6 +326,11 @@ function CreateCampaignModal({
     ['signed', 'registered', 'active'].includes(doc.status),
   );
 
+  // Кампания — РАССЫЛКА людям (клик или SMS за деньги): повтор дал бы вторую
+  // такую же, и «отозвать» её у получателей уже нечем. Ключ намерения — на форму.
+  const createKey = useIdempotencyKey([documentId, mode, fixMode, dueAt, audience.map((p) => `${p.type}:${p.id}`).join(',')]);
+  const outcome = useOutcomeUnknown();
+
   const create = useMutation({
     mutationFn: () => {
       if (!documentId) throw new Error(tr('campaigns.pickDocument'));
@@ -334,10 +342,15 @@ function CreateCampaignModal({
         audience: audience.map((p) => ({ type: p.type as CreateCampaignInput['audience'][number]['type'], id: p.id })),
         ...(dueAt ? { dueAt } : {}),
       };
-      return createCampaign(workspaceId, dto);
+      return createCampaign(workspaceId, dto, createKey.key);
     },
-    onSuccess: onCreated,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onSuccess: () => {
+      createKey.reset();
+      onCreated();
+    },
+    onError: (e) => {
+      if (!outcome.capture(e)) toastApiError(e);
+    },
   });
 
   return (
@@ -394,7 +407,11 @@ function CreateCampaignModal({
           <Alert tone="accent">{tr('campaigns.clickHint')}</Alert>
         )}
         <DatePicker label={tr('campaigns.dueAt')} value={isoToDate(dueAt)} onChange={(d) => setDueAt(dateToIso(d))} />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)' }}>
+        {/* Кампания МОГЛА запуститься: плашка ведёт в список, а не подталкивает
+            нажать «Запустить» второй раз. */}
+        <OutcomeUnknownAlert error={outcome.error} onOpenHistory={onCreated} onDismiss={outcome.clear} />
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)', alignItems: 'center' }}>
+          <SlowRequestNote pending={create.isPending} />
           <Button variant="ghost" onClick={onClose}>{tc('actions.cancel')}</Button>
           <Button variant="primary" loading={create.isPending} onClick={() => create.mutate()}>
             {tr('campaigns.launch')}

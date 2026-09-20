@@ -76,6 +76,11 @@
 - → `core/consents`: `core/auth` (`accept(tx)` в транзакции регистрации), `core/users` (отзыв всех согласий при удалении аккаунта, сброс кэшей шлюза), `core/verify` (сверка пакета ДО отправки SMS, учёт SMS), `modules/workspaces` (пакет `workspace_creation` в транзакции создания, отзыв при purge), `modules/google-calendar` (согласие по запросу, хук отзыва, учёт синхронизаций), `core/notifications` (учёт push и SMS), `core/webhooks` (учёт доставок), `core/share-links` (учёт ссылок наружу), `shared/auth/session-validator` и `shared/interceptors/workspace-context` → `ConsentsGateService` (шлюз), `shared/guards/consent-gate.guard`.
 - `modules/wallet` (`LedgerService.mint`) → `adult-gate` (совершеннолетие у реальных денег); `modules/card-skins` → `funding: 'system'`.
 
+### Идемпотентность повторов (движок)
+- `core/idempotency` → `core/keys` (HMAC-отпечаток формы запроса и envelope снимка ответа под KEK владельца, `KeysFieldRegistry`), `core/platform` (команда поиска по ключу и панель карточки 360). Больше ни от чего не зависит НАМЕРЕННО: движок стоит на пути КАЖДОЙ мутации, и ребро отсюда в фичу означало бы цикл со всей платформой.
+- → `core/idempotency`: `modules/wallet` (`deriveKey` — второй ремень на проводке леджера), `modules/processes` (`once(tx)` для апдейтов Telegram), `core/calls` (`firstTime`/`forget` для вебхуков LiveKit). Все остальные потребители пользуются движком ДЕКОРАТОРАМИ (`@Idempotent` / `@SkipIdempotency` из `shared/decorators`), то есть ребра не заводят.
+- Привязка отметки к бизнес-транзакции живёт в `shared/idempotency/binding.ts` и вызывается фабрикой клиента базы (`shared/database`): `shared` движки не импортирует, поэтому ребра «база → движок» тоже нет.
+
 ## Carve-out map (допустимые прямые чтения чужих таблиц)
 
 Для монолита допустимо; список — граница будущего выделения сервисов:

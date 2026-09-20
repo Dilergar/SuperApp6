@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { CallActiveDto, CallTokenDto, ChatType } from '@superapp/shared';
 import { CALL_LIMITS } from '@superapp/shared';
-import { ACCESS_TOKEN_KEY, apiErrorMessage } from '@/lib/api';
+import { ACCESS_TOKEN_KEY } from '@/lib/api';
 import {
   claimCallRecording,
   endCallSession,
@@ -17,8 +17,8 @@ import { CallRoomShell, type CallLeaveReason } from '@/components/calls/CallRoom
 import { CallStage } from '@/components/calls/CallStage';
 import { ControlsBar } from '@/components/calls/ControlsBar';
 import { PersonAvatar } from './messenger-ui';
-import { toastError } from '@/lib/toast';
 
+import { toastApiError } from '@/lib/api-errors';
 /**
  * Полноэкранный оверлей звонка поверх /messenger (Telegram Web-модель, WhatsApp-флоу):
  * PreJoin скипается — старт сразу с микрофоном и БЕЗ камеры (включается внутри),
@@ -68,7 +68,7 @@ export function CallOverlay({
       .then((t) => { if (!cancelled) setCall(t); })
       .catch((e) => {
         if (!cancelled) {
-          toastError(apiErrorMessage(e));
+          toastApiError(e);
           onCloseRef.current('error');
         }
       });
@@ -186,7 +186,7 @@ export function CallOverlay({
               moderator={!isDm && call.moderator}
               onEndForAll={() => confirm(
                 { title: t('call.endConfirm.title'), message: t('call.endConfirm.message'), confirmLabel: t('call.endConfirm.label'), danger: true },
-                () => endCallSession(call.sessionId).catch((e) => toastError(apiErrorMessage(e))),
+                () => endCallSession(call.sessionId).catch((e) => toastApiError(e)),
               )}
               extra={
                 recordingEnabled ? (
@@ -229,7 +229,7 @@ function RecordingControls({ sessionId, recording }: { sessionId: string; record
     try {
       await fn();
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     } finally {
       setBusy(false);
     }

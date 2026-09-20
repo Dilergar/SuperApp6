@@ -3,10 +3,10 @@
 import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { LoadingBlock } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
-import { fetchNote } from '@/lib/notes-api';
-import { toastError } from '@/lib/toast';
 
+import { fetchNote } from '@/lib/notes-api';
+
+import { toastApiError } from '@/lib/api-errors';
 /**
  * Короткий адрес заметки (`/notes/:id` из ленты упоминаний, поиска, карточек в чате):
  * личный маршрут сам переадресует рабочую заметку внутрь организации — адрес обязан
@@ -19,7 +19,7 @@ export default function NoteShortLinkPage() {
     fetchNote(noteId)
       .then((note) => router.replace(note.ownerType === 'workspace' ? `/workspaces/${note.ownerId}/notes?note=${note.id}` : `/notes?note=${note.id}`))
       .catch((e) => {
-        toastError(apiErrorMessage(e));
+        toastApiError(e);
         router.replace('/notes');
       });
   }, [noteId, router]);

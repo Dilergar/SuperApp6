@@ -25,8 +25,9 @@ import {
 import { Button, Card, Checkbox, Chip, EmptyState, Icon, LoadingBlock, useConfirm } from '@/components/ui';
 import type { Tone } from '@/components/ui/tones';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { apiErrorMessage } from '@/lib/api';
+
 import { useFormatters } from '@/lib/format';
+import { toastApiError } from '@/lib/api-errors';
 import { toastError } from '@/lib/toast';
 
 export type ShareLinksFilter = 'active' | 'inactive' | 'all';
@@ -108,7 +109,7 @@ export function ShareLinksBrowser({
       setPicked(new Set());
       refresh();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const toggle = (id: string) =>

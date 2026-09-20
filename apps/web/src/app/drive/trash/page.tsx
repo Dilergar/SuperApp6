@@ -5,13 +5,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DriveNodeDto } from '@superapp/shared';
 import { DRIVE_LIMITS } from '@superapp/shared';
 import { Alert, Button, Card, PageHeader, useConfirm } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { driveRootKey, driveTrashKey } from '@/lib/queries';
 import { fetchDriveTrash, purgeDriveNodes, restoreDriveNodes } from '@/lib/drive-api';
 import { useDrive } from '../drive-shell';
 import { DriveNodeList } from '../_components/DriveNodeList';
 
+import { toastApiError } from '@/lib/api-errors';
 export default function DriveTrashPage() {
   const t = useTranslations('drive');
   const { ref } = useDrive();
@@ -34,7 +34,7 @@ export default function DriveTrashPage() {
         onClick={() =>
           void restoreDriveNodes([node.id])
             .then(refresh)
-            .catch((e) => toastError(apiErrorMessage(e)))
+            .catch((e) => toastApiError(e))
         }
       >
         {t('page.restore')}

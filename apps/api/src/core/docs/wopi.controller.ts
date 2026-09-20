@@ -15,6 +15,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import * as fs from 'fs';
 import { Public } from '../../shared/decorators/public.decorator';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { badRequest } from '../../shared/errors/api-error';
 import { sendStorageStream } from '../files/files-http.util';
 import { DocsService, WopiLockConflict, WopiTimestampConflict } from './docs.service';
@@ -72,6 +73,8 @@ export class WopiController {
   // ---------- PutFile: сохранение правок ----------
 
   @Post(':id/contents')
+  // Ответ собирается протоколом WOPI (байты и свои заголовки) — снимать нечего
+  @SkipIdempotency('raw_response')
   async putFile(
     @Param('id') id: string,
     @Query('access_token') token: string | undefined,
@@ -129,6 +132,8 @@ export class WopiController {
 
   @Post(':id')
   @HttpCode(200)
+  // Блокировки WOPI отвечают заголовками протокола; сам протокол идемпотентен по X-WOPI-Lock
+  @SkipIdempotency('raw_response')
   async lockOperation(
     @Param('id') id: string,
     @Query('access_token') token: string | undefined,

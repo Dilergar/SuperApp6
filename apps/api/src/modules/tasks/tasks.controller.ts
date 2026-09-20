@@ -5,6 +5,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import {
   createTaskSchema,
   updateTaskSchema,
@@ -55,6 +56,9 @@ export class TasksController {
     return { success: true, data: await this.tasksService.getTasks(user.sub, filters) };
   }
 
+  // Повтор = ВТОРАЯ задача: исполнителям уже ушло уведомление, а награда уже
+  // заморожена в эскроу (монеты создателя). Ключ обязателен.
+  @Idempotent({ required: true })
   @Post()
   @ApiOperation({ summary: 'Create a task (roles, group, due date, reward)' })
   async createTask(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
@@ -132,6 +136,9 @@ export class TasksController {
     return { success: true, data: task };
   }
 
+  // Приёмка ВЫПЛАЧИВАЕТ награду из эскроу — это деньги, и повтор без ключа
+  // остался бы «как получится».
+  @Idempotent({ required: true })
   @Post(':id/accept')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Accept a participant’s work (assigner)' })

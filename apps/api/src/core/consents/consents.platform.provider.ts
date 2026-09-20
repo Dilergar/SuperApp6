@@ -27,6 +27,7 @@ import {
 import { DatabaseService } from '../../shared/database/database.service';
 import { DryRun } from '../../shared/context/dry-run.context';
 import { PlatformCapability, PlatformRoute } from '../../shared/decorators/platform.decorator';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { badRequest, notFound } from '../../shared/errors/api-error';
 import { FilesService } from '../files/files.service';
 import { PlatformCommandRegistry } from '../platform/platform-commands.registry';
@@ -293,6 +294,10 @@ export class ConsentsPlatformProvider implements OnModuleInit {
 @ApiTags('Platform console')
 @ApiBearerAuth()
 @PlatformRoute()
+// Кабинет платформы вне движка повторов: у КАЖДОЙ команды реестра свой ключ
+// идемпотентности, журнал и «четыре глаза» — второй механизм поверх был бы
+// не защитой, а вторым источником правды (docs/platform_console.md).
+@SkipIdempotency('own_mechanism')
 @Controller('platform/consents')
 export class ConsentsPlatformController {
   constructor(

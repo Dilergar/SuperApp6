@@ -153,7 +153,10 @@
     "read": "Read",
     "reply": "Reply",
     "sent": "Sent",
-    "yesterday": "yesterday"
+    "yesterday": "yesterday",
+    "sending": "Sending",
+    "notSent": "Not sent",
+    "retrySend": "Retry"
   },
   "newChat": {
     "createGroup": "Create the group",

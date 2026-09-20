@@ -10,8 +10,7 @@ import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Chip, EmptyState, Icon, LoadingBlock, PageHeader } from '@/components/ui';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { getDownloadUrl } from '@/lib/files-api';
 import { driveNodeKey } from '@/lib/queries';
 import { fetchDriveNode } from '@/lib/drive-api';
@@ -19,6 +18,7 @@ import { useTranslations } from 'next-intl';
 import { useBytes, useShortDate } from '@/lib/format';
 import { driveIcon } from '../../_components/drive-ui';
 
+import { toastApiError } from '@/lib/api-errors';
 export default function DriveNodePage() {
   const t = useTranslations('drive');
   const humanSize = useBytes();
@@ -86,7 +86,7 @@ export default function DriveNodePage() {
               onClick={() =>
                 void getDownloadUrl(node.file!.id)
                   .then(({ url }) => window.open(url, '_blank', 'noopener'))
-                  .catch((e) => toastError(apiErrorMessage(e)))
+                  .catch((e) => toastApiError(e))
               }
             >
               {t('node.download')}

@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { createCampaignSchema } from '@superapp/shared';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import { DocCampaignsService } from './doc-campaigns.service';
 
 /**
@@ -22,6 +23,9 @@ export class DocCampaignsController {
     return { success: true, data };
   }
 
+  // Кампания = рассылка ВСЕЙ аудитории (клик или SMS за деньги). Повтор — вторая
+  // такая же, и «отозвать» её у получателей уже нечем.
+  @Idempotent({ required: true })
   @Post()
   @ApiOperation({ summary: 'Start an acknowledgement campaign (Manager and above)' })
   async create(

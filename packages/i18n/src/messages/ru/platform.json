@@ -216,6 +216,10 @@
     "pdIncidentClose": {
       "description": "Закрывает инцидент. В примечании укажите итог и принятые меры.",
       "title": "Закрыть инцидент"
+    },
+    "idempotencyKeyLookup": {
+      "title": "Поиск по ключу повтора",
+      "description": "Интегратор спрашивает, прошёл ли его запрос: находим его попытки по ключу повтора. Тела ответов не раскрываются"
     }
   },
   "fields": {
@@ -274,7 +278,14 @@
     "validUntil": "Действует до",
     "value": "Значение",
     "website": "Сайт",
-    "workspaces": "Организации"
+    "workspaces": "Организации",
+    "windowDays": "Окно, дней",
+    "repeated": "Приходил повторно",
+    "unresolved": "Исход неизвестен",
+    "committedWithoutAnswer": "Прошло, ответ потерян",
+    "released": "Без эффекта",
+    "lastAt": "Последнее обращение",
+    "hits": "Попытки"
   },
   "grantSource": {
     "addon": "дополнение",
@@ -326,7 +337,8 @@
     "workspaceKeys": "Ключи и боты",
     "workspaceMembersSummary": "Состав",
     "workspaceProfile": "Профиль",
-    "userConsents": "Согласия"
+    "userConsents": "Согласия",
+    "userIdempotency": "Спорные операции"
   },
   "picker": {
     "change": "изменить",
@@ -519,5 +531,11 @@
     "archived": "в архиве",
     "draft": "черновик",
     "published": "опубликована"
+  },
+  "idempotencyState": {
+    "in_progress": "Выполняется",
+    "committed": "Прошло, ответ потерян",
+    "completed": "Завершено",
+    "released": "Без эффекта"
   }
 }

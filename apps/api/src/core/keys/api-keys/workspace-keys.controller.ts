@@ -15,6 +15,7 @@ import {
   keyRegistryQuerySchema,
 } from '@superapp/shared';
 import { NoApiKeys } from '../../../shared/decorators/api-keys.decorator';
+import { Idempotent, SkipIdempotency } from '../../../shared/decorators/idempotency.decorator';
 import { CurrentUser, type JwtPayload } from '../../../shared/decorators/current-user.decorator';
 import { ApiKeysService, type KeyActor } from './api-keys.service';
 import { BotsService } from './bots.service';
@@ -97,6 +98,9 @@ export class WorkspaceKeysController {
     return { success: true, data: await this.bots.update(this.actor(user, req), workspaceId, botId, botUpdateSchema.parse(body ?? {})) };
   }
 
+  // Ответ показывает СЕКРЕТ один раз (тело ключа): снимка не существует —
+  // повтор получит `409 already_completed` со ссылкой на выпущенный ключ
+  @Idempotent({ required: true, store: 'none' })
   @Post('bots/:botId/keys')
   @ApiOperation({ summary: 'Issue another key for the bot (secret shown once; step-up required)' })
   async createBotKey(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string, @Param('botId') botId: string, @Body() body: unknown, @Req() req: Request) {
@@ -135,6 +139,9 @@ export class WorkspaceKeysController {
     return { success: true, data: await this.keys.listWorkspacePersonal(workspaceId) };
   }
 
+  // Ответ показывает СЕКРЕТ один раз (тело ключа): снимка не существует —
+  // повтор получит `409 already_completed` со ссылкой на выпущенный ключ
+  @Idempotent({ required: true, store: 'none' })
   @Post('keys')
   @ApiOperation({ summary: 'Create a personal key for this organization data (owner/admin; secret shown once)' })
   async createKey(@CurrentUser() user: JwtPayload, @Param('workspaceId') workspaceId: string, @Body() body: unknown, @Req() req: Request) {
@@ -147,6 +154,9 @@ export class WorkspaceKeysController {
     return { success: true, data: await this.keys.update(this.actor(user, req), keyId, workspaceId, apiKeyUpdateSchema.parse(body ?? {})) };
   }
 
+  // Ответ показывает СЕКРЕТ один раз (тело ключа): снимка не существует —
+  // повтор получит `409 already_completed` со ссылкой на выпущенный ключ
+  @Idempotent({ required: true, store: 'none' })
   @Post('keys/:keyId/rotate')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Rotate a key of this organization (bot or personal; step-up required)' })

@@ -25,6 +25,7 @@ import {
   updateProcessDefinitionSchema,
 } from '@superapp/shared';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import { ProcessesService } from './processes.service';
 
 /**
@@ -149,6 +150,9 @@ export class ProcessesController {
     return { success: true, data };
   }
 
+  // Решение двигает маршрут и запускает следующие ноды (сообщения, задачи,
+  // внешние вызовы). Повтор без ключа — второе движение по тому же шагу.
+  @Idempotent({ required: true })
   @Post('instances/:instId/steps/:stepId/decide')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'A decision on a step: approved | rejected | returned (the reason is mandatory for the last two)' })
@@ -280,6 +284,10 @@ export class ProcessesController {
     return { success: true };
   }
 
+  // Запуск ЭКЗЕМПЛЯРА процесса: он немедленно исполняет реальные действия —
+  // ставит задачи, шлёт сообщения, зовёт внешние системы. Повтор = второй
+  // экземпляр, и отменять его пришлось бы вместе со всем, что он уже сделал.
+  @Idempotent({ required: true })
   @Post(':defId/start')
   @ApiOperation({ summary: 'Start a process (the team; the form is validated against the version form)' })
   async start(

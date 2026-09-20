@@ -4,6 +4,9 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Chip, Glyph, GlyphField, Input, Toggle, useConfirm } from '@/components/ui';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api';
+import { apiErrorCode, isOutcomeUnknown, toastApiError } from '@/lib/api-errors';
+import { useIdempotencyKey } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote } from '@/components/idempotency/OutcomeUnknownAlert';
 import { formatWalletAmount } from '@/lib/wallet-format';
 import {
   currencyBadgeKey, walletCardsKey, walletCurrencyKey, walletHistoryKey, walletHoldersKey, walletOverviewKey,
@@ -87,6 +90,12 @@ export function WalletSection() {
   const [busy, setBusy] = useState(false);
   const [burnId, setBurnId] = useState<string | null>(null);
   const [burnAmt, setBurnAmt] = useState('');
+  // Ключи НАМЕРЕНИЯ денежных форм: двойной клик и повтор после обрыва — одно дело,
+  // а изменившаяся сумма — уже другое (ключ обновится сам).
+  const mintKey = useIdempotencyKey([mintAmt]);
+  const burnKey = useIdempotencyKey([burnId, burnAmt]);
+  // Отказ «исход неизвестен» тостом не показывают: за этими кнопками деньги
+  const [unknownOutcome, setUnknownOutcome] = useState<unknown>(null);
 
   const flash = (m: string) => {
     setOk(m);
@@ -96,13 +105,19 @@ export function WalletSection() {
 
   const run = async (fn: () => Promise<void>, keys: ReadonlyArray<readonly unknown[]>, success?: string) => {
     setError('');
+    setUnknownOutcome(null);
     setBusy(true);
     try {
       await fn();
       await Promise.all(keys.map((k) => qc.invalidateQueries({ queryKey: k })));
       if (success) flash(success);
     } catch (e) {
-      setError(errMsg(e, common('state.error')));
+      // «Операция могла пройти» — это не ошибка формы, а повод сходить в историю
+      if (isOutcomeUnknown(e)) setUnknownOutcome(e);
+      // Прочие исходы движка повторов несут СВОЙ тон: «уже выполнено» — успех, а не
+      // беда; «попытка ещё идёт» — спокойное сообщение. Красная строка формы соврала бы.
+      else if (apiErrorCode(e)?.startsWith('idempotency.')) toastApiError(e);
+      else setError(errMsg(e, common('state.error')));
     } finally {
       setBusy(false);
     }
@@ -120,7 +135,8 @@ export function WalletSection() {
     const n = parseInt(mintAmt, 10);
     if (!Number.isInteger(n) || n <= 0) return setError(t('wallet.integerError'));
     return run(async () => {
-      await apiPost('/wallet/currency/mint', { amount: n });
+      await apiPost('/wallet/currency/mint', { amount: n }, { idempotencyKey: mintKey.key });
+      mintKey.reset();
       setMintAmt('');
     }, [walletOverviewKey, walletHistoryKey, walletHoldersKey, currencyBadgeKey], t('wallet.minted', { amount: fmt(n) }));
   };
@@ -141,7 +157,8 @@ export function WalletSection() {
     const n = parseInt(burnAmt, 10);
     if (!Number.isInteger(n) || n <= 0) return setError(t('wallet.integerError'));
     return run(async () => {
-      await apiPost('/wallet/burn', { currencyId, amount: n });
+      await apiPost('/wallet/burn', { currencyId, amount: n }, { idempotencyKey: burnKey.key });
+      burnKey.reset();
       setBurnId(null);
       setBurnAmt('');
     }, [walletOverviewKey, walletHistoryKey], t('wallet.burned'));
@@ -163,6 +180,11 @@ export function WalletSection() {
         {t('wallet.subtitle')}
       </p>
 
+      {unknownOutcome != null && (
+        <div style={{ marginBottom: 'var(--spacing-4)' }}>
+          <OutcomeUnknownAlert error={unknownOutcome} onDismiss={() => setUnknownOutcome(null)} />
+        </div>
+      )}
       {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{error}</p>}
       {ok && <p style={{ color: 'var(--secondary)', fontSize: '0.85rem', marginBottom: 'var(--spacing-4)' }}>{ok}</p>}
 
@@ -215,6 +237,7 @@ export function WalletSection() {
                   wrapClassName="wallet-name-field"
                 />
                 <button className="btn-success" disabled={busy} onClick={mint} style={{ fontSize: '0.85rem' }}>{t('wallet.mint')}</button>
+                <SlowRequestNote pending={busy} />
               </div>
               <p className="label-sm" style={{ fontSize: '0.7rem', opacity: 0.55, marginBottom: 'var(--spacing-4)' }}>
                 {t('wallet.mintLimit')}

@@ -19,8 +19,7 @@ import {
   type OrgDocumentDto,
   type WorkspaceRequisitesDto,
 } from '@superapp/shared';
-import { apiErrorMessage, apiGet } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+import { apiGet } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
 import {
   counterpartiesKey,
@@ -35,6 +34,9 @@ import type { Principal } from '@/lib/entities';
 import { fetchCounterparties, fetchCounterparty } from '../counterparties/counterparties-api';
 import { documentsApi, fetchDocTypes } from './documents-api';
 
+import { toastApiError } from '@/lib/api-errors';
+import { useIdempotencyKey } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote, useOutcomeUnknown } from '@/components/idempotency/OutcomeUnknownAlert';
 export function SendToCounterpartyModal({
   workspaceId,
   doc,
@@ -125,24 +127,49 @@ export function SendToCounterpartyModal({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: orgDocumentKey(workspaceId, doc.id) });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
+
+  // Ключ НАМЕРЕНИЯ «отправить ЭТОТ документ ЭТОМУ контакту»: отправка необратима
+  // (ссылка и SMS уже у контрагента), и двойной клик обязан дать ОДНУ отправку.
+  const sendKey = useIdempotencyKey([
+    doc.id,
+    contactId,
+    signers.map((s) => s.id).join(','),
+    expiresAt?.toISOString() ?? null,
+    sendSms,
+  ]);
+  const outcome = useOutcomeUnknown();
 
   const send = useMutation({
     mutationFn: () =>
-      documentsApi.sendExternal(workspaceId, doc.id, {
-        counterpartyContactId: contactId,
-        internalSignerUserIds: signers.map((s) => s.id),
-        ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
-        sendSms: sendSms && !!contact?.phone,
-      }),
+      documentsApi.sendExternal(
+        workspaceId,
+        doc.id,
+        {
+          counterpartyContactId: contactId,
+          internalSignerUserIds: signers.map((s) => s.id),
+          ...(expiresAt ? { expiresAt: expiresAt.toISOString() } : {}),
+          sendSms: sendSms && !!contact?.phone,
+        },
+        sendKey.key,
+      ),
     onSuccess: () => {
+      sendKey.reset();
       qc.invalidateQueries({ queryKey: orgDocumentKey(workspaceId, doc.id) });
       qc.invalidateQueries({ queryKey: orgDocumentsPrefix(workspaceId) });
       onClose();
       onSent();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => {
+      // Исход неизвестен — окно НЕ закрываем: карточка документа сама покажет,
+      // ушёл ли внешний этап, а вторая отправка дала бы вторую ссылку и вторую SMS.
+      if (outcome.capture(e)) {
+        void qc.invalidateQueries({ queryKey: orgDocumentKey(workspaceId, doc.id) });
+        return;
+      }
+      toastApiError(e);
+    },
   });
 
   const defaultDue = useMemo(() => {
@@ -167,7 +194,7 @@ export function SendToCounterpartyModal({
       });
       window.open(res.url, '_blank', 'noopener');
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     }
   };
 
@@ -194,6 +221,7 @@ export function SendToCounterpartyModal({
       size="md"
       footer={
         <>
+          <SlowRequestNote pending={send.isPending} />
           <Button variant="ghost" onClick={onClose}>
             {tc('actions.cancel')}
           </Button>
@@ -207,6 +235,9 @@ export function SendToCounterpartyModal({
       }
     >
       <div style={{ display: 'grid', gap: 'var(--spacing-4)' }}>
+        {/* Отправка МОГЛА пройти: плашка ведёт смотреть карточку, а не подталкивает
+            нажать «Отправить» ещё раз. */}
+        <OutcomeUnknownAlert error={outcome.error} onDismiss={outcome.clear} />
         {showPicker && (
           <Select
             label={tcp('breadcrumb')}

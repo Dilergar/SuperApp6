@@ -43,6 +43,8 @@ import { KeysModule } from './core/keys/keys.module';
 import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { ConsentsGateModule } from './core/consents/gate/consents-gate.module';
 import { ConsentsModule } from './core/consents/consents.module';
+import { IdempotencyModule } from './core/idempotency/idempotency.module';
+import { IdempotencyInterceptor } from './core/idempotency/idempotency.interceptor';
 import { ConsentGateGuard } from './shared/guards/consent-gate.guard';
 import { KeyScopeGuard } from './core/keys/api-keys/key-scope.guard';
 import { ApiKeyAccessInterceptor } from './core/keys/api-keys/keys.usage.cron';
@@ -117,6 +119,11 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // секретов и ПДн с AAD, подпись JWT + JWKS, ключи API/боты/реестр, журнал
     // append-only. Идёт ДО auth: подпись токенов и HMAC кодов живут здесь: docs/keys_engine.md.
     KeysModule,
+    // Idempotency engine — 25-й платформенный движок: ключ повтора на мутациях,
+    // «входящий ящик» ровно-одного-раза и производные ключи вниз по стеку. Идёт
+    // ПОСЛЕ KeysModule: отпечаток запроса — HMAC keystore, снимок ответа — envelope
+    // под KEK владельца (docs/idempotency_engine.md).
+    IdempotencyModule,
     WebhooksModule,
     ConsentsModule,
 
@@ -295,6 +302,14 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     {
       provide: APP_INTERCEPTOR,
       useClass: ApiKeyAccessInterceptor,
+    },
+    // Идемпотентность повторов (core/idempotency) — ПОСЛЕДНИМ из глобальных: к моменту
+    // поиска ключа уже отработали аутентификация, эпоха токена, скоуп ключа API, шлюз
+    // согласий и ПРОВЕРКА ЧЛЕНСТВА — и отрабатывают заново на каждом повторе. Иначе
+    // сохранённый ответ выдавался бы тому, у кого доступ уже отозвали.
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: IdempotencyInterceptor,
     },
   ],
 })

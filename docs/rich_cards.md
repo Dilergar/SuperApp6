@@ -24,3 +24,11 @@ order (confirm/reject/cancel/refund) · listing (buy/talk) · crowdfunding (cont
 ## Проверка
 
 `verify-richcards.cjs`.
+
+## Повтор действия карточки
+
+`POST /rich-cards/:actionKey/execute` — ОБЩИЙ диспетчер: за ключом действия у потребителя могут стоять и деньги, и подпись, и отправка наружу. Поэтому ручка объявлена `@Idempotent({ required: true })`: без `Idempotency-Key` она отвечает `400 idempotency.key_required`. Веб шлёт ключ автоматически (транспорт), кнопке карточки достаточно обычного вызова; внешний интегратор обязан прислать ключ сам.
+
+То же — у гостевого диспетчера `POST /share-links/guest/:token/actions/:key`: принципал гостя собирается из токена ссылки и пропуска сессии ([share_links_engine.md](share_links_engine.md)).
+
+Детали — [idempotency_engine.md](idempotency_engine.md).

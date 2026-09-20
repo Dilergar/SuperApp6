@@ -36,9 +36,9 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
-import { apiErrorMessage, apiGet } from '@/lib/api';
+import { apiGet } from '@/lib/api';
 import { dmy } from '@/lib/dates';
-import { toastError } from '@/lib/toast';
+
 import {
   counterpartiesKey,
   counterpartiesPrefix,
@@ -72,6 +72,7 @@ import { ShareCardModal } from '@/app/messenger/ShareCardModal';
 import { NotesPanel } from '@/components/notes/NotesPanel';
 import { counterpartiesApi, fetchCounterparties, fetchCounterparty, lookupCounterparty } from './counterparties-api';
 
+import { toastApiError } from '@/lib/api-errors';
 export default function CounterpartiesPage() {
   const tdoc = useTranslations('documents');
   const { isReady } = useRequireAuth();
@@ -324,12 +325,12 @@ function CounterpartyCard({
       refresh();
       onBack();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const restore = useMutation({
     mutationFn: () => counterpartiesApi.restore(workspaceId, counterpartyId),
     onSuccess: () => refresh(), // карточка остаётся открытой — видно, что вернулась
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   if (cpQuery.isPending) return <LoadingBlock />;
@@ -579,12 +580,12 @@ function ContactsTab({
       setEmail('');
       onChanged();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const remove = useMutation({
     mutationFn: (contactId: string) => counterpartiesApi.removeContact(workspaceId, cp.id, contactId),
     onSuccess: onChanged,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (
@@ -713,17 +714,17 @@ function AccountsTab({
       setBik('');
       onChanged();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const setPrimary = useMutation({
     mutationFn: (accId: string) => counterpartiesApi.setPrimaryAccount(workspaceId, cp.id, accId),
     onSuccess: onChanged,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const remove = useMutation({
     mutationFn: (accId: string) => counterpartiesApi.removeAccount(workspaceId, cp.id, accId),
     onSuccess: onChanged,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (
@@ -1034,7 +1035,7 @@ function CounterpartyFormModal({
       onClose();
       onSaved(cp);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   // auto-fit: на телефоне колонки схлопываются в одну сами, без брейкпоинтов

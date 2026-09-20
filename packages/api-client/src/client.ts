@@ -4,7 +4,14 @@ import axios, {
   type AxiosRequestConfig,
   type InternalAxiosRequestConfig,
 } from 'axios';
-import { ANALYTICS_HEADERS, LOCALE_HEADER, type ApiOk } from '@superapp/shared';
+import {
+  ANALYTICS_HEADERS,
+  IDEMPOTENCY_ERROR_CODES,
+  IDEMPOTENCY_KEY_HEADER,
+  LOCALE_HEADER,
+  SHOULD_RETRY_HEADER,
+  type ApiOk,
+} from '@superapp/shared';
 
 /**
  * Хранилище токенов. Синхронное на вебе (localStorage), асинхронное на mobile
@@ -56,16 +63,60 @@ export interface ApiClient {
   /** Сырой axios-инстанс. Нужен транспортным краям (загрузка файлов, отмена) — не для чтения DTO. */
   api: AxiosInstance;
   apiGet<T>(path: string, config?: AxiosRequestConfig): Promise<T>;
-  apiPost<T = void>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<T>;
-  apiPatch<T = void>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<T>;
-  apiPut<T = void>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<T>;
-  apiDelete<T = void>(path: string, config?: AxiosRequestConfig): Promise<T>;
+  apiPost<T = void>(path: string, body?: unknown, config?: IdempotentRequestConfig): Promise<T>;
+  apiPatch<T = void>(path: string, body?: unknown, config?: IdempotentRequestConfig): Promise<T>;
+  apiPut<T = void>(path: string, body?: unknown, config?: IdempotentRequestConfig): Promise<T>;
+  apiDelete<T = void>(path: string, config?: IdempotentRequestConfig): Promise<T>;
   /** Тело ответа ЦЕЛИКОМ — для конвертов с полями рядом с `data`. */
   apiGetRaw<TBody>(path: string, config?: AxiosRequestConfig): Promise<TBody>;
-  apiPostRaw<TBody>(path: string, body?: unknown, config?: AxiosRequestConfig): Promise<TBody>;
+  apiPostRaw<TBody>(path: string, body?: unknown, config?: IdempotentRequestConfig): Promise<TBody>;
 }
 
-type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
+type RetriableConfig = InternalAxiosRequestConfig & {
+  _retry?: boolean;
+  /** Сколько раз транспорт УЖЕ повторял этот запрос сам (авто-повтор) */
+  _idemAttempts?: number;
+};
+
+/** Конфиг вызова с опцией ключа повтора: хелперы принимают его напрямую. */
+export interface IdempotentRequestConfig extends AxiosRequestConfig {
+  /**
+   * Ключ повтора для ЭТОЙ мутации. Не задан — транспорт сгенерирует свой (одна
+   * попытка = один ключ). Веб передаёт сюда ключ НАМЕРЕНИЯ формы (`useIdempotencyKey`):
+   * тогда двойной клик и повтор после обрыва — одно и то же намерение, а не два.
+   */
+  idempotencyKey?: string;
+}
+
+const MUTATIONS = new Set(['post', 'patch', 'put', 'delete']);
+
+/** Статусы, после которых повтор ОСМЫСЛЕН (сервер не дошёл до дела либо просит подождать). */
+const RETRIABLE_STATUSES = new Set([502, 503, 504]);
+
+/** Потолок авто-повторов транспорта: больше — это уже не сеть, а отказ. */
+const MAX_AUTO_RETRIES = 3;
+const BACKOFF_BASE_MS = 500;
+const BACKOFF_CAP_MS = 8000;
+
+/**
+ * Пауза перед повтором: full jitter (AWS Builders' Library) — без него N клиентов,
+ * оборвавшихся на одной секунде, вернутся ровно одной волной.
+ */
+function backoffMs(attempt: number): number {
+  const ceiling = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** attempt);
+  return Math.random() * ceiling;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** uuid из веб-крипто; в средах без него (старый RN) — случайная строка того же алфавита. */
+function newKey(): string {
+  const c = typeof globalThis !== 'undefined' ? (globalThis as { crypto?: Crypto }).crypto : undefined;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  let out = '';
+  for (let i = 0; i < 32; i++) out += Math.floor(Math.random() * 16).toString(16);
+  return out;
+}
 
 /**
  * Межвкладочный замок: на вебе есть Web Locks (вторая вкладка ждёт, а не ротирует
@@ -96,6 +147,17 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     // за него должен сервер по `Accept-Language` браузера.
     const locale = getLocale?.();
     if (locale) cfg.headers[LOCALE_HEADER] = locale;
+    // Ключ повтора (core/idempotency) на КАЖДОЙ мутации. Живёт в config запроса,
+    // поэтому и 401→refresh, и авто-повтор ниже уходят с ТЕМ ЖЕ ключом — сервер
+    // видит одно намерение, а не N разных.
+    //
+    // Анонимные запросы (без `Authorization`) ключа не получают НАМЕРЕННО: без
+    // принципала скоуп собрать не из чего, и ключ был бы украшением, а не защитой.
+    const method = (cfg.method ?? 'get').toLowerCase();
+    if (MUTATIONS.has(method) && cfg.headers.Authorization) {
+      const explicit = (cfg as AxiosRequestConfig & { idempotencyKey?: string }).idempotencyKey;
+      if (!cfg.headers[IDEMPOTENCY_KEY_HEADER]) cfg.headers[IDEMPOTENCY_KEY_HEADER] = explicit ?? newKey();
+    }
     // Отказ SDK аналитики не должен ломать ни один запрос — контекст best-effort
     try {
       const analytics = getAnalyticsContext?.();
@@ -144,10 +206,49 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     return refreshInFlight;
   }
 
+  /**
+   * Стоит ли повторять САМОМУ, не спрашивая человека. Повтор безопасен ровно
+   * потому, что мутация ушла с ключом повтора: сервер либо исполнит её впервые,
+   * либо вернёт исход первой попытки.
+   */
+  function shouldAutoRetry(error: unknown, cfg: RetriableConfig | undefined): boolean {
+    if (!cfg || !isAxiosError(error)) return false;
+    const method = (cfg.method ?? 'get').toLowerCase();
+    if (!MUTATIONS.has(method)) return false;
+    // Без ключа повторять нельзя: эффект случился бы дважды
+    if (!cfg.headers?.[IDEMPOTENCY_KEY_HEADER]) return false;
+    // multipart: тело — поток, второй раз его не отправить (и сервер его не отпечатывает)
+    const contentType = String(cfg.headers?.['Content-Type'] ?? '');
+    if (contentType.toLowerCase().startsWith('multipart/form-data')) return false;
+    if ((cfg._idemAttempts ?? 0) >= MAX_AUTO_RETRIES) return false;
+
+    const res = error.response;
+    // Ответа нет вовсе: обрыв, таймаут, сеть — исход неизвестен, а ключ его защищает
+    if (!res) return true;
+    // Сервер сказал явно
+    const hint = String(res.headers?.[SHOULD_RETRY_HEADER.toLowerCase()] ?? '');
+    if (hint === 'false') return false;
+    if (hint === 'true') return true;
+    if (RETRIABLE_STATUSES.has(res.status)) return true;
+    const code = (res.data as { details?: { code?: string } } | undefined)?.details?.code;
+    return res.status === 409 && code === IDEMPOTENCY_ERROR_CODES.inFlight;
+  }
+
   api.interceptors.response.use(
     (response) => response,
     async (error: unknown) => {
       const originalRequest = isAxiosError(error) ? (error.config as RetriableConfig | undefined) : undefined;
+
+      if (shouldAutoRetry(error, originalRequest) && originalRequest) {
+        originalRequest._idemAttempts = (originalRequest._idemAttempts ?? 0) + 1;
+        // `Retry-After` сервера сильнее нашей паузы: он знает, сколько ещё держит аренду
+        const after = Number(
+          isAxiosError(error) ? (error.response?.headers?.['retry-after'] as string | undefined) : undefined,
+        );
+        const wait = Number.isFinite(after) && after > 0 ? Math.min(after * 1000, BACKOFF_CAP_MS) : backoffMs(originalRequest._idemAttempts);
+        await sleep(wait);
+        return api(originalRequest);
+      }
 
       if (isAxiosError(error) && error.response?.status === 401 && originalRequest && !originalRequest._retry) {
         originalRequest._retry = true;
@@ -177,22 +278,22 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     async apiGet<T>(path: string, cfg?: AxiosRequestConfig): Promise<T> {
       return (await api.get<ApiOk<T>>(path, cfg)).data.data;
     },
-    async apiPost<T = void>(path: string, body?: unknown, cfg?: AxiosRequestConfig): Promise<T> {
+    async apiPost<T = void>(path: string, body?: unknown, cfg?: IdempotentRequestConfig): Promise<T> {
       return (await api.post<ApiOk<T>>(path, body, cfg)).data.data;
     },
-    async apiPatch<T = void>(path: string, body?: unknown, cfg?: AxiosRequestConfig): Promise<T> {
+    async apiPatch<T = void>(path: string, body?: unknown, cfg?: IdempotentRequestConfig): Promise<T> {
       return (await api.patch<ApiOk<T>>(path, body, cfg)).data.data;
     },
-    async apiPut<T = void>(path: string, body?: unknown, cfg?: AxiosRequestConfig): Promise<T> {
+    async apiPut<T = void>(path: string, body?: unknown, cfg?: IdempotentRequestConfig): Promise<T> {
       return (await api.put<ApiOk<T>>(path, body, cfg)).data.data;
     },
-    async apiDelete<T = void>(path: string, cfg?: AxiosRequestConfig): Promise<T> {
+    async apiDelete<T = void>(path: string, cfg?: IdempotentRequestConfig): Promise<T> {
       return (await api.delete<ApiOk<T>>(path, cfg)).data.data;
     },
     async apiGetRaw<TBody>(path: string, cfg?: AxiosRequestConfig): Promise<TBody> {
       return (await api.get<TBody>(path, cfg)).data;
     },
-    async apiPostRaw<TBody>(path: string, body?: unknown, cfg?: AxiosRequestConfig): Promise<TBody> {
+    async apiPostRaw<TBody>(path: string, body?: unknown, cfg?: IdempotentRequestConfig): Promise<TBody> {
       return (await api.post<TBody>(path, body, cfg)).data;
     },
   };

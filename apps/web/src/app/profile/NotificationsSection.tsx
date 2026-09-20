@@ -14,8 +14,9 @@ import {
   Button, Card, CardHeader, Checkbox, Chip, Divider, EmptyState, Icon, IconButton, Input, LoadingBlock, Tabs, Toggle, Tooltip, useConfirm,
 } from '@/components/ui';
 import { useFormatters } from '@/lib/format';
-import { toast, toastError } from '@/lib/toast';
-import { apiErrorMessage } from '@/lib/api';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
+
 import {
   fetchWorkspaces, notificationDevicesKey, notificationPreferencesKey, notificationQuietKey, notificationsRootKey, workspacesKey,
 } from '@/lib/queries';
@@ -103,7 +104,7 @@ function QuietBlock() {
       toast(t('settings.quiet.saved'), 'success');
       void qc.invalidateQueries({ queryKey: notificationQuietKey });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (
@@ -146,7 +147,7 @@ function DevicesBlock() {
   const remove = useMutation({
     mutationFn: (id: string) => removeNotificationDevice({ id }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: notificationDevicesKey }),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const devices = q.data ?? [];
   return (
@@ -199,7 +200,7 @@ function PreferencesMatrix({ context, otherWorkspaces }: { context: string; othe
       qc.setQueryData(notificationPreferencesKey(context), data);
       void qc.invalidateQueries({ queryKey: notificationsRootKey, exact: false, predicate: (qk) => qk.queryKey[1] !== 'preferences' });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const copy = useMutation({
     mutationFn: () => copyNotificationPreferences({ fromContext: context }),
@@ -207,7 +208,7 @@ function PreferencesMatrix({ context, otherWorkspaces }: { context: string; othe
       toast(r.copiedTo.length ? t('settings.copy.done', { n: r.copiedTo.length }) : t('settings.copy.none'), 'success');
       void qc.invalidateQueries({ queryKey: notificationsRootKey });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   if (q.isLoading || !q.data) return <LoadingBlock />;

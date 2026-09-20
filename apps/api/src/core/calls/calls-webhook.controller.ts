@@ -3,6 +3,8 @@ import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import type { WebhookEvent } from 'livekit-server-sdk';
 import { Public } from '../../shared/decorators/public.decorator';
+import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
+import { IdempotencyInboxService } from '../idempotency/idempotency.inbox.service';
 import { badRequest, unauthorized } from '../../shared/errors/api-error';
 import { CallsLivekitClient } from './calls-livekit.client';
 import { CallsService } from './calls.service';
@@ -20,10 +22,15 @@ export class CallsWebhookController {
   constructor(
     private readonly livekit: CallsLivekitClient,
     private readonly calls: CallsService,
+    private readonly inbox: IdempotencyInboxService,
   ) {}
 
   @Post('livekit/webhook')
   @HttpCode(200)
+  // Входящий вебхук: своего ключа повтора у LiveKit нет, дедуп — «входящий ящик»
+  // движка идемпотентности по `event.id`, и ТОЛЬКО после проверки подписи (иначе
+  // ящик травится поддельным идентификатором, и настоящее событие гасится как дубль)
+  @SkipIdempotency('inbound_webhook')
   async webhook(@Req() req: Request): Promise<{ success: true }> {
     if (!this.livekit.enabled) throw badRequest('calls.notConnected');
     const raw = Buffer.isBuffer(req.body)
@@ -37,7 +44,17 @@ export class CallsWebhookController {
     } catch {
       throw unauthorized('calls.badWebhookSignature');
     }
-    await this.calls.handleWebhook(event);
+    // Подпись проверена — только теперь событие вправе попасть в ящик
+    const ref = { source: 'livekit', account: event.room?.name ?? 'egress', eventId: event.id ?? '' };
+    if (ref.eventId && !(await this.inbox.firstTime(ref))) return { success: true }; // редоставка
+    try {
+      await this.calls.handleWebhook(event);
+    } catch (err) {
+      // Обработка живёт не в одной транзакции с отметкой (внутри — вызовы LiveKit):
+      // не сняв отметку, мы потеряли бы событие насовсем
+      if (ref.eventId) await this.inbox.forget(ref).catch(() => undefined);
+      throw err;
+    }
     return { success: true };
   }
 }

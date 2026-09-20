@@ -9,6 +9,7 @@ import {
   documentVersionCreateSchema,
 } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { DocsService } from './docs.service';
 
 /**
@@ -116,6 +117,8 @@ export class DocsController {
     return { success: true, data: await this.docs.requestRendition(user.sub, id, dto.target, ctx) };
   }
 
+  // Ответ — сессия редактора с WOPI-токеном (секрет): снимка нет
+  @Idempotent({ store: 'none' })
   @Post(':id/open')
   @ApiOperation({ summary: 'Launching the editor: the iframe address plus the token for the form POST' })
   async open(

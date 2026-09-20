@@ -12,12 +12,13 @@ import { NoteHistoryModal } from './NoteHistoryModal';
 import { NoteRelatedPicker } from './NoteRelatedPicker';
 import { NoteShareModal } from './NoteShareModal';
 import { useNoteAutosave } from './useNoteAutosave';
-import { apiErrorMessage } from '@/lib/api';
+
 import { addNoteRelated, purgeNote, restoreNote, trashNote } from '@/lib/notes-api';
 import { notesRootKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
+
 import { useQueryClient } from '@tanstack/react-query';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // Карточка заметки на доске: та же заметка в компактном редакторе. Двигается за шапку,
 // тянется за угол, сворачивается в полоску (Apple Stickies), красится (Google Keep).
@@ -230,7 +231,7 @@ function NoteStickyInner({ item, scope, boardRef, tags, autoFocus, autoPos, boar
       await fn();
       refetch();
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     }
   };
   // Разложенная карточка лежит по своим пикселям холста (вбок — не дальше ширины доски:

@@ -13,11 +13,11 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { HOLDING_KINDS, type AssetModelDto } from '@superapp/shared';
 import { Button, Chip, Input, Modal, SearchField, Select } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { assetModelsKey } from '@/lib/queries';
 import { assetsApi, fetchAssetModels } from '../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 function tengeToTiyn(v: string): string | null {
   const clean = v.replace(/\s/g, '').replace(',', '.');
   if (!clean) return null;
@@ -90,7 +90,7 @@ export function AssetForm({
       onSaved?.();
       onClose();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

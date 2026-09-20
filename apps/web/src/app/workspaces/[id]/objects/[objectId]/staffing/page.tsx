@@ -44,8 +44,7 @@ import {
   type TableColumn,
 } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { dm } from '@/lib/dates';
 import { useMonthLabel } from '@/lib/format';
 import { moneyTiyn } from '@/lib/objects-money';
@@ -56,6 +55,7 @@ import { AssignPanel } from '../../_components/AssignPanel';
 import { UnitForm } from '../../_components/UnitForm';
 import { RateHistory } from '../../_components/RateHistory';
 
+import { toastApiError } from '@/lib/api-errors';
 const RATE_KNOWN = new Set<string>(RATE_TYPES.map((r) => r.value));
 
 function money(amount: string | null | undefined, currency = 'KZT'): string {
@@ -126,13 +126,13 @@ export default function StaffingPage() {
   const closeAssignment = useMutation({
     mutationFn: (aId: string) => staffingApi.closeAssignment(id, aId, todayIn(timeZone)),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const removeUnit = useMutation({
     mutationFn: (spId: string) => staffingApi.removeUnit(id, spId),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   /** «250 000 ₸ · мес.» — сумма и вид ставки одной строкой (слово — из каталога). */

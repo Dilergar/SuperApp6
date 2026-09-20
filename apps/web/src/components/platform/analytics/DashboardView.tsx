@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { apiErrorMessage } from '@superapp/api-client';
+
 import type { AnalyticsDashboardDto, AnalyticsTile } from '@superapp/shared';
 import {
   Alert,
@@ -35,10 +35,11 @@ import {
   updateAnalyticsDashboard,
 } from '@/lib/platform/analytics';
 import { useFormatters } from '@/lib/format';
-import { toastError } from '@/lib/toast';
+
 import { ReportTile, reportTitle } from './ReportTile';
 import { useAnalyticsParams } from './useAnalyticsParams';
 
+import { toastApiError } from '@/lib/api-errors';
 export function dashboardTitle(d: Pick<AnalyticsDashboardDto, 'title' | 'systemKey'>, t: ReturnType<typeof useTranslations<'analytics'>>): string {
   if (d.systemKey && t.has(`system.dashboards.${d.systemKey}`)) return t(`system.dashboards.${d.systemKey}`);
   return d.title ?? '';
@@ -81,7 +82,7 @@ export function DashboardView({ idOrKey }: { idOrKey: string }) {
   const saveTiles = useMutation({
     mutationFn: (tiles: AnalyticsTile[]) => updateAnalyticsDashboard(d!.id, { tiles }),
     onSuccess: refresh,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const copySystem = useMutation({
     mutationFn: () => createAnalyticsDashboard({ title: t('dashboards.copyOf', { name: dashboardTitle(d!, t) }), tiles: d!.tiles, visibility: 'shared' }),
@@ -89,7 +90,7 @@ export function DashboardView({ idOrKey }: { idOrKey: string }) {
       void qc.invalidateQueries({ queryKey: analyticsDashboardsKey });
       router.push(withParam(params.href(`/platform/analytics/d/${created.id}`), 'edit', '1'));
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const reportsById = useMemo(() => new Map((d?.reports ?? []).map((r) => [r.id, r])), [d?.reports]);
@@ -134,7 +135,7 @@ export function DashboardView({ idOrKey }: { idOrKey: string }) {
                 void qc.invalidateQueries({ queryKey: analyticsDashboardsKey });
                 router.push(params.href('/platform/analytics'));
               } catch (e) {
-                toastError(apiErrorMessage(e));
+                toastApiError(e);
               }
             }),
         },
@@ -278,7 +279,7 @@ export function CreateDashboardModal({ open, onClose, onCreated }: { open: boole
       onClose();
       onCreated(d);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   return (
     <Modal

@@ -21,11 +21,12 @@ import { useOtpFlow } from '@/components/verify/otp-flow';
 import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
 import { useFormatters } from '@/lib/format';
 import { accountDeletionBlockersKey, consentsPendingKey, workspaceMembersKey, workspacesKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
+
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
 import { AuthLayout } from '../../auth-ui';
 
+import { toastApiError } from '@/lib/api-errors';
 type Step = 'check' | 'consequences' | 'confirm' | 'done';
 const STEPS: Array<{ key: Step; labelKey: string }> = [
   { key: 'check', labelKey: 'deletion.steps.check' },
@@ -68,7 +69,7 @@ function SoleOwnerActions({ workspace, gated, onDone }: { workspace: { id: strin
       await qc.invalidateQueries({ queryKey: workspacesKey });
       onDone();
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setBusy(false);
     }

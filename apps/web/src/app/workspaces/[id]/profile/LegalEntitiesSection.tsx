@@ -16,11 +16,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { LEGAL_ENTITY_LIMITS, type LegalEntityDto } from '@superapp/shared';
 import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 import { Button, Card, CardHeader, Chip, EmptyState, Input, Modal, useConfirm } from '@/components/ui';
-import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+import { apiGet, apiPost } from '@/lib/api';
 import { legalEntitiesKey, workspaceRequisitesKey } from '@/lib/queries';
 import { RequisitesEditor } from './RequisitesSection';
 
+import { toastApiError } from '@/lib/api-errors';
 export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: string; span?: number }) {
   const t = useTranslations('workspaces');
   const tc = useTranslations('common');
@@ -65,19 +65,19 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
       setSelectedId(created.id);
       invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const archive = useMutation({
     mutationFn: (id: string) => apiPost(`/workspaces/${workspaceId}/legal-entities/${id}/archive`, {}),
     onSuccess: () => invalidate(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const restore = useMutation({
     mutationFn: (id: string) => apiPost(`/workspaces/${workspaceId}/legal-entities/${id}/restore`, {}),
     onSuccess: () => invalidate(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   // Головное юрлицо подставляется везде, где оно не выбрано явно (реквизиты
@@ -86,7 +86,7 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
   const makeHead = useMutation({
     mutationFn: (id: string) => apiPost(`/workspaces/${workspaceId}/legal-entities/${id}/make-head`, {}),
     onSuccess: () => invalidate(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   if (isPending) return null;

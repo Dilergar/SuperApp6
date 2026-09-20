@@ -22,13 +22,13 @@ import {
 } from '@superapp/shared';
 import { Button, Divider, GlyphField, Input, Modal, Select, Textarea } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { KZ_TIME_ZONES } from '@/lib/objects-time';
 import { useHoursLabel } from '@/lib/format';
 import { legalEntitiesLiteKey, objectKey, objectsMineKey, objectsTreeKey } from '@/lib/queries';
 import { fetchLegalEntitiesLite, objectsApi } from '../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 /** 1 = понедельник (ISO). Схема допускает 0–6, но в жизни выбирают из двух. */
 const WEEK_START_VALUES = ['1', '0'] as const;
 
@@ -159,7 +159,7 @@ export function ObjectForm({
       onSaved?.(saved);
       onClose();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   // Границы правил — те же, что в Zod-схеме сервера: поле не должно уметь

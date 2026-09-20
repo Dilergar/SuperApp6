@@ -8,7 +8,8 @@ import { IconButton, Menu } from '@/components/ui';
 import { useVoiceRecorder } from '@/lib/hooks/useVoiceRecorder';
 import { voiceStatusKey } from '@/lib/queries';
 import { getVoiceStatus, sttSync } from '@/lib/voice-api';
-import { apiErrorMessage } from '@/lib/api';
+
+import { toastApiError } from '@/lib/api-errors';
 import { toastError } from '@/lib/toast';
 
 // ============================================================
@@ -60,7 +61,7 @@ export function DictateButton({ onText, compact }: { onText: (text: string) => v
       if (text) onText(text);
       else toastError(t('dictate.failed'));
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     } finally {
       setBusy(false);
     }

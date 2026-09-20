@@ -5,14 +5,15 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { NOTE_HOTKEYS, NOTE_LIMITS, type NoteBoardDto, type NoteBoardItemDto, type NoteSpaceRef } from '@superapp/shared';
 import { EmptyState, Icon, Spinner } from '@/components/ui';
-import { apiErrorMessage } from '@/lib/api';
+
 import { createNote, fetchNotesBoard, putBoardItem, updateNote, type NotesListFilter } from '@/lib/notes-api';
 import { notesBoardKey, notesRootKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
+
 import { NoteSticky } from './NoteSticky';
 import { selectionFilter, type NotesSelection } from './NotesFolderTree';
 import { noteTargetFromPath } from './note-target-from-path';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // Доска заметок — ВИД на выбранный раздел: что выбрано слева (папка, все, тег,
 // закреплённые, «поделились», корзина), то и разложено карточками. Личной остаётся
@@ -155,7 +156,7 @@ export function NotesBoard({ scope, scopeKey, selection, q, onOpenNote, onTagCli
       try {
         await putBoardItem(noteId, { x: full.x, y: full.y, w: full.w, h: full.h, z: full.z, collapsed: full.collapsed });
       } catch (e) {
-        toastError(apiErrorMessage(e));
+        toastApiError(e);
         void qc.invalidateQueries({ queryKey: boardKey });
       }
     },
@@ -191,7 +192,7 @@ export function NotesBoard({ scope, scopeKey, selection, q, onOpenNote, onTagCli
         patchItem(noteId, { note: { ...item.note, color, version: res.version } });
         void qc.invalidateQueries({ queryKey: notesRootKey, refetchType: 'inactive' });
       } catch (e) {
-        toastError(apiErrorMessage(e));
+        toastApiError(e);
         void qc.invalidateQueries({ queryKey: boardKey });
       }
     },
@@ -219,7 +220,7 @@ export function NotesBoard({ scope, scopeKey, selection, q, onOpenNote, onTagCli
       setInnerFocus(note.id);
       await qc.invalidateQueries({ queryKey: notesRootKey });
     } catch (e) {
-      toastError(apiErrorMessage(e));
+      toastApiError(e);
     } finally {
       setCreating(false);
     }

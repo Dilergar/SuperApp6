@@ -9,6 +9,7 @@ import {
   upsertEmploymentSchema,
 } from '@superapp/shared';
 import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import { HrService } from './hr.service';
 import { HrActionsService } from './hr-actions.service';
 import { HrLibraryService } from './hr-library.service';
@@ -151,6 +152,9 @@ export class HrController {
 
   // ---- Массовые действия ----
 
+  // Кадровое действие — юридический факт в трудовой карточке (приказ, документы,
+  // уведомления). Второе такое же «случайно» появиться не должно
+  @Idempotent({ required: true })
   @Post('batches')
   @ApiOperation({ summary: 'Bulk HR action over an audience (cap 500, manager+)' })
   async createBatch(
@@ -183,6 +187,9 @@ export class HrController {
     return { success: true, data };
   }
 
+  // Кадровое действие — юридический факт в трудовой карточке (приказ, документы,
+  // уведомления). Второе такое же «случайно» появиться не должно
+  @Idempotent({ required: true })
   @Post('actions')
   @ApiOperation({ summary: 'Start an HR action: the order and its route (manager+)' })
   async createAction(
@@ -195,6 +202,9 @@ export class HrController {
     return { success: true, data };
   }
 
+  // Кадровое действие — юридический факт в трудовой карточке (приказ, документы,
+  // уведомления). Второе такое же «случайно» появиться не должно
+  @Idempotent({ required: true })
   @Post('actions/:actionId/cancel')
   @ApiOperation({ summary: 'Cancel an action (manager+; an employee — their own resignation, art. 56 (4))' })
   async cancelAction(

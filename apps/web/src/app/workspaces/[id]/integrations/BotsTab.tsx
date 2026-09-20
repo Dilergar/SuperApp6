@@ -8,10 +8,11 @@ import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KEYS_LIMITS, type ApiKeyDto, type ApiKeyRevokeReason, type BotDto, type BotRank, type BotUpdateInput, type KeyScopes } from '@superapp/shared';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { apiErrorMessage } from '@/lib/api';
+
 import { useFormatters } from '@/lib/format';
 import type { Principal } from '@/lib/entities';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import { archiveBot, createBot, createBotKey, fetchBot, fetchBots, fetchKeysPolicy, freezeBot, revokeWorkspaceKey, rotateWorkspaceKey, unfreezeBot, updateBot } from '@/lib/keys-api';
 import { keysBotKey, keysBotsKey, keysPolicyKey, keysRegistryRootKey } from '@/lib/queries';
 import { AllowlistField, BotChip, BotKeyDialog, BotWizard, KeyStatusChip, RevokeKeyDialog, RotateKeyDialog, ScopeMatrix, ScopeSummary, useKeysStepUp } from '@/components/keys';
@@ -46,7 +47,7 @@ export function BotsTab({ workspaceId, isOwner, focusBotId, onOpenJournal }: { w
       invalidate();
       if (done) toast(done, 'success');
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     }
   };
 
@@ -210,7 +211,7 @@ function BotEditDialog({ workspaceId, bot, onClose, onSaved }: { workspaceId: st
       toast(t('bot.savedToast'), 'success');
       onSaved();
     } catch (err) {
-      toastError(apiErrorMessage(err));
+      toastApiError(err);
     } finally {
       setBusy(false);
     }

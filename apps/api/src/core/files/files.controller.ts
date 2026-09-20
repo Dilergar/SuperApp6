@@ -34,6 +34,7 @@ import {
   initFileSchema,
 } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent } from '../../shared/decorators/idempotency.decorator';
 import { Public } from '../../shared/decorators/public.decorator';
 import { FilesService } from './files.service';
 import { FilesUrlService } from './files-url.service';
@@ -136,6 +137,8 @@ export class FilesController {
     return { success: true, data };
   }
 
+  // Ответ — ПОДПИСАННЫЕ ссылки на части (секрет с коротким сроком): снимка нет
+  @Idempotent({ store: 'none' })
   @Post(':id/parts')
   @ApiOperation({ summary: 'Presigned links for the multipart upload parts (files over 25 MB, the s3 driver)' })
   async createParts(

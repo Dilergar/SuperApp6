@@ -35,12 +35,11 @@ import {
 } from '@superapp/shared';
 import { Button, Card, CardHeader, Chip, Divider, Input, Select, Toggle, useConfirm } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
-import { apiDelete, apiErrorMessage, apiGet, apiPatch, apiPost } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { useFormatters } from '@/lib/format';
 import { legalEntitiesKey, workspaceRequisitesKey } from '@/lib/queries';
 
-
+import { toastApiError } from '@/lib/api-errors';
 /** Справочники РК называют СМЫСЛ — слово даёт каталог (`workspaces.orgForm.*`) */
 const orgFormKey = (v: string) => ((ORG_FORMS as readonly string[]).includes(v) ? `orgForm.${v}` : null);
 const taxRegimeKey = (v: string) => ((TAX_REGIMES as readonly string[]).includes(v) ? `taxRegime.${v}` : null);
@@ -267,7 +266,7 @@ export function RequisitesEditor({
       });
     },
     onSuccess: () => void invalidate(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const accIbanNorm = normalizeIban(accIban);
@@ -287,19 +286,19 @@ export function RequisitesEditor({
       setAccBik('');
       void invalidate();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const makePrimary = useMutation({
     mutationFn: (accId: string) => apiPatch(`${accountsPath}/${accId}`, { isPrimary: true }),
     onSuccess: () => void invalidate(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const removeAccount = useMutation({
     mutationFn: (accId: string) => apiDelete(`${accountsPath}/${accId}`),
     onSuccess: () => void invalidate(),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

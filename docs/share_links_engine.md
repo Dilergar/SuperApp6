@@ -59,3 +59,11 @@ ShareLinksRegistry.register(refType, { authorizeManage, resolveGuestView, descri
 ## Проверка
 
 `verify-share-links.cjs`.
+
+## Повтор гостевого действия
+
+`POST /share-links/guest/:token/actions/:key` — ОБЩИЙ диспетчер действий гостя, и за ключом действия у потребителя могут стоять деньги и подпись. Поэтому ручка объявлена `@Idempotent({ required: true })` с собственным резолвером принципала: аккаунта у гостя нет, и «кто это» собирается из пары **токен ссылки + пропуск сессии** (`X-Share-Session`). Пара стабильна в пределах визита и не пересекается с чужими ссылками, так что чужой ключ остаётся «невиданным».
+
+`POST …/:token/session` объявлен `@SkipIdempotency('raw_response')`: ответ — ПРОПУСК гостя, то есть секрет, и хранить его снимком нельзя ни при каких условиях. `POST …/:token/identity/start` — `own_mechanism`: кулдаун и потолки держит сам `core/verify`.
+
+Детали — [idempotency_engine.md](idempotency_engine.md).

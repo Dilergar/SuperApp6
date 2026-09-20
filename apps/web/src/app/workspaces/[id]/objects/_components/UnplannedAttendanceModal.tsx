@@ -12,11 +12,11 @@ import { useMutation } from '@tanstack/react-query';
 import { ATTENDANCE_OUTCOMES } from '@superapp/shared';
 import { Button, DatePicker, Input, Modal, SegmentedControl, Textarea } from '@/components/ui';
 import { PersonChip } from '@/app/circles/PersonCard';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { dateToIso, isoToDate, todayIn } from '@/lib/objects-time';
 import { shiftsApi } from '../objects-api';
 
+import { toastApiError } from '@/lib/api-errors';
 export function UnplannedAttendanceModal({
   workspaceId,
   objectId,
@@ -59,7 +59,7 @@ export function UnplannedAttendanceModal({
       onSaved?.();
       onClose();
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   return (

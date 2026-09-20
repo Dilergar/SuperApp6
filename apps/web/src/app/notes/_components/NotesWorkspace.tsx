@@ -10,13 +10,14 @@ import { NotesBoard } from '@/components/notes/NotesBoard';
 import { NotesFolderTree, NotesTreeList, selectionFolderId, type NotesSelection } from '@/components/notes/NotesFolderTree';
 import { NoteColorMenu } from '@/components/notes/NoteColorMenu';
 import { NoteShareModal } from '@/components/notes/NoteShareModal';
-import { apiErrorMessage } from '@/lib/api';
+
 import { createNoteFolder, fetchNotesSidebar, noteScopeKey, trashNoteFolder, updateNoteFolder } from '@/lib/notes-api';
 import { notesRootKey, notesSidebarKey } from '@/lib/queries';
-import { toastError } from '@/lib/toast';
+
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import '@/components/notes/notes.css';
 
+import { toastApiError } from '@/lib/api-errors';
 // ============================================================
 // Страница Заметок — рабочий стол на весь экран (`.canvas-layer`: всё правее сайдбара
 // и ниже топбара; сайдбар каркаса входит сюда свёрнутым — `prefersRail` в app-nav).
@@ -113,7 +114,7 @@ export function NotesWorkspace({ scope }: { scope: NoteSpaceRef }) {
       if (input.mode === 'create' && res) navigate({ selection: `folder:${res.id}`, note: null });
       if (input.mode === 'trash' && selection === `folder:${input.id}`) navigate({ selection: 'root', note: null });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   if (!ready) return <LoadingBlock />;

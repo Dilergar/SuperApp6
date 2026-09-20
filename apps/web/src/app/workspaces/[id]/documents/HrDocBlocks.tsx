@@ -10,11 +10,12 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { DOC_DELIVERY_METHODS, signRequestHref, type OrgDocumentDto } from '@superapp/shared';
-import { apiErrorMessage, apiPost } from '@/lib/api';
+import { apiPost } from '@/lib/api';
 import { useFormatters } from '@/lib/format';
 import { acknowledgeCampaign, fetchMyCampaignTask } from '@/lib/hr-api';
 import { approvalsRootKey, myCampaignTaskKey, orgDocumentKey } from '@/lib/queries';
-import { toast, toastError } from '@/lib/toast';
+import { toastApiError } from '@/lib/api-errors';
+import { toast } from '@/lib/toast';
 import { Alert, Button, Card, CardHeader, Chip, Input, Modal, Select } from '@/components/ui';
 
 /** Баннер адресата кампании: «Ознакомьтесь» с кнопкой (click) или ссылкой (sms) */
@@ -32,7 +33,7 @@ export function CampaignAckBanner({ workspaceId, documentId }: { workspaceId: st
       void qc.invalidateQueries({ queryKey: myCampaignTaskKey(documentId) });
       void qc.invalidateQueries({ queryKey: approvalsRootKey });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const task = taskQ.data;
   if (!task) return null;
@@ -79,7 +80,7 @@ export function DeliveryBlock({ workspaceId, doc }: { workspaceId: string; doc: 
       setOpen(false);
       void qc.invalidateQueries({ queryKey: orgDocumentKey(workspaceId, doc.id) });
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   // Гибрид/бумага видны и БЕЗ specialDelivery: режим доставки — часть правды

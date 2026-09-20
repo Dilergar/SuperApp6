@@ -26,7 +26,7 @@ import { PersonChip } from '@/app/circles/PersonCard';
 import { AttachmentsSection } from '@/components/files/AttachmentsSection';
 import { NotesPanel } from '@/components/notes/NotesPanel';
 import { apiDelete, apiErrorMessage, apiGet, apiPost } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { FALLBACK_TZ, todayIn } from '@/lib/objects-time';
 import {
   objectFilesKey,
@@ -39,6 +39,7 @@ import {
 import { fetchObject, fetchObjectTree, fetchShiftBoard, objectsApi } from '../objects-api';
 import { ObjectForm } from '../_components/ObjectForm';
 
+import { toastApiError } from '@/lib/api-errors';
 interface RosterRow {
   userId: string;
   userName: string;
@@ -106,31 +107,31 @@ export default function ObjectOverviewPage() {
       invalidate();
       router.push(`/workspaces/${id}/objects`);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const archive = useMutation({
     mutationFn: () =>
       node?.archivedAt ? objectsApi.restore(id, objectId) : objectsApi.archive(id, objectId),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const makeDefault = useMutation({
     mutationFn: () => objectsApi.makeDefault(id, objectId),
     onSuccess: invalidate,
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const attach = useMutation({
     mutationFn: (fileId: string) => apiPost(`/workspaces/${id}/objects/${objectId}/files`, { fileId }),
     onSuccess: () => void qc.invalidateQueries({ queryKey: objectFilesKey(id, objectId) }),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
   const detach = useMutation({
     mutationFn: (fileId: string) => apiDelete(`/workspaces/${id}/objects/${objectId}/files/${fileId}`),
     onSuccess: () => void qc.invalidateQueries({ queryKey: objectFilesKey(id, objectId) }),
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => toastApiError(e),
   });
 
   const todayShifts = todayBoard?.shifts.filter((sh) => sh.status !== 'cancelled').length ?? 0;

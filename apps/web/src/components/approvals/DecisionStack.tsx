@@ -10,11 +10,13 @@ import { PersonChip } from '@/app/circles/PersonCard';
 import { approvalInboxKey, approvalsRootKey, type ApprovalScope } from '@/lib/queries';
 import { decideApproval, fetchInbox } from '@/lib/approvals-api';
 import { acknowledgeCampaign } from '@/lib/hr-api';
-import { apiErrorMessage } from '@/lib/api';
-import { toastError } from '@/lib/toast';
+
 import { MyApprovalsList } from './MyApprovalsList';
 import { SignStepModal } from '@/components/sign/SignStepModal';
 
+import { toastApiError } from '@/lib/api-errors';
+import { useIdempotencyKey } from '@/lib/useIdempotencyKey';
+import { OutcomeUnknownAlert, SlowRequestNote, useOutcomeUnknown } from '@/components/idempotency/OutcomeUnknownAlert';
 /**
  * Стопка «Ждут решения» — одна модалка на всё приложение.
  *
@@ -67,6 +69,13 @@ export function DecisionStack({
     setPending(null);
   }, [item?.id]);
 
+  // Ключ НАМЕРЕНИЯ «решить ЭТОТ элемент»: решение необратимо (маршрут двигается,
+  // уведомления уходят), и двойной клик обязан дать ОДНО решение. Правка причины —
+  // уже другое намерение, ключ обновится сам.
+  const decideKey = useIdempotencyKey([item?.id, comment]);
+  // «Исход неизвестен» тостом не показывают: решение МОГЛО пройти
+  const outcome = useOutcomeUnknown();
+
   const decide = useMutation({
     // Кнопки исполняет ИСТОЧНИК элемента: заявка движка решений — своей ручкой,
     // кампания ознакомления КЭДО — своей («Ознакомлен» = фиксация клика).
@@ -75,15 +84,18 @@ export function DecisionStack({
         await acknowledgeCampaign(item!.id);
         return;
       }
-      await decideApproval(item!.id, { decision, comment: comment || undefined });
+      await decideApproval(item!.id, { decision, comment: comment || undefined }, decideKey.key);
     },
     onSuccess: () => {
       // Префикс — обновляются и стопка, и счётчик бейджа, и «мои заявки»
       void qc.invalidateQueries({ queryKey: approvalsRootKey });
+      decideKey.reset();
       setComment('');
       setPending(null);
     },
-    onError: (e) => toastError(apiErrorMessage(e)),
+    onError: (e) => {
+      if (!outcome.capture(e)) toastApiError(e);
+    },
   });
 
   const t = useTranslations('approvals');
@@ -130,6 +142,17 @@ export function DecisionStack({
         <EmptyState icon="checkCircle" title={t('stack.empty')} description={t('stack.emptyHint')} />
       ) : item ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
+          {/* Проверить исход — в «моих заявках» соседней вкладкой: там видно,
+              двинулся ли маршрут. */}
+          <OutcomeUnknownAlert
+            error={outcome.error}
+            onOpenHistory={() => {
+              void qc.invalidateQueries({ queryKey: approvalsRootKey });
+              outcome.clear();
+              setTab('mine');
+            }}
+            onDismiss={outcome.clear}
+          />
           <Card>
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--spacing-3)' }}>
               <Icon name="file" size={22} />
@@ -217,6 +240,7 @@ export function DecisionStack({
                 </Button>
               );
             })}
+            <SlowRequestNote pending={decide.isPending} />
           </div>
 
           {items.length > 1 && (

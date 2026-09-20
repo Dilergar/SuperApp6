@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { callKickSchema, callMuteSchema, callTokenSchema } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { CallsService } from './calls.service';
 import { CallsRecordingService } from './calls-recording.service';
 
@@ -25,6 +26,8 @@ export class CallsController {
     return { success: true, data: this.calls.getStatus() };
   }
 
+  // Ответ — токен доступа к комнате (секрет, короткоживущий): снимка нет
+  @Idempotent({ store: 'none' })
   @Post('token')
   @Throttle({ long: { limit: 60, ttl: 60000 } })
   @ApiOperation({ summary: 'A join token for an entity call (refType+refId; the resolver decides the access)' })

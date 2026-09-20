@@ -12,6 +12,7 @@ import {
   signQrSubmitSchema,
 } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { Public } from '../../shared/decorators/public.decorator';
 import { SignService, type SignActor, type SignCtx } from './sign.service';
 import { SignQrService } from './sign-qr.service';
@@ -68,6 +69,8 @@ export class SignController {
 
   // ---- ПЭП ----
 
+  // Ответ несёт одноразовый секрет отправки кода — снимка не храним
+  @Idempotent({ store: 'none' })
   @Post('acts/:actId/pep/start')
   @HttpCode(HttpStatus.OK)
   // SMS = деньги: грубая сетка поверх точных лимитов core/verify.
@@ -83,6 +86,8 @@ export class SignController {
     return { success: true, data: await this.sign.pepStart(actorOf(user), actId, dto, ctxOf(req)) };
   }
 
+  // Юридически значимое действие: подписать дважды нельзя «переделать». Ключ обязателен
+  @Idempotent({ required: true })
   @Post('acts/:actId/pep/confirm')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 60, ttl: 900000 } })
@@ -99,6 +104,8 @@ export class SignController {
 
   // ---- ЭЦП ----
 
+  // Юридически значимое действие: подписать дважды нельзя «переделать». Ключ обязателен
+  @Idempotent({ required: true })
   @Post('acts/:actId/cms')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'QES via NCALayer: a ready container from the browser' })
@@ -113,6 +120,8 @@ export class SignController {
     return { success: true, data };
   }
 
+  // Ответ несёт ссылку-приглашение eGov Mobile (секрет сессии подписи)
+  @Idempotent({ store: 'none' })
   @Post('acts/:actId/qr/start')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'QES via eGov Mobile: a single-use QR code' })
@@ -128,6 +137,8 @@ export class SignController {
 
   // ---- Отказ ----
 
+  // Юридически значимое действие: подписать дважды нельзя «переделать». Ключ обязателен
+  @Idempotent({ required: true })
   @Post('acts/:actId/decline')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Decline to sign (the reason is mandatory)' })
@@ -198,6 +209,10 @@ export class SignQrBridgeController {
   }
 
   @Public()
+  // Мост eGov Mobile нашего заголовка не пришлёт и прислать не может. Защита —
+  // СОБСТВЕННЫЙ механизм ручки: одноразовый неугадываемый токен и жёсткая
+  // статус-машина сессии (повторный submit тем же токеном отвергается).
+  @SkipIdempotency('own_mechanism')
   @Post('submit/:signToken')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 30, ttl: 60000 } })

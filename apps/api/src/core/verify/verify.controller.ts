@@ -5,6 +5,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { VerifyService } from './verify.service';
 import { Public } from '../../shared/decorators/public.decorator';
+import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { verifyStartSchema, verifyStepUpSchema, verifyCheckSchema } from '@superapp/shared';
 import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
@@ -37,6 +38,8 @@ export class VerifyController {
   }
 
   @Public()
+  // Одноразовый код и его окно — механизм самого движка подтверждений
+  @SkipIdempotency('own_mechanism')
   @Post('start')
   @HttpCode(HttpStatus.OK)
   // SMS = деньги: грубая сетка NestJS-троттлера поверх точных внутренних лимитов движка.
@@ -52,6 +55,7 @@ export class VerifyController {
     return { success: true, data: result };
   }
 
+  @SkipIdempotency('own_mechanism')
   @Post('step-up')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 15, ttl: 900000 } })
@@ -65,6 +69,7 @@ export class VerifyController {
   }
 
   @Public()
+  @SkipIdempotency('own_mechanism')
   @Post('check')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 60, ttl: 900000 } })
