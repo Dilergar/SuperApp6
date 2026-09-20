@@ -55,6 +55,16 @@ export class ConsentsSeedService implements OnApplicationBootstrap {
     return { bodies, summaries };
   }
 
+  /**
+   * Тексты документа из файлов-исходников либо null (нет папки или файлов). Скрипт первого запуска
+   * (`consents-publish-initial.cjs`) сверяет с ними черновик: засев создаёт черновик ТОЛЬКО документу
+   * без версий, поэтому файлы, поправленные после первого старта API, в базу сами не попадают.
+   */
+  sourceTexts(key: ConsentDocumentKey): { bodies: ConsentLocalizedText; summaries: ConsentLocalizedText } | null {
+    const dir = this.textsDir();
+    return dir ? this.read(dir, key) : null;
+  }
+
   async onApplicationBootstrap(): Promise<void> {
     // Смоук реестра: опечатка в пакете/виде роняет старт, а не всплывает отказом на регистрации
     assertConsentRegistry();
