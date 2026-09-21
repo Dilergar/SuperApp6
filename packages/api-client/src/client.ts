@@ -8,6 +8,7 @@ import {
   ANALYTICS_HEADERS,
   IDEMPOTENCY_ERROR_CODES,
   IDEMPOTENCY_KEY_HEADER,
+  IDEMPOTENT_REPLAYED_HEADER,
   LOCALE_HEADER,
   SHOULD_RETRY_HEADER,
   type ApiOk,
@@ -109,12 +110,20 @@ function backoffMs(attempt: number): number {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** uuid из веб-крипто; в средах без него (старый RN) — случайная строка того же алфавита. */
-function newKey(): string {
+/**
+ * Новый ключ повтора: uuid из веб-крипто. `randomUUID` есть не везде — его нет вне
+ * secure context (страница по `http://<ip-в-локальной-сети>`, так проверяют мобильный
+ * веб) и в старых WebView/RN. Там берём `getRandomValues`: он доступен почти всегда и
+ * остаётся криптостойким. `Math.random` — самый последний запасной путь.
+ */
+export function newIdempotencyKey(): string {
   const c = typeof globalThis !== 'undefined' ? (globalThis as { crypto?: Crypto }).crypto : undefined;
   if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === 'function') c.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
   let out = '';
-  for (let i = 0; i < 32; i++) out += Math.floor(Math.random() * 16).toString(16);
+  for (const b of bytes) out += b.toString(16).padStart(2, '0');
   return out;
 }
 
@@ -156,7 +165,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     const method = (cfg.method ?? 'get').toLowerCase();
     if (MUTATIONS.has(method) && cfg.headers.Authorization) {
       const explicit = (cfg as AxiosRequestConfig & { idempotencyKey?: string }).idempotencyKey;
-      if (!cfg.headers[IDEMPOTENCY_KEY_HEADER]) cfg.headers[IDEMPOTENCY_KEY_HEADER] = explicit ?? newKey();
+      if (!cfg.headers[IDEMPOTENCY_KEY_HEADER]) cfg.headers[IDEMPOTENCY_KEY_HEADER] = explicit ?? newIdempotencyKey();
     }
     // Отказ SDK аналитики не должен ломать ни один запрос — контекст best-effort
     try {
@@ -312,6 +321,17 @@ export function apiErrorMessage(err: unknown): string {
 }
 
 /** Машиночитаемые детали отказа (`details.code` и т.п.) — клиент не ветвится по русскому тексту. */
+/**
+ * Отказ собран из СНИМКА первой попытки (`Idempotent-Replayed: true`), а не получен
+ * заново. Значит, первая попытка закоммитила эффект и упала: мир уже изменился, а тот
+ * же ключ будет отдавать этот же отказ, пока жив снимок. Форме это важно — см. веб
+ * `toastApiError`.
+ */
+export function apiErrorReplayed(err: unknown): boolean {
+  if (!isAxiosError(err)) return false;
+  return String(err.response?.headers?.[IDEMPOTENT_REPLAYED_HEADER.toLowerCase()] ?? '') === 'true';
+}
+
 export function apiErrorDetails(err: unknown): Record<string, unknown> | undefined {
   if (isAxiosError(err)) {
     return (err.response?.data as { details?: Record<string, unknown> } | undefined)?.details;

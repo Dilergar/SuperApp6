@@ -8,10 +8,21 @@ import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-us
 import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { badRequest, conflict, forbidden } from '../../shared/errors/api-error';
 import { runInternal } from '../../shared/idempotency/binding';
+import { IdempotencyInboxService } from './idempotency.inbox.service';
 import { IdempotencyService } from './idempotency.service';
 
 /** Маркер «эффект случился». Живёт в таблице ящика: у неё уже есть нужный уникум. */
 const DEV_SOURCE = 'idem_dev';
+/** Учебные события САМОГО ящика (аренда обработки) — отдельный источник, чтобы не мешать маркерам. */
+const DEV_INBOX_SOURCE = 'idem_dev_inbox';
+
+const inboxBody = z
+  .object({
+    /** `expire` — состарить строку «в работе»: так выглядит обработчик, умерший посреди работы */
+    op: z.enum(['begin', 'done', 'forget', 'expire']),
+    eventId: z.string().min(4).max(64),
+  })
+  .strict();
 
 const tagBody = z.object({ tag: z.string().min(4).max(64) }).strict();
 const simulateBody = z
@@ -49,6 +60,7 @@ export class IdempotencyDevController {
   constructor(
     private readonly db: DatabaseService,
     private readonly idem: IdempotencyService,
+    private readonly inbox: IdempotencyInboxService,
   ) {}
 
   private assertDev(): void {
@@ -188,17 +200,60 @@ export class IdempotencyDevController {
     return { success: true, data: { ok: true } };
   }
 
-  /** Ручка дольше аренды: heartbeat обязан удержать заявку. */
+  /**
+   * Ручка дольше аренды: heartbeat обязан удержать заявку.
+   *
+   * `swallow=1` — сервис ГЛОТАЕТ ошибки своих записей внутри транзакции (`.catch`).
+   * Если попытку за время ожидания перехватили, отметка не ляжет — и проглоченный
+   * отказ не вправе дать транзакции закоммитить эффект устаревшей попытки.
+   */
   @Post('slow')
   @HttpCode(HttpStatus.CREATED)
   @Idempotent({ required: true })
   @ApiOperation({ summary: '[dev] A handler that runs longer than the lease' })
-  async slow(@CurrentUser() user: JwtPayload, @Body() body: unknown, @Query('ms') ms?: string) {
+  async slow(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: unknown,
+    @Query('ms') ms?: string,
+    @Query('swallow') swallow?: string,
+  ) {
     this.assertDev();
     const dto = tagBody.parse(body ?? {});
     const wait = Math.min(120_000, Math.max(0, Number(ms) || 0));
     await new Promise((resolve) => setTimeout(resolve, wait));
+    if (swallow === '1') {
+      await this.db.$transaction(async (tx) => {
+        const row = (suffix: string) => ({ source: DEV_SOURCE, account: `${user.sub}:${dto.tag}${suffix}`, eventId: randomUUID() });
+        await tx.idempotencyInbox.create({ data: row(':first') }).catch(() => undefined);
+        await tx.idempotencyInbox.create({ data: row('') }).catch(() => undefined);
+      });
+      return { success: true, data: { id: null } };
+    }
     const id = await this.effect(dto.tag, user.sub);
+    return { success: true, data: { id } };
+  }
+
+  /**
+   * Транзакция ДЕРЖИТ строку заявки: отметка «эффект закоммичен» уже легла (это UPDATE
+   * внутри бизнес-транзакции), а коммита ещё нет. Повтор в это окно обязан ответить
+   * сразу (`409 in_flight`), а не висеть на блокировке строки до конца транзакции.
+   */
+  @Post('hold')
+  @HttpCode(HttpStatus.CREATED)
+  @Idempotent({ required: true })
+  @ApiOperation({ summary: '[dev] A transaction that keeps the key row locked for a while' })
+  async hold(@CurrentUser() user: JwtPayload, @Body() body: unknown, @Query('ms') ms?: string) {
+    this.assertDev();
+    const dto = tagBody.parse(body ?? {});
+    const wait = Math.min(20_000, Math.max(0, Number(ms) || 0));
+    const id = randomUUID();
+    await this.db.$transaction(
+      async (tx) => {
+        await tx.idempotencyInbox.create({ data: { source: DEV_SOURCE, account: `${user.sub}:${dto.tag}`, eventId: id } });
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      },
+      { timeout: wait + 10_000 },
+    );
     return { success: true, data: { id } };
   }
 
@@ -236,6 +291,34 @@ export class IdempotencyDevController {
     return { success: true, data: { rows: n } };
   }
 
+  /**
+   * «Входящий ящик» с арендой обработки: `begin` → `done` | `forget`. Смерть обработчика
+   * посреди работы моделирует `expire` — строка «в работе» стареет, и следующая доставка
+   * обязана ЗАБРАТЬ событие, а не погаситься как дубль.
+   */
+  @Post('inbox')
+  @HttpCode(HttpStatus.OK)
+  @SkipIdempotency('own_mechanism')
+  @ApiOperation({ summary: '[dev] Drive the inbox lease: begin / done / forget / expire' })
+  async inboxOp(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    this.assertDev();
+    const dto = inboxBody.parse(body ?? {});
+    const ref = { source: DEV_INBOX_SOURCE, account: user.sub, eventId: dto.eventId };
+    if (dto.op === 'begin') return { success: true, data: { verdict: await this.inbox.begin(ref) } };
+    if (dto.op === 'done') return { success: true, data: { rows: await this.inbox.done(ref) } };
+    if (dto.op === 'forget') return { success: true, data: { rows: await this.inbox.forget(ref) } };
+    const rows = await runInternal(() =>
+      this.db.$executeRawUnsafe(
+        `UPDATE "idempotency_inbox" SET "received_at" = (now() AT TIME ZONE 'UTC') - make_interval(mins => 5)
+         WHERE "source" = $1 AND "account" = $2 AND "event_id" = $3 AND "done_at" IS NULL`,
+        ref.source,
+        ref.account,
+        ref.eventId,
+      ),
+    );
+    return { success: true, data: { rows } };
+  }
+
   /** Убрать следы учения: маркеры эффектов и строки ключей дев-полигона. */
   @Post('reset')
   @HttpCode(HttpStatus.OK)
@@ -244,7 +327,12 @@ export class IdempotencyDevController {
   async reset(@CurrentUser() user: JwtPayload) {
     this.assertDev();
     const markers = await this.db.idempotencyInbox.deleteMany({
-      where: { source: DEV_SOURCE, account: { startsWith: `${user.sub}:` } },
+      where: {
+        OR: [
+          { source: DEV_SOURCE, account: { startsWith: `${user.sub}:` } },
+          { source: DEV_INBOX_SOURCE, account: user.sub },
+        ],
+      },
     });
     const keys = await runInternal(() =>
       this.db.$executeRawUnsafe(

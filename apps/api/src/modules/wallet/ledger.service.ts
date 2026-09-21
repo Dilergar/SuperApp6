@@ -120,6 +120,19 @@ export class LedgerService {
     return BigInt(amount);
   }
 
+  /**
+   * Второй ремень идемпотентности, проверка ПОСЛЕ блокировки счетов. Проверки «до»
+   * мало: две одновременные проводки с одним ключом обе видят «дубля нет», и вторая
+   * падает на уникуме — а конфликт уникума внутри транзакции Postgres абортит её ВСЮ,
+   * то есть вместо тихого «уже сделано» человек получал 500. Блокировка счетов — точка
+   * сериализации: вторая ждёт коммита первой и (READ COMMITTED) уже видит её проводку.
+   */
+  private async appliedAlready(tx: Tx, idempotencyKey: string | null | undefined): Promise<bigint | null> {
+    if (!idempotencyKey) return null;
+    const dup = await tx.ledgerTransfer.findUnique({ where: { idempotencyKey }, select: { id: true } });
+    return dup?.id ?? null;
+  }
+
   /** Append an immutable journal row. Returns its id, or null if an idempotency key collided. */
   private async append(
     tx: Tx,
@@ -205,6 +218,7 @@ export class LedgerService {
       const issuance = await this.getOrCreateIssuanceAccount(t, input.currencyId);
       const user = await this.getOrCreateHolderAccount(t, input.currencyId, input.ownerType ?? 'user', input.ownerId);
       const locks = await this.lock(t, [issuance.id, user.id]);
+      if ((await this.appliedAlready(t, input.idempotencyKey)) !== null) return;
       const i = locks.get(issuance.id)!;
       const u = locks.get(user.id)!;
       if (u.balance + amount > BigInt(WALLET_LIMITS.maxInHand)) {
@@ -238,6 +252,7 @@ export class LedgerService {
       const holder = await this.getOrCreateHolderAccount(t, input.currencyId, input.ownerType ?? 'user', input.ownerId);
       const issuance = await this.getOrCreateIssuanceAccount(t, input.currencyId);
       const locks = await this.lock(t, [holder.id, issuance.id]);
+      if ((await this.appliedAlready(t, input.idempotencyKey)) !== null) return;
       const h = locks.get(holder.id)!;
       const i = locks.get(issuance.id)!;
       if (h.balance - h.held - amount < 0n) {
@@ -282,6 +297,8 @@ export class LedgerService {
       if (dup) return dup.id;
     }
     const locks = await this.lock(tx, [input.fromAccountId, input.toAccountId]);
+    const applied = await this.appliedAlready(tx, input.idempotencyKey);
+    if (applied !== null) return applied;
     const from = locks.get(input.fromAccountId)!;
     const to = locks.get(input.toAccountId)!;
     if (!from.allowNegative && from.balance - from.held - amount < 0n) {

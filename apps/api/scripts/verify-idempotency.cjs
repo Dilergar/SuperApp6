@@ -134,6 +134,27 @@ async function main() {
     const a = await call('POST', '/idempotency/dev/readonly', u1.token, {}, withKey(key));
     const row = await keyRow(u1.id, '/idempotency/dev/readonly');
     check('read-only POST → ключ released, снимка нет', a.status === 200 && row?.state === 'released' && row?.response_id === null, `${row?.state}`);
+    // Отпущенная строка ничего не защищает — её срок короткий (сутки, а не неделя):
+    // клиент ставит ключ на КАЖДУЮ мутацию, и без этого они составляли бы таблицу
+    const ttl = await prisma.$queryRawUnsafe(
+      `SELECT (expires_at < (now() AT TIME ZONE 'UTC') + interval '25 hours') AS short
+       FROM idem.keys WHERE user_id = $1::uuid AND route LIKE '%/idempotency/dev/readonly' ORDER BY created_at DESC LIMIT 1`,
+      u1.id,
+    );
+    check('released-строка живёт сутки, а не неделю', ttl[0]?.short === true, JSON.stringify(ttl[0]));
+  }
+  {
+    // Аноним на публичной ручке: случайный токен + случайный ключ. Заявка заводится
+    // (принципал есть), ручка отвечает 404 — и строка обязана ИСЧЕЗНУТЬ: иначе любой
+    // растил бы `idem.keys` без аутентификации, на неделю каждая строка.
+    const key = randomUUID();
+    const bogus = 'x' + randomUUID().replace(/-/g, '');
+    const r = await call('POST', `/processes/webhook/${bogus}`, null, { a: 1 }, withKey(key));
+    const left = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM idem.keys WHERE key_hash = $1`,
+      require('crypto').createHash('sha256').update(key, 'utf8').digest(),
+    );
+    check('аноним с мусорным токеном: 404 и НИ ОДНОЙ строки в idem.keys', r.status === 404 && Number(left[0]?.n) === 0, `${r.status}, строк ${left[0]?.n}`);
   }
 
   // ---------- 9. Горячая ручка вне движка ----------
@@ -228,6 +249,60 @@ async function main() {
     const r = await call('POST', '/idempotency/dev/required', u1.token, { tag }, withKey(key));
     check('живая аренда новой попытки → 409 in_flight', r.status === 409 && r.code === 'idempotency.in_flight', `${r.status} ${r.code}`);
     check('второго эффекта не появилось', (await effects(u1.token, tag)) === 1, '');
+  }
+
+  {
+    // Настоящий fencing: попытку перехватили, ПОКА обработчик ещё не писал. Его
+    // транзакция обязана откатиться целиком — эффекта устаревшей попытки быть не может.
+    const key = randomUUID();
+    const tag = 'fence2-' + randomUUID().slice(0, 8);
+    await call('POST', '/idempotency/dev/reset', u1.token, {});
+    const stale = call('POST', '/idempotency/dev/slow?ms=2500', u1.token, { tag }, withKey(key));
+    await sleep(800);
+    await call('POST', '/idempotency/dev/simulate', u1.token, { state: 'in_progress', lease: 'extend', bumpAttempt: true });
+    const r = await stale;
+    check('перехваченная попытка: транзакция откатилась → 409 in_flight', r.status === 409 && r.code === 'idempotency.in_flight', `${r.status} ${r.code}`);
+    check('и эффекта устаревшей попытки НЕТ', (await effects(u1.token, tag)) === 0, `${await effects(u1.token, tag)}`);
+  }
+  {
+    // То же, но сервис ГЛОТАЕТ ошибки своих записей (`.catch(() => …)` внутри транзакции):
+    // отказ отметки не вправе потеряться — иначе устаревшая попытка закоммитила бы эффект
+    const key = randomUUID();
+    const tag = 'fence3-' + randomUUID().slice(0, 8);
+    await call('POST', '/idempotency/dev/reset', u1.token, {});
+    const stale = call('POST', '/idempotency/dev/slow?ms=2500&swallow=1', u1.token, { tag }, withKey(key));
+    await sleep(800);
+    await call('POST', '/idempotency/dev/simulate', u1.token, { state: 'in_progress', lease: 'extend', bumpAttempt: true });
+    const r = await stale;
+    check('fencing не глотается сервисом: всё равно 409 in_flight', r.status === 409 && r.code === 'idempotency.in_flight', `${r.status} ${r.code}`);
+    check('и проглоченная запись устаревшей попытки НЕ закоммичена', (await effects(u1.token, tag)) === 0, `${await effects(u1.token, tag)}`);
+  }
+
+  // ---------- 15b. Повтор не висит на строке, которую держит живая транзакция ----------
+  {
+    const key = randomUUID();
+    const tag = 'hold-' + randomUUID().slice(0, 8);
+    const first = call('POST', '/idempotency/dev/hold?ms=4000', u1.token, { tag }, withKey(key));
+    await sleep(1000);
+    const t0 = Date.now();
+    const during = await call('POST', '/idempotency/dev/hold?ms=4000', u1.token, { tag }, withKey(key));
+    const took = Date.now() - t0;
+    check('повтор при живой транзакции первой попытки → 409 in_flight', during.status === 409 && during.code === 'idempotency.in_flight', `${during.status} ${during.code}`);
+    check('и отвечает СРАЗУ, а не ждёт её коммита (соединение пула не занято)', took < 1500, `${took}мс`);
+    const r = await first;
+    check('первая попытка спокойно завершилась', r.status === 201, `${r.status}`);
+    check('эффект один', (await effects(u1.token, tag)) === 1, '');
+  }
+
+  // ---------- 15c. Эффект закоммичен, обработчик ещё жив ----------
+  {
+    const key = randomUUID();
+    const tag = 'alive-' + randomUUID().slice(0, 8);
+    await call('POST', '/idempotency/dev/reset', u1.token, {});
+    await call('POST', '/idempotency/dev/required', u1.token, { tag }, withKey(key));
+    await call('POST', '/idempotency/dev/simulate', u1.token, { state: 'committed', lease: 'extend' });
+    const r = await call('POST', '/idempotency/dev/required', u1.token, { tag }, withKey(key));
+    check('committed + ЖИВАЯ аренда → 409 in_flight (ответ вот-вот будет), а не «готово, тела нет»', r.status === 409 && r.code === 'idempotency.in_flight' && r.shouldRetry === 'true', `${r.status} ${r.code}`);
   }
 
   // ---------- 16. Вложенная и параллельные транзакции ----------
@@ -376,6 +451,31 @@ async function main() {
     await prisma.$executeRawUnsafe(`DELETE FROM "idempotency_inbox" WHERE "source"='suite' AND "account"=$1`, account);
   }
 
+  {
+    // Аренда обработки: приёмник, чья работа не помещается в одну транзакцию
+    const op = async (o, eventId) => (await call('POST', '/idempotency/dev/inbox', u1.token, { op: o, eventId })).json?.data;
+    const e1 = 'ev-' + randomUUID().slice(0, 12);
+    const first = await op('begin', e1);
+    const during = await op('begin', e1);
+    check('ящик: первая доставка → first', first?.verdict === 'first', JSON.stringify(first));
+    check('ящик: редоставка, пока первая В РАБОТЕ → in_flight (источнику не-2xx: пусть придёт ещё)', during?.verdict === 'in_flight', JSON.stringify(during));
+    await op('done', e1);
+    check('ящик: редоставка после done → duplicate', (await op('begin', e1))?.verdict === 'duplicate', '');
+    check('ящик: forget НЕ снимает уже обработанное событие', (await op('forget', e1))?.rows === 0 && (await op('begin', e1))?.verdict === 'duplicate', '');
+
+    // Обработчик УМЕР посреди работы (деплой, OOM): forget он уже не позовёт.
+    // Без аренды событие осталось бы помеченным навсегда и редоставка гасилась бы как дубль.
+    const e2 = 'ev-' + randomUUID().slice(0, 12);
+    await op('begin', e2);
+    await op('expire', e2);
+    check('ящик: обработчик умер (аренда истекла) → редоставка ЗАБИРАЕТ событие', (await op('begin', e2))?.verdict === 'first', '');
+
+    const e3 = 'ev-' + randomUUID().slice(0, 12);
+    await op('begin', e3);
+    await op('forget', e3);
+    check('ящик: обработка упала (forget) → редоставка проходит как первая', (await op('begin', e3))?.verdict === 'first', '');
+  }
+
   // ---------- 21. Партиции снимков ----------
   {
     const parts = await prisma.$queryRawUnsafe(
@@ -391,6 +491,14 @@ async function main() {
        WHERE ns.nspname='idem' AND p.relname='keys'`,
     );
     check('партиции снимков созданы вперёд', Number(parts[0]?.n ?? 0) >= 3, `${parts[0]?.n}`);
+    // Поиск поддержки идёт по ОДНОМУ key_hash — он обязан быть ведущей колонкой индекса,
+    // иначе команда кабинета последовательно читала бы все 16 партиций
+    const pk = await prisma.$queryRawUnsafe(
+      `SELECT pg_get_indexdef(i.indexrelid) AS def FROM pg_index i
+       JOIN pg_class c ON c.oid = i.indrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace
+       WHERE ns.nspname = 'idem' AND c.relname = 'keys' AND i.indisprimary`,
+    );
+    check('первичный ключ idem.keys начинается с key_hash (поиск по сырому ключу — по индексу)', /\(key_hash, scope_hash\)/.test(pk[0]?.def ?? ''), pk[0]?.def);
     check('idem.keys разбит на 16 хэш-партиций (уникальность ключа глобальна)', Number(keyParts[0]?.n ?? 0) === 16, `${keyParts[0]?.n}`);
   }
 

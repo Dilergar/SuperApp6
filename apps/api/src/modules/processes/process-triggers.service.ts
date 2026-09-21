@@ -1,5 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import {
+  IDEMPOTENCY_ERROR_CODES,
+  IDEMPOTENCY_LIMITS,
   PROCESS_EVENT_TYPES,
   TEAM_WORKSPACE_ROLES,
   WORKSPACE_ROLE_RANK,
@@ -7,6 +9,7 @@ import {
 } from '@superapp/shared';
 import { SOURCE_LOCALE } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { conflict } from '../../shared/errors/api-error';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { ProcessesService } from './processes.service';
@@ -207,13 +210,25 @@ export class ProcessTriggerRouter implements OnModuleInit {
 
   /** Публичный вебхук: тело запроса → анкета процесса. Возвращает id инстанса или null. */
   async fireWebhook(token: string, body: Record<string, unknown>): Promise<string | null> {
-    const trigger = await this.findByRawToken(token);
-    if (!trigger || !trigger.enabled || trigger.type !== 'webhook') return null;
-    if (!(await this.runAsAllowed(trigger))) return null;
+    const trigger = await this.liveWebhookTrigger(token);
+    if (!trigger) return null;
     const nodeId = ((trigger.config ?? {}) as { nodeId?: string }).nodeId;
     const id = await this.processes.startInstanceProgrammatic(trigger.definitionId, trigger.runAsUserId, body ?? {}, 'webhook', nodeId);
     if (id) await this.db.processTrigger.update({ where: { id: trigger.id }, data: { lastRunAt: new Date() } });
     return id;
+  }
+
+  /**
+   * Вебхук-триггер, который вправе стрелять ПРЯМО СЕЙЧАС: токен настоящий, триггер
+   * включён, его автор всё ещё имеет право запускать процесс. Зовут двое — сам запуск
+   * и шлюз повтора движка идемпотентности: повтор отдаёт сохранённый ответ, не вызывая
+   * ручку, и выключенный триггер иначе продолжал бы отвечать «запущено».
+   */
+  async liveWebhookTrigger(token: string) {
+    const trigger = await this.findByRawToken(token);
+    if (!trigger || !trigger.enabled || trigger.type !== 'webhook') return null;
+    if (!(await this.runAsAllowed(trigger))) return null;
+    return trigger;
   }
 
   /**
@@ -240,12 +255,24 @@ export class ProcessTriggerRouter implements OnModuleInit {
       typeof updateId === 'number' || typeof updateId === 'string'
         ? { source: 'telegram', account: trigger.id, eventId: String(updateId) }
         : null;
-    if (inboxRef && !(await this.inbox.firstTime(inboxRef))) return null; // редоставка
+    if (inboxRef) {
+      const verdict = await this.inbox.begin(inboxRef);
+      if (verdict === 'duplicate') return null; // редоставка обработанного апдейта
+      // Первая доставка ещё в работе: 200 сказал бы Telegram «принято», и упади она —
+      // апдейт пропал бы. Не-2xx ⇒ Telegram повторит позже.
+      if (verdict === 'in_flight') {
+        throw conflict(IDEMPOTENCY_ERROR_CODES.inFlight, undefined, { retryInSec: IDEMPOTENCY_LIMITS.retryAfterSec });
+      }
+    }
 
     const msg = (update.message ?? update.edited_message) as Record<string, unknown> | undefined;
     const text = typeof msg?.text === 'string' ? msg.text : null;
     const chat = msg?.chat as { id?: unknown } | undefined;
-    if (!msg || text === null || chat?.id == null) return null; // не текстовое сообщение — игнор (200)
+    if (!msg || text === null || chat?.id == null) {
+      // Не текстовое сообщение — игнор (200). Апдейт при этом ОБРАБОТАН: закрываем отметку
+      if (inboxRef) await this.inbox.done(inboxRef).catch(() => undefined);
+      return null;
+    }
 
     const from = (msg.from ?? {}) as Record<string, unknown>;
     const first = typeof from.first_name === 'string' ? from.first_name : '';
@@ -271,6 +298,9 @@ export class ProcessTriggerRouter implements OnModuleInit {
       if (inboxRef) await this.inbox.forget(inboxRef).catch(() => undefined);
       throw err;
     }
+    // Не дошли досюда (процесс умер посреди запуска) — аренда истечёт, и редоставка
+    // Telegram заберёт апдейт, а не погасится как дубль
+    if (inboxRef) await this.inbox.done(inboxRef).catch(() => undefined);
     if (id) await this.db.processTrigger.update({ where: { id: trigger.id }, data: { lastRunAt: new Date() } });
     return id;
   }

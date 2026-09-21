@@ -1,5 +1,6 @@
 import axios, { isAxiosError, type AxiosRequestConfig } from 'axios';
 import { readLocaleCookie } from '@/i18n/locale';
+import { newIdempotencyKey } from '@superapp/api-client';
 import {
   IDEMPOTENCY_KEY_HEADER,
   LOCALE_HEADER,
@@ -161,13 +162,8 @@ export async function shareAction<T>(
   });
 }
 
-/** uuid браузера; в средах без него — случайная строка того же вида. */
-function newGuestKey(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  let out = '';
-  for (let i = 0; i < 32; i++) out += Math.floor(Math.random() * 16).toString(16);
-  return out;
-}
+/** Тот же генератор, что у основного транспорта: гость чаще всех открывает ссылку в чужом WebView. */
+const newGuestKey = newIdempotencyKey;
 
 /**
  * ПУБЛИЧНАЯ проверка подписи (ст. 61 ЦК РК). Файл при этом НЕ уходит на сервер:

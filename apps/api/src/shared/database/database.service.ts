@@ -85,8 +85,17 @@ export function buildScopedPrismaClient(wsContext: WorkspaceContextService) {
   const bound = scoped.$extends({
     name: 'idempotencyBinding',
     query: {
-      async $allOperations({ operation, args, query }) {
-        await beforeOperation(wsContext.get()?.idem, operation);
+      async $allOperations(params) {
+        const { operation, args, query } = params;
+        const binding = wsContext.get()?.idem;
+        if (binding) {
+          // Идёт ли операция по ТРАНЗАКЦИОННОМУ клиенту. Признак внутренний для Prisma
+          // (`__internalParams.transaction`), поэтому читается защитно: не нашли — `undefined`,
+          // и привязка ведёт себя как раньше. С ним она ловит корневой клиент, взятый
+          // посреди чужой транзакции: такая запись откатом не снимается.
+          const internal = (params as { __internalParams?: { transaction?: unknown } }).__internalParams;
+          await beforeOperation(binding, operation, internal ? Boolean(internal.transaction) : undefined);
+        }
         return query(args);
       },
     },

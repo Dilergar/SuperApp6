@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { IDEMPOTENCY_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -15,6 +15,20 @@ export interface InboxRef {
   eventId: string;
 }
 
+/**
+ * Что делать приёмнику с событием:
+ *  - `first` — видим впервые (либо прошлый обработчик умер посреди работы): обрабатываем,
+ *    в конце зовём `done`, на сбое — `forget`;
+ *  - `duplicate` — уже обработано: тихо отвечаем источнику 2xx;
+ *  - `in_flight` — прямо сейчас обрабатывается другой доставкой: отвечаем НЕ-2xx, чтобы
+ *    источник пришёл ещё раз. Ответить 2xx нельзя: первая доставка может упасть, снять
+ *    отметку — а источник, услышав «принято», больше не придёт, и событие пропадёт.
+ */
+export type InboxVerdict = 'first' | 'duplicate' | 'in_flight';
+
+/** Сейчас по часам БАЗЫ (колонки ящика — `timestamp` без пояса, в UTC). */
+const NOW = Prisma.sql`(now() AT TIME ZONE 'UTC')`;
+
 // ============================================================
 // «Входящий ящик» — общий примитив «ровно один раз» для того, что приходит СНАРУЖИ
 // и не несёт нашего ключа: вебхуки чужих систем и пакеты планировщика.
@@ -22,12 +36,20 @@ export interface InboxRef {
 // ОПАСНОСТЬ, которую нельзя забыть: отметку ставят ТОЛЬКО ПОСЛЕ проверки подписи и
 // окна времени. Иначе кто угодно отравит ящик поддельным `event.id`, и НАСТОЯЩЕЕ
 // событие с тем же id будет молча выброшено как дубль.
+//
+// Два способа пользоваться:
+//  - `once(tx)` — обработка целиком помещается в транзакцию вызывающего: отметка и
+//    эффект коммитятся вместе, откат снимает обе;
+//  - `begin` → обработка → `done` | `forget` — обработка в одну транзакцию НЕ помещается
+//    (внутри сетевые вызовы). Между `begin` и `done` строка «в работе» под АРЕНДОЙ:
+//    процесс, умерший посреди обработки (деплой, OOM), `forget` уже не позовёт, и без
+//    аренды событие осталось бы помеченным навсегда — редоставка гасилась бы как дубль,
+//    то есть «ровно один раз» превращалось в «не более одного». Аренда истекла ⇒
+//    следующая доставка забирает событие себе.
 // ============================================================
 
 @Injectable()
 export class IdempotencyInboxService {
-  private readonly logger = new Logger(IdempotencyInboxService.name);
-
   constructor(private readonly db: DatabaseService) {}
 
   /**
@@ -47,51 +69,89 @@ export class IdempotencyInboxService {
    * `true` — событие видим ВПЕРВЫЕ, обработку продолжаем; `false` — дубль, вызывающий
    * обязан тихо выйти (и ответить источнику 200, иначе он будет слать ещё).
    *
-   * Отметка ложится в ТУ ЖЕ транзакцию, что и обработка: откат обработки снимает и её.
+   * Отметка ложится в ТУ ЖЕ транзакцию, что и обработка: откат обработки снимает и её,
+   * поэтому строка сразу «обработана» (`done_at`). Брошенную строку «в работе» с
+   * истёкшей арендой (её оставил `begin` умершего процесса) забираем себе.
    */
   async once(tx: Tx, ref: InboxRef): Promise<boolean> {
     this.assertInTransaction(tx, 'once');
-    // ON CONFLICT DO NOTHING, а не try/catch P2002: конфликт внутри транзакции Postgres
+    // ON CONFLICT, а не try/catch P2002: конфликт внутри транзакции Postgres
     // абортил бы ВСЮ транзакцию вызывающего (урок core/jobs.enqueue).
     const n = await tx.$executeRaw`
-      INSERT INTO "idempotency_inbox" ("source", "account", "event_id")
-      VALUES (${ref.source}, ${ref.account}, ${ref.eventId})
-      ON CONFLICT ("source", "account", "event_id") DO NOTHING`;
+      INSERT INTO "idempotency_inbox" ("source", "account", "event_id", "received_at", "done_at")
+      VALUES (${ref.source}, ${ref.account}, ${ref.eventId}, ${NOW}, ${NOW})
+      ON CONFLICT ("source", "account", "event_id") DO UPDATE
+        SET "received_at" = EXCLUDED."received_at", "done_at" = EXCLUDED."done_at"
+        WHERE "idempotency_inbox"."done_at" IS NULL
+          AND "idempotency_inbox"."received_at" < ${NOW} - make_interval(secs => ${IDEMPOTENCY_LIMITS.inboxLeaseSec}::int)`;
     return n > 0;
   }
 
   /**
-   * Снять отметку. Нужна там, где обработка НЕ живёт в одной транзакции с отметкой
-   * (приёмник чужого вебхука со своими сетевыми вызовами): отметили — обработали —
-   * упали ⇒ снимаем, иначе редоставка была бы молча выброшена как дубль.
+   * Начать обработку события, которая не помещается в одну транзакцию. Строка встаёт
+   * «в работе» под арендой `leaseSec`; вызывающий ОБЯЗАН закончить `done` (успех) либо
+   * `forget` (сбой). Что делать с вердиктом — см. `InboxVerdict`.
+   */
+  begin(ref: InboxRef, opts: { leaseSec?: number } = {}): Promise<InboxVerdict> {
+    const leaseSec = Math.max(1, Math.floor(opts.leaseSec ?? IDEMPOTENCY_LIMITS.inboxLeaseSec));
+    return runInternal(async () => {
+      const taken = await this.db.$queryRaw<Array<{ id: bigint }>>`
+        INSERT INTO "idempotency_inbox" ("source", "account", "event_id", "received_at", "done_at")
+        VALUES (${ref.source}, ${ref.account}, ${ref.eventId}, ${NOW}, NULL)
+        ON CONFLICT ("source", "account", "event_id") DO UPDATE
+          SET "received_at" = EXCLUDED."received_at"
+          WHERE "idempotency_inbox"."done_at" IS NULL
+            AND "idempotency_inbox"."received_at" < ${NOW} - make_interval(secs => ${leaseSec}::int)
+        RETURNING "id"`;
+      if (taken.length) return 'first';
+      const rows = await this.db.$queryRaw<Array<{ done: boolean }>>`
+        SELECT ("done_at" IS NOT NULL) AS done FROM "idempotency_inbox"
+        WHERE "source" = ${ref.source} AND "account" = ${ref.account} AND "event_id" = ${ref.eventId}`;
+      // Строки уже нет — её только что снял `forget` упавшей доставки: пусть источник
+      // придёт ещё раз, следующая доставка станет первой
+      return rows[0]?.done ? 'duplicate' : 'in_flight';
+    });
+  }
+
+  /** Обработка удалась: событие обработано окончательно, редоставки — дубли. */
+  done(ref: InboxRef): Promise<number> {
+    return runInternal(() =>
+      this.db.$executeRaw`
+        UPDATE "idempotency_inbox" SET "done_at" = ${NOW}
+        WHERE "source" = ${ref.source} AND "account" = ${ref.account} AND "event_id" = ${ref.eventId}
+          AND "done_at" IS NULL`,
+    );
+  }
+
+  /**
+   * Снять отметку: обработка НЕ удалась, редоставка обязана пройти как первая. Снимает
+   * только строку «в работе» — уже обработанное событие забыть нельзя (иначе сбой
+   * поздней редоставки открывал бы дорогу второму эффекту).
    */
   forget(ref: InboxRef): Promise<number> {
     return runInternal(() =>
       this.db.$executeRaw`
         DELETE FROM "idempotency_inbox"
-        WHERE "source" = ${ref.source} AND "account" = ${ref.account} AND "event_id" = ${ref.eventId}`,
+        WHERE "source" = ${ref.source} AND "account" = ${ref.account} AND "event_id" = ${ref.eventId}
+          AND "done_at" IS NULL`,
     );
   }
 
-  /**
-   * Короткая транзакция «видим впервые?» для приёмников, у которых обработка не
-   * помещается в одну транзакцию. Ответственность вызывающего — позвать `forget`,
-   * если обработка не удалась.
-   */
-  firstTime(ref: InboxRef): Promise<boolean> {
-    return runInternal(() => this.db.$transaction((tx) => this.once(tx, ref)));
-  }
-
-  /** Ретенция ящика: строка живёт дольше окна редоставки любого источника. */
+  /** Ретенция ящика: строка живёт дольше окна редоставки любого источника. Батчами. */
   prune(): Promise<number> {
-    return runInternal(() =>
-      this.db.$executeRaw`
-        DELETE FROM "idempotency_inbox"
-        WHERE "id" IN (
-          SELECT "id" FROM "idempotency_inbox"
-          WHERE "received_at" < (now() AT TIME ZONE 'UTC') - make_interval(days => ${IDEMPOTENCY_LIMITS.inboxRetentionDays})
-          LIMIT ${IDEMPOTENCY_LIMITS.sweepBatch}
-        )`,
-    );
+    return runInternal(async () => {
+      let total = 0;
+      for (;;) {
+        const n = await this.db.$executeRaw`
+          DELETE FROM "idempotency_inbox"
+          WHERE "id" IN (
+            SELECT "id" FROM "idempotency_inbox"
+            WHERE "received_at" < ${NOW} - make_interval(days => ${IDEMPOTENCY_LIMITS.inboxRetentionDays}::int)
+            LIMIT ${IDEMPOTENCY_LIMITS.sweepBatch}::int
+          )`;
+        total += n;
+        if (n < IDEMPOTENCY_LIMITS.sweepBatch) return total;
+      }
+    });
   }
 }

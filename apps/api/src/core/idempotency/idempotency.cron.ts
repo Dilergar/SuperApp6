@@ -12,7 +12,7 @@ import { IdempotencyStore } from './idempotency.store';
  * Фон движка (лок Redis — исполняет один инстанс флота):
  *  - каждые 10 минут: партиции снимков вперёд + показания счётчика строк;
  *  - ночью: чистка просроченных ключей батчами, сброс старых партиций снимков
- *    (`DETACH CONCURRENTLY` + `DROP`), ретенция «входящего ящика».
+ *    (`DETACH CONCURRENTLY` + `DROP`), ретенция «входящего ящика» — в ЛЮБОМ режиме.
  *
  * Отдельного джоба у движка нет намеренно: работа чисто уборочная, ничего не
  * обязана «случиться», и ставить её в outbox значило бы гонять фон ради фона.
@@ -49,18 +49,33 @@ export class IdempotencyCron implements OnApplicationBootstrap {
     });
   }
 
+  /**
+   * Ночная уборка идёт в ЛЮБОМ режиме, включая `off`: стоп-кран выключает защиту, а не
+   * срок хранения. «Входящий ящик» режиму не подчиняется вовсе (вебхуки пишут в него
+   * всегда), и без уборки он рос бы без предела ровно тогда, когда на движок никто не
+   * смотрит. Шаги независимы: сбой одного не отменяет остальные.
+   */
   @Cron('25 3 * * *')
   async nightly(): Promise<void> {
-    if (idempotencyEnv().mode === 'off') return;
     await this.redis.withLock('cron:idempotency-nightly', 30 * 60_000, async () => {
-      const swept = await this.store.sweep(IDEMPOTENCY_LIMITS.sweepBatch);
-      this.metrics.sweptRows(swept);
-      const dropped = await this.partitions.dropExpired();
-      const inbox = await this.inbox.prune();
+      const swept = await this.step('expired keys', () => this.store.sweep(IDEMPOTENCY_LIMITS.sweepBatch));
+      this.metrics.sweptRows(swept ?? 0);
+      const dropped = await this.step('snapshot partitions', () => this.partitions.dropExpired());
+      const inbox = await this.step('inbox retention', () => this.inbox.prune());
       this.logger.log(
-        `idempotency nightly: ${swept} expired key(s) removed, ${dropped.length} snapshot partition(s) dropped, ${inbox} inbox row(s) pruned`,
+        `idempotency nightly: ${swept ?? '?'} expired key(s) removed, ${dropped?.length ?? '?'} snapshot partition(s) dropped, ${inbox ?? '?'} inbox row(s) pruned`,
       );
       return true;
     });
+  }
+
+  /** Один шаг уборки: его сбой — строка в логе, а не отмена следующих шагов. */
+  private async step<T>(name: string, run: () => Promise<T>): Promise<T | null> {
+    try {
+      return await run();
+    } catch (err) {
+      this.logger.error(`idempotency nightly — ${name}: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
   }
 }

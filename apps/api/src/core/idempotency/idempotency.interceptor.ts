@@ -234,15 +234,19 @@ export class IdempotencyInterceptor implements NestInterceptor {
       leaseMs: c.leaseMs,
     };
 
-    const claimed = await this.guarded(() => this.store.claim(claim));
-    if (claimed) {
+    // Один оператор: либо заявка наша, либо читаем существующую строку — и в обоих
+    // случаях БЕЗ блокировки. Строку известного ключа держит живая транзакция первого
+    // исполнения, и любой ждущий на ней оператор (в том числе голый INSERT с его
+    // проверкой уникальности) висел бы до её коммита, занимая соединение пула.
+    const opened = await this.guarded(() => this.store.open(claim));
+    if (opened?.claimed) {
       this.metrics.request('new');
-      return this.execute(execContext, next, c, claimed.attempt);
+      return this.execute(execContext, next, c, opened.row.attempt);
     }
 
-    // Ключ уже известен: читаем строку БЕЗ блокировки — её может держать живая
-    // транзакция первого исполнения, и ждать на ней означало бы висеть.
-    const row = await this.guarded(() => this.store.seen(c.scopeHash, c.keyHash));
+    // `null` — гонка двух одновременных ПЕРВЫХ заявок: строку вставил сосед уже после
+    // нашего снимка. Перечитываем (тоже без блокировки).
+    const row = opened?.row ?? (await this.guarded(() => this.store.seen(c.scopeHash, c.keyHash)));
     if (!row) {
       // Строку смела чистка ровно между INSERT и SELECT — заявляемся заново
       const again = await this.guarded(() => this.store.claim(claim));
@@ -262,6 +266,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
       return this.execute(execContext, next, c, taken.attempt);
     }
 
+    // Дальше ответ собирается ИЗ СТРОКИ, обработчик не зовётся — а у гостя и
+    // вебхук-триггера вся авторизация живёт именно в обработчике. Проверяем её здесь.
+    await this.reauthorize(c);
+
     // Тот же ключ с другой формой запроса — это ошибка клиента, а не повтор
     const sameForm = await this.guarded(() => this.fingerprint.verify(c.fpInput, row.fingerprint));
     if (!sameForm) {
@@ -270,8 +278,13 @@ export class IdempotencyInterceptor implements NestInterceptor {
     }
 
     if (row.state === 'completed') return this.replay(c, row, next);
-    // Эффект закоммичен, ответ собрать не успели (процесс умер до финализации)
-    if (row.state === 'committed') return this.refuse(c, next, 'replay', row);
+    // Эффект закоммичен, ответа ещё нет. Аренда жива — обработчик первой попытки
+    // работает (собирает ответ, шлёт уведомления): через секунду повтор получит
+    // НАСТОЯЩИЙ ответ, и «готово, тела нет» сейчас было бы неправдой. Аренда истекла —
+    // процесс умер до финализации, и ответа уже не будет.
+    if (row.state === 'committed') {
+      return row.lease_expired ? this.refuse(c, next, 'replay', row) : this.refuse(c, next, 'in_flight');
+    }
 
     // in_progress
     if (!row.lease_expired) return this.refuse(c, next, 'in_flight');
@@ -286,6 +299,29 @@ export class IdempotencyInterceptor implements NestInterceptor {
     if (!taken) return this.refuse(c, next, 'in_flight');
     this.metrics.request('takeover');
     return this.execute(execContext, next, c, taken.attempt);
+  }
+
+  /**
+   * Повторная авторизация принципала БЕЗ аккаунта (гость по ссылке, вебхук-триггер).
+   *
+   * Человека и ключ API проверяют гарды — они стоят до интерцептора и отрабатывают
+   * на каждом повторе. У `@Public`-ручки гардов нет: живая ли ссылка, не отозвана ли,
+   * действует ли пропуск — знает только обработчик, а реплей его не зовёт. Без шлюза
+   * отозванная ссылка ещё трое суток отдавала бы сохранённый ответ.
+   *
+   * Fail-closed: шлюза нет (страж бута такого не допускает, это второй ремень) —
+   * ответ из строки не отдаётся вовсе, только голое «уже выполнено» без ссылок.
+   */
+  private async reauthorize(c: KeyCtx): Promise<void> {
+    if (!c.enforce || c.principal.kind !== 'guest') return;
+    const gate = this.replayRenderers.gate(c.options.gate);
+    if (!gate) {
+      this.logger.error(`idempotency: no replay gate for the public route ${c.method} ${c.route} — the stored outcome is withheld`);
+      c.res.setHeader(SHOULD_RETRY_HEADER, 'false');
+      throw this.alreadyCompleted();
+    }
+    // Отказ шлюза (403/404/410) — и есть правильный ответ повтора
+    await gate(c.req as never);
   }
 
   /**
@@ -330,6 +366,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
     const requestCtx = this.wsContext.get();
     const binding: IdemBinding = newBinding(c.scopeHash, c.keyHash, attempt);
     if (requestCtx) requestCtx.idem = binding;
+    // Контекста запроса нет — обёртка `$transaction` заявку не увидит и отметку не
+    // поставит. Тогда успех выглядел бы как «эффекта не было», ключ отпустился бы, и
+    // повтор исполнился бы ВТОРОЙ раз. Считаем худшее: эффект мог случиться мимо отметки.
+    else binding.dirty = true;
 
     // Долгая ручка не должна терять аренду: продлеваем, пока обработчик жив. Смерть
     // процесса heartbeat не переживёт — в этом и смысл аренды.
@@ -407,7 +447,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
         binding.state === 'bound' || binding.dirty || c.options.required === true || c.options.effects === 'external';
       if (!observable) {
         // Read-only POST (поиск, предпросмотр, валидация): защищать нечего
-        await this.store.release(c.scopeHash, c.keyHash, attempt);
+        await this.store.release(c.scopeHash, c.keyHash, attempt, { forget: c.principal.kind === 'guest' });
         this.metrics.request('released');
         return;
       }
@@ -444,7 +484,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
       const status = err instanceof HttpException ? err.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
       const neverFinal = err instanceof ZodError || NEVER_FINAL_STATUSES.has(status);
       if (!committed || neverFinal) {
-        await this.store.release(c.scopeHash, c.keyHash, attempt);
+        await this.store.release(c.scopeHash, c.keyHash, attempt, { forget: c.principal.kind === 'guest' });
         this.metrics.request('released');
         return;
       }

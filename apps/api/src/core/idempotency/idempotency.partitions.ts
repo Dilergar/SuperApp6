@@ -76,17 +76,36 @@ export class IdempotencyPartitions {
     return out;
   }
 
-  /** Сбросить партиции, чья ВЕРХНЯЯ граница старше окна снимка. Возвращает имена. */
+  /**
+   * Сбросить партиции, чья ВЕРХНЯЯ граница старше окна снимка. Возвращает имена.
+   *
+   * Каждая партиция — СВОЯ попытка: сбой на одной не вправе остановить остальные и всё,
+   * что идёт в ночной уборке следом. `DETACH … CONCURRENTLY`, оборванный на полпути
+   * (рестарт, отмена), оставляет партицию в состоянии «detach pending», и повторный
+   * DETACH на ней падает КАЖДУЮ ночь — без `FINALIZE` ретенция встала бы навсегда.
+   */
   async dropExpired(now = new Date()): Promise<string[]> {
     const cutoff = now.getTime() - idempotencyEnv().responseTtlHours * 3_600_000;
     const dropped: string[] = [];
     for (const p of await this.list()) {
       if (p.to.getTime() > cutoff) continue;
-      await runInternal(async () => {
-        // CONCURRENTLY не держит эксклюзивный лок на родителе — вставки идут дальше
-        await this.db.$executeRawUnsafe(`ALTER TABLE idem.responses DETACH PARTITION idem.${p.name} CONCURRENTLY`);
-        await this.db.$executeRawUnsafe(`DROP TABLE IF EXISTS idem.${p.name}`);
-      });
+      try {
+        await runInternal(async () => {
+          try {
+            // CONCURRENTLY не держит эксклюзивный лок на родителе — вставки идут дальше
+            await this.db.$executeRawUnsafe(`ALTER TABLE idem.responses DETACH PARTITION idem.${p.name} CONCURRENTLY`);
+          } catch {
+            // Прошлый DETACH оборвался — доводим его до конца
+            await this.db.$executeRawUnsafe(`ALTER TABLE idem.responses DETACH PARTITION idem.${p.name} FINALIZE`);
+          }
+          await this.db.$executeRawUnsafe(`DROP TABLE IF EXISTS idem.${p.name}`);
+        });
+      } catch (err) {
+        this.logger.error(
+          `idempotency response partition ${p.name} was not dropped: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        continue;
+      }
       this.known.delete(p.name);
       dropped.push(p.name);
       this.logger.log(`idempotency response partition dropped by retention: ${p.name}`);

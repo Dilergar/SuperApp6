@@ -21,7 +21,7 @@
 | `core/quick-actions` | `core/access` |
 | `core/rich-cards` | `core/access`, `core/notifications` |
 | `core/roles` | `core/access` |
-| `core/share-links` | `core/analytics`, `core/chatter`, `core/consents`, `core/keys`, `core/notifications`, `core/verify` |
+| `core/share-links` | `core/analytics`, `core/chatter`, `core/consents`, `core/idempotency`, `core/keys`, `core/notifications`, `core/verify` |
 | `core/sign` | `core/approvals`, `core/files`, `core/jobs`, `core/notifications`, `core/roles`, `core/share-links`, `core/templates`, `core/verify` |
 | `core/templates` | `core/files` |
 | `core/users` | `core/access`, `core/analytics`, `core/consents`, `core/entitlements`, `core/files`, `core/jobs`, `core/keys`, `core/notifications`, `core/platform`, `core/verify`, `modules/contacts`, `modules/workspaces` |

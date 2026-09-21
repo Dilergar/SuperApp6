@@ -5885,7 +5885,10 @@ model IdempotencyInbox {
   account    String
   /// Идентификатор события у источника (event.id, update_id, periodKey)
   eventId    String   @map("event_id")
+  /// Начало обработки; у строки «в работе» — она же отсчёт аренды (`begin`)
   receivedAt DateTime @default(now()) @map("received_at")
+  /// Обработка завершена. NULL — «в работе» под арендой: истекла ⇒ редоставка забирает событие
+  doneAt     DateTime? @default(now()) @map("done_at")
 
   @@unique([source, account, eventId])
   @@index([receivedAt])

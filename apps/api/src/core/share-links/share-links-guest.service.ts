@@ -261,6 +261,35 @@ export class ShareLinksGuestService {
    * страницы и добор протухших ссылок на файлы (они подписаны на ~10 минут).
    */
   /**
+   * Вправе ли гость ДЕЙСТВОВАТЬ по этой ссылке прямо сейчас: пропуск настоящий и
+   * выдан именно этой ссылке, ссылка жива и не отозвана, эпоха сессий не сдвинута,
+   * личность на месте (если ссылка её требует).
+   *
+   * Отдельным методом, потому что проверку зовут ДВОЕ: само действие и шлюз повтора
+   * движка идемпотентности. Повтор отдаёт сохранённый ответ, НЕ вызывая обработчик,
+   * и без этой проверки отозванная ссылка ещё трое суток отвечала бы как живая.
+   */
+  async authorizeAction(
+    token: string,
+    sessionToken: string | undefined | null,
+  ): Promise<{ link: ShareLink; guestId: string | null }> {
+    const verdict = await this.tokens.verify(sessionToken);
+    if (!verdict.ok || !verdict.payload) {
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionExpired', HttpStatus.FORBIDDEN);
+    }
+    const link = await this.loadByToken(token);
+    if (verdict.payload.l !== link.id) {
+      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionMismatch', HttpStatus.FORBIDDEN);
+    }
+    this.assertLive(link);
+    this.assertEpoch(link, verdict.payload);
+    if (link.requireIdentity && !verdict.payload.g) {
+      deny(SHARE_LINK_ERROR_CODES.identityRequired, 'shareLink.identityRequired', HttpStatus.FORBIDDEN);
+    }
+    return { link, guestId: verdict.payload.g ?? null };
+  }
+
+  /**
    * Выполнить ДЕЙСТВИЕ потребителя от имени гостя.
    *
    * Движок здесь проходная: подтверждает живую ссылку и пропуск, достаёт личность
@@ -275,19 +304,7 @@ export class ShareLinksGuestService {
     body: unknown,
     info: GuestRequestInfo,
   ): Promise<unknown> {
-    const verdict = await this.tokens.verify(sessionToken);
-    if (!verdict.ok || !verdict.payload) {
-      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionExpired', HttpStatus.FORBIDDEN);
-    }
-    const link = await this.loadByToken(token);
-    if (verdict.payload.l !== link.id) {
-      deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionMismatch', HttpStatus.FORBIDDEN);
-    }
-    this.assertLive(link);
-    this.assertEpoch(link, verdict.payload);
-    if (link.requireIdentity && !verdict.payload.g) {
-      deny(SHARE_LINK_ERROR_CODES.identityRequired, 'shareLink.identityRequired', HttpStatus.FORBIDDEN);
-    }
+    const { link, guestId } = await this.authorizeAction(token, sessionToken);
 
     const provider = this.registry.get(link.refType);
     const handler = provider?.actions?.[key];
@@ -295,9 +312,7 @@ export class ShareLinksGuestService {
     // постороннему не подтверждаем (тот же приём, что у скоупа гостевых папок).
     if (!handler) deny(SHARE_LINK_ERROR_CODES.notFound, 'shareLink.actionUnavailable', HttpStatus.NOT_FOUND);
 
-    const guest = verdict.payload.g
-      ? await this.db.shareLinkGuest.findUnique({ where: { id: verdict.payload.g } })
-      : null;
+    const guest = guestId ? await this.db.shareLinkGuest.findUnique({ where: { id: guestId } }) : null;
 
     return handler({
       refType: link.refType,

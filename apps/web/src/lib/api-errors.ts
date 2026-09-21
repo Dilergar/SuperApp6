@@ -14,11 +14,15 @@
 //   • `key_reused` — ключ намерения протух (форму правили между попытками):
 //     обычный отказ + сброс ключа, чтобы следующая попытка прошла;
 //   • `outcome_unknown` — исход неизвестен. Тостом это показывать НЕЛЬЗЯ: человеку
-//     нужно объяснение и путь проверить историю (см. `OutcomeUnknownAlert`).
+//     нужно объяснение и путь проверить историю (см. `OutcomeUnknownAlert`);
+//   • отказ ИЗ СНИМКА (`Idempotent-Replayed: true`) — первая попытка закоммитила эффект
+//     и упала. Мир уже изменился (данные надо перечитать), а тот же ключ будет отдавать
+//     этот же отказ, пока жив снимок: без сброса ключа форма стала бы тупиком.
 //
 // Заодно у платформы появилась ОДНА точка для будущих кодов (402 тарифа, согласия).
 // ============================================================
 
+import { apiErrorReplayed } from '@superapp/api-client';
 import { IDEMPOTENCY_ERROR_CODES } from '@superapp/shared';
 import { apiErrorDetails, apiErrorMessage } from '@/lib/api';
 import { getQueryClient } from '@/lib/session-reset';
@@ -92,5 +96,14 @@ export function toastApiError(err: unknown): void {
   }
 
   toast(apiErrorMessage(err), 'danger');
+
+  // Отказ пришёл из снимка: первая попытка закоммитила эффект и упала уже после.
+  // Экран обязан показать то, что РЕАЛЬНО случилось, — перечитываем данные. И берём
+  // новый ключ намерения: старый будет отдавать этот же отказ трое суток, а человек,
+  // увидевший настоящее состояние и нажавший кнопку снова, выражает уже НОВОЕ намерение.
+  if (apiErrorReplayed(err)) {
+    void getQueryClient()?.invalidateQueries();
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(IDEMPOTENCY_KEY_RESET_EVENT));
+  }
 }
 

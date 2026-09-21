@@ -1,25 +1,42 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, Res } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { RequestMethod } from '@nestjs/common';
-import { DiscoveryService, MetadataScanner, Reflector } from '@nestjs/core';
+import { DiscoveryService, HttpAdapterHost, MetadataScanner, Reflector } from '@nestjs/core';
 import { IDEMPOTENCY_SKIP_REASON_VALUES, IDEMPOTENCY_SKIP_REASONS } from '@superapp/shared';
 import { IS_PUBLIC_KEY } from '../../shared/decorators/public.decorator';
 import { IDEMPOTENT_KEY, SKIP_IDEMPOTENCY_KEY, type IdempotentOptions } from '../../shared/decorators/idempotency.decorator';
-import { IdempotencyReplayRegistry } from './idempotency.replay.registry';
+import { IdempotencyReplayRegistry, replayRouteKey } from './idempotency.replay.registry';
 
 /**
  * `RouteParamtypes.RESPONSE` из Nest. Enum лежит во внутреннем пути пакета, поэтому
- * значение зафиксировано здесь с проверкой на буте: ключ метаданных аргументов — это
- * строка `"<тип>:<индекс>"`.
+ * значение зафиксировано здесь, а на буте СВЕРЯЕТСЯ с живым декоратором (`ResProbe`
+ * ниже): ключ метаданных аргументов — это строка `"<тип>:<индекс>"`. Сменит Nest
+ * нумерацию — страж не ослепнет молча, а уронит старт.
  */
 const RESPONSE_PARAMTYPE = 1;
 
+/** Проба: что НА САМОМ ДЕЛЕ пишет `@Res()` в метаданные аргументов этой версии Nest. */
+class ResProbe {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  handler(@Res() _res: unknown): void {}
+}
+
+/**
+ * `ALL` — тоже мутация: такая ручка принимает POST/PUT/PATCH/DELETE наравне с GET,
+ * и интерцептор (он смотрит на метод ЗАПРОСА) её покрывает. Страж обязан видеть то же.
+ */
 const MUTATION_METHODS = new Set<RequestMethod>([
   RequestMethod.POST,
   RequestMethod.PUT,
   RequestMethod.PATCH,
   RequestMethod.DELETE,
+  RequestMethod.ALL,
 ]);
+
+/** Слой роутера Express: ровно те поля, что нужны сверке рендереров. */
+interface RouterLayer {
+  route?: { path?: unknown; methods?: Record<string, boolean> };
+}
 
 /**
  * Страж движка идемпотентности на буте (fail-closed, как страж скоупов ключей).
@@ -29,7 +46,14 @@ const MUTATION_METHODS = new Set<RequestMethod>([
  *     ручка обязана нести `@SkipIdempotency('raw_response')`, а не молча ломать реплей;
  *  2. `required: true` на `@Public`-ручке без `principal`-резолвера — скоуп собрать
  *     не из чего, и «обязательный ключ» ничего не защищал бы;
- *  3. причина `@SkipIdempotency` вне закрытого списка — исключение без смысла.
+ *  3. причина `@SkipIdempotency` вне закрытого списка — исключение без смысла;
+ *  4. `@Public`-мутация без решения вовсе (ни `principal`, ни `@SkipIdempotency`) —
+ *     ключ клиента на ней молча ничего не защищал бы;
+ *  5. ручка с `principal`-резолвером без шлюза повторной авторизации (`gate`) либо с
+ *     именем шлюза, под которым никто не зарегистрировался: повтор отдавал бы
+ *     сохранённый ответ тому, у кого доступ уже отозвали;
+ *  6. рендерер перерисовки зарегистрирован на маршрут, которого нет: опечатка в пути
+ *     молча выключала бы перерисовку, и повтор отдавал бы снимок трёхдневной давности.
  */
 @Injectable()
 export class IdempotencyRoutesAudit implements OnApplicationBootstrap {
@@ -40,6 +64,7 @@ export class IdempotencyRoutesAudit implements OnApplicationBootstrap {
     private readonly scanner: MetadataScanner,
     private readonly reflector: Reflector,
     private readonly replayRenderers: IdempotencyReplayRegistry,
+    private readonly adapterHost: HttpAdapterHost,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -57,7 +82,7 @@ export class IdempotencyRoutesAudit implements OnApplicationBootstrap {
         (c.unscoped.length ? `, NOT protected (public without a principal resolver): ${c.unscoped.join(', ')}` : ', none unprotected') +
         // Перерисовка по ссылке — тоже часть картины: без неё повтор карточки со
         // статусом отдаёт снимок трёхдневной давности, и это видно только в логе.
-        `; ${this.replayRenderers.size} replay renderer(s)`,
+        `; ${this.replayRenderers.size} replay renderer(s), ${this.replayRenderers.gateCount} replay gate(s)`,
     );
   }
 
@@ -121,6 +146,9 @@ export class IdempotencyRoutesAudit implements OnApplicationBootstrap {
   /** Список проблем; пустой — всё решено явно. */
   problems(): string[] {
     const out: string[] = [];
+    if (!this.responseParamtypeHolds()) {
+      out.push(`@Res() is no longer stored under route paramtype ${RESPONSE_PARAMTYPE}: fix RESPONSE_PARAMTYPE in idempotency.routes.audit.ts, otherwise handlers that write the response themselves go unnoticed`);
+    }
     for (const wrapper of this.discovery.getControllers()) {
       const { instance, metatype } = wrapper;
       if (!instance || !metatype) continue;
@@ -145,16 +173,59 @@ export class IdempotencyRoutesAudit implements OnApplicationBootstrap {
         }
 
         const options = this.reflector.getAllAndOverride<IdempotentOptions>(IDEMPOTENT_KEY, [handler, metatype]);
-        if (options?.required) {
-          const isPublic =
-            this.reflector.get<boolean>(IS_PUBLIC_KEY, handler) || this.reflector.get<boolean>(IS_PUBLIC_KEY, metatype);
-          if (isPublic && typeof options.principal !== 'function') {
-            out.push(`${where} → @Idempotent({ required: true }) on a @Public route needs a principal resolver: without it the key has no scope`);
+        const isPublic =
+          this.reflector.get<boolean>(IS_PUBLIC_KEY, handler) || this.reflector.get<boolean>(IS_PUBLIC_KEY, metatype);
+        const hasPrincipal = typeof options?.principal === 'function';
+        if (isPublic && !hasPrincipal) {
+          out.push(
+            options?.required
+              ? `${where} → @Idempotent({ required: true }) on a @Public route needs a principal resolver: without it the key has no scope`
+              : `${where} → a @Public mutation must decide: a principal resolver (+ gate) or @SkipIdempotency(reason). Without either the client's key silently protects nothing`,
+          );
+        }
+        if (hasPrincipal) {
+          if (!options?.gate) {
+            out.push(`${where} → a principal resolver needs a replay gate (@Idempotent({ principal, gate })): the handler authorizes the guest itself, and a replay never calls the handler`);
+          } else if (!this.replayRenderers.gate(options.gate)) {
+            out.push(`${where} → replay gate '${options.gate}' is not registered (IdempotencyReplayRegistry.registerGate in the owner's onModuleInit)`);
           }
         }
       }
     }
+
+    // Рендерер на несуществующий маршрут: сверяем с ЖИВЫМ роутером — это ровно те
+    // строки, которые интерцептор увидит в `req.route.path`
+    const live = this.liveRoutes();
+    if (live) {
+      for (const key of this.replayRenderers.rendererKeys()) {
+        if (!live.has(key)) out.push(`replay renderer '${key}' → no such route: the key must be METHOD + the route template exactly as Express registers it`);
+      }
+    }
     return out;
+  }
+
+  /** Живые маршруты Express (`POST /api/tasks/:id`); `null` — адаптер не Express 4. */
+  private liveRoutes(): Set<string> | null {
+    const app = this.adapterHost.httpAdapter?.getInstance?.() as
+      | { _router?: { stack?: RouterLayer[] }; router?: { stack?: RouterLayer[] } }
+      | undefined;
+    const stack = app?._router?.stack ?? app?.router?.stack;
+    if (!Array.isArray(stack)) return null;
+    const out = new Set<string>();
+    for (const layer of stack) {
+      const path = layer.route?.path;
+      if (typeof path !== 'string') continue;
+      for (const [method, on] of Object.entries(layer.route?.methods ?? {})) {
+        if (on) out.add(replayRouteKey(method, path));
+      }
+    }
+    return out.size ? out : null;
+  }
+
+  /** `@Res()` всё ещё пишется под `RESPONSE_PARAMTYPE`? (проба на живом декораторе) */
+  private responseParamtypeHolds(): boolean {
+    const args = Reflect.getMetadata(ROUTE_ARGS_METADATA, ResProbe, 'handler') as Record<string, unknown> | undefined;
+    return !!args && Object.keys(args).some((k) => k === `${RESPONSE_PARAMTYPE}:0`);
   }
 
   /** Ручка сама пишет ответ (`@Res()` без `{ passthrough: true }`). */

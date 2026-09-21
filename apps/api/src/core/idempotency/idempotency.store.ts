@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { type IdempotencyState } from '@superapp/shared';
+import { IDEMPOTENCY_LIMITS, type IdempotencyState } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { runInternal } from '../../shared/idempotency/binding';
 import { idempotencyEnv, type IdempotencyPrincipalKind } from './idempotency.constants';
@@ -72,7 +72,81 @@ export class IdempotencyStore {
   }
 
   /**
-   * Заявка: `INSERT … ON CONFLICT DO NOTHING RETURNING`. Голый INSERT с последующей
+   * ПЕРВЫЙ ход по ключу: завести заявку ЛИБО прочитать уже существующую — одним
+   * оператором и НИКОГДА не повисая на чужой транзакции.
+   *
+   * Почему не голый `INSERT … ON CONFLICT DO NOTHING`. Строку известного ключа держит
+   * живая бизнес-транзакция первой попытки: отметка `committed` — это UPDATE внутри
+   * неё. Проверка уникальности у INSERT видит «строку меняет незавершённая транзакция»
+   * и ЖДЁТ её исхода (вдруг та удаляет строку) — то есть каждый повтор долгой ручки
+   * висел до её коммита, занимая соединение пула. Двадцать параллельных повторов одним
+   * ключом = двадцать занятых соединений: отказ в обслуживании одной кнопкой.
+   *
+   * Поэтому сначала MVCC-снимок (`existing` — он не блокируется ничем), а INSERT идёт
+   * только когда строки в снимке НЕТ: вставка нуля строк проверку уникальности не зовёт.
+   * Счётчик повторов — best-effort через `SKIP LOCKED`: строка занята ⇒ пропущен.
+   *
+   * `null` — редкая гонка двух ОДНОВРЕМЕННЫХ первых заявок: сосед вставил строку после
+   * нашего снимка. Вызывающий перечитывает её (`seen`).
+   */
+  open(input: ClaimInput): Promise<{ claimed: boolean; row: IdemKeyRow } | null> {
+    const env = idempotencyEnv();
+    const cols = this.columns();
+    return runInternal(async () => {
+      const rows = await this.db.$queryRawUnsafe<Array<IdemKeyRow & { claimed: boolean }>>(
+        `WITH existing AS (
+           SELECT ${cols} FROM idem.keys WHERE scope_hash = $1 AND key_hash = $2
+         ), ins AS (
+           INSERT INTO idem.keys (
+             scope_hash, key_hash, user_id, principal, workspace_id, api_key_id,
+             method, route, fingerprint, state, attempt, lease_until, atomic, build,
+             created_at, last_seen_at, expires_at
+           )
+           SELECT
+             $1, $2, $3::uuid, $4, $5::uuid, $6,
+             $7, $8, $9, 'in_progress', 1,
+             (now() AT TIME ZONE 'UTC') + make_interval(secs => $10::double precision), $11::boolean, $12,
+             (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC'),
+             (now() AT TIME ZONE 'UTC') + make_interval(days => $13::int)
+           WHERE NOT EXISTS (SELECT 1 FROM existing)
+           ON CONFLICT (scope_hash, key_hash) DO NOTHING
+           RETURNING ${cols}
+         ), bump AS (
+           UPDATE idem.keys k SET replays = k.replays + 1, last_seen_at = (now() AT TIME ZONE 'UTC')
+           FROM (
+             SELECT scope_hash, key_hash FROM idem.keys
+             WHERE scope_hash = $1 AND key_hash = $2 AND EXISTS (SELECT 1 FROM existing)
+             FOR UPDATE SKIP LOCKED
+           ) s
+           WHERE k.scope_hash = s.scope_hash AND k.key_hash = s.key_hash
+         )
+         SELECT true AS claimed, ins.* FROM ins
+         UNION ALL
+         SELECT false AS claimed, existing.* FROM existing`,
+        input.scopeHash,
+        input.keyHash,
+        input.userId,
+        input.principal,
+        input.workspaceId,
+        input.apiKeyId,
+        input.method,
+        input.route,
+        input.fingerprint,
+        input.leaseMs / 1000,
+        input.atomic,
+        env.build,
+        env.keyTtlDays,
+      );
+      const first = rows[0];
+      if (!first) return null;
+      const { claimed, ...row } = first;
+      return { claimed, row };
+    });
+  }
+
+  /**
+   * Заявка: `INSERT … ON CONFLICT DO NOTHING RETURNING`. Запасной ход после `open`
+   * (строку смела чистка между снимком и вставкой) — основной путь идёт через `open`. Голый INSERT с последующей
    * ловлей 23505 запрещён: каждый конфликт оставлял бы мёртвый кортеж и жёг XID.
    * Вернула строку — заявка НАША; вернула пусто — ключ уже известен.
    */
@@ -111,13 +185,32 @@ export class IdempotencyStore {
     });
   }
 
-  /** Повторное обращение: прочитать строку и отметить его (`replays++`, `last_seen_at`). */
+  /**
+   * Повторное обращение: прочитать строку и отметить его (`replays++`, `last_seen_at`).
+   *
+   * ЧТЕНИЕ НЕ БЛОКИРУЕТСЯ НИКОГДА. Строку держит живая бизнес-транзакция первой
+   * попытки (отметка `committed` — это UPDATE внутри неё), и голый `UPDATE … RETURNING`
+   * здесь ВИСЕЛ бы на её блокировке до самого коммита: двадцать параллельных повторов
+   * долгой ручки = двадцать занятых соединений пула, то есть отказ в обслуживании
+   * одним ключом. Поэтому SELECT идёт по MVCC-снимку, а счётчик — best-effort через
+   * `FOR UPDATE SKIP LOCKED`: строка занята ⇒ инкремент пропущен, и это не беда.
+   *
+   * Один оператор: пишущий CTE исполняется всегда и до конца, а основной SELECT видит
+   * снимок НА НАЧАЛО оператора — то есть состояние, которое уже закоммичено.
+   */
   seen(scopeHash: Buffer, keyHash: Buffer): Promise<IdemKeyRow | null> {
     return runInternal(async () => {
       const rows = await this.db.$queryRawUnsafe<IdemKeyRow[]>(
-        `UPDATE idem.keys SET replays = replays + 1, last_seen_at = (now() AT TIME ZONE 'UTC')
-         WHERE scope_hash = $1 AND key_hash = $2
-         RETURNING ${this.columns()}`,
+        `WITH bump AS (
+           UPDATE idem.keys k SET replays = k.replays + 1, last_seen_at = (now() AT TIME ZONE 'UTC')
+           FROM (
+             SELECT scope_hash, key_hash FROM idem.keys
+             WHERE scope_hash = $1 AND key_hash = $2
+             FOR UPDATE SKIP LOCKED
+           ) s
+           WHERE k.scope_hash = s.scope_hash AND k.key_hash = s.key_hash
+         )
+         SELECT ${this.columns()} FROM idem.keys WHERE scope_hash = $1 AND key_hash = $2`,
         scopeHash,
         keyHash,
       );
@@ -188,14 +281,29 @@ export class IdempotencyStore {
     });
   }
 
-  /** Продление аренды живым обработчиком (долгая ручка не теряет заявку). */
+  /**
+   * Продление аренды живым обработчиком (долгая ручка не теряет заявку).
+   *
+   * `SKIP LOCKED`: пока идёт бизнес-транзакция ЭТОГО ЖЕ запроса, строка заблокирована
+   * её отметкой, и голый UPDATE висел бы на ней до коммита, занимая соединение пула
+   * на каждый тик. Занята ⇒ пропускаем: перезахват её в это время всё равно не возьмёт.
+   *
+   * `committed` тоже продлевается: обработчик жив и после коммита (собирает ответ,
+   * шлёт уведомления), и повтор в это окно обязан услышать «ещё идёт», а не «готово,
+   * тела нет» — через секунду его ждёт настоящий ответ.
+   */
   heartbeat(scopeHash: Buffer, keyHash: Buffer, attempt: number, leaseMs: number): Promise<number> {
     return runInternal(() =>
       this.db.$executeRawUnsafe(
-        `UPDATE idem.keys
+        `UPDATE idem.keys k
          SET lease_until = (now() AT TIME ZONE 'UTC') + make_interval(secs => $4::double precision),
              last_seen_at = (now() AT TIME ZONE 'UTC')
-         WHERE scope_hash = $1 AND key_hash = $2 AND attempt = $3 AND state = 'in_progress'`,
+         FROM (
+           SELECT scope_hash, key_hash FROM idem.keys
+           WHERE scope_hash = $1 AND key_hash = $2 AND attempt = $3 AND state IN ('in_progress', 'committed')
+           FOR UPDATE SKIP LOCKED
+         ) s
+         WHERE k.scope_hash = s.scope_hash AND k.key_hash = s.key_hash`,
         scopeHash,
         keyHash,
         attempt,
@@ -208,16 +316,35 @@ export class IdempotencyStore {
    * Наблюдаемого эффекта не было — ключ свободен для честного повтора. Status-guarded:
    * если отметка уже легла (`committed`), release даёт 0 строк, и повтор получит
    * `already_completed`, а не новое исполнение.
+   *
+   * Отпущенная строка ничего не защищает (перезахват `released` ≡ новая заявка), она
+   * нужна только поддержке — «запрос приходил, эффекта не было». Поэтому:
+   *  - `forget` (гость, вебхук-триггер — принципал БЕЗ аккаунта): строка удаляется
+   *    сразу. Иначе любой аноним растил бы `idem.keys` случайными токенами и ключами
+   *    на публичной ручке — запись в базу без аутентификации, на неделю каждая;
+   *  - остальным срок жизни сокращается до `releasedTtlHours`: клиент ставит ключ на
+   *    КАЖДУЮ мутацию, и read-only POST'ы (поиск, предпросмотр) иначе составляли бы
+   *    большинство строк таблицы, не защищая ничего.
    */
-  release(scopeHash: Buffer, keyHash: Buffer, attempt: number): Promise<number> {
+  release(scopeHash: Buffer, keyHash: Buffer, attempt: number, opts: { forget?: boolean } = {}): Promise<number> {
     return runInternal(() =>
-      this.db.$executeRawUnsafe(
-        `UPDATE idem.keys SET state = 'released', lease_until = NULL, last_seen_at = (now() AT TIME ZONE 'UTC')
-         WHERE scope_hash = $1 AND key_hash = $2 AND attempt = $3 AND state = 'in_progress'`,
-        scopeHash,
-        keyHash,
-        attempt,
-      ),
+      opts.forget
+        ? this.db.$executeRawUnsafe(
+            `DELETE FROM idem.keys
+             WHERE scope_hash = $1 AND key_hash = $2 AND attempt = $3 AND state = 'in_progress'`,
+            scopeHash,
+            keyHash,
+            attempt,
+          )
+        : this.db.$executeRawUnsafe(
+            `UPDATE idem.keys SET state = 'released', lease_until = NULL, last_seen_at = (now() AT TIME ZONE 'UTC'),
+               expires_at = LEAST(expires_at, (now() AT TIME ZONE 'UTC') + make_interval(hours => $4::int))
+             WHERE scope_hash = $1 AND key_hash = $2 AND attempt = $3 AND state = 'in_progress'`,
+            scopeHash,
+            keyHash,
+            attempt,
+            IDEMPOTENCY_LIMITS.releasedTtlHours,
+          ),
     );
   }
 
@@ -273,11 +400,21 @@ export class IdempotencyStore {
     });
   }
 
-  /** Сколько строк живёт сейчас (метрика). */
+  /**
+   * Сколько строк живёт сейчас (метрика). ОЦЕНКА планировщика (`reltuples` листьев),
+   * а не `COUNT(*)`: точный счёт — полный проход всех 16 партиций каждые десять минут,
+   * и на миллионах строк метрика стоила бы дороже того, что она измеряет. Автовакуум
+   * листьев настроен по объёму изменений, поэтому оценка не отстаёт.
+   */
   count(): Promise<number> {
     return runInternal(async () => {
       const rows = await this.db.$queryRawUnsafe<Array<{ n: bigint }>>(
-        `SELECT COUNT(*)::bigint AS n FROM idem.keys`,
+        `SELECT COALESCE(SUM(GREATEST(c.reltuples, 0)), 0)::bigint AS n
+         FROM pg_inherits i
+         JOIN pg_class c ON c.oid = i.inhrelid
+         JOIN pg_class p ON p.oid = i.inhparent
+         JOIN pg_namespace ns ON ns.oid = p.relnamespace
+         WHERE ns.nspname = 'idem' AND p.relname = 'keys'`,
       );
       return Number(rows[0]?.n ?? 0);
     });

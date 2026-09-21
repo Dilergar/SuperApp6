@@ -78,7 +78,7 @@
 
 ### Идемпотентность повторов (движок)
 - `core/idempotency` → `core/keys` (HMAC-отпечаток формы запроса и envelope снимка ответа под KEK владельца, `KeysFieldRegistry`), `core/platform` (команда поиска по ключу и панель карточки 360). Больше ни от чего не зависит НАМЕРЕННО: движок стоит на пути КАЖДОЙ мутации, и ребро отсюда в фичу означало бы цикл со всей платформой.
-- → `core/idempotency`: `modules/wallet` (`deriveKey` — второй ремень на проводке леджера), `modules/processes` (`once(tx)` для апдейтов Telegram), `core/calls` (`firstTime`/`forget` для вебхуков LiveKit). Все остальные потребители пользуются движком ДЕКОРАТОРАМИ (`@Idempotent` / `@SkipIdempotency` из `shared/decorators`), то есть ребра не заводят.
+- → `core/idempotency`: `modules/wallet` (`deriveKey` — второй ремень на проводке леджера), `modules/processes` (аренда ящика `begin`/`done`/`forget` для апдейтов Telegram + шлюз повтора вебхук-триггера `registerGate`), `core/calls` (аренда ящика для вебхуков LiveKit), `core/share-links` (шлюз повтора гостевых действий `registerGate`). Рендереры перерисовки (`IdempotencyReplayRegistry.register`) — `modules/tasks`, `modules/shop`, `core/approvals`, `modules/documents`. Все остальные потребители пользуются движком ДЕКОРАТОРАМИ (`@Idempotent` / `@SkipIdempotency` из `shared/decorators`), то есть ребра не заводят.
 - Привязка отметки к бизнес-транзакции живёт в `shared/idempotency/binding.ts` и вызывается фабрикой клиента базы (`shared/database`): `shared` движки не импортирует, поэтому ребра «база → движок» тоже нет.
 
 ## Carve-out map (допустимые прямые чтения чужих таблиц)

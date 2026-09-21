@@ -63,8 +63,19 @@ interface TxScope {
   marked: boolean;
   /** В этой транзакции были записи (для НЕ-владельца = `dirty` на коммите) */
   wrote: boolean;
-  /** Внутри служебного запроса самого движка (сама отметка) — не считать записью */
-  internal: boolean;
+  /**
+   * Отметка в полёте либо уже легла. ПАРАЛЛЕЛЬНЫЕ операции той же транзакции
+   * (`Promise.all` внутри колбэка) ждут этот промис: правило «отметка ПЕРЕД первой
+   * записью» обязано выполняться буквально, а не «как повезёт с порядком микрозадач».
+   */
+  marking?: Promise<void>;
+  /**
+   * Отметка НЕ легла (попытка устарела либо база отказала). Запоминается здесь, а не
+   * только бросается: сервис вправе проглотить ошибку своей записи (`.catch(() => null)`,
+   * `allSettled`), и тогда транзакция закоммитила бы эффект УСТАРЕВШЕЙ попытки —
+   * двойной эффект ровно там, где fencing обязан его остановить.
+   */
+  markError?: unknown;
   /** Клиент транзакции: из него исполняется UPDATE отметки */
   tx?: TxLike;
 }
@@ -129,17 +140,24 @@ async function markCommitted(tx: TxLike, b: IdemBinding): Promise<void> {
 }
 
 /**
- * Хук расширения Prisma на КАЖДУЮ операцию. Зовётся из фабрики клиента базы.
- * Возвращает промис отметки, если её пора поставить (вызывающий обязан его дождаться
- * ДО самой операции), иначе — `undefined`.
+ * Хук расширения Prisma на КАЖДУЮ операцию. Зовётся из фабрики клиента базы и
+ * возвращается только тогда, когда отметка (если её пора ставить) уже легла.
+ *
+ * `inTx` — операция идёт ПО ТРАНЗАКЦИОННОМУ клиенту (`__internalParams.transaction`
+ * Prisma). `false` внутри колбэка транзакции = сервис взял КОРНЕВОЙ клиент посреди
+ * чужой транзакции: такая запись коммитится сама по себе и откат её не снимет.
+ * `undefined` — Prisma признака не дал (будущая версия): поведение прежнее.
  */
-export async function beforeOperation(binding: IdemBinding | undefined, operation: string): Promise<void> {
+export async function beforeOperation(
+  binding: IdemBinding | undefined,
+  operation: string,
+  inTx?: boolean,
+): Promise<void> {
   if (!binding || !isWriteOperation(operation)) return;
   if (internalScope.getStore()) return;
   const scope = txScope.getStore();
-  if (scope?.internal) return;
 
-  if (!scope) {
+  if (!scope || inTx === false) {
     // Запись ВНЕ транзакции: привязать отметку не к чему — ответ станет финальным
     binding.dirty = true;
     return;
@@ -150,17 +168,27 @@ export async function beforeOperation(binding: IdemBinding | undefined, operatio
     scope.wrote = true;
     return;
   }
-  if (scope.marked || !scope.tx) {
+  if (scope.marking) {
+    // Отметка уже в полёте (параллельная операция той же транзакции) либо легла:
+    // ждём её исход. Отказ отметки получает КАЖДАЯ операция, а не только первая.
+    scope.wrote = true;
+    await scope.marking;
+    return;
+  }
+  if (!scope.tx) {
     scope.wrote = true;
     return;
   }
   scope.marked = true; // ставим ДО await: вложенный вызов не должен зайти второй раз
-  scope.internal = true;
-  try {
-    await markCommitted(scope.tx, binding);
-  } finally {
-    scope.internal = false;
-  }
+  const tx = scope.tx;
+  // Сама отметка идёт через то же расширение — `internalScope` выводит её из учёта.
+  // Именно ALS, а не флаг на scope: флаг увидели бы и ПАРАЛЛЕЛЬНЫЕ операции той же
+  // транзакции и прошли бы мимо отметки, не дождавшись её.
+  scope.marking = internalScope.run(true, () => markCommitted(tx, binding)).catch((err: unknown) => {
+    scope.markError = err;
+    throw err;
+  });
+  await scope.marking;
   binding.state = 'pending';
 }
 
@@ -175,7 +203,8 @@ export function wrapTransaction<T extends (...args: never[]) => unknown>(
   const wrapped = async function (this: unknown, ...args: unknown[]): Promise<unknown> {
     const binding = getBinding();
     const call = original as unknown as (...a: unknown[]) => Promise<unknown>;
-    if (!binding) return call.apply(this, args);
+    // Служебная транзакция САМОГО движка (`runInternal`) владельцем отметки не бывает
+    if (!binding || internalScope.getStore()) return call.apply(this, args);
 
     const [arg, options] = args;
     if (typeof arg !== 'function') {
@@ -187,13 +216,17 @@ export function wrapTransaction<T extends (...args: never[]) => unknown>(
     const outer = txScope.getStore();
     const owner = !outer && !binding.ownerActive && binding.state === 'none';
     if (owner) binding.ownerActive = true;
-    const scope: TxScope = { owner, marked: false, wrote: false, internal: false };
+    const scope: TxScope = { owner, marked: false, wrote: false };
     let committed = false;
     try {
       const body = (tx: TxLike) =>
-        txScope.run(scope, () => {
+        txScope.run(scope, async () => {
           scope.tx = tx;
-          return (arg as (t: TxLike) => unknown)(tx);
+          const out = await (arg as (t: TxLike) => unknown)(tx);
+          // Отметка не легла, а сервис ошибку проглотил — коммитить НЕЛЬЗЯ: это эффект
+          // устаревшей попытки. Бросаем из колбэка — Prisma откатит транзакцию.
+          if (scope.markError !== undefined) throw scope.markError;
+          return out;
         });
       const result = await call.apply(this, [body, options]);
       committed = true;

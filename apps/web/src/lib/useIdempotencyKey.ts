@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { newIdempotencyKey } from '@superapp/api-client';
 import { IDEMPOTENCY_KEY_MAX } from '@superapp/shared';
 import { IDEMPOTENCY_KEY_RESET_EVENT } from '@/lib/api-errors';
 
@@ -19,13 +20,8 @@ import { IDEMPOTENCY_KEY_RESET_EVENT } from '@/lib/api-errors';
 // сущность стоит дороже лишней строки в хранилище движка.
 // ============================================================
 
-/** uuid браузера; в средах без него (старый WebView) — случайная строка того же вида. */
-function newKey(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  let out = '';
-  for (let i = 0; i < 32; i++) out += Math.floor(Math.random() * 16).toString(16);
-  return out;
-}
+/** Тот же генератор, что у транспорта: uuid, а вне secure context — `getRandomValues`. */
+const newKey = newIdempotencyKey;
 
 export interface IdempotencyKeyHandle {
   /** Текущий ключ намерения — передаётся в `apiPost(..., { idempotencyKey })` */
@@ -76,13 +72,8 @@ export function useIdempotencyKey(deps: readonly unknown[] = []): IdempotencyKey
 // (обновляется на успех и по событию протухшего ключа) плюс части строки.
 // ============================================================
 
-/** uuid попытки; в средах без crypto.randomUUID — случайная строка того же вида. */
-function newNonce(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  let out = '';
-  for (let i = 0; i < 32; i++) out += Math.floor(Math.random() * 16).toString(16);
-  return out;
-}
+/** Разряд попытки — тем же генератором, что и ключ формы. */
+const newNonce = newIdempotencyKey;
 
 /** FNV-1a: запасной путь, когда идентификаторы строки не влезают в потолок ключа. */
 function fold(parts: string): string {

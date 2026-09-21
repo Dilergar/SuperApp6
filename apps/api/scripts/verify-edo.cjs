@@ -146,14 +146,15 @@ async function uploadDocx(token, name, bytes) {
 
 /** Гостевые вызовы: свой транспорт (НИКОГДА не 401 — сверяется в каждой проверке) */
 let sawGuest401 = false;
-async function guest(method, p, session, body) {
+async function guest(method, p, session, body, idemKey) {
   const res = await fetch(BASE + p, {
     method,
     headers: {
       'Content-Type': 'application/json',
       // Ключ повтора (core/idempotency): ручки `required` (деньги, отправка, подпись)
-      // без него отвечают 400. Свой на каждый вызов — сьюту нужны разные намерения.
-      'Idempotency-Key': require('crypto').randomUUID(),
+      // без него отвечают 400. Свой на каждый вызов — сьюту нужны разные намерения;
+      // `idemKey` — когда проверяется именно ПОВТОР одного намерения.
+      'Idempotency-Key': idemKey || require('crypto').randomUUID(),
       ...(session ? { 'x-share-session': session } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -163,7 +164,13 @@ async function guest(method, p, session, body) {
   try {
     json = await res.json();
   } catch {}
-  return { status: res.status, ok: res.ok, json, code: json?.details?.code ?? null };
+  return {
+    status: res.status,
+    ok: res.ok,
+    json,
+    code: json?.details?.code ?? null,
+    replayed: res.headers.get('idempotent-replayed') === 'true',
+  };
 }
 
 async function devCode(challengeId) {
@@ -597,10 +604,32 @@ async function main() {
   ).json?.data;
   const tokC1 = tokenOf(sentC1.external.link.url);
   const gsC1 = await openGuestSession(tokC1, guestPhone(3), 'Асель Подписант');
-  const dec = await guest('POST', `/share-links/guest/${tokC1}/actions/sign.decline`, gsC1.sessionToken, {
-    reason: 'Не согласны с пунктом 4.2',
-  });
+  const declineKey = require('crypto').randomUUID();
+  const declineBody = { reason: 'Не согласны с пунктом 4.2' };
+  const dec = await guest('POST', `/share-links/guest/${tokC1}/actions/sign.decline`, gsC1.sessionToken, declineBody, declineKey);
   check('гость отказал', dec.ok);
+
+  // -- core/idempotency: повтор гостя проходит ШЛЮЗ повторной авторизации --
+  // Авторизация гостя живёт ВНУТРИ ручки, а повтор ручку не зовёт. Пока ссылка жива —
+  // повтор отдаёт сохранённый ответ; ссылку отозвали — повтор обязан услышать отказ,
+  // а не ответ из снимка («жёсткий отзыв» действует и на повторы).
+  const decAgain = await guest('POST', `/share-links/guest/${tokC1}/actions/sign.decline`, gsC1.sessionToken, declineBody, declineKey);
+  check('повтор гостя тем же ключом при живой ссылке → реплей', decAgain.ok && decAgain.replayed === true, `${decAgain.status} replayed=${decAgain.replayed}`);
+  {
+    const { PrismaClient } = require('@prisma/client');
+    const prisma = new PrismaClient();
+    try {
+      const killed = await prisma.shareLink.updateMany({
+        where: { refType: 'sign_request', refId: sentC1.external.requestId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      check('ссылка заявки C1 отозвана (подготовка)', killed.count >= 1, `${killed.count}`);
+    } finally {
+      await prisma.$disconnect();
+    }
+    const decDead = await guest('POST', `/share-links/guest/${tokC1}/actions/sign.decline`, gsC1.sessionToken, declineBody, declineKey);
+    check('повтор ПОСЛЕ отзыва ссылки → отказ (410), а не ответ из снимка', decDead.status === 410 && !decDead.replayed, `${decDead.status} replayed=${decDead.replayed}`);
+  }
   const declined = await until('doc C declined', async () => {
     const d = (await call('GET', `${docsBase}/${docC.id}`, owner.token)).json?.data;
     return d?.status === 'declined_external' ? d : null;

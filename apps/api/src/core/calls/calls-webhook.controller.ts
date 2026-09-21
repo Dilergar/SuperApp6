@@ -2,10 +2,11 @@ import { Controller, HttpCode, Post, Req } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import type { WebhookEvent } from 'livekit-server-sdk';
+import { IDEMPOTENCY_ERROR_CODES, IDEMPOTENCY_LIMITS } from '@superapp/shared';
 import { Public } from '../../shared/decorators/public.decorator';
 import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { IdempotencyInboxService } from '../idempotency/idempotency.inbox.service';
-import { badRequest, unauthorized } from '../../shared/errors/api-error';
+import { badRequest, conflict, unauthorized } from '../../shared/errors/api-error';
 import { CallsLivekitClient } from './calls-livekit.client';
 import { CallsService } from './calls.service';
 
@@ -46,7 +47,15 @@ export class CallsWebhookController {
     }
     // Подпись проверена — только теперь событие вправе попасть в ящик
     const ref = { source: 'livekit', account: event.room?.name ?? 'egress', eventId: event.id ?? '' };
-    if (ref.eventId && !(await this.inbox.firstTime(ref))) return { success: true }; // редоставка
+    if (ref.eventId) {
+      const verdict = await this.inbox.begin(ref);
+      if (verdict === 'duplicate') return { success: true }; // редоставка обработанного
+      // Первая доставка ещё в работе. Ответить 200 нельзя: упади она — отметка снимется,
+      // а LiveKit, услышав «принято», больше не придёт. Не-2xx ⇒ он повторит позже.
+      if (verdict === 'in_flight') {
+        throw conflict(IDEMPOTENCY_ERROR_CODES.inFlight, undefined, { retryInSec: IDEMPOTENCY_LIMITS.retryAfterSec });
+      }
+    }
     try {
       await this.calls.handleWebhook(event);
     } catch (err) {
@@ -55,6 +64,9 @@ export class CallsWebhookController {
       if (ref.eventId) await this.inbox.forget(ref).catch(() => undefined);
       throw err;
     }
+    // Не дошли досюда (процесс умер) — строка останется «в работе», аренда истечёт,
+    // и редоставка заберёт событие: `handleWebhook` идемпотентен
+    if (ref.eventId) await this.inbox.done(ref).catch(() => undefined);
     return { success: true };
   }
 }
