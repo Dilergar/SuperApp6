@@ -18,6 +18,12 @@ export interface EncryptedColumnDef {
    */
   schema?: string;
   idColumn: string;
+  /**
+   * id — целое (bigint большого журнала, `security_events`): курсор перешивки идёт по числу,
+   * а не по `id::text` — текстовое сравнение не берёт индекс, и каждая пачка сортировала бы
+   * всю таблицу (O(n²) на миллионах строк), а точечный UPDATE сканировал бы все партиции.
+   */
+  idNumeric?: boolean;
   /** Колонка с шифротекстом `sa6e:` */
   column: string;
   /** Скоуп KEK строки и колонка с id владельца (у `platform` — не нужна) */

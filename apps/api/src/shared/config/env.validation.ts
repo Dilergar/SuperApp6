@@ -233,6 +233,15 @@ const envSchema = z
     IDEMPOTENCY_MAX_RESPONSE_BYTES: blank(z.coerce.number().int().min(1024).max(4 * 1024 * 1024).optional()),
     // Метка сборки в строке ключа — диагностика снимков старой формы DTO после деплоя.
     APP_BUILD: blank(z.string().min(1).max(64).optional()),
+    // --- Журнал безопасности (core/audit) ---
+    // Интервал подписанных дайджестов целостности, минут (пусто = 5).
+    AUDIT_DIGEST_INTERVAL_MIN: blank(z.coerce.number().int().min(1).max(60).optional()),
+    // Срок хранения месяца в PostgreSQL, лет (пусто = 3). Ниже 3 не бывает: пол держит и
+    // функция сброса `audit_drop_partition` в самой базе.
+    AUDIT_RETENTION_YEARS: blank(z.coerce.number().int().min(3).max(25).optional()),
+    // Выгрузка закрытых месяцев в объектное хранилище (NDJSON+gzip + подписанный манифест).
+    // Пусто = включено; 'false' — аварийный стоп (месяц без архива не сбрасывается НИКОГДА).
+    AUDIT_ARCHIVE_ENABLED: blank(z.enum(['true', 'false']).optional()),
     // --- Движок уведомлений (core/notifications) — web push (VAPID). Пусто → push выключен:
     // тумблер «уведомления браузера» в вебе не показывается, доставки `skipped: driver_not_configured`.
     // Пара генерируется один раз: `npx web-push generate-vapid-keys`.
@@ -271,6 +280,10 @@ const envSchema = z
     // req.ip = адрес сокета. Всё, что считается «по IP» (троттлер, IP-эшелоны
     // core/verify), зависит от этой настройки — см. main.ts.
     TRUST_PROXY: blank(z.string().min(1).optional()),
+    // Имя гео-заголовка страны, который ставит край сети и ЗАТИРАЕТ у клиента (за Cloudflare —
+    // `cf-ipcountry`). Страна журнала безопасности и новизна «вход из новой страны» — только из
+    // него; пусто — страны нет (заголовки клиента не доверяются).
+    GEO_COUNTRY_HEADER: blank(z.string().regex(/^[A-Za-z0-9-]{1,64}$/).optional()),
     // --- Движок подписи (core/sign) ---
     // Верификатор ЭЦП. Пусто → `ncanode`, если задан NCANODE_URL, иначе `mock`.
     // MOCK В PRODUCTION НЕ «чуть хуже»: движок в этом режиме ОТВЕРГАЕТ ЭЦП, потому

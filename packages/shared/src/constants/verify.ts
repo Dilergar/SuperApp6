@@ -40,6 +40,16 @@ export const VERIFY_PURPOSES = [
   // Своя цель: пропуск смены пароля не должен уметь удалить аккаунт, и наоборот.
   // Старт — /verify/step-up (залогинен); гашение — DELETE /users/me в транзакции удаления.
   'account_delete',
+  // Экстренная заморозка аккаунта БЕЗ входа (core/audit, страница /freeze): код на номер
+  // аккаунта доказывает владение SIM. Старт — только /auth/freeze/start (гео-щит, потолок
+  // на IP); несуществующий номер — неотличимая пустышка (как у сброса пароля).
+  'account_freeze',
+  // Разморозка: СТАРЫЙ пароль проверяется ДО SMS, потом код. Своя цель: сброс пароля по SMS
+  // заморозку не снимает (иначе владелец угнанной SIM снял бы её сам). Старт — /auth/unfreeze/start.
+  'account_unfreeze',
+  // Подтверждение НОВОЙ сессии раньше срока cooling (core/audit): пароль + код на свой номер.
+  // Старт — /verify/step-up (залогинен); гашение — POST /users/me/sessions/confirm.
+  'security_confirm',
 ] as const;
 
 export type VerifyPurpose = (typeof VERIFY_PURPOSES)[number];

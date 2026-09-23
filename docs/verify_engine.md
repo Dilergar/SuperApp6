@@ -6,6 +6,8 @@
 
 `VerifyChallenge` — одна АКТИВНАЯ цепочка на (phone, purpose); код 6 цифр ТОЛЬКО HMAC-хэшем (контекст phone+purpose); TTL 10 мин; **5 попыток на цепочку — ресенд НЕ сбрасывает**; ресенд = НОВЫЙ код в ту же цепочку; кулдаун 60→120с (сервер отдаёт `resendInSec` + `Retry-After`). Успешный check → **verifyToken** (64 hex, TTL 15 мин, в БД хэш).
 
+Цели журнала безопасности — `account_freeze` (экстренная заморозка без входа: код на номер аккаунта; старт только `/auth/freeze/start`), `account_unfreeze` (пароль проверяется на старте, код — вторым фактором; сброс пароля заморозку не снимает) и `security_confirm` (подтверждение НОВОЙ сессии раньше срока cooling: пароль + код на свой номер; старт — `/verify/step-up`, гашение — `POST /users/me/sessions/confirm`) — [audit_engine.md](audit_engine.md).
+
 Цели кабинета платформы — `platform_login` (второй фактор входа после пароля) и `platform_step_up` (sudo на 15 минут; `consume` с `expectedUserId` актора) — [platform_console.md](platform_console.md).
 
 ## Контракт потребителя

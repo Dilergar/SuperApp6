@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DEFAULT_LOCALE, type Locale } from '@superapp/i18n';
 import type { IdemBinding } from '../idempotency/binding';
+import type { RequestContext } from './request-context';
 
 export interface WorkspaceContext {
   userId?: string;
@@ -30,6 +31,12 @@ export interface WorkspaceContext {
    * Нет заявки (запрос без ключа, джоб, крон) — обёртка строгий no-op.
    */
   idem?: IdemBinding;
+  /**
+   * Контекст запроса для журнала безопасности (core/audit): request-id, IP, устройство,
+   * страна, клиент, шаблон маршрута. Строит middleware до гардов (`req.ctx`), сюда его
+   * кладёт интерцептор — `AuditService.record` читает без протаскивания через сервисы.
+   */
+  request?: RequestContext;
 }
 
 /**
@@ -70,6 +77,11 @@ export class WorkspaceContextService {
 
   get activeWorkspaceId(): string | undefined {
     return this.als.getStore()?.activeWorkspaceId;
+  }
+
+  /** Контекст запроса (core/audit); вне запроса — undefined. */
+  get request(): RequestContext | undefined {
+    return this.als.getStore()?.request;
   }
 
   /** Язык запроса; вне запроса (бутстрап, крон без обёртки) — язык по умолчанию. */

@@ -11,6 +11,7 @@ import { StaffModule } from '../staff/staff.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { WorkspacesNotificationRefsProvider } from './workspaces-notification-refs.provider';
 import { WorkspacesEntitlementsProvider } from './workspaces-entitlements.provider';
+import { WorkspacePurgeRegistry } from './workspace-purge.registry';
 
 /**
  * WorkspacesModule — B2B organizations + membership.
@@ -41,8 +42,10 @@ import { WorkspacesEntitlementsProvider } from './workspaces-entitlements.provid
     LegalEntitiesService,
     WorkspacesCron,
     WorkspacesTemplateFieldsProvider,
+    // Хуки сервисов в каскаде окончательного удаления (Диск, Заметки — полиморфные владельцы)
+    WorkspacePurgeRegistry,
     { provide: 'WorkspacesService', useExisting: WorkspacesService },
   ],
-  exports: [WorkspacesService, LegalEntitiesService, 'WorkspacesService'],
+  exports: [WorkspacesService, LegalEntitiesService, WorkspacePurgeRegistry, 'WorkspacesService'],
 })
 export class WorkspacesModule {}

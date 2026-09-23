@@ -53,6 +53,11 @@ export const PLATFORM_CAPABILITIES = [
   // Журнал инцидентов ПДн (ЗоПД ст. 25 п. 2 пп. 8): чтение · открытие и шаги уведомления
   'pd.incidents.read',
   'pd.incidents.write',
+  // Журнал безопасности (core/audit): консоль «Безопасность» (события, тревоги, целостность) ·
+  // отзыв сессий, заморозка, закрытие тревог, стрим · выгрузка журнала — через второго сотрудника
+  'security.read',
+  'security.write',
+  'security.approve',
 ] as const;
 
 export type PlatformCapability = (typeof PLATFORM_CAPABILITIES)[number];

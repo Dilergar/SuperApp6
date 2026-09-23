@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import {
   NOTE_ERROR_CODES,
   NOTE_JOB_TYPES,
+  NOTE_FOLDER_REF_TYPE,
   NOTE_LIMITS,
   NOTE_REF_TYPE,
   SOURCE_LOCALE,
@@ -786,6 +787,30 @@ export class NotesService {
     if (!rows.length) return 0;
     await this.hardDelete(rows.map((r) => r.id));
     return rows.length;
+  }
+
+  /**
+   * Каскад окончательного удаления организации: её пространство заметок уходит целиком —
+   * заметки тем же путём, что «удалить навсегда» (привязки файлов, гранты, строки,
+   * индекс), гранты папок, затем строка пространства (папки, доску и чанки снимет внешний
+   * ключ). Пачками, идемпотентно: прерванный прогон доберёт остаток.
+   */
+  async purgeSpaceOf(ownerType: 'workspace', ownerId: string): Promise<void> {
+    const space = await this.db.noteSpace.findUnique({
+      where: { ownerType_ownerId: { ownerType, ownerId } },
+      select: { id: true },
+    });
+    if (!space) return;
+    for (;;) {
+      const rows = await this.db.note.findMany({ where: { spaceId: space.id }, select: { id: true }, take: NOTE_LIMITS.purgeBatch });
+      if (!rows.length) break;
+      await this.hardDelete(rows.map((r) => r.id));
+    }
+    const folders = await this.db.noteFolder.findMany({ where: { spaceId: space.id }, select: { id: true } });
+    await this.db.$transaction(async (tx) => {
+      for (const f of folders) await this.acl.revokeAll(NOTE_FOLDER_REF_TYPE, f.id, tx);
+      await tx.noteSpace.delete({ where: { id: space.id } });
+    });
   }
 
   private async hardDelete(noteIds: string[]): Promise<void> {

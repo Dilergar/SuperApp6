@@ -220,6 +220,38 @@
     "idempotencyKeyLookup": {
       "title": "Find by repeat key",
       "description": "An integrator asks whether their request went through: find its attempts by the repeat key. Response bodies are never shown"
+    },
+    "securitySessionRevoke": {
+      "title": "End sessions",
+      "description": "Ends one session of the person or all of them: the devices sign out right away, access tokens stop working"
+    },
+    "securityAccountFreeze": {
+      "title": "Freeze the account",
+      "description": "Closes sign-in, all sessions and personal API keys. Only the owner unfreezes it — with the password and an SMS code"
+    },
+    "securityAccountUnfreeze": {
+      "title": "Unfreeze the account",
+      "description": "Only after the identity is checked by the support procedure. Also lifts the sign-in lockout"
+    },
+    "securityAlertClose": {
+      "title": "Close the alert",
+      "description": "Closes a detection alert with a resolution; the evidence stays in the log"
+    },
+    "securityEventRevealIp": {
+      "title": "Show the IP address",
+      "description": "Decrypts the full IP address of the event. The reveal itself is recorded in the log"
+    },
+    "securityDigestVerify": {
+      "title": "Verify log integrity",
+      "description": "Recomputes the digests signed in the window: rows, Merkle root, signature and the chain"
+    },
+    "securityExport": {
+      "title": "Export the security log",
+      "description": "The whole platform log for the window as a file for you; the export is recorded in the log"
+    },
+    "securityStreamReplay": {
+      "title": "Replay the SIEM stream",
+      "description": "Sends the organization security events of the window to its webhooks again"
     }
   },
   "fields": {
@@ -311,7 +343,8 @@
     "requests": "Requests",
     "search": "Search",
     "staff": "Staff",
-    "consents": "Consents"
+    "consents": "Consents",
+    "security": "Security"
   },
   "noAccess": {
     "text": "This account is not on the platform staff, or it has been suspended.",
@@ -338,7 +371,9 @@
     "workspaceMembersSummary": "Members",
     "workspaceProfile": "Profile",
     "userConsents": "Consents",
-    "userIdempotency": "Disputed operations"
+    "userIdempotency": "Disputed operations",
+    "userSecurity": "Security",
+    "workspaceSecurity": "Security log"
   },
   "picker": {
     "change": "change",
@@ -446,7 +481,13 @@
     "staffSuspended": "a staff member was suspended",
     "stepUpBurst": "failed step-up passwords in a row",
     "pdIncidentOpened": "a personal data incident is opened",
-    "pdIncidentDeadline": "less than 4 hours left to notify the authorised body of an incident"
+    "pdIncidentDeadline": "less than 4 hours left to notify the authorised body of an incident",
+    "passwordSpray": "password spraying from one network",
+    "bruteforceIp": "password guessing from one network",
+    "credentialStuffing": "credential stuffing: most sign-ins fail",
+    "massExport": "mass export of data by one actor",
+    "digestMismatch": "the security log integrity is broken",
+    "auditDegraded": "the security log loses records"
   },
   "shell": {
     "logout": "Sign out",
@@ -537,5 +578,125 @@
     "committed": "Done, answer lost",
     "completed": "Finished",
     "released": "No effect"
+  },
+  "security": {
+    "title": "Security",
+    "description": "The security log of the whole platform: events, console commands, detection alerts, integrity",
+    "tabs": {
+      "events": "Events",
+      "commands": "Commands",
+      "alerts": "Alerts",
+      "integrity": "Integrity"
+    },
+    "filters": {
+      "category": "Category",
+      "key": "Event type",
+      "actor": "Actor id",
+      "subject": "Account id",
+      "workspace": "Organization id",
+      "requestId": "Request ID",
+      "op": "Operation",
+      "byNetwork": "From one IP address"
+    },
+    "col": {
+      "time": "Time",
+      "event": "Event",
+      "actor": "Actor",
+      "subject": "Account",
+      "outcome": "Outcome"
+    },
+    "network": "Network",
+    "ip": "IP address",
+    "ipLookup": "Find by IP",
+    "find": "Find",
+    "revealIp": "Show the IP",
+    "allFromIp": "All events from this IP",
+    "details": "Details",
+    "alertStatus": {
+      "open": "Open",
+      "ack": "In progress",
+      "closed": "Closed"
+    },
+    "alerts": {
+      "col": {
+        "severity": "Severity",
+        "kind": "Alert",
+        "subject": "Subject",
+        "opened": "Opened",
+        "status": "Status"
+      },
+      "hits": "{n, plural, one {# hit} other {# hits}}",
+      "close": "Close the alert",
+      "revokeSessions": "End the sessions",
+      "freeze": "Freeze the account",
+      "actions": "Alert actions",
+      "empty": "No alerts"
+    },
+    "integrity": {
+      "digests": "Integrity digests",
+      "digestsHint": "Every few minutes the log is sealed with a signed Merkle root; a change of any row breaks the check.",
+      "noDigests": "No digests yet",
+      "verified": "Verified",
+      "mismatch": "Mismatch",
+      "unverified": "Not verified",
+      "partitions": "Monthly partitions",
+      "partitionsHint": "Three years in the database; before removal a month is exported to the archive with a signed manifest.",
+      "partitionStatus": {
+        "in_db": "In the database",
+        "archived": "Archived",
+        "dropped": "Removed"
+      },
+      "col": {
+        "window": "Window",
+        "rows": "Rows",
+        "root": "Root",
+        "signed": "Signed",
+        "status": "Status",
+        "month": "Month",
+        "archived": "Archived"
+      },
+      "verify24h": "Verify the last 24 h",
+      "verifyOk": "The log is intact: {digests, plural, one {# digest} other {# digests}}, {rows, plural, one {# row} other {# rows}}",
+      "verifyFailed": "Mismatch in {n, plural, one {# digest} other {# digests}} — an alert is raised",
+      "exports": "My log exports",
+      "exportsHint": "Files of the “Export the security log” command — only for you.",
+      "export": "Export the log",
+      "noExports": "No exports yet",
+      "download": "Download",
+      "manifest": {
+        "open": "Manifest",
+        "title": "Archive manifest: {month}",
+        "signatureOk": "Signature is valid",
+        "signatureBad": "Signature mismatch",
+        "recordOk": "Matches the archive record",
+        "recordBad": "Differs from the archive record",
+        "hint": "The file is read from the storage and checked against the signature saved in the database at export time: a swapped file fails the check.",
+        "format": "Format",
+        "period": "Period",
+        "rows": "Rows",
+        "size": "Size",
+        "sha256": "File SHA-256",
+        "root": "Merkle root",
+        "object": "Archive object",
+        "kid": "Signing key",
+        "archivedAt": "Archived",
+        "droppedAt": "Removed from the database",
+        "notFound": "The manifest is not in the storage"
+      }
+    },
+    "panel": {
+      "frozen": "Frozen {date}",
+      "locked": "Sign-in blocked until {time}",
+      "sessions": "{n, plural, one {# active session} other {# active sessions}}",
+      "devices": "{n, plural, one {# device} other {# devices}}",
+      "openAlerts": "{n, plural, one {# open alert} other {# open alerts}}",
+      "recent": "Recent events",
+      "openLog": "Open in the log",
+      "window": "Log window: {days, plural, one {# day} other {# days}}",
+      "exportOn": "Export is on",
+      "exportOff": "No export on the plan",
+      "streamOn": "SIEM stream is on",
+      "streamOff": "No SIEM stream on the plan"
+    }
   }
 }

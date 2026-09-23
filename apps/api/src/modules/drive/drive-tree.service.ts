@@ -457,6 +457,25 @@ export class DriveTreeService {
   }
 
   /**
+   * Каскад окончательного удаления организации: её пространства Диска уходят тем же
+   * путём, что «удалить навсегда» (системный режим purge: гранты, привязки, ссылки
+   * наружу, файлы — кроме защищённых личным архивом, — индекс), затем строки пространств
+   * (узлы и фото-корзины снимет внешний ключ). Узлы, выпавшие из дерева корня после
+   * сбоя прошлого прогона, добираются по пространству. Идемпотентно.
+   */
+  async purgeOwnerSpaces(ownerType: 'workspace', ownerId: string): Promise<number> {
+    const spaces = await this.db.driveSpace.findMany({ where: { ownerType, ownerId }, select: { id: true } });
+    if (!spaces.length) return 0;
+    const spaceIds = spaces.map((s) => s.id);
+    const roots = await this.db.driveNode.findMany({ where: { spaceId: { in: spaceIds }, parentId: null }, select: { id: true } });
+    if (roots.length) await this.purge(null, roots.map((r) => r.id));
+    const strays = await this.db.driveNode.findMany({ where: { spaceId: { in: spaceIds } }, select: { id: true } });
+    if (strays.length) await this.purge(null, strays.map((n) => n.id));
+    await this.db.driveSpace.deleteMany({ where: { id: { in: spaceIds } } });
+    return spaces.length;
+  }
+
+  /**
    * Список корзины пространства (только явно удалённые узлы).
    *
    * Курсор — ПАРА (время удаления, id). Одного времени мало: удаление пачки ставит

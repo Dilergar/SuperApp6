@@ -7,9 +7,10 @@ import { ServiceMessages } from '@/i18n/ServiceMessages';
 //
 // ЛОВУШКА: вложенный провайдер ЗАМЕНЯЕТ сообщения, а не дополняет их (docs/i18n.md),
 // поэтому перечислено ВСЁ, что нужно поддереву. Каркас области (шапка, стопка
-// решений) рисуется выше по дереву и своих неймспейсов не теряет.
+// решений) рисуется выше по дереву и своих неймспейсов не теряет. `notes` — «Заметка
+// из сообщения» в меню чата встречи.
 export default function MeetingRoomLayout({ children }: { children: ReactNode }) {
   return (
-    <ServiceMessages ns={['office', 'calls', 'messenger', 'circles']}>{children}</ServiceMessages>
+    <ServiceMessages ns={['office', 'calls', 'messenger', 'notes', 'circles']}>{children}</ServiceMessages>
   );
 }

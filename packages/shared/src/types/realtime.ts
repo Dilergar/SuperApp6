@@ -5,6 +5,7 @@
 // ============================================================
 
 import type { MessengerClientToServerEvents, MessengerServerToClientEvents } from './messenger';
+import type { WsSecurityChanged } from './audit';
 
 /** Новая строка ленты у адресата (relay события шины `notifications.created`). */
 export interface WsNotificationNew {
@@ -50,10 +51,16 @@ export interface KeysServerToClientEvents {
   'keys:changed': (p: WsKeysChanged) => void;
 }
 
+/** `security:changed` — журнал безопасности или сессии человека изменились (core/audit): личная комната */
+export interface SecurityServerToClientEvents {
+  'security:changed': (p: WsSecurityChanged) => void;
+}
+
 export type RealtimeServerToClientEvents = MessengerServerToClientEvents &
   NotificationServerToClientEvents &
   EntitlementsServerToClientEvents &
-  KeysServerToClientEvents;
+  KeysServerToClientEvents &
+  SecurityServerToClientEvents;
 
 /** Payload шины `entitlements.changed` (движок → relay для user; workspaces подписывается для организации). */
 export interface EntitlementsChangedBusPayload {

@@ -8,6 +8,7 @@ import {
   REFRESH_TOKEN_KEY,
   type TokenStorage,
 } from '@superapp/api-client';
+import { getDeviceId } from './device-id';
 
 // Веб-АДАПТЕР транспорта. Сам транспорт (интерцепторы, single-flight ротация
 // refresh, хелперы) живёт в `@superapp/api-client` — общий с mobile, чтобы вторая
@@ -39,6 +40,8 @@ const client = createApiClient({
   getLocale: () => readLocaleCookie(),
   // Сессия и устройство аналитики → серверные события запроса ложатся в ту же сессию
   getAnalyticsContext: () => analytics.context(),
+  // Устройство журнала безопасности (core/audit) — не зависит от отказа от аналитики
+  getDeviceId,
   onAuthFailure: () => {
     if (typeof window !== 'undefined') window.location.href = '/login';
   },

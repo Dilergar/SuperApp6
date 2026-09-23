@@ -16,6 +16,7 @@ import { NotesShareService } from './notes-share.service';
 import { NoteTargetRegistry } from './notes-targets.registry';
 import { NotesService } from './notes.service';
 import { NotesNotificationRefsProvider } from './notes-notification-refs.provider';
+import { NotesWorkspacePurgeProvider } from './notes-workspace-purge.provider';
 
 /**
  * Сервис «Заметки» — B2C и B2B в одном модуле (пространство личное или организации).
@@ -46,6 +47,8 @@ import { NotesNotificationRefsProvider } from './notes-notification-refs.provide
     NotesRegistriesProvider,
     NotesJobs,
     NotesCron,
+    // Каскад окончательного удаления организации: её пространство заметок уходит с ней
+    NotesWorkspacePurgeProvider,
   ],
   exports: [NoteTargetRegistry, NotesService],
 })

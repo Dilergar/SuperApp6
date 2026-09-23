@@ -37,6 +37,9 @@ async function http(method, path, { token, body } = {}) {
     method,
     headers: {
       'Content-Type': 'application/json',
+      // Устройство сьюты (core/audit): первое устройство аккаунта доверено сразу — cooling
+      // новой сессии не мешает смене пароля; новое устройство проверяет verify-audit
+      'X-Device-Id': require('./_lib.cjs').SUITE_DEVICE_ID,
       // Ключ повтора (core/idempotency): ручки `required` (деньги, отправка, подпись)
       // без него отвечают 400. Свой на каждый вызов — сьюту нужны разные намерения.
       'Idempotency-Key': require('crypto').randomUUID(),

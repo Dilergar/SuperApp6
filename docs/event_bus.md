@@ -14,7 +14,7 @@
 
 | Подсистема | Темы |
 |---|---|
-| Auth (`core/auth`, `core/users`) | `auth.sessions.revoked` — logout / смена пароля / отзыв сессии: гасит сокеты |
+| Auth (`core/auth`, `core/users`, `core/audit`) | `auth.sessions.revoked` — logout-all / смена пароля / заморозка: гасит ВСЕ сокеты человека; `auth.families.revoked {families}` — точечный отзыв (завершить сессию, забыть устройство, выход, отзыв Кабинетом, неактивность; шлёт `AuditSessionsService.markFamiliesRevoked` после коммита): гасит сокеты только этих семейств |
 | Окружение (`modules/contacts`) | `contact.removed`, `contact.blocked` |
 | Задачи (`modules/tasks`) | `task.created`, `task.completed`, `task.deleted`, `task.cancelled` |
 | Календарь (`modules/calendar`) | `calendar.event.created / updated / cancelled / invited / rsvp / participant_removed / reminder` |
@@ -35,7 +35,7 @@
 
 | Подписчик | Слушает | Делает |
 |---|---|---|
-| `apps/api/src/core/realtime/realtime.gateway.ts` | relay из `RealtimeRegistry` (`messenger.*` — регистрирует мессенджер; `notifications.created|counts` — уведомления), `auth.sessions.revoked` | Сокет `/realtime`: доставка в комнаты, отключение отозванных сессий |
+| `apps/api/src/core/realtime/realtime.gateway.ts` | relay из `RealtimeRegistry` (`messenger.*` — регистрирует мессенджер; `notifications.created|counts` — уведомления), `auth.sessions.revoked`, `auth.families.revoked` | Сокет `/realtime`: доставка в комнаты, отключение отозванных сессий (всех человека / комнат `fam:<семейство>`) |
 | `apps/api/src/modules/messenger/calendar-system.listener.ts` | `calendar.event.*` | Системные плашки в чатах событий |
 | `apps/api/src/modules/messenger/chat-calls.listener.ts` | `call.session.*`, `call.participant.*`, `call.recording.*` (фильтр `refType === 'chat'`) | `call:state` в сокет + плашки итогов звонка |
 | `apps/api/src/modules/messenger/office-system.listener.ts` | `office.room.*`, `call.session.*` | Плашки встреч офиса |

@@ -233,6 +233,8 @@ export class WebhooksService implements OnModuleInit {
       const e = await tx.webhookEndpoint.create({
         data: { workspaceId, url, events: events as Prisma.InputJsonValue, signing: input.signing, secretEnc, privateKeyEnc, publicKey, status: 'pending_verification', createdById: actor.userId },
       });
+      // Группы событий со своими правилами (стрим журнала безопасности — тариф и факт в журнале)
+      await this.registry.runSubscriptionHooks(tx, { actorId: actor.userId, workspaceId, before: [], after: events });
       await this.audit.log(tx, { actorId: actor.userId, workspaceId, subjectType: 'webhook_endpoint', subjectId: e.id, subjectName: e.url, action: WEBHOOK_AUDIT.created, ip: actor.ip ?? null, details: { signing: e.signing, events: events.length } });
       await this.analytics.track(tx, 'webhooks.endpoint.created', { signing: input.signing, eventCount: events.length }, { userId: actor.userId, workspaceId });
       // Проверка адреса: пинг с живой подписью; 2xx → active
@@ -256,6 +258,8 @@ export class WebhooksService implements OnModuleInit {
     const updated = await this.db.$transaction(async (tx) => {
       let u = row;
       if (events) {
+        const before = Array.isArray(row.events) ? (row.events as string[]) : [];
+        await this.registry.runSubscriptionHooks(tx, { actorId: actor.userId, workspaceId, before, after: events });
         u = await tx.webhookEndpoint.update({ where: { id }, data: { events: events as Prisma.InputJsonValue } });
         await this.audit.log(tx, { actorId: actor.userId, workspaceId, subjectType: 'webhook_endpoint', subjectId: id, subjectName: row.url, action: WEBHOOK_AUDIT.updated, ip: actor.ip ?? null, details: { events: events.length } });
       }
@@ -308,6 +312,7 @@ export class WebhooksService implements OnModuleInit {
     const row = await this.load(workspaceId, id);
     await this.db.$transaction(async (tx) => {
       await tx.webhookEndpoint.delete({ where: { id } });
+      await this.registry.runSubscriptionHooks(tx, { actorId: actor.userId, workspaceId, before: Array.isArray(row.events) ? (row.events as string[]) : [], after: [] });
       await this.audit.log(tx, { actorId: actor.userId, workspaceId, subjectType: 'webhook_endpoint', subjectId: id, subjectName: row.url, action: WEBHOOK_AUDIT.deleted, ip: actor.ip ?? null });
     });
     void this.notifier.changed(workspaceId);

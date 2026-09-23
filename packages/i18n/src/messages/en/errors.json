@@ -56,7 +56,11 @@
     "wrongCurrentPassword": "The current password is wrong",
     "wrongPassword": "Wrong password",
     "minorNotAllowed": "Registration is available from the age of {age}",
-    "dateOfBirthRequired": "Enter your date of birth"
+    "dateOfBirthRequired": "Enter your date of birth",
+    "locked": "Sign-in is temporarily blocked after too many wrong passwords — try again later or reset the password by SMS",
+    "frozen": "The account is frozen — unfreeze it with the password and an SMS code",
+    "cooling_period": "This device signed in recently — confirm it with the password and an SMS code, or wait 24 hours from the sign-in",
+    "notFrozen": "The account is not frozen"
   },
   "calendar": {
     "badPeriod": "The period is invalid",
@@ -1411,6 +1415,13 @@
       "badCharacters": "The characters < and > are not allowed",
       "nameRequired": "The organization name is required",
       "nothingToUpdate": "There is nothing to update"
+    },
+    "audit": {
+      "eventId": "The event id is not valid",
+      "deviceLabel": "Enter the device name",
+      "idleDays": "Choose one of the offered periods",
+      "range": "The end of the period must be after its start",
+      "rangeTooLong": "The period is too long — narrow it"
     }
   },
   "verify": {
@@ -1490,6 +1501,7 @@
     "manageForbidden": "Not enough rights",
     "newOwnerNotMember": "The new owner must be a member of the organization",
     "noAccess": "You have no access to this organization",
+    "notArchived": "Only an archived organization can be deleted for good",
     "notFound": "The organization was not found",
     "notMember": "You are not a member of this organization",
     "ownerCannotLeave": "The owner cannot leave — transfer the ownership first",
@@ -1540,5 +1552,20 @@
     "already_completed": "This operation has already been completed",
     "outcome_unknown": "We could not confirm the result. The operation may have gone through — check the history before repeating it",
     "unavailable": "Repeat protection is temporarily unavailable. Try again in a few seconds"
+  },
+  "audit": {
+    "event_not_found": "The event was not found",
+    "not_disputable": "This event cannot be disputed",
+    "device_not_found": "The device was not found",
+    "session_not_found": "The session was not found",
+    "export_range": "The export period is outside the log window of your plan",
+    "export_too_large": "Too many records for one export — narrow the period",
+    "export_daily_limit": "The daily export limit is reached — try again tomorrow",
+    "range_too_long": "The period is too long",
+    "current_session": "The current device cannot be forgotten from itself — sign out instead",
+    "alert_not_found": "The alert was not found",
+    "alert_closed": "The alert is already closed",
+    "not_frozen": "The account is not frozen",
+    "partition_not_found": "The log month was not found in the archive"
   }
 }

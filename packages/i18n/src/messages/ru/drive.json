@@ -125,7 +125,8 @@
     "chat_uploads": "Файлы из переписки",
     "chip": "системная",
     "documents": "Документы организации",
-    "personal_files": "Личные дела"
+    "personal_files": "Личные дела",
+    "security_exports": "Безопасность"
   },
   "tab": {
     "files": "Файлы"

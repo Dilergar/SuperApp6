@@ -14,7 +14,8 @@
 import { usePathname } from 'next/navigation';
 import { AppShell } from './AppShell';
 
-const BARE_EXACT = new Set(['/', '/login', '/register', '/reset-password']);
+// /freeze — экстренная заморозка без входа (core/audit): открывается и без аккаунта, с чужого устройства
+const BARE_EXACT = new Set(['/', '/login', '/register', '/reset-password', '/freeze']);
 
 function isBare(pathname: string): boolean {
   if (BARE_EXACT.has(pathname)) return true;

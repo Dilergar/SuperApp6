@@ -71,6 +71,9 @@ function coded(key: string, code: string, params?: ErrorParams): ApiError {
   return badRequest(key, params, { code });
 }
 
+/** Отзыв проиграл гонку (заявку закрыли раньше) — откатывает транзакцию отзыва, наружу не выходит */
+class SignCancelLostRace extends Error {}
+
 /**
  * core/sign — 15-й платформенный движок: электронная подпись.
  *
@@ -1000,7 +1003,30 @@ export class SignService {
    * доказательствами навсегда — отзыв закрывает СБОР, а не отменяет подписанное.
    */
   async cancelRequest(actorId: string, requestId: string): Promise<void> {
-    await this.db.$transaction(async (tx) => {
+    const won = await this.closeAsCancelled(requestId, { by: actorId });
+    // Гонка с подписью/отказом/кроном: заявка уже закрыта — отзыв опоздал.
+    if (!won) throw coded('sign.requestAlreadyClosed', SIGN_ERROR_CODES.requestClosed);
+  }
+
+  /**
+   * Организация удалена насовсем (каскад purge): её незакрытые заявки закрываются тем же
+   * переходом, что отзыв потребителем, — поставленные подписи остаются доказательствами,
+   * ждущие акты гаснут, «Ждут решения» их больше не покажет. Заявка, закрытая встречной
+   * подписью или кроном, — не ошибка: закрыть её и было целью. Прочий сбой бросается —
+   * каскад прерывается и повторится следующим прогоном ретеншна.
+   */
+  async cancelAllForWorkspace(workspaceId: string): Promise<number> {
+    const rows = await this.db.signRequest.findMany({ where: { workspaceId, status: 'pending' }, select: { id: true } });
+    let cancelled = 0;
+    for (const r of rows) {
+      if (await this.closeAsCancelled(r.id, { by: null, reason: 'workspace_purged' })) cancelled++;
+    }
+    return cancelled;
+  }
+
+  /** Отзыв одной заявкой-транзакцией; `false` — заявка уже закрыта (гонка) */
+  private async closeAsCancelled(requestId: string, event: Record<string, unknown>): Promise<boolean> {
+    return this.db.$transaction(async (tx) => {
       // Порядок замков тот же, что у подписи, отказа и крона: сначала акты, потом
       // заявка — иначе встречная финализация даёт взаимоблокировку.
       await tx.signAct.updateMany({
@@ -1012,13 +1038,17 @@ export class SignService {
         data: { status: 'cancelled', completedAt: new Date() },
       });
       if (won.count === 0) {
-        // Гонка с подписью/отказом/кроном: заявка уже закрыта — отзыв опоздал.
-        throw coded('sign.requestAlreadyClosed', SIGN_ERROR_CODES.requestClosed);
+        // Откат погашенных актов: заявку закрыл кто-то другой, её акты — его забота
+        throw new SignCancelLostRace();
       }
       const acts = await tx.signAct.findMany({ where: { requestId }, select: { id: true } });
       for (const act of acts) {
-        await this.logEvent(tx, act.id, 'cancelled', {}, { by: actorId }).catch(() => undefined);
+        await this.logEvent(tx, act.id, 'cancelled', {}, event).catch(() => undefined);
       }
+      return true;
+    }).catch((err: unknown) => {
+      if (err instanceof SignCancelLostRace) return false;
+      throw err;
     });
   }
 

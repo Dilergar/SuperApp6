@@ -24,6 +24,7 @@ import { ApprovalsRegistry } from '../approvals/approvals.registry';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { AudiencesRegistry } from '../audiences/audiences.registry';
 import { PlatformAccessService } from './platform-access.service';
+import { PlatformAuditService } from './platform-audit.service';
 import { PlatformCommandRegistry, type CommandTarget, type PlatformCommandDef } from './platform-commands.registry';
 import { PlatformCommandsService } from './platform-commands.service';
 import { PlatformNotifier } from './platform.notifications';
@@ -51,6 +52,7 @@ export class PlatformRequestsService implements OnModuleInit {
     private readonly commands: PlatformCommandRegistry,
     private readonly notifier: PlatformNotifier,
     @Inject(forwardRef(() => PlatformCommandsService)) private readonly executor: PlatformCommandsService,
+    private readonly audit: PlatformAuditService,
   ) {}
 
   onModuleInit(): void {
@@ -125,6 +127,7 @@ export class PlatformRequestsService implements OnModuleInit {
         status: 'pending',
       },
     });
+    await this.audit.requestEvent('platform.request.created', actor, request);
 
     return this.attachApproval(actor, def, request, approvers, meta.reason);
   }
@@ -197,6 +200,7 @@ export class PlatformRequestsService implements OnModuleInit {
       actor.ip,
       { fromConsole: true },
     );
+    await this.audit.requestEvent('platform.request.decided', actor, req, outcome);
     return (await this.get(actor, req.id))!;
   }
 
@@ -218,6 +222,7 @@ export class PlatformRequestsService implements OnModuleInit {
     // Согласование закрываем после клейма: хук возврата увидит статус уже не `pending`
     // и второй раз заявку не тронет.
     if (req.approvalId) await this.approvals.cancel(actor.userId, req.approvalId, { fromConsole: true });
+    await this.audit.requestEvent('platform.request.withdrawn', actor, req);
     return (await this.get(actor, req.id))!;
   }
 

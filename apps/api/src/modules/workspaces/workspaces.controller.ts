@@ -31,6 +31,11 @@ import {
   createBankAccountSchema,
   updateBankAccountSchema,
 } from '@superapp/shared';
+import { z } from 'zod';
+import { isDevEnv } from '../../shared/config/env.validation';
+
+const devPurgeBody = z.object({ workspaceId: z.string().uuid().optional() }).strict();
+const devOrphansBody = z.object({ apply: z.boolean().default(false), limit: z.number().int().min(1).max(100).default(20) }).strict();
 
 @ApiTags('Workspaces')
 @ApiBearerAuth()
@@ -70,24 +75,48 @@ export class WorkspacesController {
   /**
    * Прогнать ретеншн архива немедленно (удаление созревшего + предупреждения за 7/3/1
    * день) — полигон verify-workspace-restore.cjs: ждать ночного крона тест не может.
-   * Только при NODE_ENV=development, как /jobs/dev/*: в любом другом окружении ручки
-   * будто нет.
+   * Только в объявленных development/test (`isDevEnv`, как у остальных дев-полигонов:
+   * CI гоняет сьюты с NODE_ENV=test); в любом другом окружении ручки будто нет.
    */
   @NoApiKeys()
   @Post('dev/purge-archives')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'DEV: run the archive retention right now (development only)' })
-  async devPurgeArchives(@Body() body?: { workspaceId?: string }) {
-    if (process.env.NODE_ENV !== 'development') throw new NotFoundException();
-    // Полигон КЭДО: purge КОНКРЕТНОЙ организации сейчас (проверка «личный архив
-    // переживает purge» не может ждать 90 дней ретеншна). Только development.
-    if (body?.workspaceId) {
-      await this.workspaces.purgeWorkspace(String(body.workspaceId));
+  @ApiOperation({ summary: 'DEV: run the archive retention right now (development/test only)' })
+  async devPurgeArchives(@CurrentUser() user: JwtPayload, @Body() raw?: unknown) {
+    if (!isDevEnv()) throw new NotFoundException();
+    const body = devPurgeBody.parse(raw ?? {});
+    // Purge КОНКРЕТНОЙ организации сейчас (КЭДО: «личный архив переживает purge»; уборка
+    // сьютов) — ждать 90 дней ретеншна тест не может. Только своей и только из архива:
+    // база разработки общая, и по одному id стиралась бы живая организация человека.
+    if (body.workspaceId) {
+      await this.workspaces.purgeArchivedWorkspaceNow(user.sub, body.workspaceId);
       return { success: true, data: { purged: 1, warned: 0 } };
     }
     const purged = await this.workspaces.purgeExpiredArchives();
     const warned = await this.workspaces.warnExpiringArchives();
     return { success: true, data: { purged, warned } };
+  }
+
+  /**
+   * Хвосты организаций, которых УЖЕ НЕТ: без `apply` — сколько их; с `apply` — прогнать
+   * по первым `limit` первую фазу каскада удаления (данные движков и сервисов). Живые и
+   * архивные организации не трогаются по построению. Клиент — `gc-orphan-workspace-data.cjs`.
+   * Только development/test (`isDevEnv`): в любом другом окружении ручки будто нет.
+   */
+  @NoApiKeys()
+  @Post('dev/purge-orphans')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'DEV: list (or with apply purge) engine data of organizations that no longer exist (development/test only)' })
+  async devPurgeOrphans(@Body() raw?: unknown) {
+    if (!isDevEnv()) throw new NotFoundException();
+    const body = devOrphansBody.parse(raw ?? {});
+    const ids = await this.workspaces.orphanedWorkspaceIds();
+    if (!body.apply) {
+      return { success: true, data: { orphaned: ids.length, purged: 0, report: await this.workspaces.orphanReport(ids) } };
+    }
+    const batch = ids.slice(0, body.limit);
+    for (const id of batch) await this.workspaces.purgeWorkspaceData(id);
+    return { success: true, data: { orphaned: ids.length, purged: batch.length } };
   }
 
   // ----- Incoming invitations (must precede ':id' routes) -----

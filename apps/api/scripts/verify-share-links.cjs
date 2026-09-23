@@ -11,6 +11,7 @@
 //
 // Run (API up): node scripts/verify-share-links.cjs
 const { PrismaClient } = require('@prisma/client');
+const { createSuiteWorkspace, archiveSuiteWorkspaces } = require('./_lib.cjs');
 // Адрес API переопределяется переменной окружения: два экземпляра на одной машине
 // (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
 const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
@@ -128,7 +129,7 @@ async function main() {
   const u2 = (await prisma.user.findUnique({ where: { phone: P2 }, select: { id: true } })).id;
   const u3 = (await prisma.user.findUnique({ where: { phone: P3 }, select: { id: true } })).id;
   const stamp = Date.now();
-  const created = { nodes: [], links: [], guestPhones: [], workspaces: [] };
+  const created = { nodes: [], links: [], guestPhones: [] };
 
   try {
     await ensureContact(prisma, u1, u2);
@@ -939,10 +940,9 @@ async function main() {
     // ============================================================
     // Ради этого раздел и заводится: автор ссылки уволился/недоступен, а закрыть
     // раздачу должен кто-то из управляющих.
-    const cws = await call('POST', '/workspaces', t1, { name: `sl-org-${stamp}` });
+    const cws = await createSuiteWorkspace(t1, 'Сьют-Ссылки');
     check('организация для ссылок создана', cws.ok, `status ${cws.status}`);
     const wsId = cws.json?.data?.id;
-    created.workspaces.push(wsId);
 
     // u2 нанимается и становится Менеджером (он и будет закрывать чужое)
     await call('POST', `/workspaces/${wsId}/invitations`, t1, { phone: P2 });
@@ -980,6 +980,21 @@ async function main() {
 
     const orgStats = await call('GET', `/workspaces/${wsId}/share-links/stats`, t1);
     check('сводка организации считается', orgStats.ok && orgStats.json.data.activeLinks >= 1, `активных ${orgStats.json?.data?.activeLinks}`);
+
+    // Архив организации ГАСИТ её ссылки на время архива (сервисы выключенной организации
+    // закрыты и для своих — гость не видит больше них), возврат из архива возвращает их
+    // как были: ничего не отзывается.
+    const tokOrg = tokenOf(cOrgLink.json.data.url);
+    const orgPeekLive = await call('GET', `/share-links/guest/${tokOrg}`, null);
+    check('ссылка организации открывается, пока организация жива', orgPeekLive.status === 200, `status ${orgPeekLive.status}`);
+    await call('DELETE', `/workspaces/${wsId}`, t1);
+    const orgPeekArchived = await call('GET', `/share-links/guest/${tokOrg}`, null);
+    check('в архиве организации её ссылка → 410 share_ref_gone', orgPeekArchived.status === 410 && orgPeekArchived.code === 'share_ref_gone', `${orgPeekArchived.status} ${orgPeekArchived.code}`);
+    const orgSessionArchived = await call('POST', `/share-links/guest/${tokOrg}/session`, null, {});
+    check('и сессию в архиве не открыть (открытие не засчитано)', orgSessionArchived.status === 410, `status ${orgSessionArchived.status}`);
+    await call('POST', `/workspaces/${wsId}/restore`, t1);
+    const orgPeekRestored = await call('GET', `/share-links/guest/${tokOrg}`, null);
+    check('после возврата из архива ссылка снова открывается (не отозвана)', orgPeekRestored.status === 200, `status ${orgPeekRestored.status}`);
 
     const byOutsider = await call('GET', `/workspaces/${wsId}/share-links`, t3);
     check('постороннему раздел закрыт', byOutsider.status === 403, `status ${byOutsider.status}`);
@@ -1024,10 +1039,8 @@ async function main() {
       await call('POST', '/drive/nodes/trash', t1, { ids: [id] }).catch(() => {});
       await call('DELETE', '/drive/nodes', t1, { ids: [id] }).catch(() => {});
     }
-    // Организации прогона — в архив (мусор приберёт gc-test-workspaces.cjs)
-    for (const id of created.workspaces) {
-      if (id) await call('DELETE', `/workspaces/${id}`, t1).catch(() => {});
-    }
+    // Организация прогона — в штатный архив (_lib.cjs)
+    fails += await archiveSuiteWorkspaces();
     await prisma.shareLink.deleteMany({ where: { id: { in: created.links } } }).catch(() => {});
     // Гости и цепочки verify этого прогона (номера уникальны на прогон)
     await prisma.shareLinkGuest.deleteMany({ where: { phone: { in: created.guestPhones } } }).catch(() => {});

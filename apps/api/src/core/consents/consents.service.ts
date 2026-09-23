@@ -5,6 +5,7 @@ import {
   CONSENT_DOCUMENT_KEYS,
   CONSENT_ERROR_CODES,
   CONSENT_KINDS,
+  CONSENT_LIMITS,
   PD_FIELD_CODES,
   PD_RECIPIENTS,
   PD_RECIPIENT_KEYS,
@@ -34,7 +35,7 @@ import { KeysFieldRegistry } from '../keys/keys.registry';
 import { NotificationRefRegistry } from '../notifications/notifications.registry';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CONSENT_ACCEPTANCE_ENTITY, CONSENT_DOCUMENT_REF_TYPE } from './consents.constants';
-import { ConsentsActionsService } from './consents.actions.service';
+import { AuditService } from '../audit/audit.service';
 import { ConsentsDocumentsService } from './consents.documents.service';
 import { ConsentsRevokeRegistry } from './consents.registry';
 import { ConsentsGateService, type ConsentPendingLite } from './gate/consents-gate.service';
@@ -94,7 +95,7 @@ export class ConsentsService implements OnModuleInit {
     private readonly db: DatabaseService,
     private readonly gate: ConsentsGateService,
     private readonly documents: ConsentsDocumentsService,
-    private readonly actions: ConsentsActionsService,
+    private readonly audit: AuditService,
     private readonly envelope: KeysEnvelopeService,
     private readonly fields: KeysFieldRegistry,
     private readonly notifications: NotificationsService,
@@ -212,19 +213,16 @@ export class ConsentsService implements OnModuleInit {
         select: { id: true },
       });
       accepted.push({ acceptanceId: created.id, documentKey: key, version: lite.version });
-      await this.actions.record(tx, {
-        subjectType: input.subject.type,
-        subjectId: input.subject.id,
-        actionType: 'consent_term',
-        basis: 'consent',
-        fields: [],
-        purpose: 'consent_accepted',
-        consentAcceptanceId: created.id,
+      // Срок согласия (Правила № 179/НҚ п. 9 пп. 5) — событие журнала безопасности в той же
+      // транзакции; момент — ЗАПИСИ (журнал партиционирован, прошлое мог не найти партиции)
+      await this.audit.record(tx, {
+        key: 'consents.accepted',
+        subjectUserId: input.subject.type === 'user' ? input.subject.id : null,
         workspaceId: input.subject.type === 'workspace' ? input.subject.id : null,
-        refType: 'consent_version',
-        refId: lite.id,
-        // Момент ЗАПИСИ, а не приёмки: учёт — партиционированная таблица, и момент из прошлого
-        // (старт SMS-цепочки на стыке месяцев) мог бы не найти своей партиции внутри транзакции
+        actor: { kind: 'user', id: input.actorUserId },
+        target: { type: 'consent_version', id: lite.id },
+        ref: { type: 'consent_acceptance', id: created.id },
+        details: { document: key, version: lite.version },
       });
       await this.analytics.track(
         tx,
@@ -330,18 +328,14 @@ export class ConsentsService implements OnModuleInit {
       }
     }
     if (revoked > 0) {
-      await this.actions.record(tx, {
-        subjectType: input.subject.type,
-        subjectId: input.subject.id,
-        actionType: 'consent_term',
-        basis: 'consent',
-        fields: [],
-        purpose: input.reason === 'account_deleted' ? 'account_deletion_requested' : 'consent_revoked',
-        consentAcceptanceId: live[0]?.id ?? null,
+      await this.audit.record(tx, {
+        key: 'consents.revoked',
+        subjectUserId: input.subject.type === 'user' ? input.subject.id : null,
         workspaceId: input.subject.type === 'workspace' ? input.subject.id : null,
-        refType: 'consent_document',
-        refId: input.documentKey,
-        occurredAt: now,
+        actor: input.system ? { kind: 'system' } : { kind: 'user', id: input.actorUserId },
+        target: { type: 'consent_document', id: input.documentKey },
+        ...(live[0]?.id ? { ref: { type: 'consent_acceptance', id: live[0].id } } : {}),
+        details: { document: input.documentKey, reason: input.reason },
       });
       await this.analytics.track(tx, 'consents.document.revoked', { document: input.documentKey, reason: input.reason }, { userId: input.actorUserId, workspaceId: input.subject.type === 'workspace' ? input.subject.id : null });
     }
@@ -401,15 +395,20 @@ export class ConsentsService implements OnModuleInit {
   /** Что ждёт принятия: блокирующее, будущее и организации, где человек владелец или администратор. */
   async pendingFor(userId: string): Promise<ConsentPendingDto> {
     const mine = await this.gate.pendingOf('user', userId);
+    // Роли архивных организаций остаются активными (восстановление) — потолок на РОЛЯХ отрезал бы
+    // живые организации владельца, и шлюз блокировал бы управление ими без строки «принять» здесь
+    // (тупик). Поэтому потолок — на ЖИВЫХ организациях, свои — первыми (принять может только владелец).
     const roles = await this.db.userRole.findMany({
       where: { userId, context: 'workspace', isActive: true, role: { in: ['owner', 'admin'] }, tenantId: { not: null } },
-      select: { tenantId: true, role: true },
-      take: 50,
+      select: { tenantId: true },
     });
     const workspaces: ConsentPendingDto['workspaces'] = [];
     if (roles.length) {
       const ids = [...new Set(roles.map((r) => r.tenantId!))];
-      const rows = await this.db.workspace.findMany({ where: { id: { in: ids }, archivedAt: null }, select: { id: true, name: true, ownerId: true } });
+      const live = await this.db.workspace.findMany({ where: { id: { in: ids }, archivedAt: null }, select: { id: true, name: true, ownerId: true, createdAt: true } });
+      const rows = live
+        .sort((a, b) => Number(b.ownerId === userId) - Number(a.ownerId === userId) || b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, CONSENT_LIMITS.pendingWorkspacesMax);
       for (const ws of rows) {
         const p = await this.gate.pendingOf('workspace', ws.id);
         if (!p.blocking.length && !p.upcoming.length) continue;

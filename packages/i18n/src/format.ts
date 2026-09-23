@@ -369,6 +369,33 @@ export function formatList(items: string[], locale: Locale, type: 'conjunction' 
   return hit.format(items);
 }
 
+const regionNames = new Map<Locale, Intl.DisplayNames | null>();
+
+/**
+ * Имя страны по коду ISO 3166-1 alpha-2 на ЯЗЫКЕ зрителя («KZ» → «Казахстан» /
+ * «Қазақстан» / «Kazakhstan»). Код в БД и в payload — машинный; слово собирается при
+ * показе. Неизвестный код или рантайм без данных региона — код как есть (не пусто:
+ * «откуда вошли» лучше показать кодом, чем потерять).
+ */
+export function formatCountry(code: string, locale: Locale): string {
+  const upper = code.trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(upper)) return code;
+  let names = regionNames.get(locale);
+  if (names === undefined) {
+    try {
+      names = new Intl.DisplayNames([locale], { type: 'region', fallback: 'code' });
+    } catch {
+      names = null;
+    }
+    regionNames.set(locale, names);
+  }
+  try {
+    return names?.of(upper) ?? upper;
+  } catch {
+    return upper;
+  }
+}
+
 /** Набор форматтеров, привязанный к языку и поясу — удобно передавать одним объектом. */
 export interface Formatters {
   locale: Locale;
@@ -391,6 +418,8 @@ export interface Formatters {
   compare(a: string, b: string): number;
   /** Перечисление с союзом языка («и» / «или») */
   list(items: string[], type?: 'conjunction' | 'disjunction'): string;
+  /** Имя страны по коду ISO («KZ» → «Казахстан») на языке зрителя */
+  country(code: string): string;
 }
 
 export function createFormatters(locale: Locale, timeZone?: string): Formatters {
@@ -411,6 +440,7 @@ export function createFormatters(locale: Locale, timeZone?: string): Formatters 
     money: (v, o) => formatMoney(v, ctx, o),
     compare: compareNames(locale),
     list: (items, type) => formatList(items, locale, type),
+    country: (code) => formatCountry(code, locale),
   };
 }
 

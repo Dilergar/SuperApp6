@@ -42,7 +42,11 @@
     "transfersEmpty": "Әзірге беру болған жоқ",
     "crossBorder": "Қазақстаннан тыс",
     "byYou": "Өз әрекетіңіз",
-    "loadFailed": "Жүктеу мүмкін болмады"
+    "loadFailed": "Жүктеу мүмкін болмады",
+    "securityLogTitle": "Қауіпсіздік журналы",
+    "securityLogHint": "Аккаунтыңыздың сақтау мерзіміндегі барлық қауіпсіздік оқиғалары, өз кірулеріңіз бен әрекеттеріңіздің толық IP мекенжайларымен. JSON файлы.",
+    "securityLogDownload": "Жүктеп алу",
+    "securityLogTruncated": "Файлда ең жаңа {count, number} оқиға бар"
   },
   "purposes": {
     "otp_sms": "SMS арқылы растау коды",

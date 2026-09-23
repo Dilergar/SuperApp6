@@ -31,7 +31,7 @@ import { ConsentDocumentView } from './ConsentDocumentView';
 
 import { toastApiError } from '@/lib/api-errors';
 /** Страницы, которые шлюз не накрывает: вход, публичная витрина и мастер удаления аккаунта. */
-const UNGATED = ['/login', '/register', '/reset-password', '/legal', '/account/delete', '/platform', '/s/', '/check'];
+const UNGATED = ['/login', '/register', '/reset-password', '/freeze', '/legal', '/account/delete', '/platform', '/s/', '/check'];
 
 function useAccept(onDone?: () => void) {
   const qc = useQueryClient();

@@ -68,6 +68,8 @@ export const ENTITLEMENT_SERVICES = {
   cardSkins: { order: 70, icon: 'crown' },
   notifications: { order: 80, icon: 'bell' },
   keys: { order: 90, icon: 'key' },
+  /** Журнал безопасности организации (core/audit): окно, выгрузка, стрим в SIEM */
+  audit: { order: 95, icon: 'shield' },
 } as const satisfies Record<string, { order: number; icon: string }>;
 
 export type EntitlementServiceKey = keyof typeof ENTITLEMENT_SERVICES;

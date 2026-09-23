@@ -5,7 +5,7 @@
 // регистрация → подшивка → hr.apply → ЕСУТД-срок → перевод БУДУЩЕЙ датой
 // (scheduled, данные не раньше даты) → оклад → отпуск → увольнение (ст. 54,
 // отзыв ст. 56 п. 4) → запрет удаления → личный архив переживает purge.
-const { BASE, call, login, makeChecker, SUITE, devCode } = require('./_lib.cjs');
+const { BASE, call, login, makeChecker, SUITE, devCode, createSuiteWorkspace, archiveSuiteWorkspace, crash } = require('./_lib.cjs');
 
 const { check, finish } = makeChecker();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -58,7 +58,7 @@ async function main() {
   const newbie = await login(SUITE.p3); // приём с нуля
 
   // ============ Организация + найм ============
-  const ws = (await call('POST', '/workspaces', owner.token, { name: `Сьют-КЭДО ${Date.now()}` })).json.data;
+  const ws = (await createSuiteWorkspace(owner.token, 'Сьют-КЭДО')).json.data;
   for (const u of [employee, newbie]) {
     await call('POST', `/workspaces/${ws.id}/invitations`, owner.token, { phone: u === employee ? SUITE.p2 : SUITE.p3 });
     const inv = (await call('GET', '/workspaces/invitations/incoming', u.token)).json?.data?.find?.(
@@ -717,7 +717,7 @@ async function main() {
   );
 
   // PURGE организации (dev): личный архив жив, файл скачивается
-  await call('DELETE', `/workspaces/${ws.id}`, owner.token);
+  await archiveSuiteWorkspace(ws.id);
   const purged = await call('POST', '/workspaces/dev/purge-archives', owner.token, { workspaceId: ws.id });
   check('dev-purge организации отработал', purged.ok && purged.json.data?.purged === 1);
   const myDocsAfter = await call('GET', '/hr/my-documents', newbie.token);
@@ -742,7 +742,4 @@ async function main() {
   finish();
 }
 
-main().catch((e) => {
-  console.error('FATAL', e);
-  process.exit(1);
-});
+main().catch(crash);

@@ -129,7 +129,10 @@ export type NotificationIcon =
   | 'key'
   | 'robot'
   | 'globe'
-  | 'plug';
+  | 'plug'
+  // core/audit
+  | 'snowflake'
+  | 'download';
 
 export interface NotificationThrottle {
   /** Окно, секунд */
@@ -184,7 +187,8 @@ export const NOTIFICATION_SERVICES = {
   hr: { contexts: 'workspace', order: 140 },
   processes: { contexts: 'workspace', order: 150 },
   office: { contexts: 'workspace', order: 160 },
-  security: { contexts: 'personal', order: 900 },
+  /** Безопасность аккаунта (core/verify, core/users, core/audit); в организации — только «выгрузка журнала готова» */
+  security: { contexts: 'both', order: 900 },
   /** Согласия и документы платформы (core/consents): новые версии условий, квитанции, удаление аккаунта */
   consents: { contexts: 'both', order: 905 },
   /** Кабинет платформы (core/platform): security-alert владельцам, заявки four-eyes — только сотрудникам платформы */

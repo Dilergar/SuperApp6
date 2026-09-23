@@ -163,22 +163,11 @@
   "security": {
     "changePassword": "Изменить пароль",
     "changePhone": "Сменить номер телефона",
-    "current": "Текущая",
-    "currentConfirm": "Завершить и выйти",
-    "currentText": "Завершив её, вы выйдете из аккаунта на этом устройстве.",
-    "currentTitle": "Это ваша текущая сессия",
     "dangerZone": "Опасная зона",
     "deleteAccount": "Удалить аккаунт",
-    "endSession": "Завершить",
-    "lastActive": "Последняя активность: {date}",
-    "noSessions": "Нет активных сессий",
     "passwordPhone": "Пароль и номер",
     "passwordPhoneText": "Обе операции подтверждаются SMS-кодом. Смена номера требует доступ и к текущему, и к новому номеру.",
-    "sessionEnded": "Сессия завершена",
-    "sessions": "Активные сессии",
-    "sessionsFailed": "Не удалось загрузить сессии",
-    "title": "Безопасность",
-    "unknownDevice": "Неизвестное устройство"
+    "title": "Безопасность"
   },
   "settings": {
     "online": {

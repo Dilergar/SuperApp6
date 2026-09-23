@@ -1,7 +1,8 @@
 'use strict';
 
 // ============================================================
-// СТРАЖ ВЕЧНОЙ ЗАПИСИ: в payload хроники, уведомления и джоба — структура, не слово.
+// СТРАЖ ВЕЧНОЙ ЗАПИСИ: в payload хроники, уведомления, джоба и журнала безопасности —
+// структура, не слово.
 //
 // Запись хроники и уведомление живут в БД годами, а текст собирается ПРИ ЧТЕНИИ в
 // языке зрителя (render-at-read, docs/i18n.md). Стоит продюсеру положить туда уже
@@ -35,13 +36,16 @@ const VIEWER_METHODS = new Set(['translate', 'translateFor', 'labelText', 'label
 const VIEWER_FUNCTIONS = new Set(['renderAudienceLabel', 'renderChatter']);
 /** Локальные обёртки над переводчиком языка ИСТОЧНИКА: `private src = (key) => translateFor(SOURCE_LOCALE, key)` */
 const SOURCE_HELPERS = new Set(['src']);
-/** Приёмники вечных записей: объект-аргумент этих вызовов проверяется целиком */
-const SINK_METHODS = new Set(['log', 'send', 'enqueue']);
+/**
+ * Приёмники вечных записей: объект-аргумент этих вызовов проверяется целиком. `record*` —
+ * журнал безопасности (core/audit): его строки живут годами и рендерятся при чтении так же.
+ */
+const SINK_METHODS = new Set(['log', 'send', 'enqueue', 'record', 'recordOnce', 'recordBestEffort', 'recordBatch']);
 /**
  * Типы вечной записи. Продюсер часто собирает её ЗАРАНЕЕ — в переменную с аннотацией
  * или через `satisfies`, — и до вызова приёмника объект правилу не виден.
  */
-const SINK_TYPES = new Set(['ChatterLogInput', 'NotificationInput', 'SystemPlaque']);
+const SINK_TYPES = new Set(['ChatterLogInput', 'NotificationInput', 'SystemPlaque', 'AuditRecordInput']);
 
 function isViewerCall(node) {
   if (!node || node.type !== 'CallExpression') return false;

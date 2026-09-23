@@ -9,8 +9,8 @@
 // (dev-mock) и `skipped: pref_off` без; /mentions отсутствует, `mentions=1` фильтрует;
 // X-Locale kk/ru/en → текст в языке запроса; бюджет продюсера отдаёт rateLimited.
 // Run: node apps/api/scripts/verify-notifications.cjs
-const { SUITE, call, login, makeChecker } = require('./_lib.cjs');
-const { PrismaClient } = require('@prisma/client');
+const { SUITE, call, login, makeChecker, createSuiteWorkspace, crash } = require('./_lib.cjs');
+const { PrismaClient, Prisma } = require('@prisma/client');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(fn, timeoutMs = 10_000, intervalMs = 400) {
@@ -23,6 +23,37 @@ async function waitFor(fn, timeoutMs = 10_000, intervalMs = 400) {
   }
 }
 
+/**
+ * Настройки уведомлений аккаунтов сьюта — к снимку начала прогона: удаляется ТОЛЬКО созданное
+ * прогоном, прежние значения возвращаются. Не голый deleteMany по userId (правило сьютов:
+ * база живая, чистого старта через удаление нет).
+ */
+async function snapshotSettings(prisma, userIds) {
+  return {
+    prefs: await prisma.notificationPreference.findMany({ where: { userId: { in: userIds } } }),
+    subs: await prisma.notificationSubscription.findMany({ where: { userId: { in: userIds } } }),
+    settings: await prisma.userNotificationSettings.findMany({ where: { userId: { in: userIds } } }),
+  };
+}
+
+async function restoreSettings(prisma, userIds, base) {
+  const ids = (rows) => rows.map((r) => r.id);
+  await prisma.notificationPreference.deleteMany({ where: { userId: { in: userIds }, id: { notIn: ids(base.prefs) } } });
+  for (const { updatedAt, ...row } of base.prefs) {
+    await prisma.notificationPreference.upsert({ where: { id: row.id }, update: { enabled: row.enabled }, create: row });
+  }
+  await prisma.notificationSubscription.deleteMany({ where: { userId: { in: userIds }, id: { notIn: ids(base.subs) } } });
+  for (const row of base.subs) {
+    await prisma.notificationSubscription.upsert({ where: { id: row.id }, update: { mode: row.mode }, create: row });
+  }
+  const hadSettings = new Set(base.settings.map((s) => s.userId));
+  await prisma.userNotificationSettings.deleteMany({ where: { userId: { in: userIds.filter((id) => !hadSettings.has(id)) } } });
+  for (const { updatedAt, ...row } of base.settings) {
+    const data = { quietSchedule: row.quietSchedule ?? Prisma.DbNull, pausedUntil: row.pausedUntil };
+    await prisma.userNotificationSettings.upsert({ where: { userId: row.userId }, update: data, create: { userId: row.userId, ...data } });
+  }
+}
+
 async function main() {
   const { check, finish } = makeChecker();
   const prisma = new PrismaClient();
@@ -30,6 +61,8 @@ async function main() {
   const s2 = await login(SUITE.p2);
   const s3 = await login(SUITE.p3);
   console.log('logged in suite1..3');
+  const suiteIds = [s1.id, s2.id, s3.id];
+  const baseline = await snapshotSettings(prisma, suiteIds);
 
   const tag = `ntf-${Date.now()}`;
   const feed = async (u, q = '') => (await call('GET', `/notifications${q}`, u.token)).json?.data;
@@ -43,7 +76,7 @@ async function main() {
   // Организация для контекстных сценариев: suite1 — владелец, suite2 — сотрудник.
   let wsId = null;
   {
-    const r = await call('POST', '/workspaces', s1.token, { name: `Ntf ${tag}` });
+    const r = await createSuiteWorkspace(s1.token, 'Сьют-Уведомления');
     wsId = r.json?.data?.id ?? null;
     check('организация создана', !!wsId, JSON.stringify(r.json).slice(0, 200));
     if (wsId) {
@@ -325,13 +358,11 @@ async function main() {
     const ids = cleanupIds.events.filter(Boolean);
     if (ids.length) await prisma.notificationEvent.deleteMany({ where: { id: { in: ids } } }).catch(() => undefined);
     await prisma.notificationEvent.deleteMany({ where: { payload: { path: ['tag'], string_starts_with: tag } } }).catch(() => undefined);
-    await prisma.notificationPreference.deleteMany({ where: { userId: { in: [s1.id, s2.id, s3.id] } } }).catch(() => undefined);
-    await prisma.notificationSubscription.deleteMany({ where: { userId: { in: [s1.id, s2.id, s3.id] } } }).catch(() => undefined);
-    await prisma.userNotificationSettings.deleteMany({ where: { userId: { in: [s1.id, s2.id, s3.id] } } }).catch(() => undefined);
-    if (wsId) await call('DELETE', `/workspaces/${wsId}`, s1.token).catch(() => undefined);
+    await restoreSettings(prisma, suiteIds, baseline).catch((e) => check('настройки уведомлений сьюта возвращены к снимку', false, e.message));
+    // Организацию прогона архивирует finish()/crash()
     await prisma.$disconnect();
   }
   finish();
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch(crash);

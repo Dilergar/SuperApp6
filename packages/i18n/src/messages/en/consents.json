@@ -42,7 +42,11 @@
     "transfersEmpty": "No transfers yet",
     "crossBorder": "Outside Kazakhstan",
     "byYou": "Your own action",
-    "loadFailed": "Could not load"
+    "loadFailed": "Could not load",
+    "securityLogTitle": "Security log",
+    "securityLogHint": "Every security event of your account for the whole retention period, with the full IP addresses of your own sign-ins and actions. A JSON file.",
+    "securityLogDownload": "Download",
+    "securityLogTruncated": "The file holds the newest {count, number} events"
   },
   "purposes": {
     "otp_sms": "Confirmation code by SMS",

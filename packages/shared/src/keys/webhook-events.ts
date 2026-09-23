@@ -32,10 +32,26 @@ export const WORKSPACES_WEBHOOK_EVENTS = defineWebhookEvents({
   'workspaces.member.left': { service: 'workspaces', version: 1 },
 });
 
+/**
+ * Стрим журнала безопасности организации во внешний SIEM (core/audit): одно событие на
+ * категорию журнала — `security.<категория>.recorded`, payload `SecurityWebhookPayload`
+ * (OCSF без IP, UA и имён). Только категории, чьи события организация видит сама: вход,
+ * сессии и аккаунт людей — их личное, в журнал организации (и стрим) не попадают. Подписка
+ * требует тарифа `audit.stream` (402).
+ */
+export const SECURITY_WEBHOOK_EVENTS = defineWebhookEvents({
+  'security.org.recorded': { service: 'security', version: 1 },
+  'security.keys.recorded': { service: 'security', version: 1 },
+  'security.data.recorded': { service: 'security', version: 1 },
+  'security.consents.recorded': { service: 'security', version: 1 },
+  'security.detect.recorded': { service: 'security', version: 1 },
+});
+
 const REGISTRY_RAW = {
   ...TASKS_WEBHOOK_EVENTS,
   ...DOCUMENTS_WEBHOOK_EVENTS,
   ...WORKSPACES_WEBHOOK_EVENTS,
+  ...SECURITY_WEBHOOK_EVENTS,
 } as const satisfies Record<string, WebhookEventDef>;
 
 export type WebhookEventKey = keyof typeof REGISTRY_RAW;

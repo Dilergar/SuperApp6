@@ -50,6 +50,7 @@ export * from './types/platform';
 export * from './types/analytics';
 export * from './types/keys';
 export * from './types/consents';
+export * from './types/audit';
 
 // Validation schemas
 export * from './validation/query';
@@ -98,6 +99,7 @@ export * from './validation/platform';
 export * from './validation/analytics';
 export * from './validation/keys';
 export * from './validation/consents';
+export * from './validation/audit';
 
 // Utils
 export * from './utils/phone';
@@ -127,6 +129,8 @@ export * from './constants/keys';
 export * from './consents';
 // Идемпотентность повторов (core/idempotency): заголовки, коды, лимиты, форма ключа
 export * from './idempotency';
+// Журнал аудита безопасности (core/audit): реестр событий, видимость, лимиты, OCSF
+export * from './audit';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';

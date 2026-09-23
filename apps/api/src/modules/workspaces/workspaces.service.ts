@@ -21,12 +21,18 @@ import { EntitlementsService } from '../../core/entitlements/entitlements.servic
 import { AnalyticsService } from '../../core/analytics/analytics.service';
 import { ConsentsService } from '../../core/consents/consents.service';
 import { ConsentsDocumentsService } from '../../core/consents/consents.documents.service';
+import { AuditService } from '../../core/audit/audit.service';
+import { SignService } from '../../core/sign/sign.service';
+import { DocsService } from '../../core/docs/docs.service';
+import { ShareLinksService } from '../../core/share-links/share-links.service';
+import { WorkspacePurgeRegistry } from './workspace-purge.registry';
 import { consentsRequired } from '../../shared/config/env.validation';
 import type { ConsentSelectionInput } from '@superapp/shared';
 import { RedisService } from '../../shared/redis/redis.service';
 import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import {
+  EVIDENCE_FILE_PROFILES,
   WORKSPACE_ERROR_CODES,
   WORKSPACE_LIMITS,
   WORKSPACE_ARCHIVE_WARN_DAYS,
@@ -81,7 +87,7 @@ type UserNameRow = { firstName: string; lastName: string | null };
  *   - Role/permissions are the single source of truth in UserRole
  *     (context="workspace", tenantId=workspaceId), managed via RolesService.
  *     Должности/отделы/филиалы — сущности StaffModule (назначения), не поля здесь.
- *   - Exactly one workspace role per user per workspace (enforced by setSoleWorkspaceRole).
+ *   - Exactly one workspace role per user per workspace (enforced by setSoleWorkspaceRoleTx).
  *   - One owner per workspace (Workspace.ownerId); ownership changes only via transfer.
  *   - Membership is independent of the personal social graph (hiring ≠ friendship).
  *   - Найм ВСЕГДА в Стажёра (роль в приглашении не выбирается); Админа назначает/снимает
@@ -112,6 +118,11 @@ export class WorkspacesService implements OnModuleInit {
     private webhooks: WebhooksService,
     private consents: ConsentsService,
     private consentDocs: ConsentsDocumentsService,
+    private audit: AuditService,
+    private sign: SignService,
+    private docs: DocsService,
+    private shareLinks: ShareLinksService,
+    private purgeHooks: WorkspacePurgeRegistry,
   ) {}
 
   /**
@@ -564,17 +575,39 @@ export class WorkspacesService implements OnModuleInit {
    * Отправить в архив (владелец). Ничего не удаляет — гаснет флаг и ставится дата
    * архивации, от которой ретеншн-крон отсчитывает `archiveRetentionDays` до полного
    * удаления. Всё это время возврат — в один клик (`restoreWorkspace`).
+   *
+   * Идемпотентно: переход «живая → архив» status-guarded. Повторный архив (двойной
+   * клик, повтор запроса, уборка сьюта) — не ошибка и не событие: он не переставляет
+   * `archivedAt` (иначе отсчёт до удаления начинался бы заново) и не пишет второе
+   * событие журнала и аналитики.
    */
   async deactivateWorkspace(userId: string, workspaceId: string): Promise<void> {
     await this.assertOwner(userId, workspaceId);
-    await this.db.workspace.update({
-      where: { id: workspaceId },
-      data: { isActive: false, archivedAt: new Date() },
+    const archived = await this.db.$transaction(async (tx) => {
+      const { count } = await tx.workspace.updateMany({
+        where: { id: workspaceId, isActive: true },
+        data: { isActive: false, archivedAt: new Date() },
+      });
+      if (count === 0) return false;
+      // Журнал безопасности организации (core/audit): архив — событие той же транзакцией
+      await this.audit.record(tx, { key: 'org.workspace.archived', workspaceId, target: { type: 'workspace', id: workspaceId }, details: {} });
+      await this.analytics.track(tx, 'workspaces.workspace.archived', {}, { userId, workspaceId });
+      return true;
     });
-    await this.analytics.track(null, 'workspaces.workspace.archived', {}, { userId, workspaceId });
     // Счётчик «Пространств» в /users/me считает ЖИВЫЕ организации и кэшируется 5 минут —
     // без сброса человек полчаса видит «2 Пространств» над пустым списком.
-    await this.redis.invalidateUserProfile(userId);
+    if (archived) await this.redis.invalidateUserProfile(userId);
+  }
+
+  /**
+   * Дев-полигон: полное удаление организации сейчас, не дожидаясь ретеншна. Тот же путь,
+   * что у настоящего удаления — владелец, сначала архив, потом `purgeWorkspace`. Без этих
+   * проверок любой вошедший на общей базе разработки стирал бы чужую ЖИВУЮ организацию.
+   */
+  async purgeArchivedWorkspaceNow(userId: string, workspaceId: string): Promise<void> {
+    const ws = await this.assertOwner(userId, workspaceId);
+    if (ws.isActive) throw badRequest('workspace.notArchived');
+    await this.purgeWorkspace(workspaceId);
   }
 
   /**
@@ -603,14 +636,19 @@ export class WorkspacesService implements OnModuleInit {
     if (ws.isActive) return; // идемпотентно: повторный клик — не ошибка
     // Потолок проверяем и здесь (в транзакции, под локом тарифа): иначе восстановлением
     // можно обойти лимит createWorkspace.
-    await this.db.$transaction(async (tx) => {
+    const restored = await this.db.$transaction(async (tx) => {
       await this.entitlements.assertCanCreate(tx, { type: 'user', id: userId }, 'workspaces.maxOwned');
-      await tx.workspace.update({
-        where: { id: workspaceId },
+      // Status-guarded: проверка выше — чтение ДО транзакции, два параллельных возврата
+      // прошли бы её оба и записали бы событие дважды
+      const { count } = await tx.workspace.updateMany({
+        where: { id: workspaceId, isActive: false },
         data: { isActive: true, archivedAt: null },
       });
+      if (count === 0) return false;
+      await this.audit.record(tx, { key: 'org.workspace.restored', workspaceId, target: { type: 'workspace', id: workspaceId }, details: {} });
+      return true;
     });
-    await this.redis.invalidateUserProfile(userId);
+    if (restored) await this.redis.invalidateUserProfile(userId);
   }
 
   /**
@@ -637,6 +675,10 @@ export class WorkspacesService implements OnModuleInit {
       select: { id: true, ownerId: true },
     });
     if (!ws) return;
+
+    // Фаза 1 — данные в движках и сервисах без внешнего ключа на организацию. До строки
+    // организации: сбой здесь оставляет её на месте, и ретеншн повторит каскад целиком.
+    await this.purgeWorkspaceData(workspaceId);
 
     const [tasks, rooms, positions, departments, branches] = await Promise.all([
       this.db.task.findMany({ where: { workspaceId }, select: { id: true } }),
@@ -704,6 +746,9 @@ export class WorkspacesService implements OnModuleInit {
       // `Notification.workspaceId` — колонка без FK: строки пережили бы организацию и
       // остались бы «призраком контекста» (в бейдже есть, отфильтровать нечем).
       await this.notifications.archiveWorkspaceRowsForAll(tx, workspaceId);
+      // Журнал безопасности организации ПЕРЕЖИВАЕТ удаление (строки без FK, срок — по закону)
+      const members = await tx.workspaceMember.count({ where: { workspaceId } });
+      await this.audit.record(tx, { key: 'org.workspace.purged', workspaceId, subjectUserId: ws.ownerId, actor: { kind: 'system' }, target: { type: 'workspace', id: workspaceId }, details: { members } });
       await tx.workspace.delete({ where: { id: workspaceId } });
     });
 
@@ -714,6 +759,80 @@ export class WorkspacesService implements OnModuleInit {
     await this.roles.invalidateUserCache(ws.ownerId);
     await this.redis.invalidateUserProfile(ws.ownerId);
     this.logger.log(`Workspace ${workspaceId} purged by the archive retention`);
+  }
+
+  /**
+   * Фаза 1 окончательного удаления: данные организации, живущие в движках и сервисах без
+   * внешнего ключа на неё. Порядок несущий:
+   *  1. незакрытые согласования и подписи отменяются — стопки людей чистеют, поставленные
+   *     подписи остаются доказательствами;
+   *  2. сервисы с полиморфным владельцем (Диск, Заметки — `WorkspacePurgeRegistry`)
+   *     стирают свои данные своим путём;
+   *  3. офисные документы проходят единственную точку конца жизни;
+   *  4. все оставшиеся файлы организации — системным удалением: личный архив КЭДО
+   *     (`blocksDeletion`) и доказательства подписи пропускаются и живут дальше;
+   *  5. ссылки наружу отзываются, гости ссылок (имя + номер — ПДн) удаляются.
+   * Каждый шаг идемпотентен и работает для организации, строки которой уже нет (уборка
+   * хвостов прошлых удалений). Сбой БРОСАЕТСЯ — каскад прерывается целиком.
+   */
+  async purgeWorkspaceData(workspaceId: string): Promise<void> {
+    await this.approvals.cancelAllForWorkspace(workspaceId);
+    await this.sign.cancelAllForWorkspace(workspaceId);
+    for (const [key, hook] of this.purgeHooks.entries()) {
+      try {
+        await hook.purge(workspaceId);
+      } catch (err) {
+        throw new Error(`workspace purge hook "${key}" failed for ${workspaceId}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+    await this.docs.archiveAllOwnedBy('workspace', workspaceId);
+    await this.files.systemDeleteAllOwnedBy('workspace', workspaceId);
+    await this.shareLinks.forgetWorkspace(workspaceId);
+  }
+
+  /**
+   * Организации, которых УЖЕ НЕТ, а их данные в движках ещё живы (удалены до того, как
+   * каскад научился чистить Диск, заметки, документы, файлы, ссылки и заявки, либо сырым
+   * удалением строки). Живые и архивные организации сюда не попадают по построению
+   * (`EXCEPT workspaces`). Файлы, которые каскад законно оставляет — доказательства
+   * подписи и файлы под защищающей привязкой (личный архив), — хвостом не считаются.
+   */
+  async orphanedWorkspaceIds(): Promise<string[]> {
+    const guarded = this.files.deletionGuardedRefTypes();
+    const rows = await this.db.$queryRaw<{ id: string }[]>`
+      SELECT owner_id AS id FROM drive_spaces WHERE owner_type = 'workspace'
+      UNION SELECT owner_id FROM note_spaces WHERE owner_type = 'workspace'
+      UNION SELECT owner_id FROM documents WHERE owner_type = 'workspace' AND status = 'active'
+      UNION SELECT fo.owner_id FROM file_objects fo
+        WHERE fo.owner_type = 'workspace' AND fo.status <> 'deleted'
+          AND fo.profile <> ALL(${[...EVIDENCE_FILE_PROFILES]}::text[])
+          AND NOT EXISTS (SELECT 1 FROM file_links fl WHERE fl.file_id = fo.id AND fl.ref_type = ANY(${guarded}::text[]))
+      UNION SELECT workspace_id FROM share_links WHERE workspace_id IS NOT NULL AND revoked_at IS NULL
+      UNION SELECT owner_id FROM share_links WHERE owner_type = 'workspace' AND revoked_at IS NULL
+      UNION SELECT owner_id FROM share_link_guests WHERE owner_type = 'workspace'
+      UNION SELECT workspace_id FROM sign_requests WHERE workspace_id IS NOT NULL AND status = 'pending'
+      UNION SELECT workspace_id FROM approval_requests WHERE workspace_id IS NOT NULL AND status = 'pending'
+      EXCEPT SELECT id FROM workspaces`;
+    return rows.map((r) => r.id).sort();
+  }
+
+  /** Что именно висит за организациями, которых нет, — отчёт сухого прогона уборки */
+  async orphanReport(ids: string[]): Promise<Record<string, number>> {
+    if (!ids.length) return {};
+    const inIds = { in: ids };
+    const [driveSpaces, driveNodes, noteSpaces, notes, documents, files, shareLinks, guests, signRequests, approvalRequests] = await Promise.all([
+      this.db.driveSpace.count({ where: { ownerType: 'workspace', ownerId: inIds } }),
+      this.db.driveNode.count({ where: { space: { ownerType: 'workspace', ownerId: inIds } } }),
+      this.db.noteSpace.count({ where: { ownerType: 'workspace', ownerId: inIds } }),
+      this.db.note.count({ where: { space: { ownerType: 'workspace', ownerId: inIds } } }),
+      this.db.document.count({ where: { ownerType: 'workspace', ownerId: inIds, status: 'active' } }),
+      this.db.fileObject.count({ where: { ownerType: 'workspace', ownerId: inIds, status: { not: 'deleted' }, profile: { notIn: [...EVIDENCE_FILE_PROFILES] } } }),
+      this.db.shareLink.count({ where: { OR: [{ workspaceId: inIds }, { ownerType: 'workspace', ownerId: inIds }], revokedAt: null } }),
+      this.db.shareLinkGuest.count({ where: { ownerType: 'workspace', ownerId: inIds } }),
+      this.db.signRequest.count({ where: { workspaceId: inIds, status: 'pending' } }),
+      this.db.approvalRequest.count({ where: { workspaceId: inIds, status: 'pending' } }),
+    ]);
+    return { driveSpaces, driveNodes, noteSpaces, notes, documents, files, shareLinks, guests, signRequests, approvalRequests };
   }
 
   /**
@@ -837,6 +956,16 @@ export class WorkspacesService implements OnModuleInit {
         typeKey: 'staff.ownership_transferred',
         payload: { targetUserId: toUserId, targetName },
       });
+      await this.audit.record(tx, {
+        key: 'org.ownership.transferred',
+        workspaceId,
+        target: { type: 'user', id: toUserId },
+        related: { previousOwnerId: userId },
+        details: {},
+      });
+      // Роли обоих — тоже события (человек видит «Роль: Администратор → Владелец» в своей ленте)
+      await this.audit.record(tx, { key: 'org.role.changed', workspaceId, target: { type: 'user', id: toUserId }, details: { from: targetRole, to: 'owner', source: 'ownership' } });
+      await this.audit.record(tx, { key: 'org.role.changed', workspaceId, target: { type: 'user', id: userId }, details: { from: 'owner', to: 'admin', source: 'ownership' } });
     });
 
     // Both users' role rows changed inside the tx → bust both caches now.
@@ -1106,48 +1235,58 @@ export class WorkspacesService implements OnModuleInit {
     }
 
     if (data.role !== targetRole) {
-      await this.setSoleWorkspaceRole(targetUserId, workspaceId, data.role, userId);
-      // Понижение с admin: личные ключи человека для данных организации гаснут, его боты —
-      // на решение владельца (право иметь ключи организации — только owner/admin)
-      await this.keysCascades.onRoleChanged(null, workspaceId, targetUserId, targetRole, data.role, userId);
+      const [actorName, targetName] = await Promise.all([this.userName(userId), this.userName(targetUserId)]);
+      // Смена роли, её хроника, событие журнала безопасности и уведомление — ОДНОЙ транзакцией:
+      // раньше хроника и уведомление шли после эффекта без транзакции и могли потеряться
+      const afterKeys = await this.db.$transaction(async (tx) => {
+        await this.setSoleWorkspaceRoleTx(tx, targetUserId, workspaceId, data.role, userId);
+        // Понижение с admin: личные ключи человека для данных организации гаснут, его боты —
+        // на решение владельца (право иметь ключи организации — только owner/admin)
+        const after = await this.keysCascades.onRoleChanged(tx, workspaceId, targetUserId, targetRole, data.role, userId);
+        await this.chatter.log(tx, {
+          refType: 'workspace',
+          refId: workspaceId,
+          workspaceId,
+          actorId: userId,
+          actorName,
+          typeKey: 'staff.role_changed',
+          changes: [
+            {
+              field: 'role',
+              label: this.i18n.translateFor(SOURCE_LOCALE, 'chatter.fields.staff.role'),
+              from: this.roleName(targetRole),
+              to: this.roleName(data.role),
+              // Снимок — фолбэк, правда — в `raw` КЛЮЧАМИ: «Сотрудник → Менеджер»
+              // собирается в языке зрителя, а не застывает в языке источника.
+              raw: {
+                from: `common.role.workspace.${targetRole}`,
+                to: `common.role.workspace.${data.role}`,
+                kind: 'key' as const,
+              },
+            },
+          ],
+          payload: { targetUserId, targetName },
+        });
+        await this.audit.record(tx, { key: 'org.role.changed', workspaceId, target: { type: 'user', id: targetUserId }, details: { from: targetRole, to: data.role, source: 'manual' } });
+        await this.notifications.send(tx, {
+          type: 'workspace.role.changed',
+          to: [{ userId: targetUserId }],
+          payload: {
+            workspaceId,
+            workspaceName: ws.name,
+            roleKey: `common.role.workspace.${data.role}`,
+          },
+          workspaceId,
+          actorId: userId,
+          actionUrl: `/workspaces/${workspaceId}`,
+        });
+        return after;
+      });
+      // Кэш ролей — ПОСЛЕ коммита (транзакционный вариант его не сбрасывает)
+      await this.roles.invalidateUserCache(targetUserId);
+      await afterKeys();
       // Роли живут в снимке оргструктуры (состав команды, ранги «вне структуры»).
       await this.staff.invalidateOrgGraph(workspaceId);
-      await this.chatter.log(null, {
-        refType: 'workspace',
-        refId: workspaceId,
-        workspaceId,
-        actorId: userId,
-        actorName: await this.userName(userId),
-        typeKey: 'staff.role_changed',
-        changes: [
-          {
-            field: 'role',
-            label: this.i18n.translateFor(SOURCE_LOCALE, 'chatter.fields.staff.role'),
-            from: this.roleName(targetRole),
-            to: this.roleName(data.role),
-            // Снимок — фолбэк, правда — в `raw` КЛЮЧАМИ: «Сотрудник → Менеджер»
-            // собирается в языке зрителя, а не застывает в языке источника.
-            raw: {
-              from: `common.role.workspace.${targetRole}`,
-              to: `common.role.workspace.${data.role}`,
-              kind: 'key' as const,
-            },
-          },
-        ],
-        payload: { targetUserId, targetName: await this.userName(targetUserId) },
-      });
-      await this.notifications.send(null, {
-        type: 'workspace.role.changed',
-        to: [{ userId: targetUserId }],
-        payload: {
-          workspaceId,
-          workspaceName: ws.name,
-          roleKey: `common.role.workspace.${data.role}`,
-        },
-        workspaceId,
-        actorId: userId,
-        actionUrl: `/workspaces/${workspaceId}`,
-      });
     }
   }
 
@@ -1208,6 +1347,7 @@ export class WorkspacesService implements OnModuleInit {
       const gone = await tx.workspaceMember.deleteMany({ where: { workspaceId, userId: targetUserId } });
       if (gone.count) {
         await this.webhooks.emit(tx, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId: targetUserId, reason: 'removed', workspaceId } });
+        await this.audit.record(tx, { key: 'org.member.removed', workspaceId, target: { type: 'user', id: targetUserId }, details: { role: targetRole } });
       }
     });
 
@@ -1251,6 +1391,7 @@ export class WorkspacesService implements OnModuleInit {
       const gone = await tx.workspaceMember.deleteMany({ where: { workspaceId, userId } });
       if (gone.count) {
         await this.webhooks.emit(tx, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId, reason: 'left', workspaceId } });
+        await this.audit.record(tx, { key: 'org.member.left', workspaceId, target: { type: 'user', id: userId }, details: { role: myRole } });
       }
     });
 
@@ -1344,19 +1485,29 @@ export class WorkspacesService implements OnModuleInit {
     const expiresAt = new Date(
       Date.now() + WORKSPACE_LIMITS.invitationTtlDays * 24 * 60 * 60 * 1000,
     );
-    const inv = await this.db.workspaceInvitation.create({
-      data: {
+    const inv = await this.db.$transaction(async (tx) => {
+      const created = await tx.workspaceInvitation.create({
+        data: {
+          workspaceId,
+          invitedBy: userId,
+          toUserId: target?.id ?? null,
+          toPhone: data.phone,
+          role: WORKSPACE_HIRE_ROLE,
+          positionId: data.positionId ?? null,
+          branchIds,
+          message: data.message ?? null,
+          expiresAt,
+        },
+        include: INVITATION_INCLUDE,
+      });
+      // Журнал безопасности: приглашение — событие организации (и человека, если он уже есть)
+      await this.audit.record(tx, {
+        key: 'org.member.invited',
         workspaceId,
-        invitedBy: userId,
-        toUserId: target?.id ?? null,
-        toPhone: data.phone,
-        role: WORKSPACE_HIRE_ROLE,
-        positionId: data.positionId ?? null,
-        branchIds,
-        message: data.message ?? null,
-        expiresAt,
-      },
-      include: INVITATION_INCLUDE,
+        ...(created.toUserId ? { target: { type: 'user', id: created.toUserId } } : { target: { type: 'workspace_invitation', id: created.id } }),
+        details: { role: WORKSPACE_HIRE_ROLE },
+      });
+      return created;
     });
 
     await this.analytics.track(null, 'workspaces.invitation.sent', { role: WORKSPACE_HIRE_ROLE }, { userId, workspaceId });
@@ -1508,6 +1659,7 @@ export class WorkspacesService implements OnModuleInit {
       // «Вступил» — только про НОВОЕ членство: повторное приглашение действующего члена событием не является
       if (already === 0) {
         await this.webhooks.emit(tx, { workspaceId: inv.workspaceId, eventKey: 'workspaces.member.joined', payload: { userId, role: WORKSPACE_HIRE_ROLE, workspaceId: inv.workspaceId } });
+        await this.audit.record(tx, { key: 'org.member.joined', workspaceId: inv.workspaceId, target: { type: 'user', id: userId }, ref: { type: 'workspace_invitation', id: inv.id }, details: { role: WORKSPACE_HIRE_ROLE } });
       }
       await this.chatter.log(tx, {
         refType: 'workspace',
@@ -1720,24 +1872,9 @@ export class WorkspacesService implements OnModuleInit {
   }
 
   /** Ensure the user has exactly ONE workspace role (revoke others, assign target). */
-  private async setSoleWorkspaceRole(
-    userId: string,
-    workspaceId: string,
-    role: WorkspaceRole,
-    grantedBy: string,
-  ) {
-    const current = await this.roles.getRolesInContext(userId, WS_CONTEXT, workspaceId);
-    for (const r of current) {
-      if (r.role !== role) {
-        await this.roles.revokeRole(userId, r.role, WS_CONTEXT, workspaceId);
-      }
-    }
-    await this.roles.assignRole(userId, role, WS_CONTEXT, workspaceId, grantedBy);
-  }
-
   /**
-   * Transactional variant of setSoleWorkspaceRole: within the given tx, deactivate the
-   * user's other active workspace roles and upsert the target role. Does NOT bust the
+   * Sole workspace role within the given tx: deactivate the user's other active workspace
+   * roles and upsert the target role. Does NOT bust the
    * roles cache — the caller MUST call roles.invalidateUserCache(userId) after the tx
    * commits. Used by the atomic create/accept/transfer paths.
    */

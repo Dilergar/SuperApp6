@@ -18,6 +18,7 @@ if (fs.existsSync(envPath)) {
   }
 }
 const { PrismaClient } = require('@prisma/client');
+const { ensureAuditPartition, recordScriptEvent } = require('./_audit.cjs');
 
 const OWNER_ROLE = 'platform_owner';
 
@@ -41,6 +42,7 @@ async function main() {
       console.error(`refused: no live account for ${phone}`);
       process.exit(1);
     }
+    await ensureAuditPartition(prisma);
     await prisma.$transaction(async (tx) => {
       await tx.platformStaff.upsert({
         where: { userId: user.id },
@@ -52,17 +54,21 @@ async function main() {
         create: { userId: user.id, role: OWNER_ROLE, grantedBy: user.id, reason: 'bootstrap: first platform owner' },
         update: { expiresAt: null },
       });
-      await tx.platformAuditEntry.create({
-        data: {
-          actorId: null,
-          commandKey: 'platform.staff.bootstrap',
-          commandVersion: 1,
+      // След в журнале безопасности (core/audit): команда Кабинета от имени системы
+      await recordScriptEvent(tx, {
+        key: 'platform.command.executed',
+        op: 'platform.staff.bootstrap',
+        target: { type: 'user', id: user.id },
+        details: {
+          version: 1,
           input: { userId: user.id },
-          targetType: 'user',
-          targetId: user.id,
-          outcome: 'ok',
+          before: null,
+          after: null,
+          readOnly: false,
           risk: 'critical',
           reason: 'bootstrap: first platform owner',
+          dryRun: false,
+          durationMs: 0,
         },
       });
     });

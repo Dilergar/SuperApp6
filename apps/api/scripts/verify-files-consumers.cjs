@@ -4,31 +4,18 @@
 //     PATCH /users/me | /workspaces/:id → отдача без авторизации; негативы).
 // Секции Ф2-Ф5 добавляются по мере стройки фаз.
 // Run (API up): node scripts/verify-files-consumers.cjs
-const fs = require('fs');
-const path = require('path');
-for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').split(/\r?\n/)) {
-  const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-}
 const { PrismaClient } = require('@prisma/client');
 const { dropFromDrive } = require('./drive-test-helpers.cjs');
-// Адрес API переопределяется переменной окружения: два экземпляра на одной машине
-// (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
-const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
-const P1 = '+77009990001', P2 = '+77009990002', P3 = '+77009990003', PW = 'Test1234!';
+// Обвязка — общая (_lib.cjs): HTTP, вход, чекер, .env, организация прогона
+const { BASE, call, login: suiteLogin, makeChecker, SUITE, createSuiteWorkspace, crash } = require('./_lib.cjs');
+const P1 = SUITE.p1, P2 = SUITE.p2, P3 = SUITE.p3;
 
 const PNG_1PX = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
 );
 
-let fails = 0;
-const check = (n, ok, extra) => { console.log(`${ok ? '✓' : '✗ FAIL'}  ${n}${extra ? `  (${extra})` : ''}`); if (!ok) fails++; };
-async function call(method, p, token, body, headers) {
-  const res = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': require('crypto').randomUUID(), 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(headers || {}) }, body: body ? JSON.stringify(body) : undefined });
-  let json = null; try { json = await res.json(); } catch {}
-  return { status: res.status, ok: res.ok, json };
-}
+const { check, finish } = makeChecker();
 async function uploadBytes(p, token, bytes, filename, mime) {
   const fd = new FormData();
   fd.append('file', new Blob([bytes], { type: mime }), filename);
@@ -36,7 +23,8 @@ async function uploadBytes(p, token, bytes, filename, mime) {
   let json = null; try { json = await res.json(); } catch {}
   return { status: res.status, ok: res.ok, json };
 }
-const login = async (phone) => { const r = await call('POST', '/auth/login', null, { phone, password: PW }); if (!r.ok) throw new Error(`login ${phone}: ${r.status}`); return r.json.data.accessToken; };
+// Сьют держит токен строкой — тонкая обёртка над общим login
+const login = async (phone) => (await suiteLogin(phone)).token;
 
 /** Связь в Окружении через реальный invite-flow (идемпотентно) */
 async function ensureContact(tokenA, tokenB, phoneB) {
@@ -64,7 +52,6 @@ async function uploadWhole(token, { profile, name, mime, bytes, extra }) {
 async function main() {
   const prisma = new PrismaClient();
   const t1 = await login(P1), t2 = await login(P2);
-  let createdWorkspaceId = null;
 
   try {
     // ============ Ф1: аватарка пользователя ============
@@ -88,12 +75,9 @@ async function main() {
     check('Ф1: avatar=null (удаление) принят', clear.ok, `status ${clear.status}`);
 
     // ============ Ф1: лого организации ============
-    const ws = await call('POST', '/workspaces', t1, { name: `Ф1-Лого ${Date.now()}` });
+    const ws = await createSuiteWorkspace(t1, 'Сьют-Лого');
     check('Ф1: организация создана', ws.ok, `status ${ws.status} ${JSON.stringify(ws.json?.message ?? '')}`);
     const wsId = ws.json?.data?.id;
-    createdWorkspaceId = wsId; // прибрать в finally: иначе каждый прогон съедает слот
-                               // из лимита «20 организаций на владельца», и через
-                               // двадцать запусков сьют падает на ровном месте
 
     const logo = await uploadWhole(t1, { profile: 'avatar', name: 'лого.png', mime: 'image/png', bytes: PNG_1PX, extra: { ownerWorkspaceId: wsId } });
     check('Ф1: лого загружено во владение организации', logo.file?.ownerType === 'workspace' && logo.file?.ownerId === wsId, `${logo.file?.ownerType}/${logo.file?.ownerId}`);
@@ -275,16 +259,12 @@ async function main() {
     const taskFileRow = await prisma.fileObject.findUnique({ where: { id: taskFile.id } });
     check('Ф4: осиротевшее вложение soft-deleted (К-5)', taskFileRow?.status === 'deleted', taskFileRow?.status);
   } finally {
-    if (createdWorkspaceId) {
-      await prisma.workspace
-        .update({ where: { id: createdWorkspaceId }, data: { isActive: false } })
-        .catch(() => {});
-    }
     await prisma.$disconnect();
   }
 
-  console.log(fails === 0 ? '\nALL PASS' : `\nFAILED: ${fails}`);
-  process.exit(fails === 0 ? 0 : 1);
+  // Итог и организация прогона в штатный архив (не сырой isActive=false: без archivedAt
+  // ретеншн её не удалит); на падении — crash
+  finish();
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch(crash);

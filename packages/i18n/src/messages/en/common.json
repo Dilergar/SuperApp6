@@ -256,5 +256,13 @@
     "outcomeUnknownBody": "The operation may have gone through. Check the history before repeating it",
     "openHistory": "Open the history",
     "checkingConnection": "Checking the connection…"
+  },
+  "stepUp": {
+    "title": "Confirm it’s you",
+    "body": "Enter your password — we will send a code to your number.",
+    "password": "Password",
+    "getCode": "Get a code",
+    "back": "Back to the password",
+    "codeTitle": "Enter the code from the SMS"
   }
 }

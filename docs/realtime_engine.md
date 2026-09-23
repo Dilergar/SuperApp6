@@ -1,6 +1,6 @@
 # core/realtime — движок realtime (18-й)
 
-> ОДИН сокет платформы: socket.io namespace `/realtime`, handshake-авторизация с паритетом HTTP (подпись + срок + отзыв сессии + удалённый аккаунт через `SessionValidatorService.verifyAccessToken`), личные комнаты `user:<id>`, Redis-адаптер (`apps/api/src/redis-io.adapter.ts` — рассылка в комнаты доходит до всех инстансов), разрыв при `auth.sessions.revoked`. Что слать и что принимать — знают фичи через реестр; движок фичи не импортирует.
+> ОДИН сокет платформы: socket.io namespace `/realtime`, handshake-авторизация с паритетом HTTP (подпись + срок + отзыв сессии + удалённый аккаунт через `SessionValidatorService.verifyAccessToken`), личные комнаты `user:<id>` и комната семейства сессии `fam:<id>` (из `fam` токена), Redis-адаптер (`apps/api/src/redis-io.adapter.ts` — рассылка в комнаты доходит до всех инстансов), разрыв при `auth.sessions.revoked` (все сокеты человека) и `auth.families.revoked` (только сокеты отозванных семейств: завершённая на украденном устройстве сессия не дочитывает переписку по живому сокету). Что слать и что принимать — знают фичи через реестр; движок фичи не импортирует.
 
 Код: `apps/api/src/core/realtime/` (`realtime.gateway.ts`, `realtime.registry.ts`, `realtime.service.ts`, `realtime.module.ts`). Формы событий — `packages/shared/src/types/realtime.ts` (`RealtimeServerToClientEvents = Messenger… & Notification…`, `RealtimeClientToServerEvents`) — ими типизированы И gateway (`Server<C2S, S2C>`), И клиентский синглтон. Клиент — `apps/web/src/lib/realtime/useRealtime.ts` (один коннект на вкладку, `auth` как функция — свежий токен на каждый reconnect, heartbeat с visibility-гейтом, `onReconnect`); `useMessengerSocket` — тонкая обёртка с прежним API.
 
@@ -20,6 +20,7 @@ RealtimeService.emitToUsers(userIds, name, payload) / emitToRooms(rooms, name, p
 | Кто | Relay (шина → сокет) | Хендлеры (клиент → сервер) | Хуки |
 |---|---|---|---|
 | Мессенджер (`modules/messenger/messenger-realtime.provider.ts`) | `messenger.*` → `message:new|updated|deleted`, `receipt`, `call:state` (в комнаты `memberUserIds`), `presence:changed` (в `audienceIds`) | `message:delivered`, `message:read` (120/мин), `heartbeat` (12/мин), `typing:start|stop` (60/мин; `socket.to(...)` — мимо печатающего) | presence `onConnect/onDisconnect` + фанаут изменения |
+| Журнал безопасности (`core/audit/audit.realtime.provider.ts`) | `audit.recorded` → `security:changed` в личную комнату субъекта (раздел «Безопасность» перечитывает сессии и ленту без перезагрузки) | — | — |
 | Уведомления (`core/notifications/notifications-realtime.provider.ts`) | `notifications.created` → `notification:new` каждому адресату (свой notificationId/контекст); `notifications.counts` → `notification:counts` | — | — |
 
 ## Несущие правила

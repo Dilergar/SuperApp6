@@ -6,6 +6,7 @@ import axios, {
 } from 'axios';
 import {
   ANALYTICS_HEADERS,
+  AUDIT_HEADERS,
   IDEMPOTENCY_ERROR_CODES,
   IDEMPOTENCY_KEY_HEADER,
   IDEMPOTENT_REPLAYED_HEADER,
@@ -53,6 +54,13 @@ export interface ApiClientConfig {
    * человек отказался от аналитики, заголовков нет.
    */
   getAnalyticsContext?: () => { sessionId: string; deviceId: string } | null;
+  /**
+   * Устройство для журнала безопасности (core/audit): постоянный uuid клиента → заголовок
+   * `X-Device-Id` на КАЖДОМ запросе, включая вход и refresh. Отдельно от аналитики и НЕ
+   * зависит от отказа от неё: «вход с нового устройства», список устройств и cooling —
+   * защита человека, а не метрика. Веб — localStorage, mobile — secure store.
+   */
+  getDeviceId?: () => string | null;
   /** Таймаут по умолчанию, мс (0 = без таймаута). Загрузки файлов переопределяют его в конфиге вызова. */
   timeout?: number;
 }
@@ -139,7 +147,19 @@ function withLock<T>(name: string, run: () => Promise<T>): Promise<T> {
 }
 
 export function createApiClient(config: ApiClientConfig): ApiClient {
-  const { baseURL, storage, onAuthFailure, getWorkspaceId, getLocale, getAnalyticsContext } = config;
+  const { baseURL, storage, onAuthFailure, getWorkspaceId, getLocale, getAnalyticsContext, getDeviceId } = config;
+
+  /** Заголовки безопасности запроса: id запроса (новый на каждый) и устройство. */
+  const securityHeaders = (): Record<string, string> => {
+    const out: Record<string, string> = { [AUDIT_HEADERS.request]: newIdempotencyKey() };
+    try {
+      const device = getDeviceId?.();
+      if (device) out[AUDIT_HEADERS.device] = device;
+    } catch {
+      /* без устройства — сервер назовёт клиент «неопознанным устройством» */
+    }
+    return out;
+  };
 
   const api = axios.create({
     baseURL,
@@ -150,6 +170,9 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
   api.interceptors.request.use(async (cfg) => {
     const token = await storage.get(ACCESS_TOKEN_KEY);
     if (token) cfg.headers.Authorization = `Bearer ${token}`;
+    // Корреляция и устройство (core/audit): id запроса сервер вернёт эхом и в `details.requestId`
+    // отказа — человек называет его поддержке. Повтор после 401 уходит с НОВЫМ id (другой запрос).
+    for (const [name, value] of Object.entries(securityHeaders())) cfg.headers[name] = value;
     const workspaceId = getWorkspaceId?.();
     if (workspaceId) cfg.headers['X-Workspace-Id'] = workspaceId;
     // Ставим ТОЛЬКО когда выбор действительно есть: у гостя его нет, и решать
@@ -203,6 +226,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       const { data } = await axios.post<ApiOk<{ accessToken: string; refreshToken: string }>>(
         `${baseURL}/auth/refresh`,
         { refreshToken },
+        { headers: securityHeaders() },
       );
       await storage.set(ACCESS_TOKEN_KEY, data.data.accessToken);
       await storage.set(REFRESH_TOKEN_KEY, data.data.refreshToken);

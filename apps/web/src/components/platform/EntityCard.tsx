@@ -16,6 +16,8 @@ import type {
   PlatformStaffDto,
   PlatformUserHitDto,
   PlatformWorkspaceHitDto,
+  PlatformUserSecurityPanelDto,
+  PlatformWorkspaceSecurityPanelDto,
 } from '@superapp/shared';
 import { Alert, BentoGrid, Button, Card, CardHeader, Chip, LoadingBlock, Menu, PageHeader, type MenuAction } from '@/components/ui';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
@@ -25,6 +27,7 @@ import { CommandRunner } from './CommandRunner';
 import { AuditRows } from './AuditRows';
 import { SubjectEntitlements } from './SubjectEntitlements';
 import { ActivityPanel } from './analytics/ActivityPanel';
+import { UserSecurityPanel, WorkspaceSecurityPanel } from './SecurityPanel';
 
 // ============================================================
 // Карточка 360: шапка + чипы состояния + меню «Действия» из команд реестра (без права —
@@ -175,7 +178,7 @@ function Panel({
     enabled: expanded,
     retry: false,
   });
-  const span = panel.key.endsWith('.entitlements') || panel.key.endsWith('.audit') ? 12 : 6;
+  const span = panel.key.endsWith('.entitlements') || panel.key.endsWith('.audit') || panel.key.endsWith('.security') ? 12 : 6;
   return (
     <Card span={span} id={panelDomId(panel.key)}>
       <CardHeader
@@ -193,7 +196,7 @@ function Panel({
       ) : q.isError ? (
         <Alert tone="danger">{t('card.panelFailed')}</Alert>
       ) : (
-        <PanelBody panelKey={panel.key} data={loaded(q.data)} revealed={revealed} onReveal={onReveal} panelOpener={panelOpener} />
+        <PanelBody panelKey={panel.key} entityId={id} data={loaded(q.data)} revealed={revealed} onReveal={onReveal} panelOpener={panelOpener} />
       )}
     </Card>
   );
@@ -210,12 +213,14 @@ const PII_FIELDS: Record<string, string> = { phoneMasked: 'phone', iinMasked: 'i
 
 function PanelBody({
   panelKey,
+  entityId,
   data,
   revealed,
   onReveal,
   panelOpener,
 }: {
   panelKey: string;
+  entityId: string;
   data: unknown;
   revealed: Record<string, string | null>;
   onReveal?: (fields: string[]) => void;
@@ -229,6 +234,8 @@ function PanelBody({
   if (data === null || data === undefined) return <p className="label-sm">{t('card.empty')}</p>;
 
   if (panelKey.endsWith('.entitlements')) return <SubjectEntitlements detail={data as EntitlementSubjectDetailDto} />;
+  if (panelKey === 'user.security') return <UserSecurityPanel data={data as PlatformUserSecurityPanelDto} userId={entityId} />;
+  if (panelKey === 'workspace.security') return <WorkspaceSecurityPanel data={data as PlatformWorkspaceSecurityPanelDto} workspaceId={entityId} />;
   if (panelKey.endsWith('.audit')) return <AuditRows page={data as PlatformAuditPageDto} compact />;
   if (panelKey.endsWith('.analytics')) {
     return <ActivityPanel data={data as AnalyticsActivityPanelDto} onOpenPlans={panelOpener(panelKey.replace(/\.analytics$/, '.entitlements'))} />;

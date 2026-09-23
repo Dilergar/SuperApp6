@@ -1,6 +1,6 @@
 'use client';
 
-import { Input, ModalShell } from '@/components/ui';
+import { Alert, Button, Input, ModalShell } from '@/components/ui';
 /**
  * Диалоги безопасности профиля (движок core/verify):
  *  - Смена пароля: текущий пароль + SMS-код на свой номер (Kaspi-модель step-up);
@@ -37,7 +37,11 @@ const refreshToken = () => (typeof window === 'undefined' ? undefined : localSto
 // Смена пароля
 // ============================================================
 
-export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
+/**
+ * `via: 'not_me'` — смена пароля из мастера «Это не я» (событие журнала несёт источник);
+ * `onDone` — пароль сменён (мастер отмечает шаг выполненным).
+ */
+export function ChangePasswordDialog({ onClose, onDone, via }: { onClose: () => void; onDone?: () => void; via?: 'settings' | 'not_me' }) {
   const t = useTranslations('profile');
   const common = useTranslations('common');
   const flow = useOtpFlow();
@@ -73,8 +77,10 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
         newPassword,
         verifyToken,
         currentRefreshToken: refreshToken(),
+        ...(via ? { via } : {}),
       });
       setStep('done');
+      onDone?.();
     } catch (err) {
       setError(apiErrorMessage(err));
       setStep('form'); // неверный текущий пароль и т.п. — назад к форме
@@ -88,7 +94,7 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
       {step === 'form' && (
         <form onSubmit={requestCode}>
           <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>{t('pwd.title')}</h3>
-          {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
+          {error && <div style={{ marginBottom: 'var(--spacing-3)' }}><Alert tone="danger">{error}</Alert></div>}
           <Input
             label={t('pwd.current')}
             type="password"
@@ -112,10 +118,10 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
             {t('pwd.note')}
           </p>
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-            <button type="button" className="btn-ghost-inline" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>{common('actions.cancel')}</button>
-            <button type="submit" className="btn-primary" disabled={busy || !currentPassword || !newPassword} style={{ fontSize: '0.85rem', opacity: busy ? 0.6 : 1 }}>
+            <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{common('actions.cancel')}</Button>
+            <Button type="submit" variant="primary" loading={busy} disabled={busy || !currentPassword || !newPassword}>
               {busy ? t('pwd.sending') : t('pwd.getCode')}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -137,7 +143,7 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
             {t('pwd.doneText')}
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button className="btn-primary" style={{ fontSize: '0.85rem' }} onClick={onClose}>{t('pwd.done')}</button>
+            <Button variant="primary" onClick={onClose}>{t('pwd.done')}</Button>
           </div>
         </div>
       )}
@@ -149,7 +155,7 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
 // Смена номера
 // ============================================================
 
-export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
+export function ChangePhoneDialog({ onClose, onDone }: { onClose: () => void; onDone?: () => void }) {
   const t = useTranslations('profile');
   const common = useTranslations('common');
   const flow = useOtpFlow();
@@ -220,6 +226,7 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
       });
       await fetchProfile();
       setStep('done');
+      onDone?.();
     } catch (err) {
       setError(apiErrorMessage(err));
       setStep('form');
@@ -236,7 +243,7 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
           <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', lineHeight: 1.5, opacity: 0.8 }}>
             {t('phone.note')}
           </p>
-          {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem', marginBottom: 'var(--spacing-3)' }}>{error}</p>}
+          {error && <div style={{ marginBottom: 'var(--spacing-3)' }}><Alert tone="danger">{error}</Alert></div>}
           <Input
             label={t('phone.password')}
             type="password"
@@ -257,10 +264,10 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
             autoComplete="tel"
           />
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end', marginTop: 'var(--spacing-5)' }}>
-            <button type="button" className="btn-ghost-inline" disabled={busy} style={{ fontSize: '0.85rem' }} onClick={onClose}>{common('actions.cancel')}</button>
-            <button type="submit" className="btn-primary" disabled={busy || !password} style={{ fontSize: '0.85rem', opacity: busy ? 0.6 : 1 }}>
+            <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>{common('actions.cancel')}</Button>
+            <Button type="submit" variant="primary" loading={busy} disabled={busy || !password}>
               {busy ? t('pwd.sending') : oldToken ? t('phone.codeToNew') : t('phone.codeToOld')}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -292,7 +299,7 @@ export function ChangePhoneDialog({ onClose }: { onClose: () => void }) {
             {t('phone.doneText')}
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <button className="btn-primary" style={{ fontSize: '0.85rem' }} onClick={onClose}>{t('pwd.done')}</button>
+            <Button variant="primary" onClick={onClose}>{t('pwd.done')}</Button>
           </div>
         </div>
       )}

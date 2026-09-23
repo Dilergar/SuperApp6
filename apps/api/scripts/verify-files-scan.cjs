@@ -141,7 +141,10 @@ async function main() {
       check(`«${bad}» не принимается вовсе`, res.status === 400, `status ${res.status}`);
     }
 
+    // Удаление — через движок файлов (возврат квоты владельцу), потом зачистка строки:
+    // сырой deleteMany по ready-файлу оставлял бы счётчик квоты завышенным до ночной сверки
     for (const id of [officeId, zipId, macroId]) {
+      await call('DELETE', `/files/${id}`, t1).catch(() => undefined);
       await prisma.fileObject.deleteMany({ where: { id } });
     }
   } finally {

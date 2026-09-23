@@ -374,7 +374,9 @@ const created = [];
     // Организацию берём ТУ, где адресат действительно работает: у рабочей заявки
     // снимок адресатов сверяется с командой, и посторонний в него не попадает (это
     // проверяется ниже отдельно).
-    const membership = await prisma.userRole.findFirst({
+    // И ЖИВУЮ: роли в архивной организации остаются, а её задания стопка не показывает
+    // по замыслу (сервисы выключенной организации закрыты).
+    const memberships = await prisma.userRole.findMany({
       where: {
         userId: u2.id,
         context: 'workspace',
@@ -383,7 +385,11 @@ const created = [];
       },
       select: { tenantId: true },
     });
-    const wsId = membership?.tenantId ?? null;
+    const live = await prisma.workspace.findFirst({
+      where: { id: { in: memberships.map((m) => m.tenantId).filter(Boolean) }, isActive: true },
+      select: { id: true },
+    });
+    const wsId = live?.id ?? null;
     if (!wsId) {
       check('SKIP: адресат не работает ни в одной организации', true);
     } else {

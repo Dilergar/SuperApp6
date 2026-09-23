@@ -5,8 +5,20 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { badRequest, conflict, forbidden, unauthorized } from '../../shared/errors/api-error';
-import { CONSENT_AGE, CONSENT_ERROR_CODES, KEYS_LIMITS, ageOnDate, consentSelectionSchema, platformTodayIso, type ConsentSelectionInput } from '@superapp/shared';
+import { badRequest, conflict, forbidden, tooMany, unauthorized } from '../../shared/errors/api-error';
+import {
+  AUDIT_ERROR_CODES,
+  AUDIT_LIMITS,
+  CONSENT_AGE,
+  CONSENT_ERROR_CODES,
+  KEYS_LIMITS,
+  ageOnDate,
+  consentSelectionSchema,
+  platformTodayIso,
+  type AuthFailReason,
+  type ConsentSelectionInput,
+  type VerifyStartResponse,
+} from '@superapp/shared';
 import { ConsentsService } from '../consents/consents.service';
 import { ConsentsActionsService } from '../consents/consents.actions.service';
 import { KeysSigningService } from '../keys/keys.signing.service';
@@ -16,13 +28,17 @@ import { parseDurationSec } from '../keys/keys.jwt';
 // (~0.5–1.5с CPU) — десяток одновременных логинов душил все запросы инстанса.
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
+import { PASSWORD_BCRYPT_ROUNDS, comparePasswordConstantTime } from '../../shared/utils/password-timing';
+import { AuditService, type AuditActorInput } from '../audit/audit.service';
+import { AuditSessionsService, type LoginDevice, type SessionContextFields } from '../audit/audit.sessions.service';
+import { AuditLoginGuard, type LoginSubject } from '../audit/audit.login-guard';
+import { AuditAccountService } from '../audit/audit.account.service';
 import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { KeysCascadesService } from '../keys/api-keys/keys.cascades.service';
 import { VerifyService } from '../verify/verify.service';
 import { JobsService } from '../jobs/jobs.service';
 import { EntitlementsService } from '../entitlements/entitlements.service';
@@ -47,9 +63,12 @@ export class AuthService {
     private wsContext: WorkspaceContextService,
     private entitlements: EntitlementsService,
     private analytics: AnalyticsService,
-    private keysCascades: KeysCascadesService,
     private consents: ConsentsService,
     private pdActions: ConsentsActionsService,
+    private audit: AuditService,
+    private sessions: AuditSessionsService,
+    private loginGuard: AuditLoginGuard,
+    private account: AuditAccountService,
   ) {}
 
   async register(data: {
@@ -89,11 +108,12 @@ export class AuthService {
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(data.password, 12);
+    const hashedPassword = await bcrypt.hash(data.password, PASSWORD_BCRYPT_ROUNDS);
 
-    // Create user + system role + trial subscription in one transaction
+    // Create user + system role + trial subscription + first session in one transaction
     let consentsAfterCommit: (() => Promise<void>) | null = null;
-    const user = await this.db.$transaction(async (tx) => {
+    const ctx = this.sessions.requestContext;
+    const { tokens } = await this.db.$transaction(async (tx) => {
       // Гашение пропуска — В ТРАНЗАКЦИИ создания (откат = пропуск не потрачен).
       // expectedPhone гарантирует: подтверждён именно ТОТ номер, на который регистрируемся.
       let chain: Awaited<ReturnType<VerifyService['consume']>> | null = null;
@@ -179,15 +199,23 @@ export class AuthService {
       // Аналитика: факт регистрации — в той же транзакции (откат = события нет)
       await this.analytics.track(tx, 'auth.user.registered', { verified: !!data.verifyToken }, { userId: newUser.id, workspaceId: null });
 
-      return newUser;
+      // Журнал безопасности и первая сессия — той же транзакцией: устройство регистрации
+      // доверено сразу (cooling не у него), «новым устройством» оно не считается
+      await this.audit.record(tx, { key: 'account.registered', subjectUserId: newUser.id, actor: { kind: 'user', id: newUser.id }, details: {} });
+      const device = await this.sessions.deviceForLogin(tx, newUser.id, ctx, { registration: true });
+      return this.signIn(tx, { userId: newUser.id, phone: newUser.phone, role: 'user', epoch: newUser.tokenEpoch, deviceInfo, device, method: 'register', newCountry: null, quiet: true });
     });
     // Кэши шлюза согласий — после коммита (сброс внутри транзакции гонится с чтением)
     await (consentsAfterCommit as (() => Promise<void>) | null)?.().catch(() => undefined);
-
-    // Generate tokens — system role goes into JWT
-    return this.generateTokens(user.id, user.phone, 'user', user.tokenEpoch, deviceInfo);
+    return tokens;
   }
 
+  /**
+   * Вход паролем. Защита по АККАУНТУ (core/audit): блокировка после серии неудач, неизвестный
+   * номер отвечает так же и за то же время (bcrypt всегда — нет timing-оракула), каждая неудача —
+   * событие журнала (fail-closed). Удачный вход — одна транзакция: восстановление из окна удаления,
+   * устройство, сессия, события входа / нового устройства / новой страны, уведомления.
+   */
   async login(phone: string, password: string, deviceInfo?: string | null): Promise<AuthTokens & { restored: boolean }> {
     const user = await this.db.user.findUnique({
       where: { phone },
@@ -198,47 +226,93 @@ export class AuthService {
         },
       },
     });
-
-    if (!user) {
-      throw unauthorized('auth.badCredentials');
-    }
-
-    if (user.deletedAt) {
-      throw unauthorized('auth.accountDeleted');
-    }
     // Бот (core/keys) — теневой пользователь: входа паролем у него нет никогда
-    if (user.kind === 'bot') {
+    const eligible = !!user && !user.deletedAt && user.kind === 'person';
+    const subject: LoginSubject = { userId: eligible ? user!.id : null, phoneHmac: await this.loginGuard.phoneHmac(phone) };
+    const lockedUntil = await this.loginGuard.lockedUntil(subject, eligible ? user!.loginLockedUntil : null);
+    // Сравнение — ВСЕГДА (и при блокировке): стоимость ответа не зависит от существования номера
+    const passwordOk = await comparePasswordConstantTime(password, eligible ? user!.password : null);
+    if (lockedUntil) await this.loginGuard.rejectLocked(subject, lockedUntil);
+
+    if (!eligible || !passwordOk) {
+      const reason: AuthFailReason = !user || user.deletedAt ? 'unknown_account' : user.kind !== 'person' ? 'not_allowed' : 'wrong_password';
+      const lockedNow = await this.loginGuard.onFailure(subject, reason);
+      // Попытка уже посчитана onFailure — только ответ 429 (без второго счёта в итог блокировки)
+      if (lockedNow) this.loginGuard.lockedResponse(lockedNow);
+      if (user?.deletedAt) throw unauthorized('auth.accountDeleted');
       throw unauthorized('auth.badCredentials');
     }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      throw unauthorized('auth.badCredentials');
+    const person = user!;
+    // Заморожен (core/audit): отказ — только ПОСЛЕ верного пароля (ответ не оракул чужого состояния)
+    if (person.securityFrozenAt) {
+      await this.audit.record(null, { key: 'auth.login.failed', subjectUserId: person.id, outcome: 'denied', reasonCode: 'frozen', details: {} });
+      throw forbidden('auth.frozen', undefined, { code: AUDIT_ERROR_CODES.accountFrozen });
     }
 
-    // Logging in during the deletion grace window cancels the pending deletion.
-    // Conditional on deletedAt=null so we never "restore" (and issue tokens for)
-    // an account the cron permanently anonymized between our read and now.
-    let restored = false;
-    if (user.deletionScheduledAt) {
-      const { count } = await this.db.user.updateMany({
-        where: { id: user.id, deletedAt: null },
-        data: { deletionScheduledAt: null },
-      });
-      if (count === 0) {
-        throw unauthorized('auth.accountDeleted');
+    const systemRole = this.getHighestSystemRole(person.roles.map((r) => r.role));
+    const ctx = this.sessions.requestContext;
+    const quiet = Date.now() - person.createdAt.getTime() < AUDIT_LIMITS.newAccountQuietDays * 86_400_000;
+    const { tokens, restored } = await this.db.$transaction(async (tx) => {
+      // Вход в окне удаления отменяет удаление. Условие deletedAt=null: аккаунт, который крон
+      // анонимизировал между чтением и этой строкой, не «восстанавливается» и токенов не получает.
+      let restoredNow = false;
+      if (person.deletionScheduledAt) {
+        const { count } = await tx.user.updateMany({ where: { id: person.id, deletedAt: null }, data: { deletionScheduledAt: null } });
+        if (count === 0) throw unauthorized('auth.accountDeleted');
+        restoredNow = true;
+        await this.audit.record(tx, { key: 'account.deletion_cancelled', subjectUserId: person.id, actor: { kind: 'user', id: person.id }, details: {} });
       }
-      await this.redis.invalidateUserProfile(user.id);
-      restored = true;
-    }
-
-    // Get highest system role
-    const systemRole = this.getHighestSystemRole(user.roles.map((r) => r.role));
-
-    const tokens = await this.generateTokens(user.id, user.phone, systemRole, user.tokenEpoch, deviceInfo);
-    await this.analytics.track(null, 'auth.user.logged_in', {}, { userId: user.id, workspaceId: null });
+      await this.loginGuard.onSuccessTx(tx, person.id);
+      const device = await this.sessions.deviceForLogin(tx, person.id, ctx);
+      const novelty = await this.sessions.countryNovelty(tx, person.id, ctx?.country ?? null);
+      const signed = await this.signIn(tx, { userId: person.id, phone: person.phone, role: systemRole, epoch: person.tokenEpoch, deviceInfo, device, method: 'password', newCountry: novelty, quiet });
+      return { tokens: signed.tokens, restored: restoredNow };
+    });
+    if (restored) await this.redis.invalidateUserProfile(person.id);
     return { ...tokens, restored };
+  }
+
+  /**
+   * Выдать сессию входа В ТРАНЗАКЦИИ входа: новое семейство (контекст устройства, сети, cooling),
+   * события `auth.login.success` и, если есть, `auth.session.new_device|new_country` (их
+   * уведомления шлёт паспорт реестра в той же транзакции), аналитика.
+   */
+  private async signIn(
+    tx: Prisma.TransactionClient,
+    a: {
+      userId: string;
+      phone: string;
+      role: string;
+      epoch: number;
+      deviceInfo?: string | null;
+      device: LoginDevice;
+      method: 'password' | 'register' | 'unfreeze' | 'reset';
+      newCountry: { newCountry: boolean; previousCountry: string | null } | null;
+      quiet: boolean;
+    },
+  ): Promise<{ tokens: AuthTokens; sessionId: string; familyId: string }> {
+    const ctx = this.sessions.requestContext;
+    const familyId = randomUUID();
+    const minted = await this.mintSession(tx, a.userId, a.phone, a.role, a.epoch, a.deviceInfo, familyId, this.sessions.newFamilyFields(ctx, a.device));
+    const actor: AuditActorInput = { kind: 'user', id: a.userId, sessionId: minted.sessionId, familyId };
+    const target = { type: 'session', id: familyId };
+    const newCountry = !!a.newCountry?.newCountry;
+    await this.audit.record(tx, { key: 'auth.login.success', subjectUserId: a.userId, actor, target, details: { method: a.method, newDevice: a.device.isNew, newCountry } });
+    if (a.device.isNew) {
+      await this.audit.record(tx, {
+        key: 'auth.session.new_device',
+        subjectUserId: a.userId,
+        actor,
+        target,
+        details: { deviceClass: a.device.deviceClass, quiet: a.quiet },
+        ...(a.device.label ? { notify: { params: { device: a.device.label } } } : {}),
+      });
+    }
+    if (newCountry) {
+      await this.audit.record(tx, { key: 'auth.session.new_country', subjectUserId: a.userId, actor, target, details: a.newCountry?.previousCountry ? { previousCountry: a.newCountry.previousCountry } : {} });
+    }
+    if (a.method !== 'register') await this.analytics.track(tx, 'auth.user.logged_in', {}, { userId: a.userId, workspaceId: null });
+    return { tokens: minted.tokens, sessionId: minted.sessionId, familyId };
   }
 
   /**
@@ -253,9 +327,10 @@ export class AuthService {
     newPassword: string,
     deviceInfo?: string | null,
   ): Promise<AuthTokens & { restored: boolean }> {
-    const hashedPassword = await bcrypt.hash(newPassword, 12); // CPU — до транзакции
+    const hashedPassword = await bcrypt.hash(newPassword, PASSWORD_BCRYPT_ROUNDS); // CPU — до транзакции
+    const ctx = this.sessions.requestContext;
 
-    const { userId, phone, restored, epoch } = await this.db.$transaction(async (tx) => {
+    const { userId, restored, tokens, families } = await this.db.$transaction(async (tx) => {
       // Гашение пропуска в этой же транзакции: откат = пропуск не потрачен.
       const consumed = await this.verify.consume(tx, {
         verifyToken,
@@ -269,51 +344,47 @@ export class AuthService {
       const user = consumed.userId
         ? await tx.user.findUnique({
             where: { id: consumed.userId },
-            select: { id: true, phone: true, deletedAt: true, deletionScheduledAt: true },
+            select: { id: true, phone: true, deletedAt: true, deletionScheduledAt: true, securityFrozenAt: true, loginLockedUntil: true, kind: true, createdAt: true },
           })
         : await tx.user.findUnique({
             where: { phone: consumed.phone },
-            select: { id: true, phone: true, deletedAt: true, deletionScheduledAt: true },
+            select: { id: true, phone: true, deletedAt: true, deletionScheduledAt: true, securityFrozenAt: true, loginLockedUntil: true, kind: true, createdAt: true },
           });
       // Нейтральная формулировка (анти-энумерация reset-потока сохраняется).
       // Проверка phone: номер аккаунта не должен был поменяться после выдачи пропуска.
-      if (!user || user.deletedAt || user.phone !== consumed.phone) {
+      if (!user || user.deletedAt || user.kind !== 'person' || user.phone !== consumed.phone) {
         throw badRequest('auth.verifyStale');
       }
+      // Заморозку сброс по SMS НЕ снимает: её и ставят против угона SIM — владелец угнанной
+      // симки иначе снял бы её сам. Разморозка — старый пароль + SMS или Кабинет.
+      if (user.securityFrozenAt) throw forbidden('auth.frozen', undefined, { code: AUDIT_ERROR_CODES.accountFrozen });
       await tx.user.update({
         where: { id: user.id },
         data: { password: hashedPassword, deletionScheduledAt: null },
       });
-      // Все сессии — в отставку: чужие руки со старым паролем/refresh-токенами отрезаны.
-      await tx.session.deleteMany({ where: { userId: user.id } });
-      // …и выданные access-токены вместе с ними (иначе жили бы ещё до 15 минут).
-      const epoch = await this.bumpTokenEpochTx(tx, user.id);
+      // Все сессии — в отставку (мягко: улика и «кто отозвал» остаются): чужие руки со
+      // старым паролем/refresh-токенами отрезаны; выданные access-токены — поколением.
+      const revoked = await this.sessions.revokeFamilies(tx, user.id, {}, 'reset');
+      const bump = await this.account.bumpTokenEpochTx(tx, user.id);
+      const unlocked = await this.loginGuard.unlockTx(tx, user.id);
+      await this.audit.record(tx, {
+        key: 'auth.password.reset_completed',
+        subjectUserId: user.id,
+        actor: { kind: 'user', id: user.id },
+        details: { sessionsRevoked: revoked.count, unlocked },
+        evidence: { factor: 'sms', verifyChallengeId: consumed.challengeId },
+      });
       await this.analytics.track(tx, 'auth.password.reset', {}, { userId: user.id, workspaceId: null });
-      return { userId: user.id, phone: user.phone, restored: !!user.deletionScheduledAt, epoch };
+      // Автовход — новое семейство той же транзакцией (cooling — по правилу устройства)
+      const roles = await tx.userRole.findMany({ where: { userId: user.id, context: 'system', isActive: true }, select: { role: true } });
+      const device = await this.sessions.deviceForLogin(tx, user.id, ctx);
+      const quiet = Date.now() - user.createdAt.getTime() < AUDIT_LIMITS.newAccountQuietDays * 86_400_000;
+      const signed = await this.signIn(tx, { userId: user.id, phone: user.phone, role: this.getHighestSystemRole(roles.map((r) => r.role)), epoch: bump.epoch, deviceInfo, device, method: 'reset', newCountry: null, quiet });
+      return { userId: user.id, restored: !!user.deletionScheduledAt, tokens: signed.tokens, families: revoked.families };
     });
 
-    await this.redis.delPattern(`user:${userId}:*`);
-    // Кэш поколения — сразу после коммита, иначе до минуты старые токены проходят.
-    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
-    // Живые сокеты со старыми сессиями рвём немедленно (паттерн logout-all).
-    this.events.emit('auth.sessions.revoked', { userId }, 'auth');
-    // Уведомление — ПОСЛЕ коммита и без права уронить ответ: пароль уже сменён, а в
-    // ответе едут токены автовхода. Упавшая лента не должна выглядеть как «сброс не удался».
-    this.notifications
-      .send(null, { type: 'auth.password.changed', to: [{ userId }], reason: 'system', actionUrl: '/profile/security' })
-      .catch((err) => this.logger.error(`The password-change notification was not created: ${err.message}`));
-
-    const roles = await this.db.userRole.findMany({
-      where: { userId, context: 'system', isActive: true },
-      select: { role: true },
-    });
-    const tokens = await this.generateTokens(
-      userId,
-      phone,
-      this.getHighestSystemRole(roles.map((r) => r.role)),
-      epoch,
-      deviceInfo,
-    );
+    // Кэш поколения, отметки отозванных семейств и живые сокеты — сразу после коммита
+    await this.account.afterAccessRevoked(userId, families);
     return { ...tokens, restored };
   }
 
@@ -345,21 +416,32 @@ export class AuthService {
       },
     });
 
-    if (!session || session.expiresAt < new Date()) {
+    // Мягко отозванное семейство (выход, «завершить сессию», заморозка) — как истёкшее
+    if (!session || session.expiresAt < new Date() || session.revokedAt) {
       throw unauthorized('auth.sessionExpired');
     }
 
     if (session.rotatedAt) {
       const sinceMs = Date.now() - session.rotatedAt.getTime();
       if (sinceMs > KEYS_LIMITS.refreshReuseGraceSec * 1000) {
-        // Повтор вне grace: семейство отозвано целиком; уведомление — после отзыва,
-        // без права уронить отказ (лента — не security-эффект)
-        await this.db.session.deleteMany({ where: { familyId: session.familyId } });
+        // Повтор вне grace = утечка токена: семейство отозвано целиком, событие CRITICAL и
+        // уведомление (паспорт) — ОДНОЙ транзакцией; предъявитель неизвестен — актор аноним
+        const revoked = await this.db.$transaction(async (tx) => {
+          const r = await this.sessions.revokeFamilies(tx, session.userId, { only: [session.familyId] }, 'reuse');
+          await this.audit.record(tx, {
+            key: 'auth.session.refresh_reuse',
+            subjectUserId: session.userId,
+            actor: { kind: 'anonymous' },
+            outcome: 'denied',
+            reasonCode: 'refresh_reuse',
+            target: { type: 'session', id: session.familyId },
+            details: { sessions: r.count },
+          });
+          await this.analytics.track(tx, 'keys.session.reuse_detected', {}, { userId: session.userId, workspaceId: null });
+          return r;
+        });
+        await revoked.afterCommit();
         this.events.emit('auth.sessions.revoked', { userId: session.userId }, 'auth');
-        this.notifications
-          .send(null, { type: 'auth.session.reuseDetected', to: [{ userId: session.userId }], reason: 'system', actionUrl: '/profile/security' })
-          .catch((err) => this.logger.warn(`reuse-detected notification failed: ${err.message}`));
-        await this.analytics.track(null, 'keys.session.reuse_detected', {}, { userId: session.userId, workspaceId: null });
         this.logger.warn(`refresh token reuse detected: user ${session.userId}, family ${session.familyId} revoked`);
         throw unauthorized('auth.sessionExpired');
       }
@@ -370,46 +452,100 @@ export class AuthService {
       session.user.roles.map((r) => r.role),
     );
 
-    // deviceInfo наследуется от ротируемой строки — иначе после первого же refresh
-    // (≤15 мин) устройство в списке сессий снова становится «Неизвестным».
-    const minted = await this.mintSession(
-      session.user.id,
-      session.user.phone,
-      systemRole,
-      session.user.tokenEpoch,
-      session.deviceInfo,
-      session.familyId,
-    );
-    // Прокрутка: старая строка остаётся до истечения (её предъявление = сигнал), guard по
-    // rotatedAt — гонка двух refresh одним токеном помечает ровно один раз
-    await this.db.session.updateMany({
-      where: { id: session.id, rotatedAt: null },
-      data: { rotatedAt: new Date(), replacedById: minted.sessionId },
+    // Контекст семейства (устройство, сеть, страна, клиент, момент входа, подтверждение)
+    // наследуется от ротируемой строки — «сессия» человека живёт дольше одной строки.
+    const inherited: SessionContextFields = {
+      deviceId: session.deviceId,
+      uaFamily: session.uaFamily,
+      ipNet: session.ipNet,
+      country: session.country,
+      client: session.client,
+      familyCreatedAt: session.familyCreatedAt,
+      confirmedAt: session.confirmedAt,
+    };
+    const minted = await this.db.$transaction(async (tx) => {
+      const m = await this.mintSession(tx, session.user.id, session.user.phone, systemRole, session.user.tokenEpoch, session.deviceInfo, session.familyId, inherited);
+      // Прокрутка: старая строка остаётся до истечения (её предъявление = сигнал), guard по
+      // rotatedAt — гонка двух refresh одним токеном помечает ровно один раз
+      await tx.session.updateMany({
+        where: { id: session.id, rotatedAt: null },
+        data: { rotatedAt: new Date(), replacedById: m.sessionId },
+      });
+      return m;
     });
+    this.sessions.touch(session.userId, session.familyId);
     return minted.tokens;
   }
 
-  /** Выход — всё семейство сессии этого устройства (прокрученные строки включительно). */
-  async logout(userId: string, refreshToken: string) {
-    const tokenHash = this.hashToken(refreshToken);
-    const session = await this.db.session.findFirst({ where: { userId, token: tokenHash }, select: { familyId: true } });
-    if (!session) return;
-    await this.db.session.deleteMany({ where: { userId, familyId: session.familyId } });
+  /**
+   * Выход — всё семейство сессии этого устройства (прокрученные строки включительно), мягко:
+   * строки остаются (улика reuse, «вышедшие устройства»). Семейство — по refresh-токену, а если
+   * клиент его потерял — по `fam` access-токена.
+   */
+  async logout(user: JwtPayload, refreshToken: string | undefined) {
+    let familyId: string | null = null;
+    if (refreshToken) {
+      const row = await this.db.session.findFirst({ where: { userId: user.sub, token: this.hashToken(refreshToken) }, select: { familyId: true } });
+      familyId = row?.familyId ?? null;
+    }
+    familyId ??= await this.sessions.currentFamilyOf(user);
+    if (!familyId) return;
+    const family = familyId;
+    const revoked = await this.db.$transaction(async (tx) => {
+      const r = await this.sessions.revokeFamilies(tx, user.sub, { only: [family] }, 'self');
+      if (r.count) await this.audit.record(tx, { key: 'auth.logout', subjectUserId: user.sub, target: { type: 'session', id: family }, details: {} });
+      return r;
+    });
+    await revoked.afterCommit();
   }
 
-  async logoutAll(userId: string) {
-    // Поколение токенов вперёд — иначе «выход со всех устройств» убирал только
-    // refresh-строки, а выданные access-токены работали ещё до 15 минут.
-    await this.db.$transaction(async (tx) => {
-      await tx.session.deleteMany({ where: { userId } });
-      await this.bumpTokenEpochTx(tx, userId);
+  /**
+   * «Выйти на всех других устройствах»: все ДРУГИЕ семейства мягко завершены, поколение токенов
+   * вперёд (выданные access-токены гаснут сразу, личные ключи API — тоже: ключ = сессия без
+   * срока). Текущая вкладка переживает это прозрачно: её refresh цел, single-flight refresh
+   * клиента выдаст токен нового поколения. Cooling-гард — у контроллера.
+   */
+  async logoutAll(user: JwtPayload) {
+    const current = await this.sessions.currentFamilyOf(user);
+    const out = await this.db.$transaction(async (tx) => {
+      const r = await this.sessions.revokeFamilies(tx, user.sub, { except: current }, 'logout_all');
+      await this.account.bumpTokenEpochTx(tx, user.sub);
+      await this.audit.record(tx, { key: 'auth.logout_all', subjectUserId: user.sub, details: { sessions: r.count } });
+      return r;
     });
-    // Invalidate all cached data for this user
-    await this.redis.delPattern(`user:${userId}:*`);
-    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
-    // Hard-disconnect live messenger sockets too: socket auth happens only on the
-    // handshake, so without this a revoked session keeps receiving realtime traffic.
-    this.events.emit('auth.sessions.revoked', { userId }, 'auth');
+    await this.account.afterAccessRevoked(user.sub, out.families);
+  }
+
+  // ============================================================
+  // Заморозка без входа (core/audit) — публичные ручки `/auth/freeze/*`, `/auth/unfreeze/*`
+  // ============================================================
+
+  freezeStart(phone: string, ip?: string): Promise<VerifyStartResponse> {
+    return this.verify.startFreeze(phone, ip);
+  }
+
+  freezeConfirm(verifyToken: string): Promise<{ frozen: true }> {
+    return this.account.freeze(verifyToken);
+  }
+
+  unfreezeStart(phone: string, password: string, ip?: string): Promise<VerifyStartResponse> {
+    return this.verify.startUnfreeze(phone, password, ip);
+  }
+
+  /** Разморозка паролем + SMS → сразу вход (новое семейство той же транзакцией). */
+  async unfreezeConfirm(verifyToken: string, deviceInfo?: string | null): Promise<AuthTokens> {
+    const ctx = this.sessions.requestContext;
+    const { tokens } = await this.db.$transaction(async (tx) => {
+      const userId = await this.account.unfreezeTx(tx, verifyToken);
+      const user = await tx.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { id: true, phone: true, tokenEpoch: true, createdAt: true, roles: { where: { context: 'system', isActive: true }, select: { role: true } } },
+      });
+      const device = await this.sessions.deviceForLogin(tx, userId, ctx);
+      const quiet = Date.now() - user.createdAt.getTime() < AUDIT_LIMITS.newAccountQuietDays * 86_400_000;
+      return this.signIn(tx, { userId, phone: user.phone, role: this.getHighestSystemRole(user.roles.map((r) => r.role)), epoch: user.tokenEpoch, deviceInfo, device, method: 'unfreeze', newCountry: null, quiet });
+    });
+    return tokens;
   }
 
   private getHighestSystemRole(roles: string[]): string {
@@ -420,56 +556,24 @@ export class AuthService {
   }
 
   /**
-   * Инкремент поколения токенов = отзыв ВСЕХ ранее выданных access-токенов
-   * (JwtStrategy сверяет epoch). Зовётся в транзакции действия, которое обещает
-   * «все сессии завершены»; кэш «жив» чистится сразу после коммита — иначе до
-   * минуты старые токены проходили бы по закэшированному поколению.
-   */
-  private async bumpTokenEpochTx(tx: Prisma.TransactionClient, userId: string): Promise<number> {
-    const user = await tx.user.update({
-      where: { id: userId },
-      data: { tokenEpoch: { increment: 1 } },
-      select: { tokenEpoch: true },
-    });
-    // «Все сессии завершены» = и личные ключи API тоже (ключ — сессия без срока)
-    await this.keysCascades.onTokenEpochBump(tx, userId);
-    return user.tokenEpoch;
-  }
-
-  /**
-   * Чеканит тройку «access + refresh + строка session» разом. Идентификатор строки
-   * генерируется ЗДЕСЬ и уезжает в payload access-токена (`sid`) — только так список
-   * устройств может честно сказать «эта сессия — текущая», не пересылая refresh-токен
-   * (главный секрет) на ручку листинга.
-   * `deviceInfo` — User-Agent: при входе приходит из контроллера, при ротации
-   * наследуется от прошлой строки, иначе список устройств навсегда остаётся
-   * «Неизвестное устройство» (поле в схеме было, но не писалось НИГДЕ).
-   */
-  private async generateTokens(
-    userId: string,
-    phone: string,
-    role: string,
-    epoch: number,
-    deviceInfo?: string | null,
-  ): Promise<AuthTokens> {
-    return (await this.mintSession(userId, phone, role, epoch, deviceInfo, randomUUID())).tokens;
-  }
-
-  /**
    * Сама чеканка: access `typ: at+jwt` и refresh `typ: refresh+jwt` — оба EdDSA с `kid`
-   * аудитории `product` (core/keys). `familyId` — семейство refresh-цепочки одного
-   * устройства: новый вход = новое семейство, ротация наследует.
+   * аудитории `product` (core/keys). Идентификатор строки генерируется ЗДЕСЬ и уезжает в payload
+   * (`sid`), семейство — `fam` (журнал и cooling узнают «сессию» человека без refresh-токена).
+   * `familyId` — семейство refresh-цепочки одного устройства: новый вход = новое семейство,
+   * ротация наследует его вместе с контекстом (`fields`). В ТРАНЗАКЦИИ вызывающего.
    */
   private async mintSession(
+    tx: Prisma.TransactionClient,
     userId: string,
     phone: string,
     role: string,
     epoch: number,
     deviceInfo: string | null | undefined,
     familyId: string,
+    fields: SessionContextFields,
   ): Promise<{ tokens: AuthTokens; sessionId: string }> {
     const sessionId = randomUUID();
-    const payload: JwtPayload = { sub: userId, phone, role, epoch, sid: sessionId };
+    const payload: JwtPayload = { sub: userId, phone, role, epoch, sid: sessionId, fam: familyId };
     const accessTtl = parseDurationSec(process.env.JWT_EXPIRES_IN) ?? 15 * 60;
     const refreshTtl = parseDurationSec(process.env.JWT_REFRESH_EXPIRES_IN) ?? 30 * 86_400;
 
@@ -480,9 +584,10 @@ export class AuthService {
     const refreshToken = await this.signing.sign('product', { ...payload, jti: randomUUID() }, { ttlSec: refreshTtl, typ: 'refresh+jwt' });
 
     const tokenHash = this.hashToken(refreshToken);
-    const expiresAt = new Date(Date.now() + refreshTtl * 1000);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + refreshTtl * 1000);
 
-    await this.db.session.create({
+    await tx.session.create({
       data: {
         id: sessionId,
         userId,
@@ -490,6 +595,8 @@ export class AuthService {
         deviceInfo: deviceInfo ?? null,
         expiresAt,
         familyId,
+        lastSeenAt: now,
+        ...fields,
       },
     });
 

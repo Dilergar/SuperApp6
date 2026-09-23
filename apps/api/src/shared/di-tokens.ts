@@ -38,6 +38,13 @@ export const DI_TOKENS = {
   ObjectsPayrollPort: 'ObjectsPayrollPort',
   /** Факт выходов ← пропускная система (Face ID/турникет) и терминал. */
   AttendancePort: 'AttendancePort',
+  /**
+   * Журнал безопасности ← core/keys (KeysAuditService) и core/platform (PlatformAuditService):
+   * цикл — сам core/audit тянет keys (envelope/HMAC/подпись) и platform (реестры команд).
+   */
+  AuditService: 'AuditService',
+  /** Чтение журнала безопасности ← проекции прежних журналов (ключи, Кабинет) — тот же цикл. */
+  AuditQueryService: 'AuditQueryService',
 } as const;
 
 export type DiTokenName = keyof typeof DI_TOKENS;

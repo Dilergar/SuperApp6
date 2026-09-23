@@ -21,7 +21,7 @@ import {
   type AnalyticsIngestEvent,
   type AnalyticsStreamEntry,
 } from './analytics.constants';
-import { isUuid, parseUserAgent, uuidOrNull } from './analytics.enrich';
+import { isUuid, uaForAnalytics, uuidOrNull } from './analytics.enrich';
 
 type Tx = Prisma.TransactionClient;
 
@@ -100,7 +100,7 @@ export class AnalyticsService implements OnModuleDestroy {
     const now = new Date();
     const userId = opts.userId !== undefined ? uuidOrNull(opts.userId) : uuidOrNull(c?.userId);
     const workspaceId = opts.workspaceId !== undefined ? uuidOrNull(opts.workspaceId) : uuidOrNull(c?.activeWorkspaceId);
-    const ua = parseUserAgent(c?.client?.userAgent);
+    const ua = uaForAnalytics(c?.client?.userAgent);
     return {
       eventId: randomUUID(),
       key,

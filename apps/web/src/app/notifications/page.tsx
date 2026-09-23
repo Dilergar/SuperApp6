@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { NOTIFICATION_PERSONAL_CONTEXT, NOTIFICATION_STATES, notificationServicesForContext, type NotificationState } from '@superapp/shared';
+import { NOTIFICATION_PERSONAL_CONTEXT, NOTIFICATION_SERVICE_KEYS, NOTIFICATION_STATES, notificationServicesForContext, type NotificationState } from '@superapp/shared';
 import { Button, Card, Chip, PageHeader } from '@/components/ui';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { fetchWorkspaces, workspacesKey } from '@/lib/queries';
@@ -29,7 +29,10 @@ export default function NotificationsPage() {
   const initial = params.get('filter');
   const [state, setState] = useState<PageState>(initial === 'mentions' ? 'mentions' : (NOTIFICATION_STATES as readonly string[]).includes(initial ?? '') ? (initial as NotificationState) : 'all');
   const [context, setContext] = useState<string | null>(params.get('context'));
-  const [service, setService] = useState<string | null>(null);
+  // `?service=security` — ссылка «Что мы вам присылали» раздела «Безопасность»: чужой ключ
+  // сервиса (старая ссылка, опечатка) фильтром не становится
+  const initialService = params.get('service');
+  const [service, setService] = useState<string | null>(initialService && (NOTIFICATION_SERVICE_KEYS as readonly string[]).includes(initialService) ? initialService : null);
 
   const { data: workspaces = [] } = useQuery({ queryKey: workspacesKey, queryFn: fetchWorkspaces, staleTime: 60_000, enabled: isReady });
 

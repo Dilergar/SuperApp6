@@ -48,6 +48,8 @@ SignService.summaryForRef(userId, refType, refId, { viewAuthorized? })
 - На шаге «нужен каждый» акты заводятся сразу ВСЕМ адресатам снимка (одна заморозка — все подписывают ОДИН документ).
 - ⚠️ Потребитель, зовущий `summaryForRef` из своего canView-пути, ОБЯЗАН передать `{viewAuthorized:true}` — иначе кольцо `get → summaryForRef → canViewRequest → get` (в canViewRequest стоит ALS-стоп-кран: повторный вход с тем же предметом = fail-closed false + error-лог).
 
+- **Окончательное удаление организации** — `cancelAllForWorkspace(workspaceId)`: её живые заявки закрываются тем же переходом, что отзыв потребителем (`cancelRequest`): ждущие акты → `expired`, в протокол `cancelled` с `{ by: null, reason: 'workspace_purged' }`; заявка, закрытая встречной подписью или кроном, — не ошибка. Поставленные подписи — доказательства навсегда. Стопка «Ждут решения» не показывает подписи организаций в архиве (`closedWorkspaceIds`, см. [approvals_engine.md](approvals_engine.md)).
+
 ## Гость (внешний подписант)
 
 Первый потребитель слота `actions` share-links: ссылка на `sign_request` → личность по SMS (`requireIdentity` принудителен — `constraints`) → замороженный PDF → соглашение сторон + согласие на обработку ПД (ст. 8 ЗоПД, фиксируется и на ЭЦП-пути) → второй OTP ПОД ДОКУМЕНТ либо ЭЦП. Акт гостя — лениво при первом действии. Лимит открытий на подписных ссылках ЗАПРЕЩЁН (`forbidMaxOpens`).

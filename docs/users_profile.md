@@ -15,9 +15,8 @@
 
 ## Сессии и устройства
 
-- `GET /users/me/sessions` → `SessionInfo[]` (`{id, deviceInfo, lastActive, createdAt, isCurrent}`): `isCurrent` считает СЕРВЕР по `sid` из payload access-токена; `deviceInfo` (User-Agent) пишется при входе и наследуется через ротацию (старые сессии без него → «Неизвестное устройство»).
-- `DELETE /users/me/sessions/:id` — завершить сессию; завершение СВОЕЙ — с подтверждением в вебе.
-- `POST /auth/logout-all` — отзыв всех сессий + бамп tokenEpoch (гасит и access-токены, и живые сокеты).
+- Раздел профиля «Безопасность» принадлежит журналу безопасности — [audit_engine.md](audit_engine.md): `GET /users/me/sessions` → `{active, ended}` (сессия = семейство refresh-цепочки; `isCurrent` считает СЕРВЕР по `sid`/`fam` токена; устройство, страна, клиент, `lastSeenAt`, неподтверждённость cooling; вышедшие — до 50 с причиной), `DELETE /users/me/sessions/:id` (мягкий отзыв; завершение СВОЕЙ — с подтверждением в вебе), `POST /users/me/sessions/confirm` (снять cooling SMS-кодом), устройства `GET|PATCH|DELETE /users/me/devices/:id`, лента `GET /users/me/security/events` (окно 365 дней), «Это не я» `POST /users/me/security/not-me` (+ `/complete`), настройки `GET|PATCH /users/me/security/settings` (автозавершение неактивных 7/30/90/180 дней), «Мои данные» журнала `GET /users/me/security/export`. Всё — `@NoApiKeys`: своими сессиями и защитой управляет человек, а не интеграция.
+- `POST /auth/logout-all` — отзыв всех сессий, кроме текущей, + бамп tokenEpoch (гасит и access-токены, и живые сокеты) + отзыв личных ключей API; под cooling-гардом.
 
 ## Смена пароля / номера (step-up через core/verify)
 

@@ -8,6 +8,7 @@ import { badRequest, notFound } from '../../shared/errors/api-error';
 import { FilesService } from '../../core/files/files.service';
 import { SignProtocolService } from '../../core/sign/sign-protocol.service';
 import { HrService } from './hr.service';
+import { AuditService } from '../../core/audit/audit.service';
 import { fullName } from '../../shared/utils/user-name';
 
 /** Потолки выгрузки: инспекция забирает дело, а не весь архив организации */
@@ -33,7 +34,17 @@ export class HrExportService {
     private readonly protocol: SignProtocolService,
     private readonly hr: HrService,
     private readonly i18n: I18nService,
+    private readonly audit: AuditService,
   ) {}
+
+  /**
+   * Выгрузка = вынос данных из системы: след в журнале безопасности (core/audit) ДО отдачи байтов,
+   * fail-closed — без следа выгрузки нет. Видит организация и сам выгрузивший.
+   */
+  private async auditExport(workspaceId: string, rows: number, target: { type: string; id: string }): Promise<void> {
+    if (!rows) return;
+    await this.audit.record(null, { key: 'data.export', workspaceId, target, details: { source: 'hr_zip', rows } });
+  }
 
   /** Личное дело: все кадровые документы сотрудника (подписанные и выданные) */
   async exportPersonalFile(actorId: string, workspaceId: string, userId: string, res: Response): Promise<void> {
@@ -53,6 +64,7 @@ export class HrExportService {
       take: EXPORT_MAX_DOCS,
       include: { docType: { select: { name: true } } },
     });
+    await this.auditExport(workspaceId, docs.length, { type: 'user', id: userId });
     await this.streamZip(res, `${this.i18n.translate('hr.export.personalFile', { name: fullName(person) })}.zip`, docs, actorId);
   }
 
@@ -82,6 +94,7 @@ export class HrExportService {
       take: EXPORT_MAX_DOCS,
       include: { docType: { select: { name: true } } },
     });
+    await this.auditExport(workspaceId, docs.length, { type: 'workspace', id: workspaceId });
     await this.streamZip(res, `${this.i18n.translate('hr.export.registry')}.zip`, docs, actorId);
   }
 

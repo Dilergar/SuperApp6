@@ -12,6 +12,10 @@ import { ConsentsService } from '../consents/consents.service';
 import { ConsentsActionsService } from '../consents/consents.actions.service';
 import { ConsentsGateService } from '../consents/gate/consents-gate.service';
 import { SmsOutboundService } from '../verify/sms-outbound.service';
+import { AuditService } from '../audit/audit.service';
+import { AuditSessionsService } from '../audit/audit.sessions.service';
+import { AuditAccountService } from '../audit/audit.account.service';
+import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
@@ -46,7 +50,6 @@ import {
   type AccountDeletionBlockersDto,
   type ChangePasswordInput,
   type ChangePhoneInput,
-  type SessionInfo,
   type SocialLinks,
   type UpdateProfileInput,
   type User,
@@ -89,6 +92,9 @@ export class UsersService implements OnModuleInit {
     private consentsGate: ConsentsGateService,
     private pdActions: ConsentsActionsService,
     private smsOutbound: SmsOutboundService,
+    private audit: AuditService,
+    private sessions: AuditSessionsService,
+    private account: AuditAccountService,
   ) {}
 
   onModuleInit(): void {
@@ -392,6 +398,7 @@ export class UsersService implements OnModuleInit {
     const scheduledAt = new Date();
     const purgeAt = new Date(scheduledAt.getTime() + ACCOUNT_GRACE_DAYS * 86_400_000);
     let consentsAfterCommit: (() => Promise<void>) | null = null;
+    let revokedFamilies: string[] = [];
     await this.db.$transaction(async (tx) => {
       if (input.verifyToken) {
         await this.verify.consume(tx, { verifyToken: input.verifyToken, purpose: 'account_delete', expectedUserId: userId });
@@ -400,6 +407,7 @@ export class UsersService implements OnModuleInit {
       const { count } = await tx.user.updateMany({ where: { id: userId, deletionScheduledAt: null, deletedAt: null }, data: { deletionScheduledAt: scheduledAt } });
       if (count === 0) throw conflict('account.deletionAlreadyScheduled');
       consentsAfterCommit = (await this.consents.revokeAllForSubject(tx, { type: 'user', id: userId }, 'account_deleted', userId)).afterCommit;
+      await this.audit.record(tx, { key: 'account.deletion_requested', subjectUserId: userId, details: { graceDays: ACCOUNT_GRACE_DAYS } });
       // SMS уходит отдельной дверью ниже (безусловно), поэтому канал sms движка выключен — иначе две SMS
       await this.notifications.send(tx, {
         type: 'account.deletionScheduled',
@@ -411,9 +419,10 @@ export class UsersService implements OnModuleInit {
         actionUrl: '/login',
         reason: 'system',
       });
-      // Log out everywhere; the account stays hidden until restored via login.
-      await tx.session.deleteMany({ where: { userId } });
+      // Выход везде (мягко: «вышедшие устройства» и улики остаются); аккаунт скрыт до восстановления входом
+      revokedFamilies = (await this.sessions.revokeFamilies(tx, userId, {}, 'deleted')).families;
     });
+    await this.sessions.markFamiliesRevoked(revokedFamilies);
     // Личные ключи API гаснут сразу: восстановление аккаунта их не вернёт (ключ = сессия без срока)
     await this.keysCascades.onDeletionScheduled(userId);
     // Кабинет платформы — отдельный контур со своими строками сессий: «выйти везде»
@@ -444,7 +453,8 @@ export class UsersService implements OnModuleInit {
    * Пароль здесь проверяется ВТОРОЙ раз: первый — при запуске цепочки (движок не даёт
    * жечь SMS до верного пароля), этот — на случай, если пароль сменили между шагами.
    */
-  async changePassword(userId: string, input: ChangePasswordInput) {
+  async changePassword(actor: JwtPayload, input: ChangePasswordInput) {
+    const userId = actor.sub;
     const user = await this.db.user.findUnique({
       where: { id: userId },
       select: { password: true, deletedAt: true },
@@ -454,11 +464,11 @@ export class UsersService implements OnModuleInit {
     if (!ok) throw unauthorized('auth.wrongCurrentPassword');
 
     const hashedPassword = await bcrypt.hash(input.newPassword, 12); // CPU — до транзакции
-    const keepToken = input.currentRefreshToken ? this.hashRefreshToken(input.currentRefreshToken) : null;
+    const keep = await this.currentFamily(actor, input.currentRefreshToken);
 
-    await this.db.$transaction(async (tx) => {
+    const revoked = await this.db.$transaction(async (tx) => {
       // Гашение SMS-пропуска в транзакции смены: откат = пропуск не потрачен.
-      await this.verify.consume(tx, {
+      const consumed = await this.verify.consume(tx, {
         verifyToken: input.verifyToken,
         purpose: 'password_change',
         expectedUserId: userId,
@@ -470,21 +480,30 @@ export class UsersService implements OnModuleInit {
         // и клиентский single-flight refresh выдаст токен нового поколения.
         data: { password: hashedPassword, tokenEpoch: { increment: 1 } },
       });
-      await tx.session.deleteMany({
-        where: { userId, ...(keepToken ? { NOT: { token: keepToken } } : {}) },
+      // Другие семейства — мягко (улика и «вышедшие устройства» остаются); текущее живёт
+      const r = await this.sessions.revokeFamilies(tx, userId, { except: keep }, 'password_change');
+      // Событие и уведомление (паспорт реестра) — В ТРАНЗАКЦИИ смены: смена без следа невозможна
+      await this.audit.record(tx, {
+        key: 'auth.password.changed',
+        subjectUserId: userId,
+        details: { via: input.via ?? 'settings', sessionsRevoked: r.count },
+        evidence: { factor: 'password+sms', verifyChallengeId: consumed.challengeId },
       });
+      return r;
     });
 
-    await this.redis.invalidateUserProfile(userId);
-    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
-    // Сокеты со старыми сессиями рвём; текущая вкладка переподключится живым access-токеном.
-    this.events.emit('auth.sessions.revoked', { userId }, 'users');
-    // Уведомление не имеет права уронить ответ: пароль УЖЕ сменён, а 500 клиенту
-    // читается как «не сменился» и провоцирует повтор с уже негодным пропуском.
-    this.notifications
-      .send(null, { type: 'auth.password.changed', to: [{ userId }], reason: 'system', actionUrl: '/profile/security' })
-      .catch((err) => this.logger.error(`The password-change notification was not created: ${err.message}`));
+    // Кэш «жив», отметки отозванных семейств, сокеты со старыми сессиями
+    await this.account.afterAccessRevoked(userId, revoked.families);
     return { changed: true };
+  }
+
+  /** Семейство текущей сессии: из `fam` токена, иначе по переданному refresh-токену (клиенты прошлой версии). */
+  private async currentFamily(actor: JwtPayload, refreshToken?: string): Promise<string | null> {
+    const fromToken = await this.sessions.currentFamilyOf(actor);
+    if (fromToken) return fromToken;
+    if (!refreshToken) return null;
+    const row = await this.db.session.findFirst({ where: { userId: actor.sub, token: this.hashRefreshToken(refreshToken) }, select: { familyId: true } });
+    return row?.familyId ?? null;
   }
 
   /**
@@ -494,7 +513,8 @@ export class UsersService implements OnModuleInit {
    * После смены: pending-приглашения, висевшие на новом номере, активируются —
    * та же механика, что при регистрации нового пользователя.
    */
-  async changePhone(userId: string, input: ChangePhoneInput) {
+  async changePhone(actor: JwtPayload, input: ChangePhoneInput) {
+    const userId = actor.sub;
     const user = await this.db.user.findUnique({
       where: { id: userId },
       select: { phone: true, password: true, deletedAt: true },
@@ -503,9 +523,9 @@ export class UsersService implements OnModuleInit {
     const ok = await bcrypt.compare(input.password, user.password);
     if (!ok) throw unauthorized('auth.wrongPassword');
 
-    const keepToken = input.currentRefreshToken ? this.hashRefreshToken(input.currentRefreshToken) : null;
+    const keep = await this.currentFamily(actor, input.currentRefreshToken);
 
-    await this.db.$transaction(async (tx) => {
+    const revoked = await this.db.$transaction(async (tx) => {
       // Оба владения доказаны: старым номером (никто не уводит аккаунт с угнанной
       // сессией+паролем на свою симку) и новым (не привяжем чужой/опечатанный номер).
       await this.verify.consume(tx, {
@@ -525,9 +545,7 @@ export class UsersService implements OnModuleInit {
         where: { id: userId },
         data: { phone: input.newPhone, phoneVerifiedAt: new Date(), tokenEpoch: { increment: 1 } },
       });
-      await tx.session.deleteMany({
-        where: { userId, ...(keepToken ? { NOT: { token: keepToken } } : {}) },
-      });
+      const r = await this.sessions.revokeFamilies(tx, userId, { except: keep }, 'phone_change');
       // Приглашения (Окружение + организации), отправленные на новый номер, пока он
       // был «ничьим», теперь адресованы этому аккаунту. Это ОБЯЗАТЕЛЬНАЯ работа, а не
       // сигнал: раньше два вызова шли после транзакции голыми await'ами — упал первый,
@@ -539,20 +557,23 @@ export class UsersService implements OnModuleInit {
         payload: { userId, phone: input.newPhone },
         uniqueKey: `phone-inv:${userId}:${input.newPhone}`,
       });
-    });
-
-    await this.redis.invalidateUserProfile(userId);
-    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
-    this.events.emit('auth.sessions.revoked', { userId }, 'users');
-    this.notifications
-      .send(null, {
+      // Событие и уведомление — В ТРАНЗАКЦИИ смены (раньше уведомление шло после коммита и
+      // могло потеряться: смена номера без следа для владельца — ровно то, что ищет угонщик)
+      await this.audit.record(tx, { key: 'auth.phone.changed', subjectUserId: userId, details: { sessionsRevoked: r.count } });
+      await this.notifications.send(tx, {
         type: 'auth.phone.changed',
         to: [{ userId }],
         payload: { newPhoneMasked: maskPhone(input.newPhone) },
         reason: 'system',
+        actorId: userId,
+        includeActor: true,
         actionUrl: '/profile/security',
-      })
-      .catch((err) => this.logger.error(`The phone-change notification was not created: ${err.message}`));
+      });
+      return r;
+    });
+
+    await this.redis.invalidateUserProfile(userId);
+    await this.account.afterAccessRevoked(userId, revoked.families);
     return { changed: true, phone: input.newPhone };
   }
 
@@ -586,20 +607,25 @@ export class UsersService implements OnModuleInit {
 
   /** Cancel a pending deletion (called on login during the grace window). */
   async restoreAccount(userId: string) {
-    await this.db.user.update({
-      where: { id: userId },
-      data: { deletionScheduledAt: null },
+    await this.db.$transaction(async (tx) => {
+      const { count } = await tx.user.updateMany({ where: { id: userId, deletionScheduledAt: { not: null }, deletedAt: null }, data: { deletionScheduledAt: null } });
+      if (count) await this.audit.record(tx, { key: 'account.deletion_cancelled', subjectUserId: userId, details: {} });
     });
     await this.redis.invalidateUserProfile(userId);
   }
 
-  /** Батч-чистка протухших refresh-сессий (AccountCron) — таблица иначе растёт вечно. */
+  /**
+   * Батч-чистка сессий (AccountCron) — таблица иначе растёт вечно. Отозванные и истёкшие строки
+   * живут ещё 90 дней: «Вышедшие устройства» и улики reuse (журнал безопасности хранит события,
+   * а строка — контекст семейства). Прокрученные строки нужны до своего срока (сигнал повтора).
+   */
   async purgeExpiredSessions(): Promise<number> {
     const BATCH = 10_000;
+    const cutoff = new Date(Date.now() - 90 * 86_400_000);
     let total = 0;
     for (;;) {
       const rows = await this.db.session.findMany({
-        where: { expiresAt: { lt: new Date() } },
+        where: { OR: [{ expiresAt: { lt: cutoff } }, { revokedAt: { lt: cutoff } }] },
         select: { id: true },
         take: BATCH,
       });
@@ -696,6 +722,10 @@ export class UsersService implements OnModuleInit {
       });
       await tx.circle.deleteMany({ where: { ownerId: userId } }); // cascades memberships
       await tx.session.deleteMany({ where: { userId } });
+      // Устройства (подписи, UA-семейства) — ПДн аккаунта; журнал безопасности остаётся (срок
+      // хранения по закону), а устройства человека, которого больше нет, — нет
+      await tx.userDevice.deleteMany({ where: { userId } });
+      await this.audit.record(tx, { key: 'account.anonymized', subjectUserId: userId, actor: { kind: 'system' }, details: {} });
       await tx.userRole.updateMany({
         where: { userId },
         data: { isActive: false },
@@ -778,43 +808,5 @@ export class UsersService implements OnModuleInit {
         avatar: true,
       },
     });
-  }
-
-  /**
-   * Список устройств. `currentSid` — `sid` из payload access-токена запроса: только по
-   * нему сервер может честно пометить «Текущая сессия», не заставляя клиента слать на
-   * ручку листинга свой refresh-токен (главный секрет). Токены, выпущенные до появления
-   * поля, дают `isCurrent=false` до первого refresh (≤15 минут) — косметика.
-   */
-  async getSessions(userId: string, currentSid?: string): Promise<SessionInfo[]> {
-    // Прокрученные строки (rotatedAt) — история семейства, не устройства; в списке их нет
-    const rows = await this.db.session.findMany({
-      where: { userId, rotatedAt: null },
-      select: {
-        id: true,
-        deviceInfo: true,
-        lastActive: true,
-        createdAt: true,
-      },
-      orderBy: { lastActive: 'desc' },
-    });
-    return rows.map((s) => ({
-      id: s.id,
-      deviceInfo: s.deviceInfo,
-      lastActive: s.lastActive.toISOString(),
-      createdAt: s.createdAt.toISOString(),
-      isCurrent: !!currentSid && s.id === currentSid,
-    }));
-  }
-
-  async deleteSession(userId: string, sessionId: string) {
-    const session = await this.db.session.findUnique({
-      where: { id: sessionId },
-      select: { userId: true, familyId: true },
-    });
-    if (!session) throw notFound('auth.sessionNotFound');
-    if (session.userId !== userId) throw forbidden('auth.notYourSession');
-    // Завершить устройство = отозвать всё семейство его refresh-цепочки
-    await this.db.session.deleteMany({ where: { userId, familyId: session.familyId } });
   }
 }

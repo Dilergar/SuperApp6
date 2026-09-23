@@ -879,5 +879,62 @@
       "body": "Not you? Sign in within {days, plural, one {# day} other {# days}} to cancel. The account will be deleted on {purgeAt}",
       "label": "Account deletion requested"
     }
+  },
+  "security": {
+    "login": {
+      "newDevice": {
+        "title": "New sign-in: {device}, {where}",
+        "body": "You’re getting this because this device is new to your account. Not you? Open SuperApp6 → Security.",
+        "label": "Sign-in from a new device"
+      },
+      "newCountry": {
+        "title": "Sign-in from a new country: {where}",
+        "body": "You’re getting this because nobody signed in to your account from this country before. Not you? Open SuperApp6 → Security.",
+        "label": "Sign-in from a new country"
+      },
+      "locked": {
+        "title": "Sign-in temporarily blocked",
+        "body": "Too many wrong passwords. Try again in {minutes} min or reset the password by SMS.",
+        "label": "Sign-in blocked"
+      }
+    },
+    "account": {
+      "frozen": {
+        "title": "Account frozen",
+        "body": "Sign-in, sessions and API keys are closed until you unfreeze with your password and an SMS code.",
+        "label": "Account frozen"
+      },
+      "unfrozen": {
+        "title": "Account unfrozen",
+        "body": "Sign-in works again. If it wasn’t you — freeze the account again and contact support.",
+        "label": "Account unfrozen"
+      }
+    },
+    "notMe": {
+      "completed": {
+        "title": "Your account is protected",
+        "body": "Other sessions ended, unknown devices forgotten, personal API keys revoked. If this password was used anywhere else — change it there too.",
+        "label": "Account protection finished"
+      }
+    },
+    "device": {
+      "forgotten": {
+        "title": "A device was forgotten: {device}",
+        "body": "You’re getting this because it was done from another of your sessions. Not you? Open SuperApp6 → Security.",
+        "label": "Device forgotten"
+      }
+    },
+    "org": {
+      "exportReady": {
+        "title": "The security log export is ready",
+        "body": "The file is on the organization’s Drive in the Security folder.",
+        "label": "Security log export ready"
+      },
+      "massExport": {
+        "title": "Mass data export in the organization",
+        "body": "{rows, plural, one {# row} other {# rows}} in {minutes} min by one account. Check the security log.",
+        "label": "Mass data export"
+      }
+    }
   }
 }

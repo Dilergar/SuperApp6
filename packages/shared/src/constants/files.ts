@@ -150,6 +150,12 @@ export const FILE_PROFILES: Record<string, FileProfileSpec> = {
    * видит тот, кто видит заметку (scopedPlace у FilesRefRegistry 'note').
    */
   note_image: { kind: 'image', maxSize: 15 * MB, allowedMime: IMAGE_MIME, visibility: 'private', makeVariants: true },
+  /**
+   * Выгрузка журнала безопасности (core/audit): NDJSON/CSV организации на её Диск (папка
+   * «Безопасность») либо выгрузка Кабинета. Текст без магических байтов — белый список MIME
+   * держит профиль; потолок — 100 000 строк журнала с запасом.
+   */
+  audit_export: { kind: 'document', maxSize: 200 * MB, allowedMime: ['application/x-ndjson', 'text/csv'], visibility: 'private', makeVariants: false },
   /** Фолбэк без специфики */
   generic: { kind: 'any', maxSize: 100 * MB, allowedMime: null, visibility: 'private', makeVariants: true },
 };

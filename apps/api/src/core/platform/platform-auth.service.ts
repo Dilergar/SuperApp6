@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { comparePasswordConstantTime } from '../../shared/utils/password-timing';
 import { randomUUID } from 'crypto';
 import { KeysSigningService } from '../keys/keys.signing.service';
 import { legacyDerivedHexSecret, legacyOpen } from '../keys/keys.legacy';
@@ -12,6 +13,7 @@ import {
   type PlatformMeDto,
   type PlatformStepUpResponse,
   type VerifyStartResponse,
+  AUDIT_ERROR_CODES,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
@@ -86,17 +88,28 @@ export class PlatformAuthService {
     if (fails >= PLATFORM_LIMITS.loginFailMax) {
       throw tooMany('platform.login_blocked', { minutes: PLATFORM_LIMITS.loginBlockMinutes }, { code: PLATFORM_ERROR_CODES.loginBlocked, resendInSec: PLATFORM_LIMITS.loginBlockMinutes * 60 });
     }
-    const user = await this.db.user.findUnique({ where: { phone }, select: { id: true, phone: true, password: true, deletedAt: true, deletionScheduledAt: true, kind: true } });
-    const ok = !!user && !user.deletedAt && !user.deletionScheduledAt && user.kind !== 'bot' && (await bcrypt.compare(password, user.password));
-    if (!ok) {
+    const user = await this.db.user.findUnique({ where: { phone }, select: { id: true, phone: true, password: true, deletedAt: true, deletionScheduledAt: true, kind: true, securityFrozenAt: true } });
+    const eligible = !!user && !user.deletedAt && !user.deletionScheduledAt && user.kind !== 'bot';
+    // Сравнение ВСЕГДА стоит bcrypt: неизвестный номер не отвечает быстрее известного (timing-оракул)
+    const passwordOk = await comparePasswordConstantTime(password, eligible ? user!.password : null);
+    if (!eligible || !passwordOk) {
+      let n = 0;
       try {
         const client = this.redis.getClient();
-        const n = await client.incr(failKey);
+        n = await client.incr(failKey);
         if (n === 1) await client.expire(failKey, PLATFORM_LIMITS.loginBlockMinutes * 60);
       } catch {
         /* best-effort */
       }
+      await this.audit.authEvent('platform.auth.login_failed', eligible ? user!.id : null, 'wrong_password', { stage: 'start' }, ip ?? null);
+      if (n === PLATFORM_LIMITS.loginFailMax) await this.audit.authEvent('platform.auth.login_locked', eligible ? user!.id : null, 'locked', {}, ip ?? null);
       throw unauthorized('auth.badCredentials');
+    }
+    // Замороженный аккаунт (core/audit) в Кабинет не входит — отказ только ПОСЛЕ верного пароля,
+    // чтобы ответ не раскрывал состояние чужого аккаунта
+    if (user!.securityFrozenAt) {
+      await this.audit.authEvent('platform.auth.login_failed', user!.id, 'frozen', { stage: 'start' }, ip ?? null);
+      throw forbidden('auth.frozen', undefined, { code: AUDIT_ERROR_CODES.accountFrozen });
     }
     try {
       await this.redis.del(failKey);
@@ -110,12 +123,15 @@ export class PlatformAuthService {
   async login(verifyToken: string, meta: { ip: string | null; userAgent: string | null }): Promise<PlatformLoginResponse> {
     const now = new Date();
     const expiresAt = new Date(now.getTime() + PLATFORM_LIMITS.sessionHours * 3_600_000);
-    const { session, userId, epoch } = await this.db.$transaction(async (tx) => {
+    let notStaffUserId: string | null = null;
+    const { session, userId, epoch } = await this.db
+      .$transaction(async (tx) => {
       const consumed = await this.verify.consume(tx, { verifyToken, purpose: 'platform_login' });
       const userId = consumed.userId;
       if (!userId) throw unauthorized('auth.verifyStale');
       const staff = await tx.platformStaff.findUnique({ where: { userId } });
       if (!staff || staff.status !== 'active') {
+        notStaffUserId = userId;
         throw forbidden('platform.not_staff', undefined, { code: PLATFORM_ERROR_CODES.notStaff });
       }
       const user = await tx.user.findUnique({ where: { id: userId }, select: { tokenEpoch: true } });
@@ -133,7 +149,12 @@ export class PlatformAuthService {
         userAgent: meta.userAgent,
       });
       return { session, userId, epoch: user?.tokenEpoch ?? 0 };
-    });
+    })
+      .catch(async (err: unknown) => {
+        // Код подтверждён, но это не сотрудник: след — ВНЕ откатившейся транзакции
+        if (notStaffUserId) await this.audit.authEvent('platform.auth.login_failed', notStaffUserId, 'not_staff', { stage: 'otp' }, meta.ip);
+        throw err;
+      });
     // `aud: platform` ставит сам движок (аудитория = имя пары ключей); `typ` отделяет от продукта
     const accessToken = await this.signing.sign('platform', { sub: userId, sid: session.id, epoch }, { ttlSec: PLATFORM_LIMITS.sessionHours * 3600, typ: 'platform+jwt' });
     await this.touch(session.id);

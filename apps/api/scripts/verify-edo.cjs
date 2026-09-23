@@ -3,7 +3,7 @@
 // подписи (ПЭП и mock-ЭЦП со сверкой БИН) → штамп → публичная проверка →
 // скачивания гостя → подшивка → отказ/возврат → отзыв → истечение срока.
 // Аккаунты СЬЮТА; гостевые номера рандомизированы (лимиты SMS на номер).
-const { BASE, call, login, makeChecker, SUITE } = require('./_lib.cjs');
+const { BASE, call, login, makeChecker, SUITE, createSuiteWorkspace, crash } = require('./_lib.cjs');
 const crypto = require('crypto');
 const { zipSync, unzipSync, strToU8, strFromU8 } = require('fflate');
 
@@ -226,7 +226,7 @@ async function main() {
   const guestPhone = (n) => `+77007${rnd}${String(n).padStart(2, '0')}`;
 
   // --- Организация + найм второго подписанта ---
-  const ws = (await call('POST', '/workspaces', owner.token, { name: `Сьют-ЭДО ${Date.now()}` })).json.data;
+  const ws = (await createSuiteWorkspace(owner.token, 'Сьют-ЭДО')).json.data;
   await call('POST', `/workspaces/${ws.id}/invitations`, owner.token, { phone: SUITE.p2 });
   const myInv = (await call('GET', '/workspaces/invitations/incoming', second.token)).json?.data?.find?.(
     (i) => i.workspaceId === ws.id,
@@ -981,12 +981,9 @@ async function main() {
   for (const r of created) {
     if (r.json?.data?.id) await call('POST', `${docsBase}/${r.json.data.id}/cancel`, owner.token);
   }
-  // A и B подписаны — юридические записи, их не трогаем (организация сьюта уйдёт под gc)
+  // A и B подписаны — юридические записи, их не трогаем (организацию сьюта архивирует finish())
 
   finish();
 }
 
-main().catch((e) => {
-  console.error('CRASH', e);
-  process.exit(1);
-});
+main().catch(crash);

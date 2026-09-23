@@ -213,6 +213,8 @@ export function buildWorkspaceNav(
   if (isManager) items.push({ key: 'ws-journal', labelKey: 'nav.wsJournal', icon: 'journal', href: `${base}/journal` });
   // Ключи и интеграции — только владелец и админы (решение грилла core/keys №11): остальным раздела нет
   if (rank >= 4) items.push({ key: 'ws-integrations', labelKey: 'nav.wsIntegrations', icon: 'plug', href: `${base}/integrations`, badge: c.keysPending });
+  // Журнал безопасности организации (core/audit) — только владелец и админы: остальным раздела нет
+  if (rank >= 4) items.push({ key: 'ws-security', labelKey: 'nav.wsSecurity', icon: 'shield', href: `${base}/security` });
   if (isOwner) items.push({ key: 'ws-wallet', labelKey: 'nav.wsWallet', icon: 'coins', href: `${base}/wallet` });
 
   return {

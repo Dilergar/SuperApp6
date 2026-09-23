@@ -19,6 +19,8 @@
 
 Первая волна: `workspace.seats` (1000) · `workspaces.maxOwned` (20) · `files.storageBytes` (15 ГБ человек / 100 ГБ организация) · `files.count` (без потолка, счётчик) · `contacts.maxCircles` (50) · `shop.maxShowcases` (50) · `objects.maxPerWorkspace` (2000) · `legalEntities.maxPerWorkspace` (20) · `skins.perGroup` (закрыто) · `notifications.smsPerDay` (500/день). Планы — `PLAN_KEYS`/`PLAN_DEFS` (`free`, `personal`, `family`, `business_free`, `business_basic`, `business_standard`, `business_pro`), триал — `TRIAL_PLAN {user: personal, workspace: business_pro}`, `TRIAL_DAYS = 30`, `GRACE_DAYS = 15`. Значение проверяется `isValidEntitlementValue(def, v)`; сравнение «больше» — `entitlementGreater` (для feature `true > false`, для limit `null` = бесконечность).
 
+Журнал безопасности (сервис `audit`): `audit.retentionDays` (config — окно журнала организации: free 90 / basic 180 / standard 365 / pro 1095; `null` в оверрайде ограничен сроком хранения, сбой чтения — fail-closed к 90), `audit.export` (feature, basic+), `audit.stream` (feature, standard+: подписка на `security.*` вебхуки). Запись событий, сессии, устройства, «Это не я» и заморозка от тарифа не зависят никогда — [audit_engine.md](audit_engine.md).
+
 **Новый ключ** = один файл сервиса в shared + `defaultFree` + подписи `entitlements.keys.<camel>` в трёх каталогах + `assert*`/`consume` в сервисе + замок/шкала в вебе. Ключ на лету (не из реестра) компилятор не пропустит: `EntitlementKey` — union.
 
 ## Модель данных (Prisma)

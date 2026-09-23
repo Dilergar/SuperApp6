@@ -25,6 +25,8 @@ export interface ApiErrorDetails {
   code: string;
   /** Параметры подстановки текста (клиент может собрать свою фразу) */
   params?: Record<string, string | number | boolean>;
+  /** id запроса (core/audit): человек называет его поддержке, поддержка находит события журнала */
+  requestId?: string;
   [key: string]: unknown;
 }
 

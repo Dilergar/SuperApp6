@@ -12,12 +12,11 @@ import { createContext, useCallback, useContext, useMemo, useRef, useState, type
 import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { KEYS_ERROR_CODES } from '@superapp/shared';
-import { apiErrorDetails, apiErrorMessage } from '@/lib/api';
+import { apiErrorDetails } from '@/lib/api';
 import { confirmKeysStepUp, endKeysStepUp, fetchKeysStepUp } from '@/lib/keys-api';
 import { keysStepUpKey } from '@/lib/queries';
-import { useOtpFlow } from '@/components/verify/otp-flow';
-import { OtpStep } from '@/components/verify/OtpStep';
-import { Button, Chip, Input, Modal } from '@/components/ui';
+import { StepUpDialog } from '@/components/verify/StepUpDialog';
+import { Button, Chip } from '@/components/ui';
 import { useFormatters } from '@/lib/format';
 
 interface StepUpApi {
@@ -115,74 +114,18 @@ export function StepUpWindowChip() {
 
 function KeysStepUpDialog({ open, onClose, onConfirmed }: { open: boolean; onClose: () => void; onConfirmed: (until: string) => void }) {
   const t = useTranslations('keys');
-  const common = useTranslations('common');
-  const flow = useOtpFlow();
-  const [step, setStep] = useState<'password' | 'code'>('password');
-  const [password, setPassword] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  const reset = () => {
-    flow.reset();
-    setStep('password');
-    setPassword('');
-    setError('');
-  };
-
-  const requestCode = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setError('');
-    setBusy(true);
-    try {
-      await flow.startStepUp('keys_manage', password);
-      setStep('code');
-    } catch (err) {
-      setError(apiErrorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submitCode = async (code: string) => {
-    const verifyToken = await flow.check(code);
-    if (!verifyToken) return;
-    setBusy(true);
-    try {
-      const res = await confirmKeysStepUp(verifyToken);
-      reset();
-      onConfirmed(res.until ?? new Date(Date.now() + 15 * 60_000).toISOString());
-    } catch (err) {
-      setError(apiErrorMessage(err));
-      setStep('password');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <Modal open={open} onClose={() => { if (!busy) { reset(); onClose(); } }} title={t('stepUp.title')} size="sm">
-      {step === 'password' && (
-        <form onSubmit={requestCode} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-4)' }}>
-          <p className="label-md" style={{ lineHeight: 1.55 }}>{t('stepUp.body')}</p>
-          {error && <p role="alert" style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{error}</p>}
-          <Input
-            label={t('stepUp.password')}
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoFocus
-            autoComplete="current-password"
-          />
-          <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
-            <Button type="button" variant="ghost" disabled={busy} onClick={() => { reset(); onClose(); }}>{common('actions.cancel')}</Button>
-            <Button type="submit" variant="primary" disabled={busy || !password} loading={busy}>{t('stepUp.getCode')}</Button>
-          </div>
-        </form>
-      )}
-      {step === 'code' && (
-        <OtpStep flow={flow} onSubmit={submitCode} onBack={() => { flow.reset(); setStep('password'); }} backLabel={t('stepUp.back')} title={t('stepUp.confirmTitle')} />
-      )}
-    </Modal>
+    <StepUpDialog
+      open={open}
+      purpose="keys_manage"
+      onClose={onClose}
+      title={t('stepUp.title')}
+      body={t('stepUp.body')}
+      codeTitle={t('stepUp.confirmTitle')}
+      onVerified={async (verifyToken) => {
+        const res = await confirmKeysStepUp(verifyToken);
+        onConfirmed(res.until ?? new Date(Date.now() + 15 * 60_000).toISOString());
+      }}
+    />
   );
 }

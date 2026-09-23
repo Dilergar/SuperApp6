@@ -1256,6 +1256,14 @@ export class FilesService implements OnModuleInit {
   }
 
   /**
+   * refType'ы, чья привязка МОЖЕТ запретить удаление файла (`blocksDeletion`), — для
+   * отчётов уборки: файл под такой привязкой каскад пропускает, и «хвостом» он не считается.
+   */
+  deletionGuardedRefTypes(): string[] {
+    return this.registry.typesWithDeletionGuard();
+  }
+
+  /**
    * Запрещает ли какое-то из МЕСТ файла его удаление (`blocksDeletion` в
    * FileRefResolver). Направление знания обычное: движок спрашивает реестр,
    * про кадровые документы и личные архивы он не знает ничего.
@@ -1390,6 +1398,34 @@ export class FilesService implements OnModuleInit {
    */
   async systemDeleteFile(fileId: string): Promise<void> {
     await this.systemSoftDelete(fileId);
+  }
+
+  /**
+   * Удалить ВСЕ файлы владельца — каскад окончательного удаления организации. Тот же
+   * системный путь, что у Диска: доказательства подписи и файлы под защищающей привязкой
+   * (личный архив КЭДО — `blocksDeletion`) тихо пропускаются и живут дальше своими
+   * местами. Пачками по id (курсор), идемпотентно: повторный прогон доберёт остаток.
+   * Байты уходят ночной физической зачисткой soft-deleted. Права проверяет вызывающий.
+   * Возвращает число пройденных файлов (защищённые пропуски тоже в счёте).
+   */
+  async systemDeleteAllOwnedBy(ownerType: FileOwnerType, ownerId: string): Promise<number> {
+    let seen = 0;
+    let after: string | undefined;
+    for (;;) {
+      const rows = await this.db.fileObject.findMany({
+        where: { ownerType, ownerId, status: { not: 'deleted' }, ...(after ? { id: { gt: after } } : {}) },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: 200,
+      });
+      if (rows.length === 0) break;
+      for (const r of rows) {
+        await this.systemSoftDelete(r.id);
+        seen++;
+      }
+      after = rows[rows.length - 1].id;
+    }
+    return seen;
   }
 
   async getUsage(userId: string): Promise<FileUsageDto> {

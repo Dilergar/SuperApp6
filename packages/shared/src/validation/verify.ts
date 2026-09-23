@@ -32,7 +32,7 @@ export const verifyStartSchema = z.object({
  */
 export const verifyStepUpSchema = z
   .object({
-    purpose: z.enum(['password_change', 'phone_change_old', 'phone_change_new', 'keys_manage', 'account_delete']),
+    purpose: z.enum(['password_change', 'phone_change_old', 'phone_change_new', 'keys_manage', 'account_delete', 'security_confirm']),
     password: z.string().min(1, 'validation.verify.passwordRequired'),
     newPhone: kzMobilePhoneSchema.optional(),
   })
@@ -63,8 +63,11 @@ export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'validation.verify.currentPasswordRequired'),
   newPassword: passwordSchema,
   verifyToken: verifyTokenSchema,
-  // Свой refresh-токен: эта сессия ПЕРЕЖИВАЕТ отзыв (остальные гаснут). Не передан → гаснут все.
+  // Свой refresh-токен: эта сессия ПЕРЕЖИВАЕТ отзыв (остальные гаснут). Клиенты с `fam` в
+  // access-токене (core/audit) его не шлют — текущее семейство сервер знает сам.
   currentRefreshToken: z.string().min(1).optional(),
+  // Откуда смена: профиль или мастер «Это не я» (журнал безопасности различает)
+  via: z.enum(['settings', 'not_me']).optional(),
 });
 
 /** POST /users/me/change-phone — смена номера (пароль + код на старый + код на новый). */

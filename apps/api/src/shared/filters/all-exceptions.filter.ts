@@ -14,6 +14,7 @@ import { countryFromHeaders, negotiateLocale, resolveByteValues, type Locale } f
 import { I18nService } from '../i18n/i18n.service';
 import { ApiError } from '../errors/api-error';
 import { redactSecrets } from '../utils/redact';
+import type { RequestWithContext } from '../context/request-context';
 
 /**
  * The ONE error envelope for the whole API (arch-review block 7): every failure —
@@ -47,6 +48,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const http = host.switchToHttp();
     const res = http.getResponse<Response>();
     const locale = this.localeOf(http.getRequest<Request>());
+    // `details.requestId` — на КАЖДОМ отказе: человек пересказывает поддержке один код, а
+    // поддержка находит по нему события журнала безопасности (core/audit) и строки логов.
+    const requestId = http.getRequest<RequestWithContext>()?.ctx?.requestId ?? null;
+    const send = (status: number, body: Omit<ApiErrorEnvelope, 'errors'> & { errors?: unknown[] }) =>
+      res.status(status).json(requestId ? { ...body, details: { ...(body.details ?? { code: statusCode(status) }), requestId } } : body);
     const t = (key: string, params?: Record<string, string | number | boolean>) =>
       this.i18n.translateFor(locale, key, params);
 
@@ -67,7 +73,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         errors: issues,
         details: { code: 'validation.failed' },
       };
-      res.status(HttpStatus.BAD_REQUEST).json(body);
+      send(HttpStatus.BAD_REQUEST, body);
       return;
     }
 
@@ -88,7 +94,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
           ...(exception.extra ?? {}),
         };
         this.setRetryAfter(res, status, details);
-        res.status(status).json({
+        send(status, {
           success: false,
           statusCode: status,
           message: t(`errors.${exception.code}`, this.humanParams(exception.params, locale)),
@@ -106,8 +112,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const rawDetails = (asObject?.details as Record<string, unknown> | undefined) ?? undefined;
       // `details.code` обязателен ВСЕГДА (правило конверта): если сервис его не
       // назвал, подставляем код статуса — клиент всё равно получает машинную ветку.
-      const details: Record<string, unknown> = {
-        code: rawDetails?.code ?? statusCode(status),
+      const details: ApiErrorEnvelope['details'] & object = {
+        code: String(rawDetails?.code ?? statusCode(status)),
         ...(rawDetails ?? {}),
       };
       this.setRetryAfter(res, status, details);
@@ -117,7 +123,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // получал «Процесс не готов к публикации» / «Проверьте анкету процесса» БЕЗ указания,
       // что именно не так — в том числе для отказов по правам.
       const explicitErrors = Array.isArray(asObject?.errors) ? (asObject!.errors as unknown[]) : undefined;
-      res.status(status).json({
+      send(status, {
         success: false,
         statusCode: status,
         message,
@@ -134,7 +140,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // 3) Prisma known errors that have a sane HTTP meaning.
     if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       if (exception.code === 'P2002') {
-        res.status(HttpStatus.CONFLICT).json({
+        send(HttpStatus.CONFLICT, {
           success: false,
           statusCode: HttpStatus.CONFLICT,
           message: t('errors.db.uniqueViolation'),
@@ -143,7 +149,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         return;
       }
       if (exception.code === 'P2025') {
-        res.status(HttpStatus.NOT_FOUND).json({
+        send(HttpStatus.NOT_FOUND, {
           success: false,
           statusCode: HttpStatus.NOT_FOUND,
           message: t('errors.db.notFound'),
@@ -154,7 +160,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       if (exception.code === 'P2003') {
         // Нарушение внешнего ключа — это НЕ «внутренняя ошибка»: клиент сослался
         // на несуществующую строку. 400 с кодом, а не 500 с «что-то сломалось».
-        res.status(HttpStatus.BAD_REQUEST).json({
+        send(HttpStatus.BAD_REQUEST, {
           success: false,
           statusCode: HttpStatus.BAD_REQUEST,
           message: t('errors.db.relationMissing'),
@@ -167,10 +173,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // 4) Everything else → 500, logged loudly with the stack (the client gets no internals).
     // Текст и стек могут нести секреты (ключ API из заголовка, JWT, пароль из тела) — маскируем
     this.logger.error(
-      redactSecrets(`Unhandled exception: ${exception instanceof Error ? exception.message : String(exception)}`),
+      redactSecrets(`Unhandled exception [request ${requestId ?? '-'}]: ${exception instanceof Error ? exception.message : String(exception)}`),
       exception instanceof Error && exception.stack ? redactSecrets(exception.stack) : undefined,
     );
-    res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+    send(HttpStatus.INTERNAL_SERVER_ERROR, {
       success: false,
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       message: t('errors.internal'),

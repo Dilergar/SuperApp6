@@ -8,6 +8,7 @@
 //
 // Run (API up): node scripts/verify-drive.cjs
 const { PrismaClient } = require('@prisma/client');
+const { createSuiteWorkspace, archiveSuiteWorkspaces } = require('./_lib.cjs');
 const { waitForDriveNode } = require('./drive-test-helpers.cjs');
 // Адрес API переопределяется переменной окружения: два экземпляра на одной машине
 // (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
@@ -88,7 +89,7 @@ async function main() {
   const u1 = (await prisma.user.findUnique({ where: { phone: P1 }, select: { id: true } })).id;
   const u2 = (await prisma.user.findUnique({ where: { phone: P2 }, select: { id: true } })).id;
   const stamp = Date.now();
-  const created = { nodes: [], files: [], workspaces: [] };
+  const created = { nodes: [], files: [] };
   let wsId = null;
 
   try {
@@ -347,10 +348,9 @@ async function main() {
     // ============================================================
     // 14. Диск организации: маршрутизация, лестница ролей, строгость папок
     // ============================================================
-    const ws = await call('POST', '/workspaces', t1, { name: `drive-e2e ${stamp}` });
+    const ws = await createSuiteWorkspace(t1, 'Сьют-Диск', {}, { purge: true });
     check('организация создана', ws.ok, `status ${ws.status}`);
     wsId = ws.json?.data?.id;
-    created.workspaces.push(wsId);
     // Сотрудник — фикстурой напрямую (как в соседних сьютах). Вместе с ролью пишем и
     // ребро в core/access: при настоящем найме его создаёт проекция (staff → member),
     // и без него команда не совпала бы с корневым грантом диска организации.
@@ -619,17 +619,12 @@ async function main() {
     for (const fileId of [...new Set(created.files.filter(Boolean))]) {
       await call('DELETE', `/files/${fileId}`, t1).catch(() => {});
     }
-    // Организацию убираем ЗА СОБОЙ: у владельца потолок в 20 штук, и брошенные
-    // организации сьюта роняли бы соседние прогоны. Задачи удаляем ПЕРВЫМИ —
-    // tasks.workspace_id стоит на SET NULL, и голое удаление превратило бы их в
-    // личные задачи человека.
-    for (const id of created.workspaces.filter(Boolean)) {
-      await prisma.task.deleteMany({ where: { workspaceId: id } }).catch(() => {});
-      await prisma.driveSpace.deleteMany({ where: { ownerType: 'workspace', ownerId: id } }).catch(() => {});
-      await prisma.userRole.deleteMany({ where: { context: 'workspace', tenantId: id } }).catch(() => {});
-      await prisma.relationTuple.deleteMany({ where: { resourceType: 'workspace', resourceId: id } }).catch(() => {});
-      await prisma.workspace.delete({ where: { id } }).catch(() => {});
-    }
+    // Организацию убираем ЗА СОБОЙ (потолок 20 организаций на владельца) и штатно:
+    // архив + каскад purgeWorkspace — источник правды удаления, а не своя копия в сьюте.
+    fails += await archiveSuiteWorkspaces();
+    // Пространство Диска организации purgeWorkspace пока не убирает (владелец полиморфный,
+    // без FK — открытый вопрос каскада, docs/workspaces.md) — своё убираем сами
+    if (wsId) await prisma.driveSpace.deleteMany({ where: { ownerType: 'workspace', ownerId: wsId } }).catch(() => {});
     await prisma.$disconnect();
   }
 

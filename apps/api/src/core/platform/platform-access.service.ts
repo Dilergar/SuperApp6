@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
 import {
   PLATFORM_ERROR_CODES,
@@ -19,6 +20,8 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { PLATFORM_CAPS_TTL_SEC, PLATFORM_REDIS } from './platform.constants';
+import { DI_TOKENS } from '../../shared/di-tokens';
+import type { AuditService } from '../audit/audit.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -42,7 +45,13 @@ export class PlatformAccessService {
   constructor(
     private readonly db: DatabaseService,
     private readonly redis: RedisService,
+    private readonly moduleRef: ModuleRef,
   ) {}
+
+  /** Журнал безопасности — лениво (core/audit тянет реестры Кабинета: прямая инъекция = цикл). */
+  private get audit(): AuditService {
+    return this.moduleRef.get<AuditService>(DI_TOKENS.AuditService, { strict: false });
+  }
 
   async accessOf(userId: string): Promise<StaffAccess> {
     const key = PLATFORM_REDIS.caps(userId);
@@ -245,8 +254,8 @@ export class PlatformAccessService {
    * зато молчаливо оставленный активным сотрудник остался бы адресатом заявок и
    * получателем security-alert на мёртвый профиль.
    *
-   * Строка журнала пишется здесь же и тем же `tx` (журнал кабинета вечен, actorId = null
-   * как у bootstrap: действие системы, а не сотрудника).
+   * Событие журнала безопасности `platform.staff.suspended_by_system` пишется здесь же и тем
+   * же `tx` (актор — система: действие не сотрудника).
    */
   async systemSuspendDeletedUser(tx: Tx, userId: string): Promise<boolean> {
     const suspended = await tx.platformStaff.updateMany({
@@ -255,18 +264,13 @@ export class PlatformAccessService {
     });
     const sessions = await tx.platformSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     if (suspended.count === 0 && sessions.count === 0) return false;
-    await tx.platformAuditEntry.create({
-      data: {
-        actorId: null,
-        commandKey: 'platform.staff.suspend',
-        commandVersion: 1,
-        input: { userId } as Prisma.InputJsonValue,
-        targetType: 'user',
-        targetId: userId,
-        outcome: 'ok',
-        risk: 'critical',
-        reason: 'account anonymized',
-      },
+    await this.audit.record(tx, {
+      key: 'platform.staff.suspended_by_system',
+      op: 'platform.staff.suspend',
+      actor: { kind: 'system' },
+      target: { type: 'user', id: userId },
+      reasonCode: 'account_anonymized',
+      details: { reason: 'account_anonymized' },
     });
     await this.invalidate(userId);
     return true;

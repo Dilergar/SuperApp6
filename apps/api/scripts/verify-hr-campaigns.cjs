@@ -3,7 +3,7 @@
 // отпечатком) и sms (акты ПЭП на заявке refType='doc_campaign') · standing
 // догоняет принятого позже · уволенный не подвешивает шаг rule:'all' ·
 // sms_failed — отдельный исход · аналитика совпадает с фактом.
-const { call, login, makeChecker, SUITE } = require('./_lib.cjs');
+const { call, login, makeChecker, SUITE, createSuiteWorkspace, archiveSuiteWorkspace, crash } = require('./_lib.cjs');
 const crypto = require('crypto');
 
 const { check, finish } = makeChecker();
@@ -33,7 +33,7 @@ async function main() {
   const emp3 = await login(SUITE.p3);
 
   // ============ Организация: отдел + должности + назначения ============
-  const ws = (await call('POST', '/workspaces', owner.token, { name: `Сьют-Кампании ${Date.now()}` })).json.data;
+  const ws = (await createSuiteWorkspace(owner.token, 'Сьют-Кампании')).json.data;
   for (const [u, phone] of [
     [emp2, SUITE.p2],
     [emp3, SUITE.p3],
@@ -302,13 +302,10 @@ async function main() {
   // кампании чистит своя аналитика; проверяем только шаги решений)
 
   // Уборка штатным путём (правило сьютов): организация прогона не копится
-  await call('DELETE', `/workspaces/${ws.id}`, owner.token);
+  await archiveSuiteWorkspace(ws.id);
   await call('POST', '/workspaces/dev/purge-archives', owner.token, { workspaceId: ws.id });
 
   finish();
 }
 
-main().catch((e) => {
-  console.error('FATAL', e);
-  process.exit(1);
-});
+main().catch(crash);

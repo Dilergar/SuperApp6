@@ -1,6 +1,7 @@
 import axios, { isAxiosError, type AxiosRequestConfig } from 'axios';
 import { readLocaleCookie } from '@/i18n/locale';
 import { newIdempotencyKey } from '@superapp/api-client';
+import { securityHeaders } from './device-id';
 import {
   IDEMPOTENCY_KEY_HEADER,
   LOCALE_HEADER,
@@ -43,6 +44,8 @@ export const publicApi = axios.create({
 publicApi.interceptors.request.use((cfg) => {
   const locale = readLocaleCookie();
   if (locale) cfg.headers[LOCALE_HEADER] = locale;
+  // Устройство и id запроса (core/audit): заморозка без входа и гостевые действия — тоже след
+  for (const [name, value] of Object.entries(securityHeaders())) cfg.headers[name] = value;
   return cfg;
 });
 

@@ -46,6 +46,7 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AnalyticsAreaKey]> = [
   ['/workspaces/:id/sign', 'sign'],
   ['/workspaces/:id/links', 'share'],
   ['/workspaces/:id/wallet', 'wallet'],
+  ['/workspaces/:id/security', 'audit'],
   ['/workspaces', 'workspaces'],
   ['/dashboard', 'dashboard'],
   ['/tasks', 'tasks'],
@@ -69,6 +70,7 @@ const ROUTE_AREAS: ReadonlyArray<readonly [string, AnalyticsAreaKey]> = [
   ['/login', 'auth'],
   ['/register', 'auth'],
   ['/reset-password', 'auth'],
+  ['/freeze', 'auth'],
   ['/s', 'share'],
 ];
 

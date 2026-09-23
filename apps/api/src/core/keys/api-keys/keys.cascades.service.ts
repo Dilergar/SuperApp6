@@ -72,6 +72,17 @@ export class KeysCascadesService {
     for (const k of pats) await this.keys.revokeTx(tx, k, { actorId: userId, actorKind: 'user' }, 'token_epoch', null);
   }
 
+  /**
+   * Отзыв личных ключей человека БЕЗ бампа поколения токенов (мастер «Это не я», core/audit):
+   * бамп погасил бы и текущую сессию — ту самую, из которой человек защищает аккаунт.
+   * Возвращает число отозванных ключей.
+   */
+  async revokePersonalKeys(tx: Tx, userId: string, reason: 'not_me'): Promise<number> {
+    const pats = await tx.apiKey.findMany({ where: { kind: 'pat', userId, revokedAt: null } });
+    for (const k of pats) await this.keys.revokeTx(tx, k, { actorId: userId, actorKind: 'user' }, reason, null);
+    return pats.length;
+  }
+
   /** Понижение с admin: ключи организации у человека без права их иметь гаснут; боты — на решение владельца. */
   async onRoleChanged(tx: Tx | null, workspaceId: string, userId: string, fromRole: string, toRole: string, actorId: string): Promise<() => Promise<void>> {
     const wasManager = fromRole === 'owner' || fromRole === 'admin';

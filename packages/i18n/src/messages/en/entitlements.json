@@ -22,7 +22,10 @@
     "skinsPerGroup": "A different skin for each Group",
     "webhooksMaxEndpoints": "Webhook endpoints",
     "workspaceSeats": "Seats in the organization",
-    "workspacesMaxOwned": "Organizations you own"
+    "workspacesMaxOwned": "Organizations you own",
+    "auditRetentionDays": "Security log window, days",
+    "auditExport": "Security log export",
+    "auditStream": "Security events stream to SIEM"
   },
   "lock": {
     "quotaFull": "Storage is full",
@@ -62,7 +65,8 @@
     "notifications": "Notifications",
     "objects": "Sites",
     "shop": "Shop",
-    "workspaces": "Organizations"
+    "workspaces": "Organizations",
+    "audit": "Security log"
   },
   "source": {
     "grant": "Gift until {date}",

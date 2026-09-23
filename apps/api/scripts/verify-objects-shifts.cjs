@@ -1,6 +1,6 @@
 // График смен объекта: шаблоны, ротация, публикация, «Возьму», факт, отдых, полночь.
 // Аккаунты СЬЮТА; организация прогона одноразовая.
-const { call, login, makeChecker, SUITE } = require('./_lib.cjs');
+const { call, login, makeChecker, SUITE, createSuiteWorkspace, crash } = require('./_lib.cjs');
 
 const { check, finish } = makeChecker();
 
@@ -26,7 +26,7 @@ async function main() {
   const worker = await login(SUITE.p2);
   const other = await login(SUITE.p3);
 
-  const ws = (await call('POST', '/workspaces', owner.token, { name: `Сьют-Смены ${Date.now()}` })).json.data;
+  const ws = (await createSuiteWorkspace(owner.token, 'Сьют-Смены')).json.data;
   check('организация создана', !!ws?.id);
   await hire(ws.id, owner.token, worker.token, SUITE.p2);
   await hire(ws.id, owner.token, other.token, SUITE.p3);
@@ -318,7 +318,7 @@ async function main() {
   }
 
   // 7. ИЗОЛЯЦИЯ: ротация не принимает назначение и шаблон ЧУЖОЙ организации.
-  const otherWs = (await call('POST', '/workspaces', owner.token, { name: `Сьют-Чужая ${Date.now()}` })).json?.data;
+  const otherWs = (await createSuiteWorkspace(owner.token, 'Сьют-Смены-Чужая')).json?.data;
   const otherBase = `/workspaces/${otherWs.id}/objects`;
   const otherSite = (await call('POST', otherBase, owner.token, { name: 'Чужая точка', kind: 'site' })).json?.data;
   const otherTpl = (await call('POST', `/workspaces/${otherWs.id}/shift-templates`, owner.token, {
@@ -337,7 +337,4 @@ async function main() {
   finish();
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main().catch(crash);

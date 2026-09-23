@@ -20,7 +20,14 @@ export type PlatformSecurityEvent =
   | 'bootstrap'
   // Журнал инцидентов ПДн (core/consents): открыт инцидент · до срока уведомления органа 4 часа
   | 'pdIncidentOpened'
-  | 'pdIncidentDeadline';
+  | 'pdIncidentDeadline'
+  // Детекции журнала безопасности (core/audit): CRITICAL-тревоги уходят владельцам сразу
+  | 'passwordSpray'
+  | 'bruteforceIp'
+  | 'credentialStuffing'
+  | 'massExport'
+  | 'digestMismatch'
+  | 'auditDegraded';
 
 /**
  * Уведомления кабинета: security-alert всем владельцам (critical, in-app + SMS по opt-in),

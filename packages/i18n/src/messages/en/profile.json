@@ -163,22 +163,11 @@
   "security": {
     "changePassword": "Change the password",
     "changePhone": "Change the phone number",
-    "current": "Current",
-    "currentConfirm": "End and sign out",
-    "currentText": "Ending it will sign you out of the account on this device.",
-    "currentTitle": "This is your current session",
     "dangerZone": "Danger zone",
     "deleteAccount": "Delete the account",
-    "endSession": "End",
-    "lastActive": "Last active: {date}",
-    "noSessions": "No active sessions",
     "passwordPhone": "Password and number",
     "passwordPhoneText": "Both operations are confirmed with an SMS code. Changing the number requires access to both the current and the new one.",
-    "sessionEnded": "The session was ended",
-    "sessions": "Active sessions",
-    "sessionsFailed": "Could not load the sessions",
-    "title": "Security",
-    "unknownDevice": "Unknown device"
+    "title": "Security"
   },
   "settings": {
     "online": {

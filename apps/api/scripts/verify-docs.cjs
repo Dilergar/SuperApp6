@@ -42,6 +42,16 @@ const login = async (phone) => {
   return r.json.data.accessToken;
 };
 
+/**
+ * Уборка своего файла: сначала удаление через движок файлов (он возвращает квоту владельца),
+ * потом зачистка строки. Сырой `deleteMany` по ready-файлу оставлял счётчик квоты завышенным
+ * до ночной сверки — и следующий сьют (verify-entitlements) видел дрейф.
+ */
+async function purgeFile(prisma, id, token) {
+  await call('DELETE', `/files/${id}`, token).catch(() => undefined);
+  await prisma.fileObject.deleteMany({ where: { id } });
+}
+
 // ---------- минимальный, но НАСТОЯЩИЙ .xlsx (zip stored) ----------
 // Нужен именно zip: сниффер magic-bytes движка файлов сверяет сигнатуру с заявленным
 // OOXML-типом, и «просто текст» под видом .xlsx был бы отвергнут при загрузке.
@@ -144,7 +154,7 @@ async function main() {
     const file = await uploadFile(t1, xlsx('нет редактора'), 'смета.xlsx', XLSX_MIME, 'document');
     const doc = await call('POST', '/docs/from-file', t1, { fileId: file.id });
     check('инертность: оживление файла отклонено', doc.status === 400, `status ${doc.status}`);
-    await prisma.fileObject.deleteMany({ where: { id: file.id } });
+    await purgeFile(prisma, file.id, t1);
     skip('остальные проверки (нужен поднятый редактор: docker compose --profile docs up -d)');
     await prisma.$disconnect();
     console.log(`\n${fails === 0 ? '✅ ВСЁ ЗЕЛЁНОЕ' : `❌ ПРОВАЛОВ: ${fails}`} (пропущено: ${skipped})`);
@@ -589,7 +599,7 @@ async function main() {
       const versionIds = (await prisma.documentVersion.findMany({ where: { documentId: id }, select: { id: true } })).map((v) => v.id);
       const snapshotIds = (await prisma.fileLink.findMany({ where: { refType: 'document_version', refId: { in: versionIds } }, select: { fileId: true } })).map((l) => l.fileId);
       await prisma.document.delete({ where: { id } }).catch(() => {});
-      await prisma.fileObject.deleteMany({ where: { id: { in: snapshotIds } } });
+      for (const s of snapshotIds) await purgeFile(prisma, s, t1);
       await prisma.relationTuple.deleteMany({ where: { resourceType: 'document', resourceId: id } });
       // Хроника FK-free (переживает сущность) — чистим сами, иначе повторный прогон
       // считал бы записи прошлого
@@ -599,7 +609,7 @@ async function main() {
       await prisma.chatterEntry.deleteMany({ where: { refType: 'task', refId: taskId } });
     }
     for (const id of [fileId, file2Id].filter(Boolean)) {
-      await prisma.fileObject.deleteMany({ where: { id } });
+      await purgeFile(prisma, id, t1);
     }
     if (taskId) await prisma.task.delete({ where: { id: taskId } }).catch(() => {});
     await prisma.$disconnect();

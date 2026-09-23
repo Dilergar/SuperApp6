@@ -87,7 +87,7 @@ export class ShareLinksGuestService {
   /** Шаг 1: жива ли ссылка, нужен ли пароль и предстоит ли подтверждение номера */
   async peek(token: string): Promise<ShareGuestPeekDto> {
     const link = await this.loadByToken(token);
-    this.assertUsable(link);
+    await this.assertUsable(link);
     return {
       state: link.passwordHash ? 'password_required' : 'ready',
       identityRequired: link.requireIdentity,
@@ -112,7 +112,7 @@ export class ShareLinksGuestService {
     ip?: string | null,
   ): Promise<ShareGuestIdentityStartDto> {
     const link = await this.loadByToken(token);
-    this.assertUsable(link);
+    await this.assertUsable(link);
     if (!link.requireIdentity) {
       // Ссылка кода не просит — эта ручка для неё не существует (не даём превращать
       // произвольную ссылку в источник SMS-трафика).
@@ -136,7 +136,7 @@ export class ShareLinksGuestService {
     info: GuestRequestInfo,
   ): Promise<ShareGuestSessionDto> {
     const link = await this.loadByToken(token);
-    this.assertUsable(link);
+    await this.assertUsable(link);
 
     // Пароль проверяется ДО клейма: неверная попытка не имеет права тратить открытие,
     // иначе ссылку с лимитом можно было бы «сжечь» чужому получателю чужими руками.
@@ -239,7 +239,7 @@ export class ShareLinksGuestService {
     }
     const link = await this.db.shareLink.findUnique({ where: { id: verdict.payload.l } });
     if (!link) deny(SHARE_LINK_ERROR_CODES.notFound, 'shareLink.notFound', HttpStatus.NOT_FOUND);
-    this.assertLive(link);
+    await this.assertLive(link);
     this.assertEpoch(link, verdict.payload);
     if (expectedRefType && link.refType !== expectedRefType) {
       deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionMismatchSection', HttpStatus.FORBIDDEN);
@@ -281,7 +281,7 @@ export class ShareLinksGuestService {
     if (verdict.payload.l !== link.id) {
       deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionMismatch', HttpStatus.FORBIDDEN);
     }
-    this.assertLive(link);
+    await this.assertLive(link);
     this.assertEpoch(link, verdict.payload);
     if (link.requireIdentity && !verdict.payload.g) {
       deny(SHARE_LINK_ERROR_CODES.identityRequired, 'shareLink.identityRequired', HttpStatus.FORBIDDEN);
@@ -343,7 +343,7 @@ export class ShareLinksGuestService {
     if (verdict.payload.l !== link.id) {
       deny(SHARE_LINK_ERROR_CODES.sessionInvalid, 'shareLink.sessionMismatch', HttpStatus.FORBIDDEN);
     }
-    this.assertLive(link);
+    await this.assertLive(link);
     this.assertEpoch(link, verdict.payload);
 
     const guest = verdict.payload.g
@@ -466,8 +466,8 @@ export class ShareLinksGuestService {
   }
 
   /** Ссылка жива и её ещё можно ОТКРЫТЬ (включая лимит открытий) */
-  private assertUsable(link: ShareLink): void {
-    this.assertLive(link);
+  private async assertUsable(link: ShareLink): Promise<void> {
+    await this.assertLive(link);
     if (link.maxOpens !== null && link.openCount >= link.maxOpens) {
       deny(SHARE_LINK_ERROR_CODES.exhausted, 'shareLink.exhausted', HttpStatus.GONE);
     }
@@ -551,11 +551,21 @@ export class ShareLinksGuestService {
     }
   }
 
-  /** Ссылка не отозвана и не истекла (проверяется на каждом запросе гостя) */
-  private assertLive(link: ShareLink): void {
+  /**
+   * Ссылка не отозвана, не истекла и её организация жива (проверяется на каждом запросе
+   * гостя). Архив организации ГАСИТ её ссылки на время архива, ничего не отзывая: сервисы
+   * выключенной организации закрыты и для своих, и гость не должен видеть больше них —
+   * а возврат из архива возвращает ссылки как были. Удалённая насовсем — то же самое.
+   */
+  private async assertLive(link: ShareLink): Promise<void> {
     if (link.revokedAt) deny(SHARE_LINK_ERROR_CODES.revoked, 'shareLink.revoked', HttpStatus.GONE);
     if (link.expiresAt && link.expiresAt.getTime() <= Date.now()) {
       deny(SHARE_LINK_ERROR_CODES.expired, 'shareLink.expired', HttpStatus.GONE);
+    }
+    const workspaceId = link.workspaceId ?? (link.ownerType === 'workspace' ? link.ownerId : null);
+    if (workspaceId) {
+      const ws = await this.db.workspace.findUnique({ where: { id: workspaceId }, select: { isActive: true } });
+      if (!ws?.isActive) deny(SHARE_LINK_ERROR_CODES.refGone, 'shareLink.contentUnavailable', HttpStatus.GONE);
     }
   }
 
@@ -604,7 +614,7 @@ export class ShareLinksGuestService {
       // миллисекунду назад — перечитываем и отвечаем точной причиной. Read-committed
       // видит чужой коммит и внутри нашей транзакции.
       const fresh = await tx.shareLink.findUnique({ where: { id: link.id } });
-      if (fresh) this.assertUsable(fresh);
+      if (fresh) await this.assertUsable(fresh);
       deny(SHARE_LINK_ERROR_CODES.exhausted, 'shareLink.exhausted', HttpStatus.GONE);
     }
     await tx.shareLinkVisit.create({

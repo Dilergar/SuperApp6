@@ -15,6 +15,9 @@ import type { JwtPayload } from '../decorators/current-user.decorator';
 import { DEFER_WORKSPACE_CHECK_KEY } from '../decorators/defer-workspace-check.decorator';
 import { ANALYTICS_HEADERS, CONSENT_ERROR_CODES, KEYS_ERROR_CODES, LOCALE_HEADER, WORKSPACE_ROLE_RANK } from '@superapp/shared';
 import { countryFromHeaders, negotiateLocale } from '@superapp/i18n';
+import { buildRequestContext, type RequestContext } from '../context/request-context';
+import { AuditService } from '../../core/audit/audit.service';
+import { RedisService } from '../redis/redis.service';
 
 const ROLE_RANK: Record<string, number> = WORKSPACE_ROLE_RANK;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,7 +39,12 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
     private readonly roles: RolesService,
     private readonly reflector: Reflector,
     private readonly consentsGate: ConsentsGateService,
+    private readonly audit: AuditService,
+    private readonly redis: RedisService,
   ) {}
+
+  /** «Этот человек уже открывал эту организацию с этого устройства» — LRU процесса на минуту. */
+  private readonly seen = new Map<string, number>();
 
   async intercept(
     execContext: ExecutionContext,
@@ -48,6 +56,8 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
       method?: string;
       originalUrl?: string;
       url?: string;
+      route?: { path?: string };
+      ctx?: RequestContext;
     }>();
 
     const userId = req?.user?.sub;
@@ -83,7 +93,7 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
       this.readFirst(req?.headers, LOCALE_HEADER.toLowerCase()),
       { country: countryFromHeaders((name) => this.readFirst(req?.headers, name)) },
     );
-    const context: WorkspaceContext = { userId, locale, client: this.analyticsClient(req?.headers, req?.user?.sid) };
+    const context: WorkspaceContext = { userId, locale, client: this.analyticsClient(req?.headers, req?.user?.sid), request: this.requestContext(req) };
     const deferCheck = this.reflector.getAllAndOverride<boolean>(DEFER_WORKSPACE_CHECK_KEY, [
       execContext.getHandler(),
       execContext.getClass(),
@@ -106,6 +116,7 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
       context.role = roles
         .map((r) => r.role)
         .sort((a, b) => (ROLE_RANK[b] ?? 0) - (ROLE_RANK[a] ?? 0))[0];
+      if (req?.user?.kind !== 'bot' && !req?.user?.keyId) this.firstSeen(headerWs, userId, context.request, req?.user?.fam);
     }
 
     // Мягкий шлюз согласий организации (core/consents): владелец, не принявший вступившие в силу
@@ -134,6 +145,63 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
         });
       });
     });
+  }
+
+  /**
+   * `org.session.first_seen` (core/audit): сотрудник ВПЕРВЫЕ открыл организацию с этого устройства
+   * (или семейства сессии, если клиент без X-Device-Id). Организация видит класс устройства и
+   * страну — не IP и не личные входы. LRU процесса (минута) + Redis (30 дней) — на горячем пути
+   * ни одного похода в базу; запись — без ожидания и без права уронить запрос.
+   */
+  private firstSeen(workspaceId: string, userId: string, ctx: RequestContext | undefined, familyId: string | undefined): void {
+    const device = ctx?.deviceId ?? familyId;
+    if (!device) return;
+    const key = `ws:seen:${workspaceId}:${userId}:${device}`;
+    const now = Date.now();
+    const hit = this.seen.get(key);
+    if (hit && now - hit < 60_000) return;
+    if (this.seen.size > 10_000) this.seen.clear();
+    this.seen.set(key, now);
+    void (async () => {
+      const won = await this.redis.getClient().set(key, '1', 'EX', 30 * 86_400, 'NX');
+      if (won !== 'OK') return;
+      await this.audit.recordBestEffort({
+        key: 'org.session.first_seen',
+        workspaceId,
+        subjectUserId: userId,
+        // Вне ALS запроса (обработчик ещё не начат) — актор и контекст явно
+        actor: { kind: 'user', id: userId, familyId: familyId ?? null },
+        details: { deviceClass: ctx?.deviceClass ?? 'other' },
+        ...(ctx ? { ctx } : {}),
+      });
+    })().catch(() => undefined);
+  }
+
+  /**
+   * Контекст запроса журнала безопасности (core/audit): его построил middleware до гардов;
+   * здесь маршрут уже найден (шаблон без id) и известна аутентификация — клиент уточняется:
+   * запрос ключом API и Кабинет платформы — отдельные клиенты. Запрос мимо middleware
+   * (тестовый бутстрап) получает контекст на месте.
+   */
+  private requestContext(
+    req: { user?: JwtPayload; platformActor?: { userId: string; sessionId: string; roles: readonly string[] }; ctx?: RequestContext; route?: { path?: string }; originalUrl?: string; url?: string } | undefined,
+  ): RequestContext | undefined {
+    if (!req) return undefined;
+    const ctx = req.ctx ?? (req.ctx = buildRequestContext(req as never));
+    if (typeof req.route?.path === 'string') ctx.route = req.route.path.slice(0, 200);
+    const u = req.user;
+    const staff = req.platformActor;
+    if (staff?.userId) {
+      // Кабинет: актор события — сотрудник своей сессией Кабинета (гард Кабинета отработал до
+      // интерцептора). Без этого факты, записанные внутри команды (заморозка, отзыв сессии),
+      // ложились бы в журнал «анонимом» — расследование не видело бы, кто нажал кнопку.
+      ctx.actor = { kind: 'platform_staff', id: staff.userId, sessionId: staff.sessionId, familyId: null, keyId: null, roles: staff.roles };
+    } else if (u?.sub && u.aud !== 'platform') {
+      ctx.actor = { kind: u.kind === 'bot' ? 'bot' : 'user', id: u.sub, sessionId: u.sid ?? null, familyId: u.fam ?? null, keyId: u.keyId ?? null };
+    }
+    if (req.user?.keyId) ctx.client = 'api_key';
+    else if (/^\/api(?:\/v1)?\/platform(?:[/?]|$)/.test(req.originalUrl ?? req.url ?? '')) ctx.client = 'console';
+    return ctx;
   }
 
   /**

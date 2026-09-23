@@ -11,14 +11,3 @@ export interface AuthTokens {
   expiresIn: number;
 }
 
-/** Ответ `GET /users/me/sessions`. */
-export interface SessionInfo {
-  id: string;
-  /** User-Agent устройства на момент входа; у сессий старше 2026-08-07 — null. */
-  deviceInfo: string | null;
-  /** ISO. Строка сессии ротируется на каждом refresh, поэтому это «начало текущего цикла». */
-  lastActive: string;
-  createdAt: string;
-  /** Эта сессия — та, из которой пришёл запрос (`sid` в payload access-токена). */
-  isCurrent: boolean;
-}

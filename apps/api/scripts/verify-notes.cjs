@@ -7,7 +7,7 @@
 // Аккаунты СЬЮТА (+7700999000x). БД не чистим: свои заметки убираем штатным путём (корзина → purge).
 // Run (API up): node scripts/verify-notes.cjs
 const { PrismaClient } = require('@prisma/client');
-const { call, login, makeChecker, SUITE } = require('./_lib.cjs');
+const { call, login, makeChecker, SUITE, ensureSuiteWorkspace } = require('./_lib.cjs');
 
 const { check, finish } = makeChecker();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -19,22 +19,6 @@ async function ensureContact(prisma, a, b) {
   await prisma.contactLink.create({
     data: { userAId: x, userBId: y, roleAForB: 'Коллега', roleBForA: 'Коллега', initiatedBy: a },
   });
-}
-
-/**
- * Организация сьюта — ОДНА на все прогоны: у аккаунта потолок в 20 организаций, а
- * прогон, создающий новую каждый раз, рано или поздно упирается в него и падает
- * на пустом месте.
- */
-async function ensureWorkspace(token, name) {
-  const mine = (await call('GET', '/workspaces', token)).json?.data ?? [];
-  // По ПРЕФИКСУ: прежние прогоны звали организации «Сьют-Заметки <метка>» — их и берём,
-  // иначе аккаунт так и остаётся с двумя десятками одноразовых организаций.
-  const found = mine.find((w) => w.name === name || String(w.name || '').startsWith(name));
-  if (found) return found;
-  const created = await call('POST', '/workspaces', token, { name });
-  if (!created.ok) throw new Error(`организация не создана: ${created.status} ${JSON.stringify(created.json?.message ?? '')}`);
-  return created.json.data;
 }
 
 async function hire(wsId, ownerToken, personToken, phone) {
@@ -274,7 +258,8 @@ async function main() {
   // ============================================================
   // Организация: надзор владельца, «вся команда», изоляция
   // ============================================================
-  const ws = await ensureWorkspace(p1.token, 'Сьют-Заметки');
+  // Одна организация на все прогоны (_lib.cjs): свежая на каждый прогон копилась бы до потолка
+  const ws = await ensureSuiteWorkspace(p1.token, 'Сьют-Заметки');
   await hire(ws.id, p1.token, p2.token, SUITE.p2);
   await hire(ws.id, p1.token, p3.token, SUITE.p3);
   const wsSide = await call('GET', `/notes/sidebar?workspaceId=${ws.id}`, p2.token);
@@ -292,7 +277,7 @@ async function main() {
   const circleInWs = await call('POST', `/notes/${wsNote.id}/shares`, p2.token, { principalType: 'circle', principalId: '00000000-0000-4000-8000-000000000001', role: 'viewer' });
   check('Группа окружения в организации отвергается (B2B-изоляция)', circleInWs.status === 400);
   const outsider = await login(SUITE.p1);
-  const otherWs = await ensureWorkspace(p3.token, 'Сьют-Чужая');
+  const otherWs = await ensureSuiteWorkspace(p3.token, 'Сьют-Чужая');
   const cross = await call('GET', `/notes/sidebar?workspaceId=${otherWs.id}`, p2.token);
   check('не-член организации → 403', cross.status === 403, String(outsider.id ? cross.status : ''));
   const wsMention = (await call('POST', '/notes', p2.token, {

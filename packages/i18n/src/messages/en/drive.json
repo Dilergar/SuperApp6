@@ -125,7 +125,8 @@
     "chat_uploads": "Files from chats",
     "chip": "system",
     "documents": "Organization documents",
-    "personal_files": "Personal files"
+    "personal_files": "Personal files",
+    "security_exports": "Security"
   },
   "tab": {
     "files": "Files"

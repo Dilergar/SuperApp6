@@ -9,6 +9,9 @@ import { RedisService } from '../../../shared/redis/redis.service';
 import type { JwtPayload } from '../../../shared/decorators/current-user.decorator';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { KeysNotifier } from './keys.notifications';
+import { ModuleRef } from '@nestjs/core';
+import { DI_TOKENS } from '../../../shared/di-tokens';
+import type { AuditService } from '../../audit/audit.service';
 
 const ACCESS_LOG_LIST = 'keys:access-log';
 const ACCESS_LOG_MAX = 50_000;
@@ -31,6 +34,7 @@ export class KeysUsageCron implements OnApplicationBootstrap {
     private readonly redis: RedisService,
     private readonly analytics: AnalyticsService,
     private readonly notifier: KeysNotifier,
+    private readonly moduleRef: ModuleRef,
   ) {
     this.partitions = new MonthlyPartitions(db, { table: 'api_access_log', column: 'at', retentionDays: KEYS_LIMITS.accessLogRetentionDays });
   }
@@ -199,11 +203,21 @@ export class KeysUsageCron implements OnApplicationBootstrap {
     }
     const expired = await this.db.apiKey.findMany({
       where: { revokedAt: null, expiresAt: { lte: new Date(now), gt: new Date(now - 2 * 86_400_000) } },
-      select: { id: true, name: true, userId: true, workspaceId: true, bot: { select: { workspaceId: true } } },
+      select: { id: true, name: true, kind: true, userId: true, workspaceId: true, bot: { select: { workspaceId: true } } },
       take: 1000,
     });
+    const audit = this.moduleRef.get<AuditService>(DI_TOKENS.AuditService, { strict: false });
     for (const k of expired) {
       await this.notifier.keyEvent(null, 'key.expired', { id: k.id, name: k.name, userId: k.userId, workspaceId: k.bot?.workspaceId ?? k.workspaceId }, {}, { idempotencyKey: `key.expired:${k.id}` });
+      // Истечение — событие журнала безопасности один раз на ключ (крон смотрит окно двух суток)
+      await audit.recordOnce(null, `key.expired:${k.id}`, {
+        key: 'keys.api_key.expired',
+        actor: { kind: 'system' },
+        workspaceId: k.bot?.workspaceId ?? k.workspaceId,
+        subjectUserId: k.kind === 'pat' ? k.userId : null,
+        target: { type: 'api_key', id: k.id, label: k.name },
+        details: { kind: k.kind === 'bot' ? 'bot' : 'pat' },
+      });
       sent++;
     }
     return sent;

@@ -8,6 +8,7 @@ import {
   serviceOfRoute,
   type AnalyticsDeviceClass,
 } from '@superapp/shared';
+import { parseUserAgent } from '../../shared/utils/user-agent';
 
 // ============================================================
 // Чистые функции приёма: UA → грубые признаки, клампинг времени, форма, редакция
@@ -16,41 +17,12 @@ import {
 const DEVICE_CODE = Object.fromEntries(ANALYTICS_DEVICE_CLASSES.map((c, i) => [c, i])) as Record<AnalyticsDeviceClass, number>;
 
 /**
- * User-Agent → класс устройства, семейство ОС и браузера. Грубо и намеренно: версия,
- * сборка и модель — это отпечаток устройства, а не аналитика. Сам UA не хранится.
+ * User-Agent → класс устройства (smallint строки аналитики), семейство ОС и браузера.
+ * Разбор — общий с журналом безопасности (`shared/utils/user-agent`). Сам UA не хранится.
  */
-export function parseUserAgent(ua: string | null | undefined): { deviceClass: number | null; os: string | null; browser: string | null } {
-  if (!ua) return { deviceClass: null, os: null, browser: null };
-  const s = ua.slice(0, 512);
-  const bot = /bot|crawl|spider|headless|lighthouse/i.test(s);
-  const tablet = /ipad|tablet|(android(?!.*mobile))/i.test(s);
-  const mobile = /mobi|iphone|ipod|android/i.test(s);
-  const deviceClass = DEVICE_CODE[bot ? 'other' : tablet ? 'tablet' : mobile ? 'mobile' : 'desktop'];
-  const os = /windows/i.test(s)
-    ? 'windows'
-    : /iphone|ipad|ipod|ios/i.test(s)
-      ? 'ios'
-      : /android/i.test(s)
-        ? 'android'
-        : /mac os|macintosh/i.test(s)
-          ? 'macos'
-          : /linux|x11/i.test(s)
-            ? 'linux'
-            : 'other';
-  const browser = /edg\//i.test(s)
-    ? 'edge'
-    : /opr\/|opera/i.test(s)
-      ? 'opera'
-      : /yabrowser/i.test(s)
-        ? 'yandex'
-        : /firefox|fxios/i.test(s)
-          ? 'firefox'
-          : /chrome|crios|chromium/i.test(s)
-            ? 'chrome'
-            : /safari/i.test(s)
-              ? 'safari'
-              : 'other';
-  return { deviceClass, os, browser };
+export function uaForAnalytics(ua: string | null | undefined): { deviceClass: number | null; os: string | null; browser: string | null } {
+  const p = parseUserAgent(ua);
+  return { deviceClass: p.deviceClass ? DEVICE_CODE[p.deviceClass] : null, os: p.os, browser: p.browser };
 }
 
 /** Клампинг времени клиента в окно `[received − 7 д, received + 1 ч]`. */

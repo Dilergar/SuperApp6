@@ -195,5 +195,12 @@
   "envelopeOpen": "EnvelopeOpen",
   "checks": "Checks",
   "snowflake": "Snowflake",
-  "webhook": "WebhooksLogo"
+  "webhook": "WebhooksLogo",
+  "desktop": "Desktop",
+  "laptop": "Laptop",
+  "tablet": "DeviceTablet",
+  "history": "ClockCounterClockwise",
+  "fingerprint": "Fingerprint",
+  "shieldWarning": "ShieldWarning",
+  "lockOpen": "LockOpen"
 }

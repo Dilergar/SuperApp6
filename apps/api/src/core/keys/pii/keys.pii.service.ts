@@ -1,13 +1,15 @@
-import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { KEYS_LIMITS } from '@superapp/shared';
 import { WorkspaceContextService } from '../../../shared/context/workspace-context.service';
 import { DatabaseService } from '../../../shared/database/database.service';
-import { MonthlyPartitions } from '../../../shared/database/monthly-partitions';
 import { piiHooks, type PiiAccessEntry, type PiiFieldDef, type PiiHooks, type PiiModelDef, type PiiScopeRef } from '../../../shared/database/pii-hooks';
 import { RedisService } from '../../../shared/redis/redis.service';
+import { DI_TOKENS } from '../../../shared/di-tokens';
+import type { AuditService } from '../../audit/audit.service';
 import { JobDiscardError, JobsRegistry } from '../../jobs/jobs.registry';
 import { JobsService } from '../../jobs/jobs.service';
 import { KEYS_JOBS, KEYS_QUEUE } from '../keys.constants';
@@ -18,9 +20,6 @@ import { KeysStoreService } from '../keys.store.service';
 import { PII_MODELS, PII_MODEL_MAP, PII_PLAINTEXT_PRESENT } from './keys.pii.registry';
 
 /** Ретеншн журнала чтений ПДн, дней (как у журнала чтений кабинета) */
-const ACCESS_LOG_RETENTION_DAYS = 365;
-const FLUSH_MS = 2000;
-const FLUSH_MAX = 200;
 
 interface RelationInfo {
   model: string;
@@ -30,18 +29,14 @@ interface RelationInfo {
 /**
  * ПДн-слой движка ключей: ставит хуки прозрачного Prisma-расширения (`pii-extension.ts`),
  * ведёт бэкфилл `_enc`/`_bi` для строк прошлой эпохи, пишет журнал чтений чувствительных
- * полей (`pii_access_log`, приказ 179/НҚ), отдаёт статус миграции. Режим чтения —
+ * полей (событие `pii.read` журнала безопасности, приказ 179/НҚ), отдаёт статус миграции. Режим чтения —
  * `KEYS_PII_READ_MODE` (`legacy` | `encrypted`), переключается одним деплоем после
  * того, как `status()` показывает 0 небэкфилленных строк.
  */
 @Injectable()
-export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnModuleDestroy {
+export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(KeysPiiService.name);
   private readonly relations = new Map<string, Map<string, RelationInfo>>();
-  private readonly buffer: Array<PiiAccessEntry & { actorId: string | null; actorKind: string; workspaceId: string | null }> = [];
-  private flushTimer: NodeJS.Timeout | null = null;
-  /** Месячные партиции `pii_access_log` (ретеншн — сброс партиции целиком) */
-  readonly partitions: MonthlyPartitions;
 
   constructor(
     private readonly db: DatabaseService,
@@ -52,8 +47,8 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
     private readonly registry: JobsRegistry,
     private readonly jobs: JobsService,
     private readonly keyFields: KeysFieldRegistry,
+    private readonly moduleRef: ModuleRef,
   ) {
-    this.partitions = new MonthlyPartitions(db, { table: 'pii_access_log', column: 'occurred_at', retentionDays: ACCESS_LOG_RETENTION_DAYS });
     for (const m of Prisma.dmmf.datamodel.models) {
       const rels = new Map<string, RelationInfo>();
       for (const f of m.fields) if (f.kind === 'object') rels.set(f.name, { model: f.type, isList: f.isList });
@@ -106,10 +101,6 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
 
   /** Хуки — после старта всех модулей (keystore готов); до этого расширение — passthrough. */
   onApplicationBootstrap(): void {
-    // Партиции журнала чтений на месяцы вперёд — best-effort, под замком (инстансов много)
-    void this.redis
-      .withLock('cron:keys:pii-partitions', 60_000, () => this.partitions.ensureAhead())
-      .catch((err: unknown) => this.logger.warn(`pii_access_log partitions on boot: ${err instanceof Error ? err.message : String(err)}`));
     // Каждая модель реестра обязана существовать в схеме, а каждое поле `_enc`/`_bi` — быть колонкой:
     // иначе запись падала бы на первом же пользователе с непонятной ошибкой Prisma
     for (const def of PII_MODELS) {
@@ -148,10 +139,6 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
     this.logger.log(`pii layer ready: ${PII_MODELS.length} models, read mode ${keysEnv().piiReadMode}`);
   }
 
-  async onModuleDestroy(): Promise<void> {
-    await this.flush();
-  }
-
   private async fetchScopeRow(model: string, where: unknown): Promise<Record<string, unknown> | null> {
     const def = PII_MODEL_MAP.get(model);
     if (!def || !where || typeof where !== 'object') return null;
@@ -175,38 +162,24 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
   // Журнал чтений чувствительных полей (батч, вне транзакции)
   // ------------------------------------------------------------
 
+  /**
+   * Агрегат чтения на запрос — событие `pii.read` журнала безопасности (core/audit): батч
+   * движка журнала, вне транзакции, best-effort с метрикой отказов. Организация видит чтения
+   * ПДн своих сотрудников (активная организация запроса), платформа — все.
+   * `AuditService` — лениво по `DI_TOKENS.AuditService` (журнал сам тянет keystore).
+   */
   private logAccess(entry: PiiAccessEntry): void {
     const store = this.ctx.get();
-    this.buffer.push({
-      ...entry,
-      actorId: store?.userId ?? null,
-      actorKind: store?.userId ? 'user' : 'system',
-      workspaceId: store?.activeWorkspaceId ?? null,
-    });
-    if (this.buffer.length >= FLUSH_MAX) void this.flush();
-    else if (!this.flushTimer) this.flushTimer = setTimeout(() => void this.flush(), FLUSH_MS);
-  }
-
-  private async flush(): Promise<void> {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
-    if (!this.buffer.length) return;
-    const batch = this.buffer.splice(0, this.buffer.length);
-    const data = batch.map((b) => ({ actorId: b.actorId, actorKind: b.actorKind, workspaceId: b.workspaceId, entity: b.entity, fields: b.fields, count: b.count, sampleIds: b.ids }));
-    try {
-      try {
-        await this.db.piiAccessLog.createMany({ data });
-      } catch (err) {
-        // Месяц без партиции (крон не успел) — завести и повторить один раз
-        if (!MonthlyPartitions.isMissingPartition(err)) throw err;
-        await this.partitions.ensureFor(new Date());
-        await this.db.piiAccessLog.createMany({ data });
-      }
-    } catch (err) {
-      this.logger.warn(`pii access log write failed (${batch.length} rows): ${(err as Error).message}`);
-    }
+    const audit = this.moduleRef.get<AuditService>(DI_TOKENS.AuditService, { strict: false });
+    void audit
+      .recordBatch(null, [
+        {
+          key: 'pii.read',
+          workspaceId: store?.activeWorkspaceId ?? null,
+          details: { entity: entry.entity, fields: entry.fields.slice(0, 32), count: entry.count, sampleIds: entry.ids.slice(0, 10) },
+        },
+      ])
+      .catch((err: unknown) => this.logger.warn(`pii read audit failed: ${err instanceof Error ? err.message : String(err)}`));
   }
 
   /** Страховка на окне dual-write: строки, записанные мимо слоя (скрипты, миграции), получают `_enc`/`_bi` в течение часа. */
@@ -214,16 +187,6 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap, OnM
   async hourlyBackfill(): Promise<void> {
     await this.redis.withLock('cron:keys:pii-backfill', 600, async () => {
       await this.jobs.enqueue(null, { type: KEYS_JOBS.piiBackfill, payload: {}, uniqueKey: `hourly:${new Date().toISOString().slice(0, 13)}` });
-    });
-  }
-
-  /** Ретеншн журнала чтений ПДн — сброс месячных партиций старше `ACCESS_LOG_RETENTION_DAYS` (и партиции вперёд). */
-  @Cron(CronExpression.EVERY_DAY_AT_4AM)
-  async retention(): Promise<void> {
-    await this.redis.withLock('cron:keys:pii-retention', 300, async () => {
-      await this.partitions.ensureAhead();
-      const dropped = await this.partitions.dropExpired();
-      if (dropped.length) this.logger.log(`pii access log retention: dropped ${dropped.join(', ')}`);
     });
   }
 

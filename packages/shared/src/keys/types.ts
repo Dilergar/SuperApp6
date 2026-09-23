@@ -32,11 +32,14 @@ export type KeyScopeType = (typeof KEY_SCOPE_TYPES)[number];
 export type KeyScopeRef = { type: 'platform' } | { type: 'workspace' | 'user'; id: string };
 
 /** Аудитории подписи — отдельная пара ключей на каждую (урок Storm-0558). */
-export const SIGNING_AUDIENCES = ['product', 'platform', 'wopi', 'share_link', 'files_url', 'webhook', 'consents'] as const;
+// `audit` — подписанные дайджесты и манифесты архива журнала безопасности (core/audit)
+export const SIGNING_AUDIENCES = ['product', 'platform', 'wopi', 'share_link', 'files_url', 'webhook', 'consents', 'audit'] as const;
 export type SigningAudience = (typeof SIGNING_AUDIENCES)[number];
 
 /** Именованные HMAC-ключи платформы. */
-export const MAC_KEY_NAMES = ['blind_index', 'verify_otp', 'oauth_state', 'api_key_pepper', 'idempotency', 'google_channel'] as const;
+// `audit` — псевдонимы в журнале безопасности (IP события, неизвестный номер неудачного входа):
+// поиск по равенству всеми живыми версиями без открытого значения в строке (core/audit)
+export const MAC_KEY_NAMES = ['blind_index', 'verify_otp', 'oauth_state', 'api_key_pepper', 'idempotency', 'google_channel', 'audit'] as const;
 export type MacKeyName = (typeof MAC_KEY_NAMES)[number];
 
 /** Алгоритмы — метка в каждом артефакте (crypto-agility: смена = новая версия ключа). */
@@ -97,6 +100,8 @@ export const API_KEY_REVOKE_REASONS = [
   'platform',
   'expired',
   'policy',
+  // Мастер «Это не я» (core/audit): человек сообщил о чужом входе — личные ключи отозваны
+  'not_me',
 ] as const;
 export type ApiKeyRevokeReason = (typeof API_KEY_REVOKE_REASONS)[number];
 

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   DRIVE_LIMITS,
   DRIVE_NODE_REF_TYPE,
+  DRIVE_SYSTEM_FOLDERS,
   drivePhotoMonth,
   driveNameKey,
   type FileOwnerType,
@@ -12,6 +13,7 @@ import { JobsService } from '../../core/jobs/jobs.service';
 import { FilesService } from '../../core/files/files.service';
 import { FilesRefRegistry } from '../../core/files/files-ref.registry';
 import { DatabaseService } from '../../shared/database/database.service';
+import { AccessService } from '../../core/access/access.service';
 import {
   DRIVE_COPY_JOB,
   DRIVE_INGEST_JOB,
@@ -47,6 +49,7 @@ export class DriveJobs implements OnModuleInit {
     private readonly routing: DriveRoutingRegistry,
     private readonly drive: DriveService,
     private readonly search: DriveSearchService,
+    private readonly access: AccessService,
   ) {}
 
   onModuleInit(): void {
@@ -116,7 +119,22 @@ export class DriveJobs implements OnModuleInit {
     if (!placement) return;
 
     const space = await this.drive.getOrCreateSpace(placement.ownerType as FileOwnerType, placement.ownerId);
-    const folder = await this.drive.systemFolder(space.id, 'chat_uploads');
+    const folderKey = placement.folder ?? 'chat_uploads';
+    const folder = await this.drive.systemFolder(space.id, folderKey);
+    // Закрытая системная папка организации открывается ЯВНЫМ грантом роли (выгрузки журнала
+    // безопасности — только админам): наследование с корня видит вся команда
+    const def = DRIVE_SYSTEM_FOLDERS[folderKey] as { restricted?: boolean; grantWorkspaceRole?: 'admin' | 'manager' };
+    if (def.restricted && def.grantWorkspaceRole && placement.ownerType === 'workspace') {
+      await this.drive.systemEnsureRestricted(folder.id);
+      await this.access.grant({
+        resourceType: 'drive_node',
+        resourceId: folder.id,
+        relation: 'viewer',
+        subjectType: 'workspace',
+        subjectId: placement.ownerId,
+        subjectRelation: def.grantWorkspaceRole,
+      });
+    }
     try {
       await this.drive.placeFile(actorId, {
         spaceId: space.id,

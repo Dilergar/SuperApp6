@@ -62,6 +62,10 @@ export const DRIVE_SYSTEM_FOLDERS = {
   // ЗАКРЫТАЯ по умолчанию: корень диска организации раздаёт доступ всей команде, и
   // без обрыва наследования личные дела читал бы любой Стажёр.
   personal_files: { icon: 'folderUser', restricted: true },
+  // Выгрузки журнала безопасности организации (core/audit). ЗАКРЫТАЯ: журнал видят только
+  // владелец и админы — и папка открывается явным грантом роли `admin` организации
+  // (`grantWorkspaceRole`), а не наследованием с корня, который видит вся команда.
+  security_exports: { icon: 'shield', restricted: true, grantWorkspaceRole: 'admin' },
 } as const;
 
 export type DriveSystemFolderKey = keyof typeof DRIVE_SYSTEM_FOLDERS;

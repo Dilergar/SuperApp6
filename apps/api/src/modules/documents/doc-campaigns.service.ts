@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import type { Prisma } from '@prisma/client';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
 import { createHash } from 'node:crypto';
 import {
@@ -17,6 +18,7 @@ import {
   type DocCampaignDto,
   type HrActorLite,
   type InboxItemDto,
+  type InboxScope,
   type MyCampaignTaskDto,
   type WorkspaceRole,
 } from '@superapp/shared';
@@ -84,16 +86,7 @@ export class DocCampaignsService implements OnModuleInit {
       labelKey: 'approvals.source.acknowledgements',
       count: (userId, scope) =>
         this.db.docCampaignTarget.count({
-          where: {
-            userId,
-            status: 'pending',
-            campaign: {
-              status: 'active',
-              ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
-              // Кампании всегда в организации — «только личное» их не показывает
-              ...(scope.personalOnly ? { workspaceId: '__none__' } : {}),
-            },
-          },
+          where: { userId, status: 'pending', campaign: this.inboxCampaignWhere(scope) },
         }),
       list: (userId, limit, scope) => this.inboxList(userId, limit, scope),
       // Ушёл из организации — снимаем с него незакрытые задания (движок зовёт
@@ -742,18 +735,22 @@ export class DocCampaignsService implements OnModuleInit {
 
   // ---------- Стопка ----------
 
-  private async inboxList(
-    userId: string,
-    limit: number,
-    scope: { workspaceId?: string | null; personalOnly?: boolean },
-  ): Promise<InboxItemDto[]> {
+  /** Кампании для стопки: активные, в скоупе, не в организации из архива */
+  private inboxCampaignWhere(scope: InboxScope): Prisma.DocCampaignWhereInput {
+    return {
+      status: 'active',
+      ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
+      // Кампании всегда в организации — «только личное» их не показывает
+      ...(scope.personalOnly ? { workspaceId: '__none__' } : {}),
+      // Сервисы организации в архиве закрыты — её задания стопка не показывает
+      ...(scope.closedWorkspaceIds?.length ? { NOT: { workspaceId: { in: scope.closedWorkspaceIds } } } : {}),
+    };
+  }
+
+  private async inboxList(userId: string, limit: number, scope: InboxScope): Promise<InboxItemDto[]> {
     if (scope.personalOnly) return [];
     const targets = await this.db.docCampaignTarget.findMany({
-      where: {
-        userId,
-        status: 'pending',
-        campaign: { status: 'active', ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}) },
-      },
+      where: { userId, status: 'pending', campaign: this.inboxCampaignWhere(scope) },
       orderBy: { createdAt: 'asc' },
       take: limit,
       include: { campaign: true },

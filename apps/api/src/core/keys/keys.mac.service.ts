@@ -34,6 +34,17 @@ export class KeysMacService {
     return `${PREFIX}:1:${kid}:${mac.toString('base64url')}`;
   }
 
+  /**
+   * Та же строка КАЖДОЙ активной версией ключа — поиск по равенству сквозь ротацию: строка,
+   * записанная прежней версией, находится её собственным `kid` (журнал безопасности: «все
+   * события с этого IP»). Порядок — как у keystore (primary первым).
+   */
+  async taggedAll(name: MacKeyName, data: string | Buffer): Promise<string[]> {
+    await this.store.ensureKey(PLATFORM_SCOPE, 'mac', name);
+    const versions = await this.store.activeVersions(PLATFORM_SCOPE, 'mac', name);
+    return versions.filter((v) => v.material).map((v) => `${PREFIX}:1:${v.kid}:${createHmac('sha256', v.material!).update(data).digest('base64url')}`);
+  }
+
   isTagged(value: string | null | undefined): value is string {
     return typeof value === 'string' && value.startsWith(`${PREFIX}:`);
   }

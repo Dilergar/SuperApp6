@@ -125,7 +125,8 @@
     "chat_uploads": "Чаттардағы файлдар",
     "chip": "жүйелік",
     "documents": "Ұйым құжаттары",
-    "personal_files": "Жеке істер"
+    "personal_files": "Жеке істер",
+    "security_exports": "Қауіпсіздік"
   },
   "tab": {
     "files": "Файлдар"

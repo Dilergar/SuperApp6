@@ -89,6 +89,22 @@ export const webhooksEndpointsKey = (wsId: string) => ['workspaces', wsId, 'webh
 export const webhooksDeliveriesKey = (wsId: string, endpointId: string) => ['workspaces', wsId, 'webhooks', 'endpoints', endpointId, 'deliveries'] as const;
 export const webhooksEventsKey = ['webhooks', 'events'] as const;
 
+// ---- core/audit: безопасность человека и журнал организации ----
+// Общий префикс `security` — сокет `security:changed` инвалидирует всё разом.
+export const securityRootKey = ['security'] as const;
+export const securitySessionsKey = ['security', 'sessions'] as const;
+export const securityDevicesKey = ['security', 'devices'] as const;
+export const securityCoolingKey = ['security', 'cooling'] as const;
+export const securitySettingsKey = ['security', 'settings'] as const;
+/** Лента человека — ТОЛЬКО useInfiniteQuery (одна форма кэша на ключ) */
+export const securityEventsKey = (filter: string) => ['security', 'events', filter] as const;
+export const securityEventKey = (id: string) => ['security', 'event', id] as const;
+export const orgSecurityRootKey = (wsId: string) => ['workspaces', wsId, 'security'] as const;
+export const orgSecurityOverviewKey = (wsId: string) => ['workspaces', wsId, 'security', 'overview'] as const;
+/** Журнал организации — ТОЛЬКО useInfiniteQuery */
+export const orgSecurityEventsKey = (wsId: string, q: Record<string, unknown>) => ['workspaces', wsId, 'security', 'events', q] as const;
+export const orgSecurityEventKey = (wsId: string, id: string) => ['workspaces', wsId, 'security', 'event', id] as const;
+
 export const entitlementsRootKey = ['entitlements'] as const;
 export const entitlementsKey = (context: string) => ['entitlements', context] as const;
 export const contactsKey = ['contacts'] as const;

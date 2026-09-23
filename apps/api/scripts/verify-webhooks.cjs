@@ -17,7 +17,7 @@
 // возраст серии; предохранитель мёртвого адреса откладывает без сети; включение проходит
 // потолок тарифа (обход «выключил → создал → включил» закрыт); потолок ручных действий.
 // Run: node apps/api/scripts/verify-webhooks.cjs
-const { SUITE, call, login, makeChecker, devCode, consoleLogin, consoleSudo } = require('./_lib.cjs');
+const { SUITE, call, login, makeChecker, devCode, consoleLogin, consoleSudo, createSuiteWorkspace, archiveSuiteWorkspace, crash } = require('./_lib.cjs');
 const { randomUUID } = require('crypto');
 const http = require('http');
 const { createHmac, createPublicKey, verify: cryptoVerify } = require('crypto');
@@ -100,7 +100,7 @@ async function main() {
   };
 
   try {
-    const ws = await call('POST', '/workspaces', s1.token, { name: `wh-${Date.now()}` });
+    const ws = await createSuiteWorkspace(s1.token, 'Сьют-Вебхуки');
     check('workspace created', ws.ok, ws.status);
     const W = ws.json?.data?.id;
     const WSH = { 'X-Workspace-Id': W };
@@ -380,7 +380,7 @@ async function main() {
     }
 
     // Тариф: включение проходит тот же потолок, что и создание (free = 5 живых)
-    const ws2 = await call('POST', '/workspaces', s1.token, { name: `wh-cap-${Date.now()}` });
+    const ws2 = await createSuiteWorkspace(s1.token, 'Сьют-Вебхуки-Потолок');
     const W2 = ws2.json?.data?.id;
     const base2 = `/workspaces/${W2}/webhooks/endpoints`;
     const made = [];
@@ -393,7 +393,7 @@ async function main() {
     check('after disabling one, a new one fits', off.ok && sixthAgain.status === 201, `${off.status} ${sixthAgain.status}`);
     const sneak = await call('PATCH', `${base2}/${made[0].json.data.endpoint.id}`, s1.token, { enabled: true });
     check('enabling the disabled one over the cap → 402 (disable → create → enable bypass is closed)', sneak.status === 402 && sneak.code === 'entitlement.limit_reached', `${sneak.status} ${sneak.code}`);
-    await call('DELETE', `/workspaces/${W2}`, s1.token).catch(() => undefined);
+    await archiveSuiteWorkspace(W2);
 
     // ---- Реестр и журнал ----
     const reg = await call('GET', `/workspaces/${W}/keys/registry?kind=webhook`, s1.token);
@@ -410,14 +410,11 @@ async function main() {
     const gone = (await call('GET', base, s1.token)).json?.data?.some((x) => x.id === ed.json.data.endpoint.id);
     check('deleted endpoint is gone from the list', gone === false);
 
-    await call('DELETE', `/workspaces/${W}`, s1.token).catch(() => undefined);
+    await archiveSuiteWorkspace(W);
   } finally {
     server.close();
   }
   finish();
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main().catch(crash);

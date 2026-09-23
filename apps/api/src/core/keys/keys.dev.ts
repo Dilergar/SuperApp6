@@ -71,11 +71,15 @@ export class KeysDevController {
 
   @Post('signing/rotate')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Rotate the signing key of an audience: pending version + activation job' })
+  @ApiOperation({ summary: '[dev] Rotate the signing key of an audience: pending version + activation job at the production delay (activate now — POST signing/activate)' })
   async rotateSigning(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     this.assertDev();
     const { audience } = audienceBody.parse(body ?? {});
-    const res = await this.signing.rotate(audience, { actorId: user.sub, reason: 'dev drill', activateInMin: 0, retireAfterSec: AUDIENCE_MAX_TTL_SEC[audience] });
+    // Джоб активации — с боевой задержкой, а не «сейчас»: иначе воркер джобов активировал бы
+    // pending-версию между ротацией и проверкой «до активации подписывает старая» (гонка
+    // в verify-keys). Учение активирует явно ручкой signing/activate; поздний джоб — no-op
+    // (activate переводит только pending → active).
+    const res = await this.signing.rotate(audience, { actorId: user.sub, reason: 'dev drill', retireAfterSec: AUDIENCE_MAX_TTL_SEC[audience] });
     return { success: true, data: res };
   }
 
@@ -286,14 +290,12 @@ export class KeysDevController {
 
   @Post('usage/partitions')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Create journal partitions ahead and drop the ones past retention (api_access_log, pii_access_log)' })
+  @ApiOperation({ summary: '[dev] Create api_access_log partitions ahead and drop the ones past retention (security log partitions: /audit/dev/partitions)' })
   async usagePartitions() {
     this.assertDev();
     await this.usage.partitions.ensureAhead();
-    await this.pii.partitions.ensureAhead();
     const access = await this.usage.partitions.dropExpired();
-    const piiDropped = await this.pii.partitions.dropExpired();
-    return { success: true, data: { access: { dropped: access, partitions: (await this.usage.partitions.list()).map((p) => p.name) }, pii: { dropped: piiDropped, partitions: (await this.pii.partitions.list()).map((p) => p.name) } } };
+    return { success: true, data: { access: { dropped: access, partitions: (await this.usage.partitions.list()).map((p) => p.name) } } };
   }
 
   @Post('usage/daily')

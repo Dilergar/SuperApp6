@@ -9,7 +9,7 @@ import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
 import { apiGet } from '@/lib/api';
 import { useTranslations } from 'next-intl';
 import { useFormatters } from '@/lib/format';
-import { useRoleLabel } from './members/members-lib';
+import { useRoleLabel } from '../members/members-lib';
 import {
   WORKSPACE_ROLE_RANK,
   type Workspace,
@@ -19,7 +19,7 @@ import {
   BentoGrid, Button, Card, CardHeader, Chip, EmptyState, Icon, LoadingBlock, PageHeader, StatTile,
   type IconName,
 } from '@/components/ui';
-import { SubmitDocumentModal } from './documents/SubmitDocumentModal';
+import { SubmitDocumentModal } from '../documents/SubmitDocumentModal';
 
 // Стопка тянет за собой список решений и карточки людей — на главной она нужна
 // только по клику, поэтому грузится отдельным чанком (как на личной Главной).

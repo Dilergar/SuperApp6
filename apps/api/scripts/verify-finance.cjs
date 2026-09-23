@@ -4,26 +4,14 @@
 // правки+soft-delete с аудитом, фильтры списка (родительская категория включает детей),
 // «на кого» из окружения, изоляция чужой книги, валидация пар счетов и кросс-валюты.
 // Run (API up): node scripts/verify-finance.cjs
-const fs = require('fs');
-const path = require('path');
-for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').split(/\r?\n/)) {
-  const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/i);
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
-}
 const { PrismaClient } = require('@prisma/client');
-// Адрес API переопределяется переменной окружения: два экземпляра на одной машине
-// (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
-const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
-const P1 = '+77009990001', P2 = '+77009990002', PW = 'Test1234!';
+// Обвязка — общая (_lib.cjs): HTTP, вход, чекер, .env, организация прогона
+const { call, login: suiteLogin, makeChecker, SUITE, createSuiteWorkspace, crash } = require('./_lib.cjs');
+const P1 = SUITE.p1, P2 = SUITE.p2;
 
-let fails = 0;
-const check = (n, ok, extra) => { console.log(`${ok ? '✓' : '✗ FAIL'}  ${n}${extra ? `  (${extra})` : ''}`); if (!ok) fails++; };
-async function call(method, p, token, body, headers) {
-  const res = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': require('crypto').randomUUID(), 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(headers || {}) }, body: body ? JSON.stringify(body) : undefined });
-  let json = null; try { json = await res.json(); } catch {}
-  return { status: res.status, ok: res.ok, json };
-}
-const login = async (phone) => { const r = await call('POST', '/auth/login', null, { phone, password: PW }); if (!r.ok) throw new Error(`login ${phone}: ${r.status}`); return r.json.data.accessToken; };
+const { check, finish } = makeChecker();
+// Сьют держит токен строкой — тонкая обёртка над общим login
+const login = async (phone) => (await suiteLogin(phone)).token;
 
 /** Ф8: то, что дергает нода «Финансы: записать операцию» — реальный сервис из dist. */
 async function svcRecord(wsId, actorId) {
@@ -459,7 +447,7 @@ async function main() {
     const calDefault = await call('GET', `/calendar/events?from=${encodeURIComponent(mStart)}&to=${encodeURIComponent(mEnd)}`, t1);
     check('Ф8: без layers слой платежей НЕ включён (дефолт не тронут)', calDefault.ok && !(calDefault.json?.data?.items ?? []).some((i) => i.kind === 'finance'));
 
-    const ws8 = await call('POST', '/workspaces', t1, { name: 'fin-e2e-' + Date.now() });
+    const ws8 = await createSuiteWorkspace(t1, 'Сьют-Финансы');
     check('Ф8: организация создана', ws8.ok, `status ${ws8.status}`);
     const ws8Id = ws8.json?.data?.id;
     const nodeTypes = await call('GET', `/workspaces/${ws8Id}/processes/node-types`, t1);
@@ -592,11 +580,11 @@ async function main() {
       await call('DELETE', `/finance/recurring/${recUsd.json?.data?.id}`, t1);
     }
 
-    console.log(fails === 0 ? `\n=== ALL PASS ===` : `\n=== FAILS: ${fails} ===`);
   } finally {
     await prisma.$disconnect();
   }
-  process.exit(fails === 0 ? 0 : 1);
+  // Итог и организация прогона в архив (на падении — crash)
+  finish();
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch(crash);

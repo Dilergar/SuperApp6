@@ -23,6 +23,9 @@ import {
   type VerifyStatusResponse,
 } from '@superapp/shared';
 import { VerifySmsService } from './verify.sms';
+import { AuditService } from '../audit/audit.service';
+import { AuditLoginGuard } from '../audit/audit.login-guard';
+import { comparePasswordConstantTime } from '../../shared/utils/password-timing';
 
 /**
  * Движок подтверждений (core/verify, 11-й платформенный) — SMS-OTP.
@@ -56,6 +59,9 @@ const CLIENT_CHOSEN_PURPOSES = new Set<VerifyPurpose>([
   // Гость внешней ссылки вводит свой номер сам → щит обязателен (решение продукта:
   // v1 — только казахстанские мобильные, иностранные подписанты позже).
   'share_link_guest',
+  // Заморозка и разморозка без входа (core/audit): номер вводит аноним на публичной странице
+  'account_freeze',
+  'account_unfreeze',
 ]);
 
 /** Как код был доставлен — метка на строке цепочки (аудит + отладка поддержки). */
@@ -80,6 +86,8 @@ export class VerifyService {
     private mac: KeysMacService,
     private consentDocs: ConsentsDocumentsService,
     private pdActions: ConsentsActionsService,
+    private audit: AuditService,
+    private loginGuard: AuditLoginGuard,
   ) {
     // isProdEnv(): незаданный NODE_ENV — это ПРОД, а не «не прод». Иначе тест-карта с
     // фиксированными кодами пережила бы забытую переменную в контейнере.
@@ -177,7 +185,7 @@ export class VerifyService {
    */
   async startStepUp(
     userId: string,
-    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete',
+    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete' | 'security_confirm',
     password: string,
     newPhone: string | undefined,
     ip?: string,
@@ -185,9 +193,16 @@ export class VerifyService {
     const user = await this.db.user.findUnique({ where: { id: userId }, select: { phone: true, password: true, deletedAt: true, kind: true } });
     // Бот (core/keys) — теневой пользователь без номера и пароля: step-up ему не положен
     if (!user || user.deletedAt || user.kind === 'bot') throw unauthorized('auth.userNotFound');
+    // Пароль вне входа — с потолком неудач по АККАУНТУ (core/audit): иначе угнанная сессия
+    // перебирала бы пароль здесь без предела (IP-троттлинг обходится ботнетом)
+    await this.loginGuard.assertStepUpOpen(userId);
     if (!(await bcrypt.compare(password, user.password))) {
+      // След неудачного подтверждения личности (журнал безопасности): пароль до SMS
+      await this.audit.record(null, { key: 'auth.step_up.failed', outcome: 'failure', reasonCode: 'wrong_password', details: { purpose, stage: 'password' } });
+      await this.loginGuard.onStepUpFailure(userId);
       throw unauthorized('auth.wrongPassword');
     }
+    await this.loginGuard.onStepUpSuccess(userId);
 
     let phone = user.phone;
     if (purpose === 'phone_change_new') {
@@ -198,6 +213,44 @@ export class VerifyService {
       phone = newPhone;
     }
     return this.startChain(phone, purpose, userId, ip);
+  }
+
+  /**
+   * Заморозка без входа (core/audit, `/freeze`): цепочка привязана к аккаунту номера; номер,
+   * которого нет (или удалённый аккаунт, бот), — неотличимая пустышка: код никуда не уходит,
+   * ответы и тайминг — как у живого (модель сброса пароля). Гео-щит — номер вводит аноним.
+   */
+  async startFreeze(phone: string, ip?: string): Promise<VerifyStartResponse> {
+    const user = await this.db.user.findUnique({ where: { phone }, select: { id: true, deletedAt: true, kind: true } });
+    const alive = user && !user.deletedAt && user.kind === 'person' ? user : null;
+    return this.startChain(phone, 'account_freeze', alive?.id ?? null, ip, { simulate: !alive });
+  }
+
+  /**
+   * Разморозка: СТАРЫЙ пароль проверяется ДО SMS (сброс пароля по SMS заморозку не снимает —
+   * иначе её снял бы владелец угнанной SIM). Неизвестный номер и неверный пароль — один ответ
+   * с одинаковой стоимостью (фиктивный bcrypt): страница не отвечает «такого номера нет».
+   */
+  async startUnfreeze(phone: string, password: string, ip?: string): Promise<VerifyStartResponse> {
+    const user = await this.db.user.findUnique({ where: { phone }, select: { id: true, password: true, deletedAt: true, kind: true, securityFrozenAt: true, loginLockedUntil: true } });
+    const eligible = !!user && !user.deletedAt && user.kind === 'person';
+    // Публичная проверка пароля — это вход по сути: та же защита по АККАУНТУ (core/audit). Без неё
+    // здесь был перебор пароля ЛЮБОГО аккаунта мимо блокировки входа (ответ «не заморожен» после
+    // верного пароля отличается от «неверный пароль»), а IP-троттлинг ботнет обходит
+    const subject = { userId: eligible ? user!.id : null, phoneHmac: await this.loginGuard.phoneHmac(phone) };
+    const lockedUntil = await this.loginGuard.lockedUntil(subject, eligible ? user!.loginLockedUntil : null);
+    // Сравнение — ВСЕГДА (и при блокировке): стоимость ответа не зависит от существования номера
+    const ok = await comparePasswordConstantTime(password, eligible ? user!.password : null);
+    if (lockedUntil) await this.loginGuard.rejectLocked(subject, lockedUntil);
+    if (!eligible || !ok) {
+      const reason = !user || user.deletedAt ? 'unknown_account' : user.kind !== 'person' ? 'not_allowed' : 'wrong_password';
+      const lockedNow = await this.loginGuard.onFailure(subject, reason);
+      if (lockedNow) this.loginGuard.lockedResponse(lockedNow);
+      throw unauthorized('auth.badCredentials');
+    }
+    // Не заморожен — разморозке нечего снимать (ответ после проверки пароля: не оракул)
+    if (!user!.securityFrozenAt) throw badRequest('auth.notFrozen');
+    return this.startChain(phone, 'account_unfreeze', user!.id, ip);
   }
 
   /**
@@ -431,13 +484,26 @@ export class VerifyService {
     const match = await this.codeMatches(ch.phone, ch.purpose as VerifyPurpose, code, ch.codeHash);
 
     if (!match) {
-      // Гвард attempts<max закрывает гонку параллельных промахов на потолке.
-      await this.db.verifyChallenge.updateMany({
-        where: { id: challengeId, attempts: { lt: VERIFY_LIMITS.maxAttempts }, verifiedAt: null },
-        data: { attempts: { increment: 1 } },
+      // Гвард attempts<max закрывает гонку параллельных промахов на потолке. Промах и его след
+      // в журнале безопасности — одна транзакция (fail-closed: без следа промах не засчитан).
+      const left = await this.db.$transaction(async (tx) => {
+        await tx.verifyChallenge.updateMany({
+          where: { id: challengeId, attempts: { lt: VERIFY_LIMITS.maxAttempts }, verifiedAt: null },
+          data: { attempts: { increment: 1 } },
+        });
+        const fresh = await tx.verifyChallenge.findUnique({ where: { id: challengeId }, select: { attempts: true } });
+        const leftNow = Math.max(0, VERIFY_LIMITS.maxAttempts - (fresh?.attempts ?? VERIFY_LIMITS.maxAttempts));
+        // Субъект — аккаунт цепочки (у регистрации аккаунта ещё нет: только платформа по сети)
+        await this.audit.record(tx, {
+          key: leftNow > 0 ? 'auth.otp.failed' : 'auth.otp.locked',
+          subjectUserId: ch.userId,
+          outcome: 'failure',
+          reasonCode: leftNow > 0 ? 'wrong_code' : 'attempts_exhausted',
+          target: { type: 'verify_challenge', id: ch.id },
+          details: leftNow > 0 ? { purpose: ch.purpose, attemptsLeft: leftNow } : { purpose: ch.purpose },
+        });
+        return leftNow;
       });
-      const fresh = await this.db.verifyChallenge.findUnique({ where: { id: challengeId }, select: { attempts: true } });
-      const left = Math.max(0, VERIFY_LIMITS.maxAttempts - (fresh?.attempts ?? VERIFY_LIMITS.maxAttempts));
       throw badRequest(
         left > 0 ? 'verify.wrongCodeLeft' : 'verify.tooManyAttempts',
         left > 0 ? { left } : undefined,

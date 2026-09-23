@@ -17,7 +17,7 @@ import { DeferWorkspaceCheck } from '../../shared/decorators/defer-workspace-che
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { badRequest } from '../../shared/errors/api-error';
 import { analyticsEnv, type AnalyticsIngestEvent, type AnalyticsIngestReject } from './analytics.constants';
-import { normalizePageProps, parseUserAgent, sanitizeKey, shapeOf, templateRoute, uuidOrNull } from './analytics.enrich';
+import { normalizePageProps, uaForAnalytics, sanitizeKey, shapeOf, templateRoute, uuidOrNull } from './analytics.enrich';
 import { AnalyticsService } from './analytics.service';
 import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
 import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
@@ -140,7 +140,7 @@ export class AnalyticsController {
 
     const { app, context, batch } = envelope.data;
     const receivedAt = new Date().toISOString();
-    const ua = parseUserAgent(typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null);
+    const ua = uaForAnalytics(typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : null);
     const gpc = req.headers['sec-gpc'] === '1' || context?.gpc === true;
     const claimedWorkspaceId = who.anonymous ? null : uuidOrNull(this.ctx.get()?.claimedWorkspaceId);
     const fill = this.analytics.streamFill();

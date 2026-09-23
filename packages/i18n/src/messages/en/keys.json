@@ -37,7 +37,8 @@
     "bot_archived": "The bot was archived",
     "platform": "Revoked by the platform",
     "policy": "Organization policy",
-    "expired": "Expired"
+    "expired": "Expired",
+    "not_me": "The holder reported a sign-in that was not theirs"
   },
   "actions": {
     "createBot": "New bot",
@@ -61,10 +62,7 @@
   "stepUp": {
     "title": "Confirm key management",
     "body": "Keys give access to data without a password. Confirm with your password and an SMS code — the window stays open for 15 minutes.",
-    "password": "Password",
-    "getCode": "Get a code",
     "confirmTitle": "Enter the code from the SMS",
-    "back": "Back",
     "windowUntil": "Confirmed until {time}",
     "end": "End"
   },
@@ -116,7 +114,8 @@
     "recorder": "Recorder",
     "share": "Share links",
     "requisites": "Requisites and bank accounts",
-    "invitations": "Invitations"
+    "invitations": "Invitations",
+    "security": "Security log"
   },
   "key": {
     "name": "Name",
@@ -365,7 +364,12 @@
       "workspaces_member_joined": "Member joined",
       "workspaces_member_left": "Member left",
       "webhook_ping": "Verification ping",
-      "webhook_test": "Signature audit"
+      "webhook_test": "Signature audit",
+      "security_org_recorded": "Security: people, roles and organization",
+      "security_keys_recorded": "Security: keys and integrations",
+      "security_data_recorded": "Security: data exports",
+      "security_consents_recorded": "Security: consents",
+      "security_detect_recorded": "Security: detections"
     },
     "createdTitle": "Webhook created",
     "createdNote": "This is the signing secret. It is shown only once — put it into the receiver now.",

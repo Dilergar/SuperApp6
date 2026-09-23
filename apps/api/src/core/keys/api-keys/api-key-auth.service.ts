@@ -1,8 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { createHash } from 'node:crypto';
 import { KEYS_ERROR_CODES, KEYS_LIMITS, KEYS_REDIS, type KeyScopes } from '@superapp/shared';
 import { DatabaseService } from '../../../shared/database/database.service';
 import { forbidden, tooMany, unauthorized } from '../../../shared/errors/api-error';
 import { RedisService } from '../../../shared/redis/redis.service';
+import { incrWindow } from '../../../shared/redis/incr-window';
 import type { JwtPayload } from '../../../shared/decorators/current-user.decorator';
 import { KeysMacService } from '../keys.mac.service';
 import { hashApiSecret, parseApiSecret, roughPrefix } from './api-keys.format';
@@ -10,6 +13,12 @@ import { allowlistOf, ipAllowedBy, keyIsLive, scopesOf } from './api-keys.common
 import { KeysNotifier } from './keys.notifications';
 import { MetricsService } from '../../../shared/metrics/metrics.service';
 import type { Counter } from 'prom-client';
+import { DI_TOKENS } from '../../../shared/di-tokens';
+import type { AuditService } from '../../audit/audit.service';
+
+/** Окно схлопывания отказов ключа в журнале безопасности (одна «лестница» строк на окно). */
+const AUDIT_COLLAPSE_SEC = 600;
+type AuthFailure = 'invalid' | 'revoked' | 'expired' | 'frozen' | 'archived';
 
 /** Снимок ключа в кэше (60 с): без секретов, всё нужное для решения «пускать ли». */
 interface KeySnapshot {
@@ -52,6 +61,7 @@ export class ApiKeyAuthService {
     private readonly mac: KeysMacService,
     private readonly notifier: KeysNotifier,
     metrics: MetricsService,
+    private readonly moduleRef: ModuleRef,
   ) {
     this.authTotal = metrics.counter('keys_api_auth_total', 'API key authentications by result', ['result']);
   }
@@ -69,26 +79,27 @@ export class ApiKeyAuthService {
     const failKey = [KEYS_REDIS.authFail(ip ?? 'unknown', roughPrefix(raw)), KEYS_REDIS.authFailIp(ip ?? 'unknown')] as const;
     await this.assertNotBlocked(failKey);
     const parsed = parseApiSecret(raw);
-    if (!parsed || parsed.kind === 'whs') throw await this.fail(failKey, 'invalid', unauthorized('keys.invalid', undefined, { code: KEYS_ERROR_CODES.invalid }));
+    const audit = { ip, prefix: roughPrefix(raw) };
+    if (!parsed || parsed.kind === 'whs') throw await this.fail(failKey, 'invalid', unauthorized('keys.invalid', undefined, { code: KEYS_ERROR_CODES.invalid }), audit, null);
 
     const snap = await this.load(raw);
-    if (!snap) throw await this.fail(failKey, 'invalid', unauthorized('keys.invalid', undefined, { code: KEYS_ERROR_CODES.invalid }));
+    if (!snap) throw await this.fail(failKey, 'invalid', unauthorized('keys.invalid', undefined, { code: KEYS_ERROR_CODES.invalid }), audit, null);
     const now = Date.now();
-    if (snap.revokedAt) throw await this.fail(failKey, 'revoked', unauthorized('keys.revoked', undefined, { code: KEYS_ERROR_CODES.revoked }));
+    if (snap.revokedAt) throw await this.fail(failKey, 'revoked', unauthorized('keys.revoked', undefined, { code: KEYS_ERROR_CODES.revoked }), audit, snap);
     if ((snap.graceUntil && Date.parse(snap.graceUntil) <= now) || (snap.expiresAt && Date.parse(snap.expiresAt) <= now)) {
-      throw await this.fail(failKey, 'expired', unauthorized('keys.expired', undefined, { code: KEYS_ERROR_CODES.expired }));
+      throw await this.fail(failKey, 'expired', unauthorized('keys.expired', undefined, { code: KEYS_ERROR_CODES.expired }), audit, snap);
     }
-    if (snap.userGone) throw await this.fail(failKey, 'revoked', unauthorized('keys.revoked', undefined, { code: KEYS_ERROR_CODES.revoked }));
+    if (snap.userGone) throw await this.fail(failKey, 'revoked', unauthorized('keys.revoked', undefined, { code: KEYS_ERROR_CODES.revoked }), audit, snap);
     if (snap.kind === 'bot') {
-      if (snap.botStatus === 'frozen') throw await this.fail(failKey, 'frozen', forbidden('keys.bot.frozen', undefined, { code: KEYS_ERROR_CODES.botFrozen }));
-      if (snap.botStatus !== 'active') throw await this.fail(failKey, 'archived', forbidden('keys.bot.archived', undefined, { code: KEYS_ERROR_CODES.botArchived }));
+      if (snap.botStatus === 'frozen') throw await this.fail(failKey, 'frozen', forbidden('keys.bot.frozen', undefined, { code: KEYS_ERROR_CODES.botFrozen }), audit, snap);
+      if (snap.botStatus !== 'active') throw await this.fail(failKey, 'archived', forbidden('keys.bot.archived', undefined, { code: KEYS_ERROR_CODES.botArchived }), audit, snap);
     }
     if (!ipAllowedBy(ip, snap.ipAllowlist, snap.botAllowlist)) {
       void this.notifier.newLocation(snap.id, snap.workspaceId, snap.actorUserId, snap.kind, ip).catch(() => undefined);
-      throw await this.fail(failKey, 'ip_denied', forbidden('keys.ip.denied', undefined, { code: KEYS_ERROR_CODES.ipDenied }));
+      throw await this.fail(failKey, 'ip_denied', forbidden('keys.ip.denied', undefined, { code: KEYS_ERROR_CODES.ipDenied }), audit, snap);
     }
     // Троттлер по ключу (не по IP): живой ключ, но слишком часто — 429 без счётчика отказов
-    await this.assertRate(snap);
+    await this.assertRate(snap, ip);
     this.authTotal.inc({ result: 'ok' });
     void this.touch(snap, ip, country).catch(() => undefined);
     return {
@@ -207,35 +218,66 @@ export class ApiKeyAuthService {
    * Redis недоступен → лимит не считается (аутентификация и так уже прошла по БД).
    * Первое превышение за сутки — уведомление `key.throttled` держателю (аномалия объёма).
    */
-  private async assertRate(snap: KeySnapshot): Promise<void> {
+  private async assertRate(snap: KeySnapshot, ip: string | null): Promise<void> {
     const minute = Math.floor(Date.now() / 60_000);
     const key = KEYS_REDIS.rate(snap.id, minute);
     let n = 0;
     try {
-      const client = this.redis.getClient();
-      n = await client.incr(key);
-      if (n === 1) await client.expire(key, 120);
+      n = await incrWindow(this.redis.getClient(), key, 120);
     } catch {
       return;
     }
     if (n <= KEYS_LIMITS.requestsPerMinute) return;
-    if (n === KEYS_LIMITS.requestsPerMinute + 1) void this.notifier.throttled(snap.id, 'rate').catch(() => undefined);
+    if (n === KEYS_LIMITS.requestsPerMinute + 1) {
+      void this.notifier.throttled(snap.id, 'rate').catch(() => undefined);
+      // След в журнале — одна строка на минуту-превышение, схлопнутая за окно
+      void this.auditFailure('throttled', snap, { ip, prefix: null }).catch(() => undefined);
+    }
     this.authTotal.inc({ result: 'rate_limited' });
     throw tooMany('keys.rate_limited', undefined, { code: KEYS_ERROR_CODES.rateLimited, resendInSec: 60 - (Math.floor(Date.now() / 1000) % 60) });
   }
 
-  private async fail<T>(failKey: readonly [string, string], result: string, error: T): Promise<T> {
+  private async fail<T>(failKey: readonly [string, string], result: AuthFailure | 'ip_denied', error: T, audit: { ip: string | null; prefix: string | null }, snap: KeySnapshot | null): Promise<T> {
     this.authTotal.inc({ result });
+    void this.auditFailure(result, snap, audit).catch(() => undefined);
     try {
       const client = this.redis.getClient();
-      for (const key of failKey) {
-        const n = await client.incr(key);
-        if (n === 1) await client.expire(key, 3600);
-      }
+      // Окно одним MULTI: ключ без срока (сбой между INCR и EXPIRE) был бы вечной блокировкой
+      for (const key of failKey) await incrWindow(client, key, 3600);
     } catch {
       /* best-effort */
     }
     return error;
+  }
+
+  /**
+   * Отказ ключом — событие журнала безопасности (core/audit), СХЛОПНУТОЕ: одна строка на
+   * счётчиках 1, 10, 100… за окно по (ключ | префикс, адрес, причина) — перебор не заливает
+   * журнал. Известный ключ — виден организации (и владельцу личного ключа); неизвестный
+   * префикс — только платформе. Аутентификация идёт в гарде (до контекста запроса), поэтому
+   * адрес передаётся явно. `AuditService` — лениво по токену (журнал сам тянет keystore).
+   */
+  private async auditFailure(result: AuthFailure | 'ip_denied' | 'throttled', snap: KeySnapshot | null, at: { ip: string | null; prefix: string | null }): Promise<void> {
+    const audit = this.moduleRef.get<AuditService>(DI_TOKENS.AuditService, { strict: false });
+    // Неизвестный префикс выбирает атакующий: окно схлопывания — по адресу, а не по префиксу, иначе
+    // перебор случайных префиксов писал бы строку журнала на КАЖДЫЙ запрос (первая строка окна
+    // хранит префикс для расследования). Адрес в имени ключа Redis — хешем, не открытым текстом.
+    const subject = snap ? snap.id : 'prefix';
+    const from = at.ip ? createHash('sha256').update(at.ip).digest('base64url').slice(0, 22) : '-';
+    await audit.recordCollapsed(`key:${subject}:${result}:${from}`, AUDIT_COLLAPSE_SEC, (attempts) => {
+      const base = {
+        workspaceId: snap?.workspaceId ?? null,
+        subjectUserId: snap && snap.kind === 'pat' ? snap.actorUserId : null,
+        actor: snap ? { kind: snap.kind === 'bot' ? ('bot' as const) : ('user' as const), id: snap.actorUserId, keyId: snap.id } : { kind: 'anonymous' as const },
+        target: snap ? { type: 'api_key', id: snap.id } : { type: 'api_key_prefix', id: at.prefix ?? 'unknown' },
+        outcome: 'denied' as const,
+        reasonCode: result,
+        ctx: { ip: at.ip ?? undefined, client: 'api_key' as const },
+      };
+      if (result === 'ip_denied') return { ...base, key: 'keys.api_key.ip_denied' as const, details: { attempts } };
+      if (result === 'throttled') return { ...base, key: 'keys.api_key.throttled' as const, details: { attempts } };
+      return { ...base, key: 'keys.api_key.auth_failed' as const, details: { failure: result, attempts } };
+    });
   }
 
   /** Использование — в Redis: `keys:last-used` (id → {at, ip, country}) + `keys:use-count` (id → n); крон сливает в БД раз в минуту. */

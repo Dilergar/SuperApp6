@@ -47,9 +47,16 @@ const LOADERS: Record<string, Record<string, () => Promise<{ default: Catalog }>
     kk: () => import('@superapp/i18n/messages/kk/sign.json'),
     ru: () => import('@superapp/i18n/messages/ru/sign.json'),
   },
+  // Журнал безопасности (core/audit): тексты всех событий нужны ОДНОЙ секции профиля
+  // («Безопасность») — остальные секции профиля их не возят.
+  audit: {
+    en: () => import('@superapp/i18n/messages/en/audit.json'),
+    kk: () => import('@superapp/i18n/messages/kk/audit.json'),
+    ru: () => import('@superapp/i18n/messages/ru/audit.json'),
+  },
 };
 
-export function LazyNamespace({ ns, children }: { ns: keyof typeof LOADERS; children: ReactNode }) {
+export function LazyNamespace({ ns, children, fallback = null }: { ns: keyof typeof LOADERS; children: ReactNode; fallback?: ReactNode }) {
   const locale = useLocale();
   const base = useMessages();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -67,7 +74,7 @@ export function LazyNamespace({ ns, children }: { ns: keyof typeof LOADERS; chil
   }, [ns, locale]);
 
   // Пока словарь не приехал, слой не рисуем: мигать ключами вместо слов нельзя.
-  if (!catalog) return null;
+  if (!catalog) return <>{fallback}</>;
   return (
     <NextIntlClientProvider locale={locale} messages={{ ...(base as object), [ns]: catalog } as never}>
       {children}

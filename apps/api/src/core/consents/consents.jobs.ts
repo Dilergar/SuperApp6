@@ -1,14 +1,11 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { CONSENT_KINDS, type ConsentDocumentKey } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
-import { RedisService } from '../../shared/redis/redis.service';
 import { JobDiscardError, JobSnoozeError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PlatformNotifier } from '../platform/platform.notifications';
 import { CONSENTS_FANOUT_BATCH, CONSENTS_JOBS, CONSENTS_QUEUE, CONSENT_DOCUMENT_REF_TYPE } from './consents.constants';
-import { ConsentsActionsService } from './consents.actions.service';
 import { ConsentsDocumentsService } from './consents.documents.service';
 import { ConsentsIncidentsService } from './consents.incidents.service';
 
@@ -28,12 +25,10 @@ export class ConsentsJobs implements OnModuleInit {
 
   constructor(
     private readonly db: DatabaseService,
-    private readonly redis: RedisService,
     private readonly registry: JobsRegistry,
     private readonly jobs: JobsService,
     private readonly documents: ConsentsDocumentsService,
     private readonly incidents: ConsentsIncidentsService,
-    private readonly actions: ConsentsActionsService,
     private readonly notifications: NotificationsService,
     private readonly platformNotifier: PlatformNotifier,
   ) {}
@@ -112,11 +107,4 @@ export class ConsentsJobs implements OnModuleInit {
     await this.incidents.markAlerted(incidentId);
   }
 
-  @Cron('17 3 * * *')
-  async housekeeping(): Promise<void> {
-    await this.redis.withLock('cron:consents-partitions', 5 * 60 * 1000, async () => {
-      await this.actions.ensurePartitions();
-      return 1;
-    });
-  }
 }

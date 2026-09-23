@@ -1,7 +1,7 @@
 // Юрлица организации (Ф0 сервиса «Объекты»): головное = старые реквизиты,
 // второе ТОО, дубль БИН, архив, совместительство в КЭДО.
 // Аккаунты СЬЮТА (suite1/2/3); БД не чистим — организация прогона одноразовая.
-const { call, login, makeChecker, SUITE } = require('./_lib.cjs');
+const { call, login, makeChecker, SUITE, createSuiteWorkspace, crash } = require('./_lib.cjs');
 
 const { check, finish } = makeChecker();
 
@@ -39,7 +39,7 @@ async function main() {
   const owner = await login(SUITE.p1);
   const worker = await login(SUITE.p2);
 
-  const ws = (await call('POST', '/workspaces', owner.token, { name: `Сьют-Юрлица ${Date.now()}` })).json.data;
+  const ws = (await createSuiteWorkspace(owner.token, 'Сьют-Юрлица')).json.data;
   check('организация создана', !!ws?.id);
 
   const base = `/workspaces/${ws.id}/legal-entities`;
@@ -154,7 +154,4 @@ async function main() {
   finish();
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main().catch(crash);

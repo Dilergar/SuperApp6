@@ -44,6 +44,7 @@ import { WebhooksModule } from './core/webhooks/webhooks.module';
 import { ConsentsGateModule } from './core/consents/gate/consents-gate.module';
 import { ConsentsModule } from './core/consents/consents.module';
 import { IdempotencyModule } from './core/idempotency/idempotency.module';
+import { AuditModule } from './core/audit/audit.module';
 import { IdempotencyInterceptor } from './core/idempotency/idempotency.interceptor';
 import { ConsentGateGuard } from './shared/guards/consent-gate.guard';
 import { KeyScopeGuard } from './core/keys/api-keys/key-scope.guard';
@@ -124,6 +125,11 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // ПОСЛЕ KeysModule: отпечаток запроса — HMAC keystore, снимок ответа — envelope
     // под KEK владельца (docs/idempotency_engine.md).
     IdempotencyModule,
+    // Audit engine — 26-й платформенный движок: журнал аудита безопасности. ЕДИНЫЙ поток
+    // событий безопасности с тремя зрителями (человек / организация / платформа), append-only
+    // на уровне БД, партиции по месяцам, подписанные дайджесты. Идёт ПОСЛЕ KeysModule: IP
+    // шифруется платформенным KEK, псевдонимы — HMAC keystore (docs/audit_engine.md).
+    AuditModule,
     WebhooksModule,
     ConsentsModule,
 

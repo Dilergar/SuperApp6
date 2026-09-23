@@ -22,7 +22,10 @@
     "skinsPerGroup": "Әр топқа бөлек скин",
     "webhooksMaxEndpoints": "Вебхук соңғы нүктелері",
     "workspaceSeats": "Ұйымдағы орындар",
-    "workspacesMaxOwned": "Сізге тиесілі ұйымдар"
+    "workspacesMaxOwned": "Сізге тиесілі ұйымдар",
+    "auditRetentionDays": "Қауіпсіздік журналының терезесі, күн",
+    "auditExport": "Қауіпсіздік журналын жүктеп алу",
+    "auditStream": "Қауіпсіздік оқиғаларын SIEM-ге ағынмен жіберу"
   },
   "lock": {
     "quotaFull": "Дискідегі орын толды",
@@ -62,7 +65,8 @@
     "notifications": "Хабарламалар",
     "objects": "Нысандар",
     "shop": "Дүкен",
-    "workspaces": "Ұйымдар"
+    "workspaces": "Ұйымдар",
+    "audit": "Қауіпсіздік журналы"
   },
   "source": {
     "grant": "Сыйлық {date} дейін",

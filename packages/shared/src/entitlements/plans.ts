@@ -112,19 +112,21 @@ export const PLAN_SEED_POLICY: Record<PlanKey, PlanSeedPolicy | null> = {
   business_free: null,
   personal: { multipliers: { '*': 2 }, absolute: {}, features: ['skins.perGroup'] },
   family: { multipliers: { '*': 2 }, absolute: {}, features: ['skins.perGroup'] },
+  // Журнал безопасности (core/audit): окно просмотра организацией — абсолютом (не множителем),
+  // выгрузка — с basic, стрим в SIEM — со standard
   business_basic: {
     multipliers: { 'files.storageBytes': 1, '*': 1 },
-    absolute: { 'workspace.seats': 5 },
-    features: [],
+    absolute: { 'workspace.seats': 5, 'audit.retentionDays': 180 },
+    features: ['audit.export'],
   },
   business_standard: {
     multipliers: { 'files.storageBytes': 5, '*': 2 },
-    absolute: { 'workspace.seats': 50 },
-    features: [],
+    absolute: { 'workspace.seats': 50, 'audit.retentionDays': 365 },
+    features: ['audit.export', 'audit.stream'],
   },
   business_pro: {
     multipliers: { 'files.storageBytes': 10, '*': 4 },
-    absolute: { 'workspace.seats': 250 },
-    features: [],
+    absolute: { 'workspace.seats': 250, 'audit.retentionDays': 1095 },
+    features: ['audit.export', 'audit.stream'],
   },
 };

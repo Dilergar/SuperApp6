@@ -69,7 +69,8 @@
     "aria": "Навигация приложения",
     "expandBranch": "Развернуть {name}",
     "collapseBranch": "Свернуть {name}",
-    "wsIntegrations": "Интеграции и ключи"
+    "wsIntegrations": "Интеграции и ключи",
+    "wsSecurity": "Безопасность"
   },
   "topbar": {
     "profile": "Профиль",

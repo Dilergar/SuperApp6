@@ -172,6 +172,9 @@ function EndpointDialog({
   const [created, setCreated] = useState<WebhookEndpointCreatedDto | null>(null);
   const close = () => { if (busy) return; setCreated(null); setUrl(''); setEvents(new Set()); onClose(); };
   const toggle = (k: WebhookEventKey) => setEvents((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  // Стрим журнала безопасности (`security.*`) — тариф `audit.stream`: без него чекбоксы закрыты
+  // (пикер не предлагает того, что сервер отвергнет 402); уже подписанное можно снять всегда
+  const streamGate = useEntitlementGate('audit.stream', workspaceId, 'ent-lock-webhook-security');
   const urlOk = /^https:\/\//.test(url.trim());
   const submit = async () => {
     setBusy(true);
@@ -209,16 +212,29 @@ function EndpointDialog({
           <Field label={t('webhook.eventsLabel')} hint={t('webhook.eventsHint', { max: WEBHOOK_LIMITS.maxEventsPerEndpoint })}>
             {catalog.isPending ? <Skeleton height={80} /> : (
               <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
-                {services.map((s) => (
-                  <div key={s.service}>
-                    <div className="label-sm" style={{ marginBottom: '0.25rem' }}>{t(`service.${s.service}`)}</div>
-                    <div style={{ display: 'grid', gap: '0.25rem' }}>
-                      {s.events.map((ev) => (
-                        <Checkbox key={ev.key} checked={events.has(ev.key)} onChange={() => toggle(ev.key)} label={<span>{t(`webhook.events.${eventKeyToCatalog(ev.key)}`)} <span className="label-sm" style={{ fontFamily: 'ui-monospace, monospace' }}>{ev.key}</span></span>} />
-                      ))}
+                {services.map((s) => {
+                  const locked = s.service === 'security' && streamGate.blocked;
+                  return (
+                    <div key={s.service}>
+                      <div className="label-sm" style={{ marginBottom: '0.25rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        {t(`service.${s.service}`)}
+                        {s.service === 'security' && <EntitlementLock keyName="audit.stream" workspaceId={workspaceId} id="ent-lock-webhook-security" />}
+                      </div>
+                      <div style={{ display: 'grid', gap: '0.25rem' }}>
+                        {s.events.map((ev) => (
+                          <Checkbox
+                            key={ev.key}
+                            checked={events.has(ev.key)}
+                            disabled={locked && !events.has(ev.key)}
+                            aria-describedby={locked ? streamGate.describedBy : undefined}
+                            onChange={() => toggle(ev.key)}
+                            label={<span>{t(`webhook.events.${eventKeyToCatalog(ev.key)}`)} <span className="label-sm" style={{ fontFamily: 'ui-monospace, monospace' }}>{ev.key}</span></span>}
+                          />
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Field>

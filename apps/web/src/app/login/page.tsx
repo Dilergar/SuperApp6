@@ -7,7 +7,10 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { analytics } from '@/lib/analytics';
 import { Alert, Button, Input } from '@/components/ui';
 import { useTranslations } from 'next-intl';
+import { AUDIT_ERROR_CODES } from '@superapp/shared';
+import { apiErrorDetails, apiErrorMessage } from '@/lib/api';
 import { AuthLayout } from '../auth-ui';
+import { UnfreezeDialog } from './UnfreezeDialog';
 
 export default function LoginPage() {
   const t = useTranslations('auth');
@@ -18,6 +21,9 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [deletedNote, setDeletedNote] = useState(false);
+  // Аккаунт заморожен (core/audit): вход закрыт, пока владелец не разморозит паролем + SMS
+  const [frozen, setFrozen] = useState(false);
+  const [unfreezing, setUnfreezing] = useState(false);
 
   useEffect(() => {
     setDeletedNote(new URLSearchParams(window.location.search).get('deleted') === '1');
@@ -27,13 +33,15 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setFrozen(false);
     setLoading(true);
     try {
       await login(phone, password);
       router.push('/dashboard');
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { message?: string } } };
-      setError(axiosErr.response?.data?.message || t('login.failed'));
+      // Ветвление — по машинному коду отказа, текст — переведённый сервером
+      if (apiErrorDetails(err)?.code === AUDIT_ERROR_CODES.accountFrozen) setFrozen(true);
+      else setError(apiErrorMessage(err) || t('login.failed'));
     } finally {
       setLoading(false);
     }
@@ -56,6 +64,16 @@ export default function LoginPage() {
           </Alert>
         )}
         {error && <Alert tone="danger">{error}</Alert>}
+        {frozen && (
+          <Alert
+            tone="warning"
+            icon="snowflake"
+            title={t('login.frozenTitle')}
+            action={<Button size="sm" variant="primary" icon="lockOpen" onClick={() => setUnfreezing(true)}>{t('login.unfreeze')}</Button>}
+          >
+            {t('login.frozenText')}
+          </Alert>
+        )}
 
         <Input
           label={t('login.phone')}
@@ -93,7 +111,10 @@ export default function LoginPage() {
         <Button type="submit" variant="primary" size="lg" block loading={loading}>
           {loading ? t('login.submitting') : t('login.submit')}
         </Button>
+        {/* Экстренная заморозка без входа — с любого устройства (телефон украден) */}
+        <Link href="/freeze" className="label-sm" style={{ fontWeight: 700, alignSelf: 'center' }}>{t('login.freezeLink')}</Link>
       </form>
+      {unfreezing && <UnfreezeDialog phone={phone} onClose={() => setUnfreezing(false)} />}
     </AuthLayout>
   );
 }

@@ -15,20 +15,22 @@ import { StepUpModal } from './StepUpModal';
 
 // ============================================================
 // Каркас кабинета платформы (Stripe/Shopify/Linear-модель): слева сайдбар 264px
-// (Поиск · Тарифы · Заявки · Журнал · Сотрудники), сверху строка поиска (`/` фокус,
+// (Поиск · Тарифы · Аналитика · Согласия · Заявки · Безопасность · Сотрудники), сверху строка поиска (`/` фокус,
 // `Esc` очистка), справа чип sudo с обратным отсчётом, аватар сотрудника, выход.
 // Визуальный язык — DESIGN.md и кит, своего второго не заводим.
 // ============================================================
 
 // Пункт живёт только у того, чьё право открывает его страницу: иначе узкая роль
 // видела бы раздел и получала 403 на входе (правило «не предлагать отвергнутое»).
-const NAV: { key: string; href: string; icon: IconName; exact?: boolean; capability: PlatformCapability }[] = [
+// Несколько прав — «любое из»: консоль «Безопасность» открыта и держателю журнала команд,
+// и держателю журнала безопасности (каждая вкладка проверяет своё право сама).
+const NAV: { key: string; href: string; icon: IconName; exact?: boolean; capability: PlatformCapability | readonly PlatformCapability[] }[] = [
   { key: 'search', href: '/platform', icon: 'search', exact: true, capability: 'platform.lookup.read' },
   { key: 'entitlements', href: '/platform/entitlements', icon: 'crown', capability: 'entitlements.catalog.read' },
   { key: 'analytics', href: '/platform/analytics', icon: 'chart', capability: 'analytics.read' },
   { key: 'consents', href: '/platform/consents', icon: 'docs', capability: 'consents.read' },
   { key: 'requests', href: '/platform/requests', icon: 'check', capability: 'platform.audit.read' },
-  { key: 'audit', href: '/platform/audit', icon: 'file', capability: 'platform.audit.read' },
+  { key: 'security', href: '/platform/audit', icon: 'shieldWarning', capability: ['security.read', 'platform.audit.read'] },
   { key: 'staff', href: '/platform/staff', icon: 'shield', capability: 'platform.staff.read' },
 ];
 
@@ -41,6 +43,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const isLogin = pathname === '/platform/login';
   const { me, status, sudoActive, sudoLeftSec, can } = usePlatformAuth({ redirect: !isLogin });
+  const allowed = (cap: PlatformCapability | readonly PlatformCapability[]) => (typeof cap === 'string' ? can(cap) : cap.some((c) => can(c)));
   const logout = usePlatformAuthStore((s) => s.logout);
   const isMobile = useIsMobile();
   const [collapsed, setCollapsed] = useState(false);
@@ -129,7 +132,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
             {!collapsed && <span className="label-caps">{t('shell.title')}</span>}
             <IconButton icon={collapsed ? 'arrowRight' : 'arrowLeft'} label={tc('a11y.actions')} size={28} onClick={toggle} />
           </div>
-          {NAV.filter((item) => can(item.capability)).map((item) => {
+          {NAV.filter((item) => allowed(item.capability)).map((item) => {
             const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
             return (
               <Link
@@ -154,7 +157,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
         <header style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', padding: 'var(--spacing-3) var(--spacing-5)', borderBottom: '1px solid var(--divider)', flexWrap: 'wrap' }}>
           {isMobile && (
             <nav aria-label={t('shell.nav')} style={{ display: 'flex', gap: '0.25rem' }}>
-              {NAV.filter((item) => can(item.capability)).map((item) => (
+              {NAV.filter((item) => allowed(item.capability)).map((item) => (
                 <IconButton key={item.key} icon={item.icon} label={t(`nav.${item.key}`)} size={32} onClick={() => router.push(item.href)} />
               ))}
             </nav>

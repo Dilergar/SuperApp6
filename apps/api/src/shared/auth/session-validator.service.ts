@@ -7,6 +7,7 @@ import { legacySecret } from '../../core/keys/keys.legacy';
 import { ConsentsGateService } from '../../core/consents/gate/consents-gate.service';
 import { CONSENT_ERROR_CODES } from '@superapp/shared';
 import type { JwtPayload } from '../decorators/current-user.decorator';
+import { AuditSessionsService, authFamilyRevokedKey } from '../../core/audit/audit.sessions.service';
 
 /**
  * Единственный источник правды о живости сессии — общий для ВСЕХ транспортов.
@@ -47,6 +48,7 @@ export class SessionValidatorService {
     private redis: RedisService,
     private signing: KeysSigningService,
     private consentsGate: ConsentsGateService,
+    private sessions: AuditSessionsService,
   ) {}
 
   /** Значение кэша → поколение токенов и эпоха согласий (старый формат — только поколение). */
@@ -63,13 +65,19 @@ export class SessionValidatorService {
   async assertAlive(payload: JwtPayload): Promise<JwtPayload> {
     const key = authAliveKey(payload.sub);
     const tokenEpoch = payload.epoch ?? 0;
+    // Семейство мягко завершено («Завершить сессию», «Это не я», забытое устройство): его
+    // access-токены гаснут СРАЗУ, а не доживают свои 15 минут. Одним MGET с кэшем «жив».
+    const famKey = payload.fam ? authFamilyRevokedKey(payload.fam) : null;
     try {
-      const cached = await this.redis.get(key);
-      if (cached !== null) {
+      const [cached, famRevoked] = famKey ? await this.redis.getClient().mget(key, famKey) : [await this.redis.get(key), null];
+      if (famRevoked !== null && famRevoked !== undefined) throw unauthorized('auth.sessionExpired');
+      if (cached !== null && cached !== undefined) {
         const parsed = this.parseCached(cached);
         if (parsed.tokenEpoch !== tokenEpoch) {
           throw unauthorized('auth.sessionExpired');
         }
+        // Последняя активность семейства и устройства — не чаще раза в 5 минут (fire-and-forget)
+        this.sessions.touch(payload.sub, payload.fam);
         // `cep` всегда переписывается сервером: значение из токена (если бы оно там оказалось) не доверяется
         return { ...payload, cep: parsed.consentEpoch };
       }
@@ -101,6 +109,12 @@ export class SessionValidatorService {
     if (user.tokenEpoch !== tokenEpoch) {
       throw unauthorized('auth.sessionExpired');
     }
+    // Мимо кэша (промах или Redis недоступен) отзыв семейства проверяется по базе
+    if (payload.fam) {
+      const live = await this.db.session.findFirst({ where: { userId: payload.sub, familyId: payload.fam, revokedAt: null }, select: { id: true } });
+      if (!live) throw unauthorized('auth.sessionExpired');
+    }
+    this.sessions.touch(payload.sub, payload.fam);
 
     return { ...payload, cep: user.consentEpoch };
   }

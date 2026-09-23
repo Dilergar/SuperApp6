@@ -70,6 +70,20 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         this.logger.error(`disconnect sockets for ${userId} failed`, err as Error);
       }
     });
+    // Точечный отзыв (завершить одну сессию, забыть устройство, выход, отзыв Кабинетом, неактивность):
+    // рвём сокеты ТОЛЬКО этих семейств — иначе завершённая на украденном устройстве сессия
+    // продолжала бы получать сообщения и уведомления по живому сокету до его разрыва
+    this.events.onPattern('auth.families.revoked').subscribe((e) => {
+      const families = (e.payload as { families?: unknown })?.families;
+      if (!Array.isArray(families) || !families.length || !this.server) return;
+      const rooms = families.filter((f): f is string => typeof f === 'string' && f.length > 0 && f.length <= 64).map((f) => `fam:${f}`);
+      if (!rooms.length) return;
+      try {
+        this.server.in(rooms).disconnectSockets(true);
+      } catch (err) {
+        this.logger.error(`disconnect sockets of ${rooms.length} revoked session families failed`, err as Error);
+      }
+    });
     this.logger.log(`realtime: relays ${this.registry.allRelays().length} (${[...patterns.keys()].join(', ')})`);
   }
 
@@ -92,6 +106,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       client.data.userId = payload.sub;
       client.data.epoch = payload.epoch ?? 0;
       await client.join(`user:${payload.sub}`);
+      // Комната семейства сессии — точечный разрыв при её отзыве (`auth.families.revoked`)
+      if (payload.fam) await client.join(`fam:${payload.fam}`);
 
       // Клиентские события — через реестр (динамические хендлеры вместо декораторов).
       client.onAny((event: string, data: unknown) => {

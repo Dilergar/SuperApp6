@@ -27,6 +27,8 @@ export const AUDIENCE_MAX_TTL_SEC: Record<SigningAudience, number> = {
   // Подписи версий согласий живут годами и проверяются `verifyArchival` (по окну жизни версии),
   // поэтому старой версии незачем оставаться `active` дольше кэша соседних инстансов
   consents: 3600,
+  // Дайджесты и манифесты архива журнала безопасности — так же архивные (`verifyArchival`)
+  audit: 3600,
 };
 
 /**
@@ -110,18 +112,37 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
     return total;
   }
 
+  /** Курсор пачек по id: числовой у целых id (индекс работает), иначе — по тексту. */
+  private idCursor(def: EncryptedColumnDef) {
+    const idCol = Prisma.raw(`"${def.idColumn}"`);
+    return def.idNumeric
+      ? {
+          start: '0',
+          gt: (cursor: string) => Prisma.sql`${idCol} > ${cursor}::bigint`,
+          order: Prisma.sql`${idCol}`,
+          eq: (id: string) => Prisma.sql`${idCol} = ${id}::bigint`,
+        }
+      : {
+          start: '',
+          gt: (cursor: string) => Prisma.sql`${idCol}::text > ${cursor}`,
+          order: Prisma.sql`${idCol}::text`,
+          eq: (id: string) => Prisma.sql`${idCol}::text = ${id}`,
+        };
+  }
+
   private async reencryptColumn(def: EncryptedColumnDef): Promise<number> {
     const table = qualifiedTable(def);
     const col = Prisma.raw(`"${def.column}"`);
     const idCol = Prisma.raw(`"${def.idColumn}"`);
     const scopeCol = def.scopeColumn ? Prisma.raw(`"${def.scopeColumn}"`) : null;
-    let cursor = '';
+    const ids = this.idCursor(def);
+    let cursor = ids.start;
     let total = 0;
     for (;;) {
       const rows = await this.db.$queryRaw<Array<{ id: string; value: string; owner: string | null }>>`
         SELECT ${idCol}::text AS id, ${col} AS value, ${scopeCol ? Prisma.sql`${scopeCol}::text` : Prisma.sql`NULL`} AS owner FROM ${table}
-        WHERE ${col} IS NOT NULL AND ${col} <> '' AND ${col} NOT LIKE 'sa6e:%' AND ${this.discriminatorWhere(def)} AND ${idCol}::text > ${cursor}
-        ORDER BY ${idCol}::text LIMIT ${KEYS_LIMITS.rewrapBatch}`;
+        WHERE ${col} IS NOT NULL AND ${col} <> '' AND ${col} NOT LIKE 'sa6e:%' AND ${this.discriminatorWhere(def)} AND ${ids.gt(cursor)}
+        ORDER BY ${ids.order} LIMIT ${KEYS_LIMITS.rewrapBatch}`;
       if (!rows.length) break;
       for (const row of rows) {
         const plain = def.legacyDecrypt!(row.value);
@@ -137,7 +158,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
           continue;
         }
         // Только если строка не изменилась с момента чтения (параллельная запись уже envelope)
-        await this.db.$executeRaw`UPDATE ${table} SET ${col} = ${next} WHERE ${idCol}::text = ${row.id} AND ${col} = ${row.value}`;
+        await this.db.$executeRaw`UPDATE ${table} SET ${col} = ${next} WHERE ${ids.eq(row.id)} AND ${col} = ${row.value}`;
         total++;
       }
       cursor = rows[rows.length - 1]!.id;
@@ -272,15 +293,16 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
     const col = Prisma.raw(`"${def.column}"`);
     const idCol = Prisma.raw(`"${def.idColumn}"`);
     const ctx = { entity: def.entity, field: def.field, ownerType: scope.type, ownerId: scope.type === 'platform' ? 'platform' : scope.id };
-    let cursor = '';
+    const ids = this.idCursor(def);
+    let cursor = ids.start;
     let rewrapped = 0;
     let broken = 0;
     for (;;) {
       const rows = await this.db.$queryRaw<Array<{ id: string; value: string }>>`
         SELECT ${idCol}::text AS id, ${col} AS value FROM ${table}
         WHERE ${this.ownerWhere(def, scope)} AND ${col} LIKE 'sa6e:1:%' AND ${col} NOT LIKE ${`sa6e:1:${primaryKid}:%`}
-          AND ${idCol}::text > ${cursor}
-        ORDER BY ${idCol}::text LIMIT ${KEYS_LIMITS.rewrapBatch}`;
+          AND ${ids.gt(cursor)}
+        ORDER BY ${ids.order} LIMIT ${KEYS_LIMITS.rewrapBatch}`;
       if (!rows.length) break;
       for (const row of rows) {
         // Исход расшифровки различает «строка бита» (повтор не вылечит) и «ключ недоступен» (повтор нужен)
@@ -300,7 +322,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
           continue;
         }
         // Только если строка не изменилась с момента чтения (иначе новая запись уже под primary)
-        await this.db.$executeRaw`UPDATE ${table} SET ${col} = ${next} WHERE ${idCol}::text = ${row.id} AND ${col} = ${row.value}`;
+        await this.db.$executeRaw`UPDATE ${table} SET ${col} = ${next} WHERE ${ids.eq(row.id)} AND ${col} = ${row.value}`;
         rewrapped++;
       }
       cursor = rows[rows.length - 1]!.id;
@@ -415,13 +437,14 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
       const slotCol = this.slotColumn(def, target);
       const idCol = Prisma.raw(`"${def.idColumn}"`);
       const scopeCol = def.scopeColumn ? Prisma.raw(`"${def.scopeColumn}"`) : null;
-      let cursor = '';
+      const ids = this.idCursor(def);
+      let cursor = ids.start;
       for (;;) {
         if (Date.now() > deadline) return { ...out, timedOut: true };
         const rows = await this.db.$queryRaw<Array<{ id: string; value: string; owner: string | null }>>`
           SELECT ${idCol}::text AS id, ${col} AS value, ${scopeCol ? Prisma.sql`${scopeCol}::text` : Prisma.sql`NULL`} AS owner FROM ${table}
-          WHERE ${this.outsideSlotWhere(def, target)} AND ${idCol}::text > ${cursor}
-          ORDER BY ${idCol}::text LIMIT ${KEYS_LIMITS.rewrapBatch}`;
+          WHERE ${this.outsideSlotWhere(def, target)} AND ${ids.gt(cursor)}
+          ORDER BY ${ids.order} LIMIT ${KEYS_LIMITS.rewrapBatch}`;
         if (!rows.length) break;
         for (const row of rows) {
           const scope: KeyScopeRef = def.scope === 'platform' ? { type: 'platform' } : { type: def.scope, id: row.owner ?? '' };
@@ -442,7 +465,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
           const next = this.envelope.blindIndexWith(target, bi.name, bi.normalize(plain));
           try {
             // Только если значение не сменилось с момента чтения: иначе индекс СТАРОГО номера лёг бы поверх нового
-            await this.db.$executeRaw`UPDATE ${table} SET ${slotCol} = ${next} WHERE ${idCol}::text = ${row.id} AND ${col} = ${row.value}`;
+            await this.db.$executeRaw`UPDATE ${table} SET ${slotCol} = ${next} WHERE ${ids.eq(row.id)} AND ${col} = ${row.value}`;
             out.filled++;
           } catch (err) {
             // Уникум слота: такое значение уже занято другой строкой (дубль, возникший, пока чей-то KEK

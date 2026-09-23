@@ -27,6 +27,8 @@ cd ../api-client && pnpm build
 cd apps/api && pnpm db:generate && npx prisma migrate deploy
 #    Изменил схему в разработке → pnpm db:migrate (создаёт+применяет миграцию).
 #    db push НЕ ИСПОЛЬЗОВАТЬ — разойдётся с историей миграций.
+#    Прод/стейдж: ПОСЛЕ migrate deploy — роли журнала безопасности (владелец ≠ роль приложения):
+#    psql "$ADMIN_DATABASE_URL" -v app_role=<роль приложения> -f apps/api/scripts/db-roles.sql
 
 # 5. Всё сразу
 pnpm dev
@@ -53,6 +55,7 @@ powershell -Command "cd apps/web; npx next dev"             # Web → http://loc
 ```bash
 pnpm lint:guard   # из КОРНЯ: оба стража (~7с) — граница API↔клиенты (веб) + исходящий HTTP (API)
 pnpm check:docs   # страж документации (~2с): пути, индекс, env, рёбра модулей — см. testing_verify_suite.md
+pnpm check:audit  # страж реестра журнала безопасности (~1с): каталоги, запрещённые слова деталей, живые ключи пишутся
 ```
 Страж отдельный от `lint`, потому что `lint` API = полный tsc, который падает по памяти. В CI — отдельные шаги.
 

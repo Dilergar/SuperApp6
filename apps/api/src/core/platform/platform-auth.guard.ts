@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, Injectable, NotFoundException } from '@n
 import { Reflector } from '@nestjs/core';
 import { randomUUID } from 'crypto';
 import type { Request } from 'express';
+import type { RequestWithContext } from '../../shared/context/request-context';
 import { PLATFORM_ERROR_CODES, PLATFORM_LIMITS } from '@superapp/shared';
 import { badRequest, forbidden, unauthorized } from '../../shared/errors/api-error';
 import {
@@ -53,8 +54,9 @@ export class PlatformAuthGuard implements CanActivate {
     const raw = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : null;
     if (!raw) throw unauthorized('auth.unauthorized');
 
-    const requestIdHeader = req.headers['x-request-id'];
-    const requestId = typeof requestIdHeader === 'string' && requestIdHeader.length <= 64 ? requestIdHeader : randomUUID();
+    // id запроса — ОДИН на платформу (core/audit): его ставит middleware контекста запроса,
+    // эхом уходит в ответ и в `details.requestId` отказа; журнал Кабинета пишет тот же
+    const requestId = (req as RequestWithContext).ctx?.requestId ?? randomUUID();
     const actor = await this.auth.authenticate(raw, {
       ip: req.ip ?? null,
       userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'].slice(0, 300) : null,

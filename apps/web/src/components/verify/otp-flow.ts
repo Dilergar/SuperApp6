@@ -93,7 +93,7 @@ function errorDetails(err: unknown): VerifyErrorDetails | undefined {
 
 export function useOtpFlow() {
   const [s, setS] = useState<OtpState>(initial);
-  const lastStart = useRef<{ path: string; body: Record<string, unknown> } | null>(null);
+  const lastStart = useRef<{ path: string; body: Record<string, unknown>; chain?: string } | null>(null);
 
   // Тикающий таймер ресенда
   useEffect(() => {
@@ -114,9 +114,10 @@ export function useOtpFlow() {
   }, []);
 
   const runStart = useCallback(
-    async (path: string, body: Record<string, unknown>): Promise<boolean> => {
-      lastStart.current = { path, body };
-      const purpose = String(body.purpose);
+    async (path: string, body: Record<string, unknown>, chain?: string): Promise<boolean> => {
+      lastStart.current = { path, body, chain };
+      // Цель цепочки для памяти «живой цепочки»: у публичных ручек заморозки её нет в теле
+      const purpose = chain ?? String(body.purpose);
       const phone = (body.newPhone ?? body.phone) as string | undefined;
       setS((p) => ({ ...p, busy: true, error: '', errorCode: null, code: '', attemptsLeft: null, devCode: null }));
       try {
@@ -166,10 +167,22 @@ export function useOtpFlow() {
    */
   const startStepUp = useCallback(
     (
-      purpose: Extract<VerifyPurpose, 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete'>,
+      purpose: Extract<VerifyPurpose, 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete' | 'security_confirm'>,
       password: string,
       newPhone?: string,
     ) => runStart('/verify/step-up', newPhone ? { purpose, password, newPhone } : { purpose, password }),
+    [runStart],
+  );
+
+  /**
+   * Заморозка без входа (core/audit): код на номер. Неизвестный номер отвечает тем же
+   * успехом — страница не выдаёт, есть ли такой аккаунт.
+   */
+  const startFreeze = useCallback((phone: string) => runStart('/auth/freeze/start', { phone }, 'account_freeze'), [runStart]);
+
+  /** Разморозка: СТАРЫЙ пароль проверяется до отправки кода. */
+  const startUnfreeze = useCallback(
+    (phone: string, password: string) => runStart('/auth/unfreeze/start', { phone, password }, 'account_unfreeze'),
     [runStart],
   );
 
@@ -177,7 +190,7 @@ export function useOtpFlow() {
   const resend = useCallback(async () => {
     if (!lastStart.current) return;
     try {
-      await runStart(lastStart.current.path, lastStart.current.body);
+      await runStart(lastStart.current.path, lastStart.current.body, lastStart.current.chain);
     } catch {
       /* сообщение уже в state.error */
     }
@@ -217,7 +230,7 @@ export function useOtpFlow() {
     setS(initial);
   }, []);
 
-  return { ...s, startPublic, startStepUp, resend, check, setCode, reset };
+  return { ...s, startPublic, startStepUp, startFreeze, startUnfreeze, resend, check, setCode, reset };
 }
 
 export type OtpFlow = ReturnType<typeof useOtpFlow>;

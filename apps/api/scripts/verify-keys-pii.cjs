@@ -6,9 +6,9 @@
 // таблицами (users.phone_bi = verify_challenges.phone_bi того же номера); режим
 // `encrypted`: логин по слепому индексу, /users/me отдаёт расшифрованный номер, поиск
 // приглашений по номеру, платформенный lookup по номеру и ИИН, журнал чтений ПДн
-// (pii_access_log) при чтении ИИН; в конце режим возвращается в legacy.
+// (событие `pii.read` журнала безопасности) при чтении ИИН; в конце режим возвращается в legacy.
 // Run: node apps/api/scripts/verify-keys-pii.cjs
-const { SUITE, call, login, makeChecker, consoleLogin } = require('./_lib.cjs');
+const { SUITE, call, login, makeChecker, consoleLogin, createSuiteWorkspace, crash } = require('./_lib.cjs');
 const { PrismaClient } = require('@prisma/client');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -24,6 +24,11 @@ function makeIin(base11) {
   return base11 + String(c);
 }
 const IIN = makeIin('90010130012');
+// Номер, которого нет ни у кого, — СВОЙ на каждый прогон. Защита входа (core/audit) блокирует
+// и неизвестный номер: 5 неудач за 10 минут → 429 с удвоением до суток. Один постоянный номер
+// с тремя неудачами за прогон ложился уже на втором прогоне подряд. Диапазон +7700998xxxx
+// аккаунтов не имеет; счётчик неудачи живёт 10 минут и сам уходит из Redis.
+const UNKNOWN_PHONE = `+7700998${String(Math.floor(Math.random() * 1e4)).padStart(4, '0')}`;
 
 async function main() {
   const { check, finish } = makeChecker();
@@ -74,7 +79,7 @@ async function main() {
     check('contact_invitations.to_phone_enc/bi written (sender KEK)', isEnv(invRow?.toPhoneEnc) && isBi(invRow?.toPhoneBi));
 
     // Организация: приглашение по номеру + контрагент с телефоном/e-mail + счёт
-    const ws = await call('POST', '/workspaces', s1.token, { name: `pii-ws-${Date.now()}` });
+    const ws = await createSuiteWorkspace(s1.token, 'Сьют-ПДн');
     check('workspace create', ws.ok, ws.status);
     const wsId = ws.json?.data?.id;
     const H = { 'X-Workspace-Id': wsId };
@@ -108,7 +113,7 @@ async function main() {
     const me1 = await call('GET', '/users/me', s1.token);
     check('encrypted: iin decrypts back (sensitive field)', me1.json?.data?.iin === IIN, me1.json?.data?.iin);
     check('encrypted: address decrypts back', me1.json?.data?.residentialAddress === 'Almaty, Abay 1');
-    const wrongLogin = await call('POST', '/auth/login', null, { phone: '+77009990999', password: SUITE.password });
+    const wrongLogin = await call('POST', '/auth/login', null, { phone: UNKNOWN_PHONE, password: SUITE.password });
     check('encrypted: unknown number → 401 (no leak)', wrongLogin.status === 401);
     // Повтор приглашения тем же номером → отказ: проверка pending идёт по слепому индексу
     const dup = await call('POST', '/contacts/invitations', s1.token, { toPhone: EXT_PHONE });
@@ -129,12 +134,16 @@ async function main() {
       const byIin = await call('GET', `/platform/lookup?q=${IIN}`, cl.token);
       check('encrypted: console lookup by IIN hits', byIin.ok && JSON.stringify(byIin.json).includes(s1.id), `${byIin.status} ${JSON.stringify(byIin.json).slice(0, 160)}`);
     } else console.log('  (suite1 is not platform staff — console lookup skipped)');
-    // Журнал чтений ПДн: чтение ИИН через /users/me → строка pii_access_log
+    // Журнал чтений ПДн: чтение ИИН через /users/me → событие `pii.read` журнала безопасности (core/audit)
     await sleep(2500);
-    const logRow = await prisma.piiAccessLog.findFirst({ where: { entity: 'user', actorId: s1.id, fields: { has: 'iin' } }, orderBy: { id: 'desc' } });
-    check('pii_access_log: reading IIN is journaled (actor, entity, fields)', !!logRow && logRow.count >= 1, JSON.stringify(logRow ? { ...logRow, id: String(logRow.id) } : null).slice(0, 160));
-    const nophoneLog = await prisma.piiAccessLog.findFirst({ where: { entity: 'user', fields: { has: 'phone' } } });
-    check('pii_access_log: phone (contact field) is not journaled', !nophoneLog);
+    const logRow = await prisma.securityEvent.findFirst({
+      where: { eventKey: 'pii.read', actorId: s1.id, AND: [{ details: { path: ['entity'], equals: 'user' } }, { details: { path: ['fields'], array_contains: ['iin'] } }] },
+      orderBy: { id: 'desc' },
+      select: { id: true, details: true, actorId: true },
+    });
+    check('pii.read: reading IIN is journaled (actor, entity, fields)', !!logRow && Number(logRow.details?.count) >= 1, JSON.stringify(logRow ? { ...logRow, id: String(logRow.id) } : null).slice(0, 160));
+    const nophoneLog = await prisma.securityEvent.findFirst({ where: { eventKey: 'pii.read', details: { path: ['fields'], array_contains: ['phone'] } } });
+    check('pii.read: phone (contact field) is not journaled', !nophoneLog);
     // OTP-цепочка в encrypted: start → check (dev-код) → пропуск
     const otp2 = await call('POST', '/verify/start', null, { phone: SUITE.p3, purpose: 'password_reset' });
     if (otp2.ok) {
@@ -177,7 +186,7 @@ async function main() {
       check(`${label}: sign-in works right after the switch (search by the new slot)`, lgAfter.ok, lgAfter.status);
       const meAfter = await call('GET', '/users/me', lgAfter.json?.data?.accessToken ?? s2.token);
       check(`${label}: the account found after the switch is the same person`, meAfter.json?.data?.id === s2.id, meAfter.json?.data?.id);
-      const unknownAfter = await call('POST', '/auth/login', null, { phone: '+77009990999', password: SUITE.password });
+      const unknownAfter = await call('POST', '/auth/login', null, { phone: UNKNOWN_PHONE, password: SUITE.password });
       check(`${label}: unknown number is still unknown`, unknownAfter.status === 401, unknownAfter.status);
       const stray = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM "users" WHERE "phone_enc" IS NOT NULL AND ("${colOf(newSlot, 'phone')}" IS NULL OR "${colOf(newSlot, 'phone')}" NOT LIKE 'sa6b:1:${newKid}:%')`);
       check(`${label}: every user row carries the new-slot index`, Number(stray[0]?.n ?? 1) === 0, JSON.stringify(stray));
@@ -224,7 +233,7 @@ async function main() {
     // cleanup
     if (inv.ok) await call('POST', `/contacts/invitations/${inv.json.data.id}/cancel`, s1.token).catch(() => undefined);
     await call('PATCH', '/users/me', s1.token, { iin: null, residentialAddress: null, email: null }).catch(() => undefined);
-    if (wsId) await call('DELETE', `/workspaces/${wsId}`, s1.token).catch(() => undefined);
+    // организацию прогона архивирует finish() — и на падении тоже (crash)
   } finally {
     await setMode('legacy').catch(() => undefined);
     await prisma.$disconnect();
@@ -232,7 +241,4 @@ async function main() {
   finish();
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main().catch(crash);

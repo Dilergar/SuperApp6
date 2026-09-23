@@ -433,7 +433,8 @@
     "workspaces": "Organizations",
     "keys": "Keys and bots",
     "webhooks": "Webhooks",
-    "consents": "Consents and documents"
+    "consents": "Consents and documents",
+    "audit": "Security"
   },
   "events": {
     "analytics": {
@@ -485,6 +486,12 @@
         "registered": {
           "description": "The server created an account, with a confirmed number or without one",
           "title": "Account created"
+        }
+      },
+      "account": {
+        "frozen": {
+          "title": "Account frozen",
+          "description": "Sign-in, sessions and keys were closed by the owner without signing in or by the platform"
         }
       }
     },
@@ -685,6 +692,32 @@
         "declined": {
           "title": "New terms declined",
           "description": "“I do not accept” was chosen on the blocking screen"
+        }
+      }
+    },
+    "audit": {
+      "feed": {
+        "viewed": {
+          "title": "Security feed viewed",
+          "description": "A person opened their security activity or an organization admin opened the security log"
+        }
+      },
+      "not_me": {
+        "completed": {
+          "title": "“This wasn’t me” completed",
+          "description": "The wizard ended: sessions and keys were revoked, the password and the number were checked"
+        }
+      },
+      "export": {
+        "requested": {
+          "title": "Security log export requested",
+          "description": "An organization ordered an export of its security log to the Drive"
+        }
+      },
+      "device": {
+        "forgotten": {
+          "title": "Device forgotten",
+          "description": "A person removed a device from the trusted list and ended its sessions"
         }
       }
     }

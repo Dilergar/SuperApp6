@@ -506,6 +506,18 @@ export class DocsService implements OnModuleInit {
   }
 
   /**
+   * Каскад окончательного удаления организации: ВСЕ документы владельца проходят
+   * единственную точку конца жизни (`archive`) — пропуска редактора гаснут, снимки-вехи
+   * (кроме подписанных) и якорь снимаются, ссылки наружу отзываются. Уже закрытые тоже:
+   * archive идемпотентен и добирает их хвосты. Права проверяет вызывающий.
+   */
+  async archiveAllOwnedBy(ownerType: 'user' | 'workspace', ownerId: string): Promise<number> {
+    const rows = await this.db.document.findMany({ where: { ownerType, ownerId }, select: { id: true } });
+    for (const r of rows) await this.archive(r.id);
+    return rows.length;
+  }
+
+  /**
    * Запуск редактора: адрес узла + одноразовая пара «токен + WOPISrc» для form POST.
    *
    * Режим НЕ кладём в WOPISrc: клиент выводит из него ключ документа, и разные WOPISrc

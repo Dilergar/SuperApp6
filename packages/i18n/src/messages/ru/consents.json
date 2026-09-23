@@ -42,7 +42,11 @@
     "transfersEmpty": "Передач пока не было",
     "crossBorder": "За пределы Казахстана",
     "byYou": "Ваше собственное действие",
-    "loadFailed": "Не удалось загрузить"
+    "loadFailed": "Не удалось загрузить",
+    "securityLogTitle": "Журнал безопасности",
+    "securityLogHint": "Все события безопасности вашего аккаунта за весь срок хранения — с полными IP-адресами ваших собственных входов и действий. Файл JSON.",
+    "securityLogDownload": "Скачать",
+    "securityLogTruncated": "В файле — {count, number} новейших событий"
   },
   "purposes": {
     "otp_sms": "Код подтверждения по SMS",

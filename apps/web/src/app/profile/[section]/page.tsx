@@ -1,12 +1,11 @@
 'use client';
 
-import { Button, Chip, Input, Select } from '@/components/ui';
+import { Button, Input, LoadingBlock, Select } from '@/components/ui';
 import { useState, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
-import { apiDelete, apiErrorMessage, apiGet, apiPatch } from '@/lib/api';
-import { useConfirm } from '@/components/ui/useConfirm';
+import { apiGet, apiPatch } from '@/lib/api';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useFormatters } from '@/lib/format';
 import { useLocale, useTranslations } from 'next-intl';
@@ -16,7 +15,6 @@ import {
   resolveCardVisibility,
   type CardVisibility,
   type Circle,
-  type SessionInfo,
 } from '@superapp/shared';
 import { PersonCard } from '../../circles/PersonCard';
 import { WalletSection } from '../WalletSection';
@@ -24,7 +22,8 @@ import { SkinsSection } from '../SkinsSection';
 import { NotificationsSection } from '../NotificationsSection';
 import { KeysSection } from '../KeysSection';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
-import { ChangePasswordDialog, ChangePhoneDialog } from './security-dialogs';
+import { SecuritySection } from '@/components/security/SecuritySection';
+import { LazyNamespace } from '@/i18n/LazyNamespace';
 import type { CardSkinRender } from '../../circles/card-skin';
 import { PlanAndLimits } from '@/components/entitlements';
 
@@ -86,13 +85,9 @@ export default function ProfileSectionPage() {
   const { isReady, user: profile } = useRequireAuth();
   const fetchProfile = useAuthStore((s) => s.fetchProfile);
 
-  const [sessions, setSessions] = useState<SessionInfo[]>([]);
-  const [confirm, confirmUI] = useConfirm();
   const [groups, setGroups] = useState<Circle[]>([]);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
-  const [showPasswordDialog, setShowPasswordDialog] = useState(false);
-  const [showPhoneDialog, setShowPhoneDialog] = useState(false);
 
   const [editData, setEditData] = useState({
     firstName: '', lastName: '', bio: '', city: '', email: '',
@@ -299,48 +294,6 @@ export default function ProfileSectionPage() {
     }, 600);
   };
 
-  const fetchSessions = async () => {
-    try {
-      setSessions(await apiGet<SessionInfo[]>('/users/me/sessions'));
-    } catch {
-      setError(t('security.sessionsFailed'));
-    }
-  };
-
-  const dropSession = async (sessionId: string) => {
-    try {
-      await apiDelete(`/users/me/sessions/${sessionId}`);
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      setSuccessMsg(t('security.sessionEnded'));
-    } catch (err: unknown) {
-      setError(apiErrorMessage(err));
-    }
-  };
-
-  const handleDeleteSession = (session: SessionInfo) => {
-    clear();
-    // Завершить СВОЮ сессию можно, но молча это делать нельзя: человек выйдет прямо
-    // здесь. Раньше кнопка ничем не отличалась от «закрыть чужое устройство», а
-    // маркера «Текущая» не было вовсе — сервер его не считал.
-    if (session.isCurrent) {
-      confirm(
-        {
-          title: t('security.currentTitle'),
-          message: t('security.currentText'),
-          confirmLabel: t('security.currentConfirm'),
-          danger: true,
-        },
-        () => dropSession(session.id),
-      );
-      return;
-    }
-    void dropSession(session.id);
-  };
-
-  useEffect(() => {
-    if (section === 'security' && isReady) fetchSessions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [section, isReady]);
 
   if (!isReady || !profile) {
     return <p className="label-md" style={{ fontSize: '1rem' }}>{common('state.loading')}</p>;
@@ -737,62 +690,15 @@ export default function ProfileSectionPage() {
         </div>
       )}
 
-      {/* === Security === */}
+      {/* === Security === (core/audit: устройства, сессии, лента, «Это не я») */}
       {section === 'security' && (
         <div>
           <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-6)' }}>{t('security.title')}</h2>
-
-          <h3 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>{t('security.sessions')}</h3>
-          {confirmUI}
-          {sessions.length === 0 ? (
-            <p className="label-md">{t('security.noSessions')}</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', maxWidth: '500px' }}>
-              {sessions.map((s) => (
-                <div key={s.id} className="card" style={{ padding: 'var(--spacing-4)', display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500, fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-                      {s.deviceInfo || t('security.unknownDevice')}
-                      {s.isCurrent && <Chip tone="accent" size="sm">{t('security.current')}</Chip>}
-                    </div>
-                    <div className="label-sm">{t('security.lastActive', { date: fmt.dateTime(s.lastActive) })}</div>
-                  </div>
-                  <button onClick={() => handleDeleteSession(s)}
-                    style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500 }}
-                  >
-                    {t('security.endSession')}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ marginTop: 'var(--spacing-8)' }}>
-            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)' }}>{t('security.passwordPhone')}</h3>
-            <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.75, maxWidth: '460px', lineHeight: 1.5 }}>
-              {t('security.passwordPhoneText')}
-            </p>
-            <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
-              <button className="btn-ghost-inline" style={{ fontSize: '0.85rem' }} onClick={() => setShowPasswordDialog(true)}>
-                {t('security.changePassword')}
-              </button>
-              <button className="btn-ghost-inline" style={{ fontSize: '0.85rem' }} onClick={() => setShowPhoneDialog(true)}>
-                {t('security.changePhone')}
-              </button>
-            </div>
-          </div>
-
-          <div style={{ marginTop: 'var(--spacing-8)' }}>
-            <h3 className="title-md" style={{ marginBottom: 'var(--spacing-3)', color: 'var(--danger)' }}>{t('security.dangerZone')}</h3>
-            {/* Удаление = отзыв согласия на обработку ПДн: мастер с блокерами и SMS-подтверждением (core/consents) */}
-            <Button variant="outline" tone="danger" href="/account/delete">{t('security.deleteAccount')}</Button>
-          </div>
+          <LazyNamespace ns="audit" fallback={<LoadingBlock />}>
+            <SecuritySection />
+          </LazyNamespace>
         </div>
       )}
-
-      {/* Смена пароля / номера (движок core/verify) */}
-      {showPasswordDialog && <ChangePasswordDialog onClose={() => setShowPasswordDialog(false)} />}
-      {showPhoneDialog && <ChangePhoneDialog onClose={() => setShowPhoneDialog(false)} />}
 
     </div>
   );

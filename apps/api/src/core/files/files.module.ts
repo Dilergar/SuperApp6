@@ -35,6 +35,8 @@ import { S3StorageDriver } from './storage/s3.driver';
     FilesCron,
     FilesContentLengthGuard,
   ],
-  exports: [FilesService, FilesRefRegistry],
+  // Драйвер хранилища — движкам, чьи объекты НЕ файлы продукта (архив журнала безопасности
+  // и копии его дайджестов, core/audit): без строки FileObject, квоты и антивируса
+  exports: [FilesService, FilesRefRegistry, STORAGE_DRIVER],
 })
 export class FilesModule {}

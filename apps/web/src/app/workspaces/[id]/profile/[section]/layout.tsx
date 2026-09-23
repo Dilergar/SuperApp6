@@ -11,6 +11,7 @@ export default function WorkspaceProfileSectionLayout({ children }: { children: 
   // `counterparties` рядом с `workspaces`: основание подписи в реквизитах — одно
   // понятие на обе стороны договора, и слова к нему живут в неймспейсе
   // контрагентов. Вложенный ServiceMessages ЗАМЕНЯЕТ словарь, а не дополняет:
-  // не назвав его здесь, форма получила бы ключ вместо слова.
-  return <ServiceMessages ns={['workspaces', 'notifications', 'counterparties', 'entitlements']}>{children}</ServiceMessages>;
+  // не назвав его здесь, форма получила бы ключ вместо слова. `circles` — выбор
+  // директора в реквизитах рисует людей карточками (PersonChip).
+  return <ServiceMessages ns={['workspaces', 'notifications', 'counterparties', 'entitlements', 'circles']}>{children}</ServiceMessages>;
 }

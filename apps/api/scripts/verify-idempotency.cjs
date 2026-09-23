@@ -10,7 +10,7 @@
 // ============================================================
 const { randomUUID } = require('crypto');
 const { PrismaClient } = require('@prisma/client');
-const { SUITE, call, login, makeChecker } = require('./_lib.cjs');
+const { SUITE, call, login, makeChecker, createSuiteWorkspace, archiveSuiteWorkspace, crash } = require('./_lib.cjs');
 
 const prisma = new PrismaClient();
 const { check, finish } = makeChecker();
@@ -363,7 +363,7 @@ async function main() {
     // движок отдавал снимок до chokepoint'а, исключённый сотрудник забирал бы ответы
     // организации сколько угодно. Интерцептор движка стоит ПОСЛЕДНИМ из глобальных
     // именно поэтому: проверка членства отрабатывает заново на КАЖДОМ повторе.
-    const ws = await call('POST', '/workspaces', u1.token, { name: 'Сьют-Идемпотентность' });
+    const ws = await createSuiteWorkspace(u1.token, 'Сьют-Идемпотентность');
     check('организация для проверки отзыва создана', ws.ok, `${ws.status} ${ws.json?.message ?? ''}`);
     const wsId = ws.json?.data?.id ?? null;
     if (wsId) {
@@ -392,8 +392,8 @@ async function main() {
       // Эффект остался ОДИН: отказ гарда не исполняет ручку заново
       check('второго эффекта отказ не создал', (await effects(u2.token, tag)) === 1, '');
 
-      // Прибираем за собой: организация уходит в архив (полная чистка — gc-test-workspaces.cjs)
-      await call('DELETE', `/workspaces/${wsId}`, u1.token);
+      // Прибираем за собой сразу: организация уходит в архив (полная чистка — gc-test-workspaces.cjs)
+      await archiveSuiteWorkspace(wsId);
     }
   }
 
@@ -419,7 +419,9 @@ async function main() {
         `status=${replay.json?.data?.status}`,
       );
       check('и той же задачи, а не второй', replay.json?.data?.id === taskId, `${replay.json?.data?.id}`);
-      const mine = await call('GET', '/tasks', u1.token);
+      // Поиском по уникальному названию, а не первой страницей: инбокс сортирует по
+      // приоритету и сроку, и свежая задача без срока у накопленного аккаунта на неё не попадает
+      const mine = await call('GET', `/tasks?search=${encodeURIComponent(title)}`, u1.token);
       const same = (mine.json?.data?.items ?? []).filter((t) => t.title === title).length;
       check('второй задачи не появилось', same === 1, `задач с этим названием: ${same}`);
 
@@ -539,7 +541,6 @@ async function ledgerMintCount(userId) {
 }
 
 main().catch(async (e) => {
-  console.error(e);
   await prisma.$disconnect().catch(() => undefined);
-  process.exit(1);
+  await crash(e);
 });

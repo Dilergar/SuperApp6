@@ -428,8 +428,8 @@ async function main() {
     try { await db().$executeRawUnsafe(`UPDATE "pd_incident_events" SET "note" = 'x' WHERE "incident_id" = '${inc.json.data.id}'`); } catch { immut = true; }
     check('события инцидента append-only (триггер базы)', immut);
     let pdImmut = false;
-    try { await db().$executeRawUnsafe(`DELETE FROM "pd_action_records" WHERE "subject_id" = '${(await call('GET', '/users/me', tA)).json.data.id}'`); } catch { pdImmut = true; }
-    check('учёт действий с ПДн append-only (триггер базы на партициях)', pdImmut);
+    try { await db().$executeRawUnsafe(`DELETE FROM "security_events" WHERE "subject_user_id" = '${(await call('GET', '/users/me', tA)).json.data.id}'::uuid AND ("event_key" LIKE 'pd.%' OR "event_key" LIKE 'consents.%')`); } catch { pdImmut = true; }
+    check('учёт действий с ПДн (события pd.*/consents.* журнала безопасности) append-only (триггер базы на партициях)', pdImmut);
   } catch (e) { skip('append-only уровня базы', e.message); }
 
   // ------------------------------------------------------------------
@@ -504,6 +504,13 @@ async function main() {
       const s2me = await call('GET', '/users/me', s2.token);
       const attest = await run('consents.document.attest', { versionId: docs.ru.versionId, signerUserId: s2me.json.data.id }, { reason: 'suite: certification of a version by the digital signature of the head' });
       if (attest.ok) check('команда consents.document.attest: заявка на ЭЦП заведена через core/sign', !!attest.json.data.result?.signRequestId, JSON.stringify(attest.json.data.result));
+      // Заявку закрывает сам подписант штатным отказом: иначе каждый прогон копит незакрытую
+      // ЭЦП в «Ждут решения» suite2 (стопка — 50 старейших на источник) и роняет verify-sign
+      const attestReq = attest.json?.data?.result?.signRequestId;
+      if (attestReq) {
+        const act = await db().signAct.findFirst({ where: { requestId: attestReq, signerUserId: s2me.json.data.id, status: 'pending' }, select: { id: true } });
+        if (act) await call('POST', `/sign/acts/${act.id}/decline`, s2.token, { reason: 'suite: attestation drill closed' });
+      }
       else if (attest.code === 'consents.pdfUnavailable') skip('заверение ЭЦП', 'печать в PDF выключена (GOTENBERG_URL)');
       else check('команда consents.document.attest', false, `${attest.status} ${codeOf(attest)}`);
       const incOpen = await run('pd.incident.open', { kind: 'other', scope: 'e2e: команда кабинета', summary: 'Учебный инцидент, открытый командой кабинета платформы.' }, { reason: 'suite: incident register drill' });

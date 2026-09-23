@@ -1,6 +1,6 @@
 // Сервис «Контрагенты» (B2B): справочник, гейты, дедуп БИН, контакты, счета.
 // Аккаунты СЬЮТА (suite1/2/3); мусор прогона убирается штатным путём в конце.
-const { call, login, makeChecker, SUITE } = require('./_lib.cjs');
+const { call, login, makeChecker, SUITE, createSuiteWorkspace, crash } = require('./_lib.cjs');
 
 const { check, finish } = makeChecker();
 
@@ -30,9 +30,8 @@ async function main() {
   const owner = await login(SUITE.p1);
   const trainee = await login(SUITE.p2);
 
-  // Организация прогона (уборка в конце — gc-скрипт умеет добирать хвосты)
-  const ws = (await call('POST', '/workspaces', owner.token, { name: `Сьют-Контрагенты ${Date.now()}` })).json
-    .data;
+  // Организация прогона: в архив её отправят finish()/crash() (_lib.cjs)
+  const ws = (await createSuiteWorkspace(owner.token, 'Сьют-Контрагенты')).json.data;
   check('организация создана', !!ws?.id);
 
   // Найм suite2 (Стажёр): чтение справочника ему открыто, запись — нет
@@ -259,14 +258,11 @@ async function main() {
   const asTraineeRestore = await call('POST', `${base}/${cp.id}/restore`, trainee.token);
   check('Стажёру возврат закрыт (403)', asTraineeRestore.status === 403, `got ${asTraineeRestore.status}`);
 
-  // Уборка: отменяем документ, убираем карточку в архив; организация — на gc
+  // Уборка: отменяем документ, убираем карточку в архив; организацию архивирует finish()
   await call('POST', `/workspaces/${ws.id}/documents/${freeDoc.json?.data?.id}/cancel`, owner.token);
   await call('DELETE', `${base}/${cp.id}`, owner.token);
 
   finish();
 }
 
-main().catch((e) => {
-  console.error('CRASH', e);
-  process.exit(1);
-});
+main().catch(crash);

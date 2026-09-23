@@ -12,65 +12,76 @@ datasource db {
 // ============================================================
 
 model User {
-  id               String    @id @default(uuid())
-  phone            String    @unique
+  id                   String    @id @default(uuid())
+  phone                String    @unique
   // ---- ПДн под движком ключей (core/keys, фаза D): envelope `_enc` (KEK человека, AAD)
   // + слепой индекс `_bi` там, где ищут по равенству. Открытые колонки живут до окна
   // dual-write (KEYS_PII_READ_MODE) и удаляются отдельной миграцией — docs/keys_pii.md.
-  phoneEnc         String?   @map("phone_enc")
+  phoneEnc             String?   @map("phone_enc")
   // Слепой индекс живёт в ДВУХ колонках-слотах (`_bi` — слот 0, `_bi_alt` — слот 1): каждая версия
   // ключа `blind_index` пишет в свой слот, смена ключа переключает поиск на другой слот без окна
   // простоя и без потери уникальности (docs/keys_engine.md). Вне окна смены второй слот пуст.
-  phoneBi          String?   @unique @map("phone_bi")
-  phoneBiAlt       String?   @unique @map("phone_bi_alt")
-  password         String // bcrypt hash
-  firstName        String    @map("first_name")
-  lastName         String?   @map("last_name")
+  phoneBi              String?   @unique @map("phone_bi")
+  phoneBiAlt           String?   @unique @map("phone_bi_alt")
+  password             String // bcrypt hash
+  firstName            String    @map("first_name")
+  lastName             String?   @map("last_name")
   // Отчество — реквизит документов (приказы/договоры печатают полное ФИО);
   // в продуктовых карточках не показывается (там имя+фамилия)
-  middleName       String?   @map("middle_name")
-  dateOfBirth      DateTime? @map("date_of_birth") @db.Date
-  dateOfBirthEnc   String?   @map("date_of_birth_enc")
-  avatar           String?
-  bio              String?
-  city             String?
-  email            String?   @unique
-  emailEnc         String?   @map("email_enc")
-  emailBi          String?   @unique @map("email_bi")
-  emailBiAlt       String?   @unique @map("email_bi_alt")
-  maritalStatus    String?   @map("marital_status")
-  socialLinks      Json?     @map("social_links")
-  onlineStatusMode String    @default("everyone") @map("online_status_mode")
+  middleName           String?   @map("middle_name")
+  dateOfBirth          DateTime? @map("date_of_birth") @db.Date
+  dateOfBirthEnc       String?   @map("date_of_birth_enc")
+  avatar               String?
+  bio                  String?
+  city                 String?
+  email                String?   @unique
+  emailEnc             String?   @map("email_enc")
+  emailBi              String?   @unique @map("email_bi")
+  emailBiAlt           String?   @unique @map("email_bi_alt")
+  maritalStatus        String?   @map("marital_status")
+  socialLinks          Json?     @map("social_links")
+  onlineStatusMode     String    @default("everyone") @map("online_status_mode")
   // Момент подтверждения владения номером SMS-кодом (движок core/verify).
   // null = номер не подтверждён (в production такой аккаунт создать нельзя —
   // register требует verifyToken). Наружу в DTO уходит isVerified = !!phoneVerifiedAt.
-  phoneVerifiedAt  DateTime? @map("phone_verified_at")
+  phoneVerifiedAt      DateTime? @map("phone_verified_at")
   // Поколение токенов: попадает в payload JWT и сверяется в JwtStrategy. Инкремент
   // = МГНОВЕННЫЙ отзыв всех выданных access-токенов. Без него «отозвали все сессии»
   // (сброс/смена пароля, смена номера, logout-all) удаляло только строки session, а
   // украденный access-токен продолжал работать до 15 минут — ровно те минуты, ради
   // которых сброс пароля и делают.
-  tokenEpoch       Int       @default(0) @map("token_epoch")
+  tokenEpoch           Int       @default(0) @map("token_epoch")
   // Язык интерфейса (BCP-47, SUPPORTED_LOCALES из @superapp/shared). Дефолт колонки —
   // язык РЫНКА (казахский, RegionProfile.defaultLocale), а не DEFAULT_LOCALE (английский):
   // это страховка для строк, созданных не регистрацией, и продукт сделан для Казахстана.
   // Живое значение ставит регистрация из Accept-Language (negotiateLocale: kk и ru → kk,
   // прочее → en), дальше — тумблером в профиле.
-  locale           String    @default("kk")
+  locale               String    @default("kk")
   // Пояс для текстов, которые уходят ВНЕ приложения (push, SMS, почта): на вебе
   // время показывается в поясе устройства, серверу же нужен явный.
-  timezone         String    @default("Asia/Almaty")
+  timezone             String    @default("Asia/Almaty")
   // Отказ от аналитики использования (core/analytics): применяется НА СЕРВЕРЕ при приёме —
   // product/telemetry-события не пишутся, business-факты сервера пишутся всегда.
-  analyticsOptOut  Boolean   @default(false) @map("analytics_opt_out")
+  analyticsOptOut      Boolean   @default(false) @map("analytics_opt_out")
   // Эпоха согласий человека (core/consents): глобальная эпоха, ДО которой включительно у него
   // принято всё обязательное. Шлюз сравнивает её с глобальной без ввода-вывода: значение едет
   // в кэше «аккаунт жив» рядом с tokenEpoch. Отстаёт от глобальной → ленивая перепроверка.
-  consentEpoch     Int       @default(0) @map("consent_epoch")
+  consentEpoch         Int       @default(0) @map("consent_epoch")
   // person | bot. Бот (core/keys) — теневая строка users: все FK, хроника, уведомления и
   // проекции core/access работают без переписывания; вход, SMS и роли системы боту закрыты.
   // Клиент рисует `kind: 'bot'` бот-чипом, а не PersonChip. Телефон бота — `bot:<id>`.
-  kind             String    @default("person")
+  kind                 String    @default("person")
+  // ---- core/audit: защита входа и заморозка ----
+  // Блокировка входа после серии неверных паролей (5 → 15 мин, удвоение до суток); счётчик
+  // неудач — в Redis, колонка — правда для входа (Redis мог потерять ключ).
+  loginLockedUntil     DateTime? @map("login_locked_until")
+  // Экстренная заморозка (self — сам человек без входа /freeze; platform — команда Кабинета):
+  // вход, сессии и ключи API закрыты; сброс пароля по SMS заморозку НЕ снимает (против угона
+  // SIM), разморозка = старый пароль + SMS или команда Кабинета с проверкой личности.
+  securityFrozenAt     DateTime? @map("security_frozen_at")
+  securityFrozenReason String?   @map("security_frozen_reason")
+  // Автозавершение неактивных сессий (дни): 7 | 30 | 90 | 180
+  sessionMaxIdleDays   Int       @default(90) @map("session_max_idle_days")
 
   // ---- Реквизиты («Моя Анкета» → «Для договоров и трудоустройства») ----
   // В личном окружении (Группы) НЕ показываются вовсе; коллегам — по тумблерам
@@ -116,6 +127,7 @@ model User {
 
   // Relations
   sessions           Session[]
+  devices            UserDevice[]
   roles              UserRole[]
   ownedCircles       Circle[]
   createdTasks       Task[]            @relation("TaskCreator")
@@ -192,7 +204,10 @@ model Session {
   userId       String    @map("user_id")
   token        String    @unique // refresh token hash
   deviceInfo   String?   @map("device_info")
-  lastActive   DateTime  @default(now()) @map("last_active")
+  // Последняя активность СЕМЕЙСТВА (core/audit): обновляется не чаще раза в 5 минут
+  // (дедуп в Redis `sess:seen:<family>`), на всех строках семейства сразу — «активно 5 мин
+  // назад» и автозавершение неактивных читают голову семейства.
+  lastSeenAt   DateTime  @default(now()) @map("last_seen_at")
   expiresAt    DateTime  @map("expires_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   // Семейство refresh-цепочки одного устройства (RFC 9700 §2.2.2): вход = новое
@@ -203,11 +218,38 @@ model Session {
   rotatedAt    DateTime? @map("rotated_at")
   replacedById String?   @map("replaced_by_id")
 
+  // ---- core/audit: сессия как объект для человека ----
+  // «Сессия» для человека = СЕМЕЙСТВО (строка ротируется на каждом refresh): все поля ниже
+  // наследуются `mintSession` от прокрученной строки. Полного IP здесь нет (человеку он не
+  // показывается; платформа найдёт его по `actor_family_id` события входа).
+  /// Клиентский id устройства (`X-Device-Id`; веб — localStorage, mobile — secure store)
+  deviceId        String?   @map("device_id") @db.Uuid
+  /// «Chrome · Windows» — для клиента без `X-Device-Id` (старый клиент, curl)
+  uaFamily        String?   @map("ua_family")
+  /// Сеть /24 (/48) входа
+  ipNet           String?   @map("ip_net")
+  country         String?   @db.Char(2)
+  /// web | mobile_web | mobile | api_key | console
+  client          String?
+  /// Начало семейства — это и есть «вход» для человека
+  familyCreatedAt DateTime  @default(now()) @map("family_created_at")
+  /// Мягкий отзыв: строки не удаляются (улика reuse и «кто отозвал» переживают выход).
+  /// Помечаются ВСЕ строки семейства. Причина — `SESSION_REVOKE_REASONS`.
+  revokedAt       DateTime? @map("revoked_at")
+  revokedReason   String?   @map("revoked_reason")
+  /// Cooling: новая сессия до подтверждения (step-up) либо до `familyCreatedAt + 24 ч` не
+  /// гасит чужой доступ. У семейства регистрации и первого устройства аккаунта — сразу.
+  confirmedAt     DateTime? @map("confirmed_at")
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
   @@index([familyId])
+  /// Список «Устройства и сессии» человека (свежие семейства сверху)
+  @@index([userId, familyCreatedAt(sort: Desc)])
+  // Партиальный индекс голов семейств `(last_seen_at) WHERE revoked_at IS NULL AND
+  // rotated_at IS NULL` (автозавершение неактивных) — руками в миграции core_audit.
   @@map("sessions")
 }
 
@@ -5129,67 +5171,6 @@ model PlatformPolicy {
   @@map("platform_policy")
 }
 
-/// Журнал команд — APPEND-ONLY: триггеры в миграции роняют UPDATE/DELETE и TRUNCATE.
-/// Партиальный уникум (actor_id, command_key, idempotency_key)
-///   WHERE idempotency_key IS NOT NULL — руками в миграции.
-/// Партиционирование по месяцам — позже (конвертируемо), все поля — сейчас.
-model PlatformAuditEntry {
-  id                 String    @id @default(uuid())
-  occurredAt         DateTime  @default(now()) @map("occurred_at")
-  /// null — действие системы (bootstrap владельца скриптом)
-  actorId            String?   @map("actor_id")
-  actorRolesSnapshot Json      @default("[]") @map("actor_roles_snapshot")
-  onBehalfOfId       String?   @map("on_behalf_of_id")
-  sessionId          String?   @map("session_id")
-  requestId          String?   @map("request_id")
-  commandKey         String    @map("command_key")
-  commandVersion     Int       @default(1) @map("command_version")
-  /// Вход ПОСЛЕ маскирования (`redact[]` декларации + автоматически по имени поля)
-  input              Json?
-  inputHash          String?   @map("input_hash")
-  targetType         String?   @map("target_type")
-  targetId           String?   @map("target_id")
-  targetWorkspaceId  String?   @map("target_workspace_id")
-  before             Json?
-  after              Json?
-  outcome            String // ok | denied | error
-  errorCode          String?   @map("error_code")
-  readOnly           Boolean   @default(false) @map("read_only")
-  risk               String    @default("low")
-  reason             String?
-  ticketRef          String?   @map("ticket_ref")
-  approvalId         String?   @map("approval_id")
-  stepUpAt           DateTime? @map("step_up_at")
-  idempotencyKey     String?   @map("idempotency_key")
-  dryRun             Boolean   @default(false) @map("dry_run")
-  ip                 String?
-  userAgent          String?   @map("user_agent")
-  durationMs         Int       @default(0) @map("duration_ms")
-
-  @@index([occurredAt])
-  @@index([actorId, occurredAt])
-  @@index([targetType, targetId, occurredAt])
-  @@index([commandKey, occurredAt])
-  @@map("platform_audit_entries")
-}
-
-/// Журнал ЧТЕНИЙ кабинета (поиск, карточка, раскрытие PII) — лёгкая вставка вне транзакции.
-model PlatformAccessLog {
-  id         BigInt   @id @default(autoincrement())
-  actorId    String   @map("actor_id")
-  kind       String // search | view | reveal
-  targetType String?  @map("target_type")
-  targetId   String?  @map("target_id")
-  fields     Json?
-  requestId  String?  @map("request_id")
-  occurredAt DateTime @default(now()) @map("occurred_at")
-
-  @@index([actorId, occurredAt])
-  @@index([targetType, targetId, occurredAt])
-  @@index([occurredAt])
-  @@map("platform_access_log")
-}
-
 /// Заявка four-eyes: команда с `dualControl` при включённой политике ждёт второго
 /// сотрудника (core/approvals, refType `platform_command`), затем исполняется той же
 /// транзакцией с `approvalId` в журнале. `input` — ПОЛНЫЙ (нужен исполнению);
@@ -5211,6 +5192,7 @@ model PlatformCommandRequest {
   decidedBy       String?   @map("decided_by")
   decidedAt       DateTime? @map("decided_at")
   decisionComment String?   @map("decision_comment")
+  /// `event_id` события `platform.command.executed` исполнения (core/audit)
   executedAuditId String?   @map("executed_audit_id")
   errorCode       String?   @map("error_code")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -5436,57 +5418,6 @@ model CryptoKeyVersion {
   @@index([state, destroyScheduledAt])
   @@index([rootKid])
   @@map("crypto_key_versions")
-}
-
-/// Журнал действий с ключами — append-only (триггеры immutable + no_truncate в миграции
-/// `keys_engine`): создал, ротировал, заморозил, отозвал, сменил права — кто, когда, причина.
-/// Это и есть вкладка «Журнал» реестра ключей организации.
-model KeyAuditEntry {
-  id          BigInt   @id @default(autoincrement())
-  occurredAt  DateTime @default(now()) @map("occurred_at")
-  actorId     String?  @map("actor_id")
-  /// user | bot | system | platform
-  actorKind   String   @default("user") @map("actor_kind")
-  workspaceId String?  @map("workspace_id")
-  /// crypto_key | key_version | root | bot | api_key | webhook_endpoint | policy
-  subjectType String   @map("subject_type")
-  subjectId   String   @map("subject_id")
-  /// Снимок имени — переживает удаление предмета
-  subjectName String?  @map("subject_name")
-  action      String
-  reason      String?
-  ip          String?
-  details     Json?
-
-  @@index([workspaceId, id])
-  @@index([subjectType, subjectId, id])
-  @@index([actorId, id])
-  @@map("key_audit_entries")
-}
-
-/// Журнал чтений ПДн ограниченного доступа (приказ МЦРИАП № 179/НҚ): кто, какую сущность,
-/// какие поля, сколько строк — агрегат на запрос, лёгкая вставка батчем вне транзакции.
-/// Пишет ПДн-слой движка ключей при расшифровке полей `sensitive` (ИИН, ДР, удостоверение,
-/// адрес, IBAN); телефон/e-mail — контактные, в журнал не идут. Ретеншн 365 дней.
-/// Таблица ПАРТИЦИОНИРОВАНА по месяцам `occurred_at` (миграция `keys_journal_partitions`,
-/// руками) — составной PK `(id, occurred_at)`; партиции ведёт `KeysPiiService`
-/// через `MonthlyPartitions`. Индекс `occurred_at` в БД — BRIN.
-model PiiAccessLog {
-  id          BigInt   @default(autoincrement())
-  occurredAt  DateTime @default(now()) @map("occurred_at")
-  actorId     String?  @map("actor_id")
-  /// user | system | platform | bot
-  actorKind   String   @default("user") @map("actor_kind")
-  workspaceId String?  @map("workspace_id")
-  entity      String
-  fields      String[]
-  count       Int
-  sampleIds   String[] @map("sample_ids")
-
-  @@id([id, occurredAt])
-  @@index([occurredAt])
-  @@index([actorId, occurredAt])
-  @@map("pii_access_log")
 }
 
 // ============================================================
@@ -5785,40 +5716,6 @@ model ConsentAcceptance {
   @@map("consent_acceptances")
 }
 
-/// Учёт действий с ПДн (Правила защиты ПДн № 179/НҚ п. 9 пп. 5): передача третьим лицам,
-/// трансграничная передача, распространение, срок согласия. Append-only, МЕСЯЧНЫЕ ПАРТИЦИИ
-/// по `occurred_at` (написано руками в миграции `core_consents`; зеркало — составной PK;
-/// партиции вперёд — `MonthlyPartitions.ensureAhead()`). `fields` — КОДЫ полей, никогда значения.
-model PdActionRecord {
-  id                  BigInt   @default(autoincrement())
-  /// transfer | cross_border | publication | consent_term
-  actionType          String   @map("action_type")
-  /// user | workspace
-  subjectType         String   @default("user") @map("subject_type")
-  subjectId           String   @map("subject_id")
-  /// Ключ реестра получателей `PD_RECIPIENTS`; NULL у распространения и срока согласия
-  recipientKey        String?  @map("recipient_key")
-  crossBorder         Boolean  @default(false) @map("cross_border")
-  /// ISO 3166-1 alpha-2
-  country             String?
-  /// consent | subject_action | controller_instruction | legal_obligation
-  basis               String
-  consentAcceptanceId String?  @map("consent_acceptance_id")
-  fields              String[] @default([])
-  /// Машинный код назначения (`PD_PURPOSES`)
-  purpose             String
-  workspaceId         String?  @map("workspace_id")
-  refType             String?  @map("ref_type")
-  refId               String?  @map("ref_id")
-  occurredAt          DateTime @default(now()) @map("occurred_at")
-
-  @@id([id, occurredAt])
-  @@index([subjectType, subjectId, occurredAt])
-  @@index([recipientKey, occurredAt])
-  @@index([occurredAt])
-  @@map("pd_action_records")
-}
-
 /// Инцидент безопасности ПДн (ЗоПД ст. 25 п. 2 пп. 8; Правила № 179/НҚ п. 11): уведомить
 /// уполномоченный орган за 1 рабочий день с момента обнаружения, затем субъектов.
 /// Переходы статуса — status-guarded `updateMany`; история — `PdIncidentEvent` (append-only).
@@ -5878,19 +5775,246 @@ model PdIncidentEvent {
 
 /// Отметка «это событие источника уже обработано» (docs/idempotency_engine.md).
 model IdempotencyInbox {
-  id         BigInt   @id @default(autoincrement())
+  id         BigInt    @id @default(autoincrement())
   /// Источник: livekit | telegram | scheduler | …
   source     String
   /// Аккаунт/канал внутри источника (id бота, id комнаты, ключ расписания)
   account    String
   /// Идентификатор события у источника (event.id, update_id, periodKey)
-  eventId    String   @map("event_id")
+  eventId    String    @map("event_id")
   /// Начало обработки; у строки «в работе» — она же отсчёт аренды (`begin`)
-  receivedAt DateTime @default(now()) @map("received_at")
+  receivedAt DateTime  @default(now()) @map("received_at")
   /// Обработка завершена. NULL — «в работе» под арендой: истекла ⇒ редоставка забирает событие
   doneAt     DateTime? @default(now()) @map("done_at")
 
   @@unique([source, account, eventId])
   @@index([receivedAt])
   @@map("idempotency_inbox")
+}
+
+// ============================================================
+// core/audit (26-й движок) — журнал аудита безопасности
+// ============================================================
+// ЕДИНЫЙ поток событий безопасности «кто / когда / откуда / что / с чем / исход» с тремя
+// зрителями (человек, организация, платформа). Сюда переехали журналы ключей, Кабинета
+// (команды и чтения), чтений ПДн и учёта действий с ПДн. docs/audit_engine.md.
+
+/// Событие безопасности. МЕСЯЧНЫЕ ПАРТИЦИИ `PARTITION BY RANGE (occurred_at)` — руками в
+/// миграции `core_audit` (Prisma не выражает PARTITION BY; зеркало — составной PK). Партиции
+/// на три месяца вперёд создаёт `AuditPartitions` (бут + крон) через SECURITY DEFINER-функцию
+/// `audit_ensure_partition` — партиции принадлежат владельцу таблицы, а не роли приложения.
+/// Append-only НА УРОВНЕ БАЗЫ: триггер `security_events_guard` (ENABLE ALWAYS — не глушится
+/// `session_replication_role = replica`) роняет DELETE и любой UPDATE, кроме перешивки
+/// шифротекста `ip_enc`/`ua_raw_enc` после ротации платформенного KEK; TRUNCATE —
+/// `security_events_no_truncate`. `xact` (xid8, `pg_current_xact_id()`) — курсор дайджестов
+/// и выгрузки (видимость по снимку), в клиенте Prisma не читается (сырой SQL).
+/// Индексы: B-tree ниже; ЧАСТИЧНЫЕ `WHERE col IS NOT NULL` (руками в миграции `core_audit_review`)
+/// у разреженных `op`, `ip_hmac`, `request_id`, цели; `details` — сжатие lz4 (руками). Новая колонка —
+/// только с NULL по умолчанию: лист Меркла v2 (`jsonb_strip_nulls`) пустую колонку не видит, а
+/// непустое умолчание изменило бы лист каждой прошлой строки (проверка дайджестов и сброс архивов).
+model SecurityEvent {
+  id                 BigInt               @default(autoincrement())
+  /// Дедупликация во внешних системах (экспорт, стрим)
+  eventId            String               @default(dbgenerated("gen_random_uuid()")) @map("event_id") @db.Uuid
+  /// `clock_timestamp()` — момент записи строки (UTC)
+  occurredAt         DateTime             @default(dbgenerated("(clock_timestamp() AT TIME ZONE 'UTC'::text)")) @map("occurred_at")
+  /// `now()` — начало транзакции: склейка событий одного факта
+  txAt               DateTime             @default(dbgenerated("(now() AT TIME ZONE 'UTC'::text)")) @map("tx_at")
+  xact               Unsupported("xid8")? @default(dbgenerated("pg_current_xact_id()"))
+  eventKey           String               @map("event_key")
+  /// Операция: ключ команды Кабинета / действие движка ключей
+  op                 String?
+  /// Коды словарей shared (`AUDIT_*_CODE`)
+  category           Int                  @db.SmallInt
+  severity           Int                  @db.SmallInt
+  outcome            Int                  @db.SmallInt
+  reasonCode         String?              @map("reason_code")
+  // ---- Актор (род — из аутентификации, не из тела запроса) ----
+  actorKind          Int                  @map("actor_kind") @db.SmallInt
+  actorId            String?              @map("actor_id") @db.Uuid
+  actorSessionId     String?              @map("actor_session_id") @db.Uuid
+  actorFamilyId      String?              @map("actor_family_id") @db.Uuid
+  actorKeyId         String?              @map("actor_key_id") @db.Uuid
+  onBehalfOfId       String?              @map("on_behalf_of_id") @db.Uuid
+  /// Роли актора снимком (сотрудник платформы)
+  actorRoles         Json?                @map("actor_roles")
+  // ---- Субъект и цель ----
+  /// Чья лента (человек). FK нет: журнал переживает удаление и анонимизацию
+  subjectUserId      String?              @map("subject_user_id") @db.Uuid
+  workspaceId        String?              @map("workspace_id") @db.Uuid
+  targetType         String?              @map("target_type")
+  targetId           String?              @map("target_id")
+  /// Снимок подписи НЕ-человека (имя ключа, адрес вебхука без query)
+  targetLabel        String?              @map("target_label")
+  related            Json?
+  // ---- Видимость (вычисляет реестр при записи) ----
+  visSubject         Boolean              @map("vis_subject")
+  visWorkspace       Boolean              @map("vis_workspace")
+  visPlatform        Boolean              @default(true) @map("vis_platform")
+  // ---- Контекст запроса ----
+  /// Envelope `sa6e:` ПЛАТФОРМЕННЫМ KEK (реестр колонок → перешивка `keys.rewrap`)
+  ipEnc              String?              @map("ip_enc")
+  /// Псевдоним `sa6m:` ключом `audit` — поиск «все события с этого IP» без IP
+  ipHmac             String?              @map("ip_hmac")
+  ipNet              String?              @map("ip_net")
+  country            String?              @db.Char(2)
+  city               String?
+  asn                Int?
+  isAnonymizer       Boolean?             @map("is_anonymizer")
+  /// «платформа · браузер · класс» — сырой UA только шифротекстом
+  uaFamily           String?              @map("ua_family")
+  uaRawEnc           String?              @map("ua_raw_enc")
+  deviceId           String?              @map("device_id") @db.Uuid
+  client             Int?                 @db.SmallInt
+  requestId          String?              @map("request_id") @db.Uuid
+  /// Шаблон маршрута, без query
+  route              String?
+  idempotencyKeyHash String?              @map("idempotency_key_hash")
+  // ---- Содержимое ----
+  /// Allow-list реестра (Zod `.strict()`)
+  details            Json                 @default("{}")
+  /// Доказательства (NIST AU-10): фактор, момент step-up, цепочка кода
+  evidence           Json?
+  refType            String?              @map("ref_type")
+  refId              String?              @map("ref_id")
+
+  @@id([id, occurredAt])
+  @@unique([eventId, occurredAt])
+  @@index([occurredAt(sort: Desc), id(sort: Desc)])
+  @@index([subjectUserId, occurredAt(sort: Desc), id(sort: Desc)])
+  @@index([workspaceId, occurredAt(sort: Desc), id(sort: Desc)])
+  @@index([actorId, occurredAt(sort: Desc)])
+  @@index([eventKey, occurredAt(sort: Desc)])
+  // Частичные (WHERE col IS NOT NULL) — руками в миграции core_audit_review, Prisma их не видит:
+  // (op, occurred_at DESC) · (ip_hmac, occurred_at DESC) · (request_id) · (target_type, target_id, occurred_at DESC)
+  @@map("security_events")
+}
+
+/// Подписанный дайджест журнала (AWS CloudTrail digest-модель): каждые 5 минут — корень
+/// Меркла по строкам с `xact` в [from, to) (по снимку: транзакции, видимые всем), цепочка
+/// `prev_digest_hash`, подпись Ed25519 аудитории `audit` + копия вне БД. Лист = sha256
+/// канонического JSON строки БЕЗ `ip_enc`/`ua_raw_enc` (их перешивают ротации).
+/// Append-only (триггер): меняются только отметки выгрузки и проверки.
+model SecurityDigest {
+  id             String    @id @default(uuid())
+  /// Границы по `xact` (xid8 как bigint): [xactFrom, xactTo)
+  xactFrom       BigInt    @map("xact_from")
+  xactTo         BigInt    @map("xact_to")
+  firstAt        DateTime? @map("first_at")
+  lastAt         DateTime? @map("last_at")
+  count          Int
+  merkleRoot     Bytes     @map("merkle_root")
+  prevDigestHash Bytes?    @map("prev_digest_hash")
+  signature      Bytes
+  kid            String
+  signedAt       DateTime  @default(now()) @map("signed_at")
+  exportedAt     DateTime? @map("exported_at")
+  verifiedAt     DateTime? @map("verified_at")
+  verifyOk       Boolean?  @map("verify_ok")
+  /// Версия формулы листа (1 — `to_jsonb`, 2 — `jsonb_strip_nulls`); подписана в строке дайджеста.
+  /// Умолчание — 1 (писатель, не знающий версий, считает по v1); код пишет версию ЯВНО
+  leafVersion    Int       @default(1) @map("leaf_version") @db.SmallInt
+
+  @@unique([xactFrom])
+  @@unique([xactTo])
+  @@index([signedAt])
+  @@map("security_digests")
+}
+
+/// Архив месячной партиции журнала: NDJSON+gzip в объектном хранилище с подписанным
+/// манифестом (sha256 файла, строки, диапазон). Партиция сбрасывается ТОЛЬКО после успешной
+/// выгрузки (`archivedAt` не null) — функция `audit_drop_partition` проверяет это в БД.
+model SecurityPartitionArchive {
+  partition   String    @id
+  fromAt      DateTime  @map("from_at")
+  toAt        DateTime  @map("to_at")
+  rows        Int
+  bytes       BigInt
+  sha256      String
+  objectKey   String    @map("object_key")
+  manifestKey String    @map("manifest_key")
+  signature   Bytes
+  kid         String
+  archivedAt  DateTime  @default(now()) @map("archived_at")
+  droppedAt   DateTime? @map("dropped_at")
+  /// Версия формулы листа корня манифеста (формат `sa6-audit-archive:v<версия>`)
+  leafVersion Int       @default(1) @map("leaf_version") @db.SmallInt
+
+  @@map("security_partition_archives")
+}
+
+/// Квитанция команды Кабинета (идемпотентность S5): уникум на партиционированном журнале
+/// невозможен без ключа партиции — поэтому отдельная таблица. Реплей читает событие
+/// `platform.command.executed` по `eventId` и отдаёт его `details.after`.
+model PlatformCommandReceipt {
+  actorId        String   @map("actor_id") @db.Uuid
+  commandKey     String   @map("command_key")
+  idempotencyKey String   @map("idempotency_key")
+  inputHash      String?  @map("input_hash")
+  eventId        String   @map("event_id") @db.Uuid
+  eventAt        DateTime @map("event_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@id([actorId, commandKey, idempotencyKey])
+  @@map("platform_command_receipts")
+}
+
+/// Устройство человека (core/audit): клиентский id из `X-Device-Id` — стабилен между
+/// входами, НЕ зависит от отказа от аналитики. Новое устройство → событие + уведомление;
+/// доверенным становится после подтверждения cooling (или через 24 ч). Крон: без
+/// активности 365 дн → забыто (+ событие); забытые старше года — удаляются (журнал — события).
+model UserDevice {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  deviceId    String    @map("device_id") @db.Uuid
+  /// «Chrome · Windows» из User-Agent (автоподпись)
+  label       String
+  /// Имя, которое дал человек (перебивает автоподпись)
+  customLabel String?   @map("custom_label")
+  platform    String?
+  browser     String?
+  /// desktop | mobile | tablet | other
+  deviceClass String    @default("other") @map("device_class")
+  firstSeenAt DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime  @default(now()) @map("last_seen_at")
+  lastCountry String?   @map("last_country") @db.Char(2)
+  trustedAt   DateTime? @map("trusted_at")
+  forgottenAt DateTime? @map("forgotten_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([lastSeenAt])
+  // Частичный (forgotten_at) WHERE forgotten_at IS NOT NULL — руками в миграции core_audit_review
+  // (ночная чистка забытых); Prisma частичные индексы не видит
+  @@map("user_devices")
+}
+
+/// Тревога детекции (рабочая очередь безопасности платформы, не журнал): одна открытая на
+/// (вид, ключ дедупликации) — партиальный уникум `security_alerts_open_uq` руками в миграции.
+/// Закрытые старше года удаляются кроном (журнал — события `detect.*`).
+model SecurityAlert {
+  id            String    @id @default(uuid())
+  /// Ключ детекции без префикса (`password_spray`)
+  kind          String
+  severity      String
+  /// Субъект / сеть / организация — то, по чему тревога одна
+  dedupeKey     String    @map("dedupe_key")
+  subjectUserId String?   @map("subject_user_id") @db.Uuid
+  workspaceId   String?   @map("workspace_id") @db.Uuid
+  ipHmac        String?   @map("ip_hmac")
+  /// open | ack | closed
+  status        String    @default("open")
+  /// id событий-улик (bigint строками), последние 50
+  evidence      Json      @default("[]")
+  hits          Int       @default(1)
+  assigneeId    String?   @map("assignee_id") @db.Uuid
+  resolution    String?
+  openedAt      DateTime  @default(now()) @map("opened_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  closedAt      DateTime? @map("closed_at")
+
+  @@index([status, openedAt])
+  @@index([subjectUserId])
+  @@map("security_alerts")
 }

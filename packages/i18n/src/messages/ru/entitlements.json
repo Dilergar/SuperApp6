@@ -22,7 +22,10 @@
     "skinsPerGroup": "Свой скин на каждую Группу",
     "webhooksMaxEndpoints": "Endpoint'ы вебхуков",
     "workspaceSeats": "Мест в организации",
-    "workspacesMaxOwned": "Организаций во владении"
+    "workspacesMaxOwned": "Организаций во владении",
+    "auditRetentionDays": "Окно журнала безопасности, дней",
+    "auditExport": "Выгрузка журнала безопасности",
+    "auditStream": "Стрим событий безопасности в SIEM"
   },
   "lock": {
     "quotaFull": "Место на Диске закончилось",
@@ -62,7 +65,8 @@
     "notifications": "Уведомления",
     "objects": "Объекты",
     "shop": "Магазин",
-    "workspaces": "Организации"
+    "workspaces": "Организации",
+    "audit": "Журнал безопасности"
   },
   "source": {
     "grant": "Подарок до {date}",

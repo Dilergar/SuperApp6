@@ -9,7 +9,8 @@ import { validateEnv } from './shared/config/env.validation';
 import { wopiRawBodyMiddleware } from './core/docs/wopi-raw-body.middleware';
 import { DocsTokenService } from './core/docs/docs-token.service';
 import { isAllowedWebOrigin, webOrigins } from './shared/config/web-origins';
-import { IDEMPOTENCY_EXPOSED_HEADERS, IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY_RE } from '@superapp/shared';
+import { AUDIT_HEADERS, IDEMPOTENCY_EXPOSED_HEADERS, IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY_RE } from '@superapp/shared';
+import { requestContextMiddleware } from './shared/context/request-context';
 
 // Защитная сеть: одна «забытая» асинхронная ошибка (unhandled rejection) в новых
 // версиях Node роняет ВЕСЬ процесс. Логируем и продолжаем работать — сервер не падает
@@ -82,6 +83,10 @@ async function bootstrap() {
     next();
   });
 
+  // Контекст запроса (core/audit): request-id (эхо в ответе), IP, устройство, страна — в
+  // `req.ctx` ДО гардов и парсеров тела. Журнал безопасности и конверт ошибки читают его.
+  app.use(requestContextMiddleware);
+
   // Вебхук LiveKit (core/calls): подпись проверяется по СЫРОМУ телу (WebhookReceiver),
   // поэтому точечный raw-парсер только на этот путь — глобальный json Nest вешает позже
   // (в app.listen) и пропустит уже распарсенное. Alias /api/v1→/api отработал выше,
@@ -147,7 +152,8 @@ async function bootstrap() {
     // Ответы движка идемпотентности читает КЛИЕНТСКИЙ КОД в браузере, а веб и API
     // стоят на разных портах (в проде — на разных доменах). Без этого списка браузер
     // просто не отдаёт заголовки скрипту, и авто-повтор терял бы подсказки.
-    exposedHeaders: [...IDEMPOTENCY_EXPOSED_HEADERS],
+    // `X-Request-Id` — поддержка и человек сшивают жалобу с журналом безопасности по нему.
+    exposedHeaders: [...IDEMPOTENCY_EXPOSED_HEADERS, AUDIT_HEADERS.request],
   });
 
   // Validation pipe — auto-validate all incoming DTOs

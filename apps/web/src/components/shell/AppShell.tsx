@@ -217,7 +217,7 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
 
         <ContextSwitcher contexts={contexts} activeId={activeWsId} onSwitch={switchContext} forceMenu={isMobile} unseen={notifCounts.byContext} />
 
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+        <div className="app-topbar-actions" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center' }}>
           <form
             onSubmit={(e) => { e.preventDefault(); if (query.trim()) router.push(`/messenger?q=${encodeURIComponent(query.trim())}`); }}
             className="app-topbar-search"

@@ -88,18 +88,8 @@ export function fetchSignExport(requestId: string): Promise<Blob> {
   return apiGetRaw<Blob>(`/sign/requests/${requestId}/export`, { responseType: 'blob' });
 }
 
-/** Отдать пользователю готовые байты файлом */
-export function saveBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  // Освобождаем адрес не сразу: Safari успевает начать скачивание не мгновенно.
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
+/** Отдать пользователю готовые байты файлом — общий помощник веба */
+export { saveBlob } from '@/lib/download';
 
 /** Код цепочки в dev — та же подсказка, что у регистрации и сбросов */
 export function fetchDevCode(challengeId: string): Promise<{ code: string | null }> {

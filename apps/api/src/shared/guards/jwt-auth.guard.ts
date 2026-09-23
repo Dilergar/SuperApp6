@@ -1,7 +1,7 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { KEYS_ARTIFACT_PREFIX } from '@superapp/shared';
-import { countryFromHeaders } from '@superapp/i18n';
+import { trustedCountry } from '../context/request-context';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { IS_PLATFORM_ROUTE_KEY } from '../decorators/platform.decorator';
 import { unauthorized } from '../errors/api-error';
@@ -40,12 +40,13 @@ export class JwtAuthGuard implements CanActivate {
     // заголовка запроса, а не из ALS. Код — всегда, текст — на языке просящего.
     if (!raw) throw unauthorized('auth.unauthorized');
     if (raw.startsWith(`${KEYS_ARTIFACT_PREFIX.apiKey}_`)) {
-      // Страна — из гео-заголовка CDN (в dev его нет): «откуда» в реестре ключей
-      const country = countryFromHeaders((name) => {
+      // Страна — из ДОВЕРЕННОГО гео-заголовка края сети (`GEO_COUNTRY_HEADER`): «откуда» в реестре
+      // ключей — сведение безопасности, заголовок клиента его не подделывает
+      const country = trustedCountry((name) => {
         const v = (req.headers as Record<string, string | string[] | undefined>)[name];
         return Array.isArray(v) ? v[0] : v;
       });
-      req.user = await this.apiKeys.authenticate(raw, req.ip ?? null, country ?? null);
+      req.user = await this.apiKeys.authenticate(raw, req.ip ?? null, country);
       return true;
     }
     req.user = await this.sessions.verifyAccessToken(raw);

@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { FileOwnerType } from '@superapp/shared';
+import type { DriveSystemFolderKey, FileOwnerType } from '@superapp/shared';
 
 /** Куда положить файл, приехавший из чужой сущности */
 export interface DrivePlacement {
   ownerType: FileOwnerType;
   ownerId: string;
+  /** Системная папка (по умолчанию — «Файлы из переписки»); закрытая получает грант из описания */
+  folder?: DriveSystemFolderKey;
 }
 
 export interface DriveRoutingProvider {

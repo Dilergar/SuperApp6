@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { createApiClient, ACCESS_TOKEN_KEY, type TokenStorage } from '@superapp/api-client';
+import { getDeviceId, securityHeaders } from './device-id';
 import { LOCALE_HEADER, PLATFORM_ACCESS_TOKEN_KEY, type ApiOk } from '@superapp/shared';
 import { readLocaleCookie } from '@/i18n/locale';
 
@@ -30,6 +31,7 @@ const client = createApiClient({
   baseURL: API_URL,
   storage: platformStorage,
   getLocale: () => readLocaleCookie(),
+  getDeviceId,
   // Refresh-токена у кабинета нет: транспорт после 401 стирает токен и зовёт нас
   onAuthFailure: () => {
     if (typeof window === 'undefined') return;
@@ -66,7 +68,7 @@ export function clearPlatformToken(): void {
 export async function platformPublicPost<T>(path: string, body: unknown): Promise<T> {
   const locale = readLocaleCookie();
   const res = await axios.post<ApiOk<T>>(`${API_URL}${path}`, body, {
-    headers: { 'Content-Type': 'application/json', ...(locale ? { [LOCALE_HEADER]: locale } : {}) },
+    headers: { 'Content-Type': 'application/json', ...securityHeaders(), ...(locale ? { [LOCALE_HEADER]: locale } : {}) },
     timeout: 10000,
   });
   const envelope = res.data;
@@ -76,7 +78,7 @@ export async function platformPublicPost<T>(path: string, body: unknown): Promis
 export async function platformPublicGet<T>(path: string): Promise<T> {
   const locale = readLocaleCookie();
   const res = await axios.get<ApiOk<T>>(`${API_URL}${path}`, {
-    headers: { ...(locale ? { [LOCALE_HEADER]: locale } : {}) },
+    headers: { ...securityHeaders(), ...(locale ? { [LOCALE_HEADER]: locale } : {}) },
     timeout: 10000,
   });
   const envelope = res.data;

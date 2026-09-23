@@ -127,6 +127,8 @@ export const CONSENT_LIMITS = {
   epochMicroCacheMs: 2_000,
   /** Кэш «что ждёт принятия» на человека, секунд (сбрасывается эпохами) */
   pendingCacheSec: 300,
+  /** «Ждёт принятия»: сколько ЖИВЫХ организаций (свои — первыми) проверяется на человека */
+  pendingWorkspacesMax: 100,
 } as const;
 
 export const CONSENT_REDIS = {

@@ -1,0 +1,807 @@
+{
+  "events": {
+    "auth": {
+      "login": {
+        "success": {
+          "title": "Вход",
+          "body": "{method, select, register {Первый вход после регистрации} unfreeze {Вход после разморозки аккаунта} reset {Вход после сброса пароля по SMS} other {}}"
+        },
+        "failed": {
+          "title": "Введён неверный пароль",
+          "body": "Мы не пропустили этот вход."
+        },
+        "locked": {
+          "title": "Вход временно заблокирован",
+          "body": "{attempts, plural, one {# неверный пароль} few {# неверных пароля} many {# неверных паролей} other {# неверного пароля}} подряд — вход закрыт на {minutes} мин."
+        }
+      },
+      "logout": {
+        "title": "Выход",
+        "body": ""
+      },
+      "logout_all": {
+        "title": "Выход на всех других устройствах",
+        "body": "{sessions, plural, =0 {Других сессий не было} one {Завершена # сессия} few {Завершены # сессии} many {Завершено # сессий} other {Завершено # сессии}}"
+      },
+      "session": {
+        "revoked": {
+          "title": "Сессия завершена",
+          "body": "{by, select, self {Вы завершили её} other_session {Завершена с другого вашего устройства} logout_all {Выход на всех устройствах} password_change {После смены пароля} phone_change {После смены номера} reset {После сброса пароля} reuse {Токен входа предъявлен повторно} not_me {Вы сообщили «Это не я»} freeze {Аккаунт заморожен} admin {Завершила организация} platform {Завершила безопасность SuperApp6} inactive {Долго не использовалась} deleted {Аккаунт удаляется} other {Сессия завершена}}"
+        },
+        "refresh_reuse": {
+          "title": "Токен входа предъявлен повторно",
+          "body": "Эта сессия завершена везде. Если это были не вы — смените пароль."
+        },
+        "new_device": {
+          "title": "Вход с нового устройства",
+          "body": ""
+        },
+        "new_country": {
+          "title": "Вход из новой страны",
+          "body": ""
+        },
+        "confirmed": {
+          "title": "Новый вход подтверждён",
+          "body": "{via, select, step_up {Подтверждён паролем и кодом из SMS} other {С момента входа прошло 24 часа}}"
+        },
+        "expired_inactive": {
+          "title": "Неактивные сессии завершены",
+          "body": "{sessions, plural, one {# сессия} few {# сессии} many {# сессий} other {# сессии}} без активности дольше {idleDays} дн."
+        }
+      },
+      "password": {
+        "changed": {
+          "title": "Пароль изменён",
+          "body": "{sessionsRevoked, plural, =0 {Другие сессии не затронуты} one {Завершена # другая сессия} few {Завершены # другие сессии} many {Завершено # других сессий} other {Завершено # другой сессии}}"
+        },
+        "reset_completed": {
+          "title": "Пароль сброшен по SMS",
+          "body": "Все сессии завершены."
+        }
+      },
+      "phone": {
+        "changed": {
+          "title": "Номер для входа изменён",
+          "body": "{sessionsRevoked, plural, =0 {Другие сессии не затронуты} one {Завершена # другая сессия} few {Завершены # другие сессии} many {Завершено # других сессий} other {Завершено # другой сессии}}"
+        }
+      },
+      "otp": {
+        "failed": {
+          "title": "Введён неверный код из SMS",
+          "body": "{attemptsLeft, plural, =0 {Попыток не осталось} one {Осталась # попытка} few {Осталось # попытки} many {Осталось # попыток} other {Осталось # попытки}}"
+        },
+        "locked": {
+          "title": "Слишком много неверных кодов",
+          "body": "Код аннулирован — запросите новый."
+        }
+      },
+      "step_up": {
+        "success": {
+          "title": "Личность подтверждена",
+          "body": "Пароль и код из SMS перед важным действием."
+        },
+        "failed": {
+          "title": "Личность не подтверждена",
+          "body": "{stage, select, password {Неверный пароль} other {Неверный код из SMS}}"
+        }
+      }
+    },
+    "account": {
+      "registered": {
+        "title": "Аккаунт создан",
+        "body": ""
+      },
+      "deletion_requested": {
+        "title": "Запрошено удаление аккаунта",
+        "body": "Аккаунт будет удалён через {graceDays} дн. Вход в аккаунт отменяет удаление."
+      },
+      "deletion_cancelled": {
+        "title": "Удаление аккаунта отменено",
+        "body": ""
+      },
+      "anonymized": {
+        "title": "Аккаунт удалён и обезличен",
+        "body": ""
+      },
+      "frozen": {
+        "title": "Аккаунт заморожен",
+        "body": "Вход, сессии и ключи API закрыты, пока вы не разморозите аккаунт паролем и кодом из SMS."
+      },
+      "unfrozen": {
+        "title": "Аккаунт разморожен",
+        "body": "{by, select, platform {Разморожен поддержкой SuperApp6 после проверки личности} other {Разморожен паролем и кодом из SMS}}"
+      },
+      "not_me_started": {
+        "title": "«Это не я»: аккаунт защищён",
+        "body": "Завершено сессий: {sessionsRevoked}. Забыто устройств: {devicesForgotten}. Отозвано ключей API: {keysRevoked}."
+      },
+      "not_me_completed": {
+        "title": "Защита аккаунта завершена",
+        "body": "{credentialsRotated, select, true {Пароль изменён.} other {Пароль не менялся.}}"
+      },
+      "device_forgotten": {
+        "title": "Устройство забыто",
+        "body": "{auto, select, true {Не использовалось год} other {Следующий вход с него придёт с уведомлением}}"
+      },
+      "device_renamed": {
+        "title": "Устройство переименовано",
+        "body": ""
+      },
+      "event_disputed": {
+        "title": "Вы сообщили «Это не я»",
+        "body": ""
+      },
+      "settings_changed": {
+        "title": "Настройки безопасности изменены",
+        "body": "Неактивные сессии завершаются через {sessionMaxIdleDays} дн."
+      }
+    },
+    "org": {
+      "member": {
+        "invited": {
+          "title": "Приглашение в «{workspace}»",
+          "body": "Роль: {roleLabel}"
+        },
+        "joined": {
+          "title": "Вступление в «{workspace}»",
+          "body": "Роль: {roleLabel}"
+        },
+        "removed": {
+          "title": "Исключение из «{workspace}»",
+          "body": ""
+        },
+        "left": {
+          "title": "Выход из «{workspace}»",
+          "body": ""
+        }
+      },
+      "role": {
+        "changed": {
+          "title": "Роль в «{workspace}»: {fromLabel} → {toLabel}",
+          "body": ""
+        }
+      },
+      "ownership": {
+        "transferred": {
+          "title": "Владение «{workspace}» передано",
+          "body": ""
+        }
+      },
+      "workspace": {
+        "archived": {
+          "title": "«{workspace}» в архиве",
+          "body": ""
+        },
+        "restored": {
+          "title": "«{workspace}» восстановлена",
+          "body": ""
+        },
+        "purged": {
+          "title": "«{workspace}» удалена навсегда",
+          "body": ""
+        }
+      },
+      "session": {
+        "first_seen": {
+          "title": "Первый вход в «{workspace}» с этого устройства",
+          "body": ""
+        }
+      },
+      "audit": {
+        "stream_changed": {
+          "title": "{enabled, select, true {Стрим журнала безопасности включён} other {Стрим журнала безопасности выключен}}",
+          "body": ""
+        }
+      }
+    },
+    "keys": {
+      "api_key": {
+        "created": {
+          "title": "Ключ API «{target}» создан",
+          "body": "{kind, select, bot {Ключ бота} other {Личный ключ}}"
+        },
+        "updated": {
+          "title": "Ключ API «{target}» изменён",
+          "body": ""
+        },
+        "rotated": {
+          "title": "Ключ API «{target}» перевыпущен",
+          "body": ""
+        },
+        "revoked": {
+          "title": "Ключ API «{target}» отозван",
+          "body": ""
+        },
+        "leaked": {
+          "title": "Ключ API «{target}» найден в открытом доступе и отозван",
+          "body": "Замените его в интеграции — старый ключ больше не работает."
+        },
+        "expired": {
+          "title": "Срок ключа API «{target}» истёк",
+          "body": ""
+        },
+        "auth_failed": {
+          "title": "Отклонён запрос с ключом API",
+          "body": "{failure, select, revoked {Ключ отозван} expired {Срок ключа истёк} frozen {Бот заморожен} archived {Бот в архиве} other {Неизвестный ключ}} · {attempts, plural, one {# попытка} few {# попытки} many {# попыток} other {# попытки}}"
+        },
+        "ip_denied": {
+          "title": "Ключ API применён с адреса вне списка разрешённых",
+          "body": "{attempts, plural, one {# попытка} few {# попытки} many {# попыток} other {# попытки}}"
+        },
+        "throttled": {
+          "title": "Ключ API упёрся в лимит запросов",
+          "body": "{attempts, plural, one {# попытка} few {# попытки} many {# попыток} other {# попытки}}"
+        }
+      },
+      "bot": {
+        "created": {
+          "title": "Бот «{target}» создан",
+          "body": ""
+        },
+        "updated": {
+          "title": "Бот «{target}» изменён",
+          "body": ""
+        },
+        "frozen": {
+          "title": "Бот «{target}» заморожен",
+          "body": ""
+        },
+        "unfrozen": {
+          "title": "Бот «{target}» разморожен",
+          "body": ""
+        },
+        "archived": {
+          "title": "Бот «{target}» в архиве",
+          "body": "{keysRevoked, plural, =0 {Ключей не было} one {Отозван # ключ} few {Отозваны # ключа} many {Отозвано # ключей} other {Отозвано # ключа}}"
+        }
+      },
+      "webhook": {
+        "created": {
+          "title": "Вебхук {target} создан",
+          "body": ""
+        },
+        "updated": {
+          "title": "Вебхук {target} изменён",
+          "body": ""
+        },
+        "enabled": {
+          "title": "Вебхук {target} включён",
+          "body": ""
+        },
+        "disabled": {
+          "title": "Вебхук {target} выключен",
+          "body": ""
+        },
+        "deleted": {
+          "title": "Вебхук {target} удалён",
+          "body": ""
+        },
+        "secret_rotated": {
+          "title": "Вебхук {target}: секрет заменён",
+          "body": ""
+        },
+        "verified": {
+          "title": "Вебхук {target} подтверждён",
+          "body": ""
+        },
+        "signature_audit": {
+          "title": "Вебхук {target} принял поддельную подпись и выключен",
+          "body": "Приёмник обязан проверять подпись каждой доставки."
+        }
+      },
+      "policy": {
+        "changed": {
+          "title": "Политика ключей изменена",
+          "body": ""
+        }
+      },
+      "crypto": {
+        "key_created": {
+          "title": "Создан ключ шифрования",
+          "body": "{target}"
+        },
+        "version_created": {
+          "title": "Создана версия ключа шифрования",
+          "body": "{target}"
+        },
+        "version_activated": {
+          "title": "Версия ключа шифрования активирована",
+          "body": "{target}"
+        },
+        "version_disabled": {
+          "title": "Версия ключа шифрования отключена",
+          "body": "{target}"
+        },
+        "version_enabled": {
+          "title": "Версия ключа шифрования включена снова",
+          "body": "{target}"
+        },
+        "version_destroy_scheduled": {
+          "title": "Версия ключа шифрования назначена к уничтожению",
+          "body": "{target}"
+        },
+        "version_destroyed": {
+          "title": "Версия ключа шифрования уничтожена",
+          "body": "{target}"
+        },
+        "version_compromised": {
+          "title": "Версия ключа шифрования помечена скомпрометированной",
+          "body": "{target}"
+        },
+        "scope_frozen": {
+          "title": "Шифрование заморожено",
+          "body": "{target}"
+        },
+        "scope_unfrozen": {
+          "title": "Шифрование разморожено",
+          "body": "{target}"
+        },
+        "scope_rewrapped": {
+          "title": "Ключи данных перешиты",
+          "body": "{target}"
+        },
+        "root_rotation_started": {
+          "title": "Начата ротация корневого ключа",
+          "body": "{target}"
+        },
+        "root_rotated": {
+          "title": "Корневой ключ заменён",
+          "body": "{target}"
+        },
+        "blind_index_rotated": {
+          "title": "Ключ поискового индекса заменён",
+          "body": "{target}"
+        }
+      }
+    },
+    "platform": {
+      "auth": {
+        "login_success": {
+          "title": "Вход в Кабинет",
+          "body": ""
+        },
+        "login_failed": {
+          "title": "Неудачный вход в Кабинет",
+          "body": ""
+        },
+        "login_locked": {
+          "title": "Вход в Кабинет заблокирован",
+          "body": ""
+        },
+        "step_up_success": {
+          "title": "Кабинет: личность подтверждена",
+          "body": ""
+        },
+        "step_up_failed": {
+          "title": "Кабинет: личность не подтверждена",
+          "body": ""
+        },
+        "session_revoked": {
+          "title": "Сессия Кабинета завершена",
+          "body": ""
+        }
+      },
+      "command": {
+        "executed": {
+          "title": "Команда Кабинета: {op}",
+          "body": ""
+        }
+      },
+      "request": {
+        "created": {
+          "title": "Заявка «четыре глаза»: {command}",
+          "body": ""
+        },
+        "decided": {
+          "title": "Заявка «четыре глаза» {decision, select, approved {одобрена} other {отклонена}}: {command}",
+          "body": ""
+        },
+        "withdrawn": {
+          "title": "Заявка «четыре глаза» отозвана: {command}",
+          "body": ""
+        }
+      },
+      "access": {
+        "search": {
+          "title": "Поиск в Кабинете",
+          "body": ""
+        },
+        "view": {
+          "title": "Просмотр карточки в Кабинете",
+          "body": ""
+        },
+        "reveal": {
+          "title": "Раскрыты маскированные данные в Кабинете",
+          "body": ""
+        }
+      },
+      "staff": {
+        "suspended_by_system": {
+          "title": "Сотрудник Кабинета приостановлен системой",
+          "body": ""
+        }
+      }
+    },
+    "pii": {
+      "read": {
+        "title": "Чтение персональных данных ограниченного доступа",
+        "body": "{count, plural, one {# запись} few {# записи} many {# записей} other {# записи}}"
+      }
+    },
+    "pd": {
+      "transfer": {
+        "title": "Передача данных: {recipient}",
+        "body": "{purpose}"
+      },
+      "cross_border": {
+        "title": "Передача данных за рубеж: {recipient}",
+        "body": "{purpose}"
+      },
+      "publication": {
+        "title": "Данные опубликованы",
+        "body": "{purpose}"
+      }
+    },
+    "consents": {
+      "accepted": {
+        "title": "Принято: {document}",
+        "body": "Версия {version}"
+      },
+      "revoked": {
+        "title": "Отозвано: {document}",
+        "body": ""
+      }
+    },
+    "data": {
+      "export": {
+        "title": "{source, select, hr_zip {Выгрузка кадровых документов} documents_zip {Выгрузка документов} audit_org {Выгрузка журнала безопасности} audit_platform {Выгрузка журнала безопасности платформой} my_data {Выгрузка «Мои данные»} analytics_report {Выгрузка отчёта аналитики} other {Выгрузка данных}}",
+        "body": "{rows, plural, one {# запись} few {# записи} many {# записей} other {# записи}}"
+      }
+    },
+    "detect": {
+      "bruteforce_account": {
+        "title": "Подбор пароля к аккаунту",
+        "body": "{events} неудач за {windowMin} мин"
+      },
+      "bruteforce_ip": {
+        "title": "Подбор паролей с одной сети",
+        "body": "{events} неудач за {windowMin} мин"
+      },
+      "password_spray": {
+        "title": "Распыление паролей",
+        "body": "{accounts} аккаунтов с одной сети за {windowMin} мин"
+      },
+      "credential_stuffing": {
+        "title": "Подстановка учётных данных",
+        "body": "{failureRatePct}% неудач за {windowMin} мин"
+      },
+      "otp_fatigue": {
+        "title": "Шквал запросов SMS-кодов",
+        "body": "{events} запросов за {windowMin} мин"
+      },
+      "mass_export": {
+        "title": "Массовая выгрузка данных",
+        "body": "{rows} записей за {windowMin} мин"
+      },
+      "dormant_login": {
+        "title": "Вход после долгого молчания",
+        "body": ""
+      },
+      "digest_mismatch": {
+        "title": "Нарушена целостность журнала безопасности",
+        "body": "{events} записей не совпадают с подписанным дайджестом"
+      },
+      "audit_degraded": {
+        "title": "Журнал безопасности деградировал",
+        "body": "{failures} сбоев записи за {windowMin} мин"
+      },
+      "impossible_travel": {
+        "title": "Невозможное перемещение",
+        "body": ""
+      },
+      "session_context_changed": {
+        "title": "Сессия сменила контекст",
+        "body": ""
+      }
+    },
+    "audit": {
+      "viewed": {
+        "title": "Просмотр журнала безопасности",
+        "body": "Запросов: {queries}, записей: {rows}"
+      },
+      "digest": {
+        "created": {
+          "title": "Дайджест целостности подписан",
+          "body": "{rows, plural, one {# запись} few {# записи} many {# записей} other {# записи}}"
+        },
+        "verified": {
+          "title": "Проверка целостности пройдена",
+          "body": "Дайджестов: {digests}"
+        },
+        "failed": {
+          "title": "Проверка целостности провалена",
+          "body": "Не совпало дайджестов: {mismatched}"
+        }
+      },
+      "partition": {
+        "archived": {
+          "title": "Месяц журнала выгружен в архив: {partition}",
+          "body": "{rows, plural, one {# запись} few {# записи} many {# записей} other {# записи}}"
+        },
+        "dropped": {
+          "title": "Месяц журнала удалён из базы: {partition}",
+          "body": ""
+        }
+      },
+      "settings": {
+        "changed": {
+          "title": "Изменены настройки журнала безопасности",
+          "body": ""
+        }
+      },
+      "lockout_summary": {
+        "title": "Попытки входа во время блокировки",
+        "body": "{attempts, plural, one {Отбита # попытка} few {Отбиты # попытки} many {Отбито # попыток} other {Отбито # попытки}}"
+      }
+    }
+  },
+  "categories": {
+    "auth": "Вход и учётные данные",
+    "session": "Сессии и устройства",
+    "account": "Аккаунт",
+    "org": "Организации",
+    "keys": "Ключи и интеграции",
+    "platform": "Кабинет платформы",
+    "pii": "Чтение персональных данных",
+    "pd": "Передачи персональных данных",
+    "consents": "Согласия",
+    "data": "Выгрузки",
+    "detect": "Детекции",
+    "audit": "Сам журнал"
+  },
+  "severities": {
+    "info": "Информация",
+    "low": "Низкая",
+    "medium": "Средняя",
+    "high": "Высокая",
+    "critical": "Критическая"
+  },
+  "outcomes": {
+    "success": "Успех",
+    "failure": "Неудача",
+    "denied": "Отказ",
+    "unknown": "Неизвестно"
+  },
+  "actorKinds": {
+    "user": "Человек",
+    "bot": "Бот",
+    "platform_staff": "Сотрудник платформы",
+    "platform": "SuperApp6",
+    "system": "Система",
+    "guest": "Гость",
+    "anonymous": "Неизвестный",
+    "device": "Устройство"
+  },
+  "clients": {
+    "web": "Сайт",
+    "mobile_web": "Мобильный сайт",
+    "mobile": "Приложение",
+    "api_key": "Ключ API",
+    "console": "Кабинет",
+    "socket": "Живое соединение",
+    "job": "Фоновая задача",
+    "script": "Скрипт"
+  },
+  "deviceClasses": {
+    "desktop": "Компьютер",
+    "mobile": "Телефон",
+    "tablet": "Планшет",
+    "other": "Устройство"
+  },
+  "reasons": {
+    "wrong_password": "Неверный пароль",
+    "unknown_account": "Такого аккаунта нет",
+    "not_allowed": "Вход этому аккаунту закрыт",
+    "locked": "Вход временно заблокирован",
+    "frozen": "Аккаунт заморожен"
+  },
+  "revokeReasons": {
+    "self": "вы завершили сессию",
+    "other_session": "завершена с другого устройства",
+    "logout_all": "выход на всех устройствах",
+    "password_change": "после смены пароля",
+    "phone_change": "после смены номера",
+    "reset": "после сброса пароля",
+    "reuse": "токен входа предъявлен повторно",
+    "not_me": "вы сообщили «Это не я»",
+    "freeze": "аккаунт заморожен",
+    "admin": "завершила организация",
+    "platform": "завершила безопасность SuperApp6",
+    "inactive": "долго не использовалась",
+    "deleted": "аккаунт удаляется"
+  },
+  "exportSources": {
+    "hr_zip": "Кадровые документы",
+    "documents_zip": "Документы",
+    "audit_org": "Журнал безопасности",
+    "audit_platform": "Журнал безопасности (платформа)",
+    "my_data": "Мои данные",
+    "analytics_report": "Отчёт аналитики"
+  },
+  "filters": {
+    "person": {
+      "all": "Все",
+      "logins": "Входы",
+      "devices": "Устройства",
+      "credentials": "Пароль и номер",
+      "orgs": "Организации",
+      "keys": "Ключи и приложения",
+      "data": "Мои данные"
+    },
+    "org": {
+      "all": "Все",
+      "people": "Люди и роли",
+      "devices": "Устройства",
+      "keys": "Ключи и интеграции",
+      "exports": "Выгрузки",
+      "consents": "Согласия"
+    }
+  },
+  "unknownWorkspace": "организация",
+  "unknownDevice": "Неизвестное устройство",
+  "unknownPlace": "место неизвестно",
+  "alertResolutions": {
+    "resolved": "Решена",
+    "false_positive": "Ложное срабатывание",
+    "accepted_risk": "Риск принят",
+    "duplicate": "Дубликат"
+  },
+  "ui": {
+    "cooling": {
+      "title": "Новое устройство",
+      "text": "Вы вошли с нового устройства. Завершать другие сессии и менять пароль можно будет через {hours, plural, one {# час} few {# часа} many {# часов} other {# часа}} — или подтвердите сейчас.",
+      "confirm": "Подтвердить по SMS",
+      "dialogTitle": "Подтвердите это устройство",
+      "dialogBody": "Введите пароль — мы отправим код на ваш номер. После этого с этого устройства можно будет завершать другие сессии и менять пароль.",
+      "confirmed": "Устройство подтверждено"
+    },
+    "devices": {
+      "title": "Устройства и сессии",
+      "logoutAll": "Выйти везде",
+      "logoutAllTitle": "Выйти на всех других устройствах?",
+      "logoutAllText": "Все другие устройства выйдут прямо сейчас. Личные ключи API тоже будут отозваны — интеграции на них перестанут работать.",
+      "loggedOutAll": "Другие устройства вышли",
+      "thisDevice": "Это устройство",
+      "pending": "Новое · до подтверждения {hours} ч",
+      "confirmed": "Подтверждено",
+      "active": "активно {ago}",
+      "signedIn": "вход {date}",
+      "endedAt": "вышли {date}",
+      "end": "Завершить сессию",
+      "endTitle": "Завершить эту сессию?",
+      "endText": "Устройство выйдет сразу.",
+      "ended": "Сессия завершена",
+      "rename": "Переименовать устройство",
+      "renameLabel": "Название устройства",
+      "renamed": "Сохранено",
+      "forget": "Забыть устройство",
+      "forgetTitle": "Забыть это устройство?",
+      "forgetText": "Его сессии завершатся. При следующем входе с него придёт уведомление — как о новом устройстве.",
+      "forgotten": "Устройство забыто",
+      "showEnded": "Вышедшие устройства ({count})",
+      "onlyThis": "Только это устройство",
+      "menu": "Действия с сессией",
+      "loadFailed": "Не удалось загрузить устройства",
+      "showAll": "Показать все ({count})",
+      "showLess": "Свернуть"
+    },
+    "feed": {
+      "title": "Активность безопасности",
+      "filters": "Фильтр событий",
+      "empty": "Пока тихо — здесь появятся входы и изменения безопасности",
+      "loadFailed": "Не удалось загрузить активность",
+      "window": "Показано за год; передачи данных и согласия — вся история."
+    },
+    "event": {
+      "when": "Когда",
+      "who": "Кто",
+      "subject": "Чей аккаунт",
+      "target": "Объект",
+      "device": "Устройство",
+      "where": "Где",
+      "approx": "{place} (приблизительно)",
+      "app": "Приложение",
+      "organization": "Организация",
+      "requestId": "ID запроса",
+      "copy": "Скопировать",
+      "copied": "Скопировано",
+      "ipHintPerson": "Полный IP-адрес мы не показываем, но храним для расследований; он есть в выгрузке «Мои данные».",
+      "ipHintWorkspace": "Организация видит страну и класс устройства; полный IP-адрес хранится только для расследований платформы.",
+      "notMe": "Это не я",
+      "notFound": "Событие больше недоступно",
+      "reason": "Причина",
+      "source": "Источник"
+    },
+    "notMe": {
+      "title": "Это не я",
+      "progress": "Прогресс",
+      "step1Title": "Защитим аккаунт",
+      "step1Text": "Мы завершим все другие сессии, забудем чужие устройства, отзовём личные ключи API и подключение Google. Затем попросим сменить пароль.",
+      "start": "Начать",
+      "working": "Защищаем аккаунт…",
+      "sessions": "{n, plural, one {Завершена # сессия} few {Завершены # сессии} many {Завершено # сессий} other {Завершено # сессии}}",
+      "devices": "{n, plural, one {Забыто # устройство} few {Забыто # устройства} many {Забыто # устройств} other {Забыто # устройства}}",
+      "keys": "{n, plural, one {Отозван # ключ API} few {Отозвано # ключа API} many {Отозвано # ключей API} other {Отозвано # ключа API}}",
+      "google": "Подключение Google отключено",
+      "step3Title": "Смените пароль",
+      "step3Text": "Старый мог стать известен постороннему.",
+      "changePassword": "Сменить пароль",
+      "forgot": "Не помню пароль",
+      "forgotWarning": "Сброс по SMS завершит и эту сессию.",
+      "skip": "Позже",
+      "passwordChanged": "Пароль сменён",
+      "step4Title": "Проверьте номер",
+      "step4Text": "{phone} — это ваш номер?",
+      "yes": "Да, мой",
+      "changePhone": "Сменить номер",
+      "phoneConfirmed": "Номер подтверждён",
+      "doneTitle": "Аккаунт защищён",
+      "doneTip": "Если этот пароль был где-то ещё — смените и там.",
+      "freezeTip": "Заморозка без входа: {url}"
+    },
+    "settings": {
+      "idle": "Завершать неактивные сессии через",
+      "saved": "Сохранено",
+      "idleDays": {
+        "7": "1 неделю",
+        "30": "1 месяц",
+        "90": "3 месяца",
+        "180": "6 месяцев"
+      }
+    },
+    "sent": {
+      "title": "Что мы вам присылали",
+      "text": "Все уведомления, push и SMS о безопасности за год. Если сообщения здесь нет — оно не от нас.",
+      "open": "Открыть",
+      "never": "Мы никогда не просим код и не присылаем ссылки для ввода пароля."
+    },
+    "lost": {
+      "title": "Потеряли телефон?",
+      "text": "Заморозить аккаунт можно с любого устройства без входа: {url}. Разморозка — паролем и кодом из SMS."
+    }
+  },
+  "org": {
+    "title": "Безопасность",
+    "description": "Входы сотрудников с новых устройств, роли, ключи и интеграции, выгрузки",
+    "noAccess": "Журнал безопасности видят только владелец и админы",
+    "window": "Показаны события за {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}.",
+    "windowMore": "Более длинный журнал — на старших тарифах.",
+    "plan": "Тариф",
+    "who": "Кто",
+    "from": "С",
+    "to": "По",
+    "col": {
+      "time": "Время",
+      "event": "Событие",
+      "who": "Кто",
+      "where": "Где",
+      "outcome": "Исход"
+    },
+    "empty": "Событий пока нет",
+    "export": {
+      "open": "Экспорт",
+      "title": "Экспорт журнала безопасности",
+      "format": "Формат",
+      "from": "С",
+      "to": "По",
+      "categories": "События",
+      "note": "Файл появится на Диске организации в папке «Безопасность»; об экспорте останется запись в журнале.",
+      "submit": "Экспортировать",
+      "queued": "Готовим файл — пришлём уведомление"
+    },
+    "stream": "Стрим в SIEM"
+  },
+  "export": {
+    "fileName": "Журнал безопасности {from} — {to}.{ext}"
+  }
+}

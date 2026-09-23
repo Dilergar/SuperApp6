@@ -1,6 +1,6 @@
 // Сервис «Объекты» — §1 (дерево, права, архив) и §2 (штатное расписание).
 // Аккаунты СЬЮТА (suite1/2/3); организация прогона одноразовая, БД не чистим.
-const { call, login, makeChecker, SUITE } = require('./_lib.cjs');
+const { call, login, makeChecker, SUITE, createSuiteWorkspace, crash } = require('./_lib.cjs');
 
 const { check, finish } = makeChecker();
 
@@ -21,7 +21,7 @@ async function main() {
   const worker = await login(SUITE.p2);
   const manager = await login(SUITE.p3);
 
-  const ws = (await call('POST', '/workspaces', owner.token, { name: `Сьют-Объекты ${Date.now()}` })).json.data;
+  const ws = (await createSuiteWorkspace(owner.token, 'Сьют-Объекты')).json.data;
   check('организация создана', !!ws?.id);
   const base = `/workspaces/${ws.id}/objects`;
 
@@ -109,7 +109,7 @@ async function main() {
 
   // Посторонний
   const stranger = await login(SUITE.p1); // тот же owner, но чужая организация ниже
-  const otherWs = (await call('POST', '/workspaces', owner.token, { name: `Сьют-Чужая ${Date.now()}` })).json.data;
+  const otherWs = (await createSuiteWorkspace(owner.token, 'Сьют-Объекты-Чужая')).json.data;
   const crossed = await call('GET', `/workspaces/${otherWs.id}/objects/${floor.id}`, owner.token);
   check('объект чужой организации — 404', crossed.status === 404, `${crossed.status}`);
   void stranger;
@@ -272,7 +272,4 @@ async function main() {
   finish();
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main().catch(crash);

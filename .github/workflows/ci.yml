@@ -81,6 +81,13 @@ jobs:
       - name: Analytics registry guard
         run: node scripts/check-analytics.cjs
 
+      # Страж реестра журнала безопасности (core/audit): у каждого события заголовок и строка
+      # в трёх каталогах, имена деталей без ПДн и секретов (ip, password, token…), категория =
+      # префикс ключа, действия сотрудников платформы людям не показываются, окно ленты не
+      # режут только pd/consents, у каждого живого ключа есть запись в API.
+      - name: Security audit registry guard
+        run: node scripts/check-audit.cjs
+
       - name: Build shared package
         run: pnpm --filter @superapp/shared build
 

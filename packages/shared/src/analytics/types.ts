@@ -103,6 +103,8 @@ export const ANALYTICS_AREAS = {
   webhooks: { kind: 'platform', order: 975 },
   /** Согласия, документы платформы, «Мои данные» (core/consents) */
   consents: { kind: 'platform', order: 980 },
+  /** Журнал безопасности, сессии и устройства, заморозка (core/audit) */
+  audit: { kind: 'platform', order: 985 },
   platform: { kind: 'platform', order: 970 },
   other: { kind: 'platform', order: 999 },
 } as const satisfies Record<string, { kind: 'product' | 'platform'; order: number }>;

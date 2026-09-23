@@ -1166,6 +1166,19 @@ export class ApprovalsService implements OnModuleInit {
     for (const r of rows) await this.cancelInternal(r.id, { notifyOrigin: false });
   }
 
+  /**
+   * Организация удалена насовсем (каскад purge): её живые заявки больше никого не ждут.
+   * Ведущих (Процессы организации) не будим — они уходят вместе с ней.
+   */
+  async cancelAllForWorkspace(workspaceId: string): Promise<number> {
+    const rows = await this.db.approvalRequest.findMany({
+      where: { workspaceId, status: 'pending' },
+      select: { id: true },
+    });
+    for (const r of rows) await this.cancelInternal(r.id, { notifyOrigin: false });
+    return rows.length;
+  }
+
   /** Отменить ВСЕ живые заявки на предмет (предмет отменён/удалён его сервисом) */
   async cancelForRef(refType: string, refId: string): Promise<void> {
     const rows = await this.db.approvalRequest.findMany({
@@ -1231,9 +1244,27 @@ export class ApprovalsService implements OnModuleInit {
    * пятью компаниями всё вперемешку.
    */
   private scopeWhere(scope: InboxScope): Prisma.ApprovalRequestWhereInput {
-    if (scope.workspaceId) return { workspaceId: scope.workspaceId };
+    // Организации в архиве стопка не показывает (личные заявки без организации — всегда)
+    const open: Prisma.ApprovalRequestWhereInput = scope.closedWorkspaceIds?.length
+      ? { AND: [{ OR: [{ workspaceId: null }, { workspaceId: { notIn: scope.closedWorkspaceIds } }] }] }
+      : {};
+    if (scope.workspaceId) return { workspaceId: scope.workspaceId, ...open };
     if (scope.personalOnly) return { workspaceId: null };
-    return {};
+    return open;
+  }
+
+  /**
+   * Организации в архиве, где человек состоит: их задания стопка и бейдж не показывают.
+   * Сервисы выключенной организации закрыты — решить задание всё равно нельзя, а место
+   * в стопке (потолок на источник) оно занимало бы. Возврат из архива возвращает их;
+   * удалённая насовсем свои заявки отменяет каскадом purge.
+   */
+  private async closedWorkspaceIdsOf(userId: string): Promise<string[]> {
+    const rows = await this.db.workspace.findMany({
+      where: { isActive: false, members: { some: { userId } } },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
   }
 
   /** Разбор скоупа из query: `workspaceId` сильнее `scope=personal` */
@@ -1291,7 +1322,7 @@ export class ApprovalsService implements OnModuleInit {
     userId: string,
     q: { workspaceId?: string; scope?: ApprovalInboxScope; sourceKey?: string },
   ): Promise<InboxPageDto> {
-    const scope = this.scopeOf(q);
+    const scope: InboxScope = { ...this.scopeOf(q), closedWorkspaceIds: await this.closedWorkspaceIdsOf(userId) };
     const sources = this.registry
       .sourceEntries()
       .filter(([key]) => !q.sourceKey || key === q.sourceKey);
@@ -1321,7 +1352,7 @@ export class ApprovalsService implements OnModuleInit {
     userId: string,
     q: { workspaceId?: string; scope?: ApprovalInboxScope },
   ): Promise<InboxCountDto> {
-    const scope = this.scopeOf(q);
+    const scope: InboxScope = { ...this.scopeOf(q), closedWorkspaceIds: await this.closedWorkspaceIdsOf(userId) };
     const entries = await Promise.all(
       this.registry.sourceEntries().map(async ([key, source]) => {
         try {

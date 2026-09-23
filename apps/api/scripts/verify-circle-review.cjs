@@ -25,6 +25,7 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 const { PrismaClient } = require('@prisma/client');
+const { createSuiteWorkspace, archiveSuiteWorkspaces } = require('./_lib.cjs');
 // Адрес API переопределяется переменной окружения: два экземпляра на одной машине
 // (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
 const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
@@ -86,7 +87,7 @@ async function main() {
   const p12 = pair(u.u1, u.u2), p13 = pair(u.u1, u.u3);
 
   // ---- база: чистим ТОЛЬКО артефакты этого скрипта ----
-  const created = { circleIds: [], resourceIds: [], workspaceIds: [], userIds: [] };
+  const created = { circleIds: [], resourceIds: [], userIds: [] };
   const wipeInv = () => prisma.contactInvitation.deleteMany({
     where: { fromUserId: { in: [u.u1, u.u2, u.u3] }, toPhone: { in: [P1, P2, P3, PNEW] } },
   });
@@ -329,9 +330,8 @@ async function main() {
     // КРАСНЫЙ 3 + personalOnly — организация
     // ============================================================
     await relink(p12, u.u1);
-    const ws = await call('POST', '/workspaces', t1, { name: 'Ревью Circle' });
+    const ws = await createSuiteWorkspace(t1, 'Сьют-Ревью-Окружения', {}, { purge: true });
     const wsId = ws.json?.data?.id;
-    if (wsId) created.workspaceIds.push(wsId);
     check('подготовка: организация создана', !!wsId, `status ${ws.status}`);
 
     const grpTask = await call('POST', '/circles', t1, { name: 'Ревью: задача' });
@@ -369,7 +369,7 @@ async function main() {
       },
     });
     // core/consents: регистрация требует дату рождения и пакет согласий `registration`
-    const regConsents = await require('./_consents.cjs').registrationConsents(process.env.API_URL || process.env.API_BASE || 'http://localhost:3001/api');
+    const regConsents = await require('./_consents.cjs').registrationConsents(BASE);
     const reg = await call('POST', '/auth/register', null, { phone: PNEW, password: PW, firstName: 'Ревью', dateOfBirth: '1990-01-01', consents: regConsents });
     check('подготовка: регистрация прошла', reg.ok, `status ${reg.status}`);
     const newUser = await prisma.user.findUnique({ where: { phone: PNEW }, select: { id: true } });
@@ -406,12 +406,9 @@ async function main() {
     for (const id of created.resourceIds.filter(Boolean)) {
       await prisma.resource.deleteMany({ where: { id } }).catch(() => {});
     }
-    for (const id of created.workspaceIds.filter(Boolean)) {
-      await prisma.userRole.deleteMany({ where: { tenantId: id } }).catch(() => {});
-      await prisma.workspaceMember.deleteMany({ where: { workspaceId: id } }).catch(() => {});
-      await prisma.task.updateMany({ where: { workspaceId: id }, data: { workspaceId: null } }).catch(() => {});
-      await prisma.workspace.deleteMany({ where: { id } }).catch(() => {});
-    }
+    // Организация — штатно: архив + каскад purgeWorkspace. Сырое удаление строки
+    // превращало её задачи в ЛИЧНЫЕ задачи аккаунтов сьюта (tasks.workspace_id = SET NULL).
+    fails += await archiveSuiteWorkspaces();
     for (const id of created.userIds.filter(Boolean)) {
       await prisma.contactInvitation.deleteMany({ where: { toUserId: id } }).catch(() => {});
       await prisma.user.deleteMany({ where: { id } }).catch(() => {});

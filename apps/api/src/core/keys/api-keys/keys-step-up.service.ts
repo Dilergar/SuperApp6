@@ -4,6 +4,7 @@ import { DatabaseService } from '../../../shared/database/database.service';
 import { forbidden } from '../../../shared/errors/api-error';
 import { RedisService } from '../../../shared/redis/redis.service';
 import { VerifyService } from '../../verify/verify.service';
+import { AuditService } from '../../audit/audit.service';
 
 /**
  * «Сильное подтверждение» для управления ключами (решение грилла №8): пароль + SMS-код
@@ -16,6 +17,7 @@ export class KeysStepUpService {
     private readonly db: DatabaseService,
     private readonly redis: RedisService,
     private readonly verify: VerifyService,
+    private readonly audit: AuditService,
   ) {}
 
   async status(userId: string): Promise<KeysStepUpStatusDto> {
@@ -36,7 +38,11 @@ export class KeysStepUpService {
 
   /** Гашение пропуска `keys_manage` (в транзакции — откат не тратит пропуск) → окно. */
   async confirm(userId: string, verifyToken: string): Promise<KeysStepUpStatusDto> {
-    await this.db.$transaction((tx) => this.verify.consume(tx, { verifyToken, purpose: 'keys_manage', expectedUserId: userId }));
+    await this.db.$transaction(async (tx) => {
+      const consumed = await this.verify.consume(tx, { verifyToken, purpose: 'keys_manage', expectedUserId: userId });
+      // Подтверждение личности — событие журнала безопасности той же транзакцией
+      await this.audit.record(tx, { key: 'auth.step_up.success', subjectUserId: userId, details: { purpose: 'keys_manage' }, evidence: { factor: 'password+sms', verifyChallengeId: consumed.challengeId } });
+    });
     const until = Date.now() + KEYS_LIMITS.stepUpMinutes * 60_000;
     await this.redis.set(KEYS_REDIS.stepUp(userId), String(until), KEYS_LIMITS.stepUpMinutes * 60);
     return { until: new Date(until).toISOString() };

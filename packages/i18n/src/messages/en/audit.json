@@ -1,0 +1,807 @@
+{
+  "events": {
+    "auth": {
+      "login": {
+        "success": {
+          "title": "Sign-in",
+          "body": "{method, select, register {First sign-in after registration} unfreeze {Sign-in after unfreezing the account} reset {Sign-in after the password reset by SMS} other {}}"
+        },
+        "failed": {
+          "title": "Wrong password entered",
+          "body": "We didn’t let this sign-in through."
+        },
+        "locked": {
+          "title": "Sign-in temporarily blocked",
+          "body": "{attempts, plural, one {# wrong password} other {# wrong passwords}} in a row — sign-in is closed for {minutes} min."
+        }
+      },
+      "logout": {
+        "title": "Signed out",
+        "body": ""
+      },
+      "logout_all": {
+        "title": "Signed out on all other devices",
+        "body": "{sessions, plural, =0 {No other sessions were open} one {# session ended} other {# sessions ended}}"
+      },
+      "session": {
+        "revoked": {
+          "title": "Session ended",
+          "body": "{by, select, self {You ended it} other_session {Ended from another of your devices} logout_all {Signed out everywhere} password_change {After the password change} phone_change {After the number change} reset {After the password reset} reuse {The sign-in token was reused} not_me {You reported “This wasn’t me”} freeze {The account was frozen} admin {Ended by the organization} platform {Ended by SuperApp6 security} inactive {Inactive for a long time} deleted {The account is being deleted} other {Session ended}}"
+        },
+        "refresh_reuse": {
+          "title": "A sign-in token was reused",
+          "body": "That session was ended everywhere. If it wasn’t you — change your password."
+        },
+        "new_device": {
+          "title": "Sign-in from a new device",
+          "body": ""
+        },
+        "new_country": {
+          "title": "Sign-in from a new country",
+          "body": ""
+        },
+        "confirmed": {
+          "title": "New sign-in confirmed",
+          "body": "{via, select, step_up {Confirmed with the password and an SMS code} other {24 hours have passed since the sign-in}}"
+        },
+        "expired_inactive": {
+          "title": "Inactive sessions ended",
+          "body": "{sessions, plural, one {# session} other {# sessions}} unused for over {idleDays} days"
+        }
+      },
+      "password": {
+        "changed": {
+          "title": "Password changed",
+          "body": "{sessionsRevoked, plural, =0 {Other sessions stay signed in} one {# other session ended} other {# other sessions ended}}"
+        },
+        "reset_completed": {
+          "title": "Password reset by SMS",
+          "body": "All sessions were ended."
+        }
+      },
+      "phone": {
+        "changed": {
+          "title": "Sign-in number changed",
+          "body": "{sessionsRevoked, plural, =0 {Other sessions stay signed in} one {# other session ended} other {# other sessions ended}}"
+        }
+      },
+      "otp": {
+        "failed": {
+          "title": "Wrong SMS code entered",
+          "body": "{attemptsLeft, plural, =0 {No attempts left} one {# attempt left} other {# attempts left}}"
+        },
+        "locked": {
+          "title": "Too many wrong SMS codes",
+          "body": "The code was cancelled — request a new one."
+        }
+      },
+      "step_up": {
+        "success": {
+          "title": "Identity confirmed",
+          "body": "Password and SMS code before a sensitive action."
+        },
+        "failed": {
+          "title": "Identity not confirmed",
+          "body": "{stage, select, password {Wrong password} other {Wrong SMS code}}"
+        }
+      }
+    },
+    "account": {
+      "registered": {
+        "title": "Account created",
+        "body": ""
+      },
+      "deletion_requested": {
+        "title": "Account deletion requested",
+        "body": "The account will be deleted in {graceDays} days. Signing in cancels the deletion."
+      },
+      "deletion_cancelled": {
+        "title": "Account deletion cancelled",
+        "body": ""
+      },
+      "anonymized": {
+        "title": "Account deleted and anonymized",
+        "body": ""
+      },
+      "frozen": {
+        "title": "Account frozen",
+        "body": "Sign-in, sessions and API keys are closed until you unfreeze with your password and an SMS code."
+      },
+      "unfrozen": {
+        "title": "Account unfrozen",
+        "body": "{by, select, platform {Unfrozen by SuperApp6 support after an identity check} other {Unfrozen with the password and an SMS code}}"
+      },
+      "not_me_started": {
+        "title": "“This wasn’t me”: the account is protected",
+        "body": "Sessions ended: {sessionsRevoked}. Devices forgotten: {devicesForgotten}. API keys revoked: {keysRevoked}."
+      },
+      "not_me_completed": {
+        "title": "Account protection finished",
+        "body": "{credentialsRotated, select, true {The password was changed.} other {The password was not changed.}}"
+      },
+      "device_forgotten": {
+        "title": "Device forgotten",
+        "body": "{auto, select, true {Not used for a year} other {The next sign-in from it will come with a notification}}"
+      },
+      "device_renamed": {
+        "title": "Device renamed",
+        "body": ""
+      },
+      "event_disputed": {
+        "title": "You reported “This wasn’t me”",
+        "body": ""
+      },
+      "settings_changed": {
+        "title": "Security settings changed",
+        "body": "Inactive sessions end after {sessionMaxIdleDays} days."
+      }
+    },
+    "org": {
+      "member": {
+        "invited": {
+          "title": "Invitation to “{workspace}”",
+          "body": "Role: {roleLabel}"
+        },
+        "joined": {
+          "title": "Joined “{workspace}”",
+          "body": "Role: {roleLabel}"
+        },
+        "removed": {
+          "title": "Removed from “{workspace}”",
+          "body": ""
+        },
+        "left": {
+          "title": "Left “{workspace}”",
+          "body": ""
+        }
+      },
+      "role": {
+        "changed": {
+          "title": "Role in “{workspace}”: {fromLabel} → {toLabel}",
+          "body": ""
+        }
+      },
+      "ownership": {
+        "transferred": {
+          "title": "Ownership of “{workspace}” transferred",
+          "body": ""
+        }
+      },
+      "workspace": {
+        "archived": {
+          "title": "“{workspace}” archived",
+          "body": ""
+        },
+        "restored": {
+          "title": "“{workspace}” restored",
+          "body": ""
+        },
+        "purged": {
+          "title": "“{workspace}” deleted permanently",
+          "body": ""
+        }
+      },
+      "session": {
+        "first_seen": {
+          "title": "First visit to “{workspace}” from this device",
+          "body": ""
+        }
+      },
+      "audit": {
+        "stream_changed": {
+          "title": "{enabled, select, true {Security log streaming turned on} other {Security log streaming turned off}}",
+          "body": ""
+        }
+      }
+    },
+    "keys": {
+      "api_key": {
+        "created": {
+          "title": "API key “{target}” created",
+          "body": "{kind, select, bot {Bot key} other {Personal key}}"
+        },
+        "updated": {
+          "title": "API key “{target}” changed",
+          "body": ""
+        },
+        "rotated": {
+          "title": "API key “{target}” rotated",
+          "body": ""
+        },
+        "revoked": {
+          "title": "API key “{target}” revoked",
+          "body": ""
+        },
+        "leaked": {
+          "title": "API key “{target}” found in the open and revoked",
+          "body": "Replace it in your integration — the old key no longer works."
+        },
+        "expired": {
+          "title": "API key “{target}” expired",
+          "body": ""
+        },
+        "auth_failed": {
+          "title": "Rejected request with an API key",
+          "body": "{failure, select, revoked {The key is revoked} expired {The key has expired} frozen {The bot is frozen} archived {The bot is archived} other {Unknown key}} · {attempts, plural, one {# attempt} other {# attempts}}"
+        },
+        "ip_denied": {
+          "title": "API key used from an address outside the allow-list",
+          "body": "{attempts, plural, one {# attempt} other {# attempts}}"
+        },
+        "throttled": {
+          "title": "API key hit the rate limit",
+          "body": "{attempts, plural, one {# attempt} other {# attempts}}"
+        }
+      },
+      "bot": {
+        "created": {
+          "title": "Bot “{target}” created",
+          "body": ""
+        },
+        "updated": {
+          "title": "Bot “{target}” changed",
+          "body": ""
+        },
+        "frozen": {
+          "title": "Bot “{target}” frozen",
+          "body": ""
+        },
+        "unfrozen": {
+          "title": "Bot “{target}” unfrozen",
+          "body": ""
+        },
+        "archived": {
+          "title": "Bot “{target}” archived",
+          "body": "{keysRevoked, plural, =0 {No keys to revoke} one {# key revoked} other {# keys revoked}}"
+        }
+      },
+      "webhook": {
+        "created": {
+          "title": "Webhook {target} created",
+          "body": ""
+        },
+        "updated": {
+          "title": "Webhook {target} changed",
+          "body": ""
+        },
+        "enabled": {
+          "title": "Webhook {target} turned on",
+          "body": ""
+        },
+        "disabled": {
+          "title": "Webhook {target} turned off",
+          "body": ""
+        },
+        "deleted": {
+          "title": "Webhook {target} deleted",
+          "body": ""
+        },
+        "secret_rotated": {
+          "title": "Webhook {target}: secret replaced",
+          "body": ""
+        },
+        "verified": {
+          "title": "Webhook {target} verified",
+          "body": ""
+        },
+        "signature_audit": {
+          "title": "Webhook {target} accepted a forged signature and was turned off",
+          "body": "The receiver must check the signature of every delivery."
+        }
+      },
+      "policy": {
+        "changed": {
+          "title": "Key policy changed",
+          "body": ""
+        }
+      },
+      "crypto": {
+        "key_created": {
+          "title": "Encryption key created",
+          "body": "{target}"
+        },
+        "version_created": {
+          "title": "Encryption key version created",
+          "body": "{target}"
+        },
+        "version_activated": {
+          "title": "Encryption key version activated",
+          "body": "{target}"
+        },
+        "version_disabled": {
+          "title": "Encryption key version disabled",
+          "body": "{target}"
+        },
+        "version_enabled": {
+          "title": "Encryption key version re-enabled",
+          "body": "{target}"
+        },
+        "version_destroy_scheduled": {
+          "title": "Encryption key version scheduled for destruction",
+          "body": "{target}"
+        },
+        "version_destroyed": {
+          "title": "Encryption key version destroyed",
+          "body": "{target}"
+        },
+        "version_compromised": {
+          "title": "Encryption key version marked compromised",
+          "body": "{target}"
+        },
+        "scope_frozen": {
+          "title": "Encryption frozen",
+          "body": "{target}"
+        },
+        "scope_unfrozen": {
+          "title": "Encryption unfrozen",
+          "body": "{target}"
+        },
+        "scope_rewrapped": {
+          "title": "Data keys re-wrapped",
+          "body": "{target}"
+        },
+        "root_rotation_started": {
+          "title": "Root key rotation started",
+          "body": "{target}"
+        },
+        "root_rotated": {
+          "title": "Root key rotated",
+          "body": "{target}"
+        },
+        "blind_index_rotated": {
+          "title": "Search index key rotated",
+          "body": "{target}"
+        }
+      }
+    },
+    "platform": {
+      "auth": {
+        "login_success": {
+          "title": "Console sign-in",
+          "body": ""
+        },
+        "login_failed": {
+          "title": "Console sign-in failed",
+          "body": ""
+        },
+        "login_locked": {
+          "title": "Console sign-in blocked",
+          "body": ""
+        },
+        "step_up_success": {
+          "title": "Console: identity confirmed",
+          "body": ""
+        },
+        "step_up_failed": {
+          "title": "Console: identity not confirmed",
+          "body": ""
+        },
+        "session_revoked": {
+          "title": "Console session ended",
+          "body": ""
+        }
+      },
+      "command": {
+        "executed": {
+          "title": "Console command: {op}",
+          "body": ""
+        }
+      },
+      "request": {
+        "created": {
+          "title": "Four-eyes request: {command}",
+          "body": ""
+        },
+        "decided": {
+          "title": "Four-eyes request {decision, select, approved {approved} other {rejected}}: {command}",
+          "body": ""
+        },
+        "withdrawn": {
+          "title": "Four-eyes request withdrawn: {command}",
+          "body": ""
+        }
+      },
+      "access": {
+        "search": {
+          "title": "Console search",
+          "body": ""
+        },
+        "view": {
+          "title": "Console card viewed",
+          "body": ""
+        },
+        "reveal": {
+          "title": "Masked data revealed in the console",
+          "body": ""
+        }
+      },
+      "staff": {
+        "suspended_by_system": {
+          "title": "Console staff member suspended by the system",
+          "body": ""
+        }
+      }
+    },
+    "pii": {
+      "read": {
+        "title": "Sensitive personal data read",
+        "body": "{count, plural, one {# record} other {# records}}"
+      }
+    },
+    "pd": {
+      "transfer": {
+        "title": "Data transferred: {recipient}",
+        "body": "{purpose}"
+      },
+      "cross_border": {
+        "title": "Data transferred abroad: {recipient}",
+        "body": "{purpose}"
+      },
+      "publication": {
+        "title": "Data made public",
+        "body": "{purpose}"
+      }
+    },
+    "consents": {
+      "accepted": {
+        "title": "Accepted: {document}",
+        "body": "Version {version}"
+      },
+      "revoked": {
+        "title": "Withdrawn: {document}",
+        "body": ""
+      }
+    },
+    "data": {
+      "export": {
+        "title": "{source, select, hr_zip {HR documents exported} documents_zip {Documents exported} audit_org {Security log exported} audit_platform {Security log exported by the platform} my_data {“My data” exported} analytics_report {Analytics report exported} other {Data exported}}",
+        "body": "{rows, plural, one {# record} other {# records}}"
+      }
+    },
+    "detect": {
+      "bruteforce_account": {
+        "title": "Password guessing on an account",
+        "body": "{events} failures in {windowMin} min"
+      },
+      "bruteforce_ip": {
+        "title": "Password guessing from one network",
+        "body": "{events} failures in {windowMin} min"
+      },
+      "password_spray": {
+        "title": "Password spraying",
+        "body": "{accounts} accounts from one network in {windowMin} min"
+      },
+      "credential_stuffing": {
+        "title": "Credential stuffing",
+        "body": "{failureRatePct}% failures in {windowMin} min"
+      },
+      "otp_fatigue": {
+        "title": "Flood of SMS code requests",
+        "body": "{events} requests in {windowMin} min"
+      },
+      "mass_export": {
+        "title": "Mass data export",
+        "body": "{rows} records in {windowMin} min"
+      },
+      "dormant_login": {
+        "title": "Sign-in after a long silence",
+        "body": ""
+      },
+      "digest_mismatch": {
+        "title": "Security log integrity broken",
+        "body": "{events} records do not match the signed digest"
+      },
+      "audit_degraded": {
+        "title": "Security log degraded",
+        "body": "{failures} write failures in {windowMin} min"
+      },
+      "impossible_travel": {
+        "title": "Impossible travel",
+        "body": ""
+      },
+      "session_context_changed": {
+        "title": "Session context changed",
+        "body": ""
+      }
+    },
+    "audit": {
+      "viewed": {
+        "title": "Security log viewed",
+        "body": "Queries: {queries}, records: {rows}"
+      },
+      "digest": {
+        "created": {
+          "title": "Integrity digest signed",
+          "body": "{rows, plural, one {# record} other {# records}}"
+        },
+        "verified": {
+          "title": "Integrity check passed",
+          "body": "Digests: {digests}"
+        },
+        "failed": {
+          "title": "Integrity check failed",
+          "body": "Mismatched digests: {mismatched}"
+        }
+      },
+      "partition": {
+        "archived": {
+          "title": "Log month archived: {partition}",
+          "body": "{rows, plural, one {# record} other {# records}}"
+        },
+        "dropped": {
+          "title": "Log month removed from the database: {partition}",
+          "body": ""
+        }
+      },
+      "settings": {
+        "changed": {
+          "title": "Security log settings changed",
+          "body": ""
+        }
+      },
+      "lockout_summary": {
+        "title": "Sign-in attempts during the block",
+        "body": "{attempts, plural, one {# attempt was turned away} other {# attempts were turned away}}"
+      }
+    }
+  },
+  "categories": {
+    "auth": "Sign-in and credentials",
+    "session": "Sessions and devices",
+    "account": "Account",
+    "org": "Organizations",
+    "keys": "Keys and integrations",
+    "platform": "Platform console",
+    "pii": "Personal data reads",
+    "pd": "Personal data transfers",
+    "consents": "Consents",
+    "data": "Exports",
+    "detect": "Detections",
+    "audit": "The log itself"
+  },
+  "severities": {
+    "info": "Info",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "critical": "Critical"
+  },
+  "outcomes": {
+    "success": "Success",
+    "failure": "Failure",
+    "denied": "Denied",
+    "unknown": "Unknown"
+  },
+  "actorKinds": {
+    "user": "Person",
+    "bot": "Bot",
+    "platform_staff": "Platform staff",
+    "platform": "SuperApp6",
+    "system": "System",
+    "guest": "Guest",
+    "anonymous": "Unknown",
+    "device": "Device"
+  },
+  "clients": {
+    "web": "Website",
+    "mobile_web": "Mobile website",
+    "mobile": "App",
+    "api_key": "API key",
+    "console": "Console",
+    "socket": "Live connection",
+    "job": "Background task",
+    "script": "Script"
+  },
+  "deviceClasses": {
+    "desktop": "Computer",
+    "mobile": "Phone",
+    "tablet": "Tablet",
+    "other": "Device"
+  },
+  "reasons": {
+    "wrong_password": "Wrong password",
+    "unknown_account": "No such account",
+    "not_allowed": "Sign-in is not allowed for this account",
+    "locked": "Sign-in is temporarily blocked",
+    "frozen": "The account is frozen"
+  },
+  "revokeReasons": {
+    "self": "you ended the session",
+    "other_session": "ended from another device",
+    "logout_all": "signed out everywhere",
+    "password_change": "after the password change",
+    "phone_change": "after the number change",
+    "reset": "after the password reset",
+    "reuse": "the sign-in token was reused",
+    "not_me": "you reported “This wasn’t me”",
+    "freeze": "the account was frozen",
+    "admin": "ended by the organization",
+    "platform": "ended by SuperApp6 security",
+    "inactive": "inactive for a long time",
+    "deleted": "the account is being deleted"
+  },
+  "exportSources": {
+    "hr_zip": "HR documents",
+    "documents_zip": "Documents",
+    "audit_org": "Security log",
+    "audit_platform": "Security log (platform)",
+    "my_data": "My data",
+    "analytics_report": "Analytics report"
+  },
+  "filters": {
+    "person": {
+      "all": "All",
+      "logins": "Sign-ins",
+      "devices": "Devices",
+      "credentials": "Password and number",
+      "orgs": "Organizations",
+      "keys": "Keys and apps",
+      "data": "My data"
+    },
+    "org": {
+      "all": "All",
+      "people": "People and roles",
+      "devices": "Devices",
+      "keys": "Keys and integrations",
+      "exports": "Exports",
+      "consents": "Consents"
+    }
+  },
+  "unknownWorkspace": "organization",
+  "unknownDevice": "Unknown device",
+  "unknownPlace": "location unknown",
+  "alertResolutions": {
+    "resolved": "Resolved",
+    "false_positive": "False positive",
+    "accepted_risk": "Risk accepted",
+    "duplicate": "Duplicate"
+  },
+  "ui": {
+    "cooling": {
+      "title": "New device",
+      "text": "You signed in from a new device. Ending other sessions and changing the password will be possible in {hours, plural, one {# hour} other {# hours}} — or confirm now.",
+      "confirm": "Confirm by SMS",
+      "dialogTitle": "Confirm this device",
+      "dialogBody": "Enter your password — we will send a code to your number. After that this device can end other sessions and change the password.",
+      "confirmed": "The device is confirmed"
+    },
+    "devices": {
+      "title": "Devices and sessions",
+      "logoutAll": "Sign out everywhere",
+      "logoutAllTitle": "Sign out on all other devices?",
+      "logoutAllText": "All other devices will sign out right now. Personal API keys will be revoked too — integrations that use them will stop.",
+      "loggedOutAll": "Other devices are signed out",
+      "thisDevice": "This device",
+      "pending": "New · {hours} h to confirmation",
+      "confirmed": "Confirmed",
+      "active": "active {ago}",
+      "signedIn": "signed in {date}",
+      "endedAt": "signed out {date}",
+      "end": "End the session",
+      "endTitle": "End this session?",
+      "endText": "The device will sign out right away.",
+      "ended": "The session is ended",
+      "rename": "Rename the device",
+      "renameLabel": "Device name",
+      "renamed": "Saved",
+      "forget": "Forget the device",
+      "forgetTitle": "Forget this device?",
+      "forgetText": "Its sessions will end. The next sign-in from it will come with a notification, as from a new device.",
+      "forgotten": "The device is forgotten",
+      "showEnded": "Signed-out devices ({count})",
+      "onlyThis": "Only this device",
+      "menu": "Session actions",
+      "loadFailed": "Could not load the devices",
+      "showAll": "Show all ({count})",
+      "showLess": "Show less"
+    },
+    "feed": {
+      "title": "Security activity",
+      "filters": "Event filter",
+      "empty": "All quiet — sign-ins and security changes will show up here",
+      "loadFailed": "Could not load the activity",
+      "window": "Shown for a year; data transfers and consents — the whole history."
+    },
+    "event": {
+      "when": "When",
+      "who": "Who",
+      "subject": "Whose account",
+      "target": "Object",
+      "device": "Device",
+      "where": "Where",
+      "approx": "{place} (approximately)",
+      "app": "App",
+      "organization": "Organization",
+      "requestId": "Request ID",
+      "copy": "Copy",
+      "copied": "Copied",
+      "ipHintPerson": "We don’t show the full IP address, but keep it for investigations; it is in the “My data” export.",
+      "ipHintWorkspace": "The organization sees the country and the device class; the full IP address is kept only for investigations of the platform.",
+      "notMe": "This wasn’t me",
+      "notFound": "The event is no longer available",
+      "reason": "Reason",
+      "source": "Source"
+    },
+    "notMe": {
+      "title": "This wasn’t me",
+      "progress": "Progress",
+      "step1Title": "Let’s protect the account",
+      "step1Text": "We will end all other sessions, forget other devices, revoke personal API keys and the Google connection. Then we will ask you to change the password.",
+      "start": "Start",
+      "working": "Protecting the account…",
+      "sessions": "{n, plural, one {# session ended} other {# sessions ended}}",
+      "devices": "{n, plural, one {# device forgotten} other {# devices forgotten}}",
+      "keys": "{n, plural, one {# API key revoked} other {# API keys revoked}}",
+      "google": "The Google connection is off",
+      "step3Title": "Change the password",
+      "step3Text": "Someone else may know the old one.",
+      "changePassword": "Change the password",
+      "forgot": "I don’t remember the password",
+      "forgotWarning": "Resetting by SMS will end this session too.",
+      "skip": "Later",
+      "passwordChanged": "The password is changed",
+      "step4Title": "Check the number",
+      "step4Text": "{phone} — is this your number?",
+      "yes": "Yes, it’s mine",
+      "changePhone": "Change the number",
+      "phoneConfirmed": "The number is confirmed",
+      "doneTitle": "The account is protected",
+      "doneTip": "If this password was used anywhere else — change it there too.",
+      "freezeTip": "Freezing without signing in: {url}"
+    },
+    "settings": {
+      "idle": "End inactive sessions after",
+      "saved": "Saved",
+      "idleDays": {
+        "7": "1 week",
+        "30": "1 month",
+        "90": "3 months",
+        "180": "6 months"
+      }
+    },
+    "sent": {
+      "title": "What we sent you",
+      "text": "All security notifications, push and SMS for a year. If a message is not here — it’s not from us.",
+      "open": "Open",
+      "never": "We never ask for a code and never send links to enter the password."
+    },
+    "lost": {
+      "title": "Lost your phone?",
+      "text": "You can freeze the account from any device without signing in: {url}. Unfreezing — with the password and an SMS code."
+    }
+  },
+  "org": {
+    "title": "Security",
+    "description": "Sign-ins of members from new devices, roles, keys and integrations, exports",
+    "noAccess": "Only the owner and admins see the security log",
+    "window": "Events for {days, plural, one {# day} other {# days}} are shown.",
+    "windowMore": "A longer log is on higher plans.",
+    "plan": "Plan",
+    "who": "Who",
+    "from": "From",
+    "to": "To",
+    "col": {
+      "time": "Time",
+      "event": "Event",
+      "who": "Who",
+      "where": "Where",
+      "outcome": "Outcome"
+    },
+    "empty": "No events yet",
+    "export": {
+      "open": "Export",
+      "title": "Export the security log",
+      "format": "Format",
+      "from": "From",
+      "to": "To",
+      "categories": "Events",
+      "note": "The file will appear on the organization’s Drive in the Security folder; the export itself stays in the log.",
+      "submit": "Export",
+      "queued": "Preparing the file — we will send a notification"
+    },
+    "stream": "Stream to SIEM"
+  },
+  "export": {
+    "fileName": "Security log {from} — {to}.{ext}"
+  }
+}

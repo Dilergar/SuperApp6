@@ -69,7 +69,8 @@
     "aria": "Қосымша навигациясы",
     "expandBranch": "{name} жаю",
     "collapseBranch": "{name} жию",
-    "wsIntegrations": "Интеграциялар мен кілттер"
+    "wsIntegrations": "Интеграциялар мен кілттер",
+    "wsSecurity": "Қауіпсіздік"
   },
   "topbar": {
     "profile": "Профиль",

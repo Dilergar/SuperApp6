@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocale, useTranslations } from 'next-intl';
-import type { ConsentAcceptResultDto, ConsentDocumentKey, ConsentReceiptDto, ConsentStateItemDto, CursorPage, Locale, PdTransferDto } from '@superapp/shared';
+import type { ConsentAcceptResultDto, ConsentDocumentKey, ConsentReceiptDto, ConsentStateItemDto, CursorPage, Locale, PdTransferDto, SecurityMyDataExportDto } from '@superapp/shared';
 import { Alert, Button, Card, Chip, EmptyState, LoadingBlock, Modal, Toggle, type Tone } from '@/components/ui';
 import { ConsentDocumentModal } from '@/components/consents/ConsentDocumentModal';
 import { analytics } from '@/lib/analytics';
@@ -21,6 +21,8 @@ import { useFormatters } from '@/lib/format';
 import { analyticsConsentKey, consentReceiptKey, consentsMineRootKey, consentsStateKey, consentTransfersKey } from '@/lib/queries';
 
 import { toastApiError } from '@/lib/api-errors';
+import { saveBlob } from '@/lib/download';
+import { toast } from '@/lib/toast';
 const STATUS_TONE: Record<ConsentStateItemDto['status'], Tone> = {
   accepted: 'success',
   outdated: 'waiting',
@@ -117,9 +119,46 @@ export default function MyDataPage() {
 
       <TransfersSection />
 
+      <SecurityLogSection />
+
       <ConsentDocumentModal open={!!openDoc} onClose={() => setOpenDoc(null)} versionId={openDoc?.versionId} documentKey={openDoc?.documentKey} />
       {receiptId && <ReceiptModal acceptanceId={receiptId} onClose={() => setReceiptId(null)} />}
     </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Журнал безопасности (core/audit): всё о человеке за весь срок хранения, с полными IP его
+// собственных входов и действий — ЗоПД ст. 24. Свежая неподтверждённая сессия получает отказ
+// cooling (текст — с сервера, на языке человека).
+// ------------------------------------------------------------
+
+function SecurityLogSection() {
+  const t = useTranslations('consents');
+  const download = useMutation({
+    mutationFn: () => apiGet<SecurityMyDataExportDto>('/users/me/security/export'),
+    onSuccess: (data) => {
+      saveBlob(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }), `security-log_${data.generatedAt.slice(0, 10)}.json`);
+      if (data.truncated) toast(t('myData.securityLogTruncated', { count: data.rows.length }), 'info');
+    },
+    onError: (err) => toastApiError(err),
+  });
+  return (
+    <>
+      <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>{t('myData.securityLogTitle')}</h3>
+      <Card>
+        <div className="my-data-row">
+          <div className="my-data-row-main">
+            <p className="label-sm" style={{ margin: 0 }}>{t('myData.securityLogHint')}</p>
+          </div>
+          <div className="my-data-row-actions">
+            <Button size="sm" variant="outline" icon="download" loading={download.isPending} onClick={() => download.mutate()}>
+              {t('myData.securityLogDownload')}
+            </Button>
+          </div>
+        </div>
+      </Card>
+    </>
   );
 }
 

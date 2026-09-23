@@ -69,7 +69,8 @@
     "aria": "App navigation",
     "expandBranch": "Expand {name}",
     "collapseBranch": "Collapse {name}",
-    "wsIntegrations": "Integrations and keys"
+    "wsIntegrations": "Integrations and keys",
+    "wsSecurity": "Security"
   },
   "topbar": {
     "profile": "Profile",

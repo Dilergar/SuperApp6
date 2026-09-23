@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { resolveAudienceLabels, resolveByteValues, resolveIsoValues, resolveLabelKeys, type Locale } from '@superapp/i18n';
+import { resolveAudienceLabels, resolveByteValues, resolveCountryValues, resolveIsoValues, resolveLabelKeys, type Locale } from '@superapp/i18n';
 import { notificationDef } from '@superapp/shared';
 import { I18nService } from '../../shared/i18n/i18n.service';
 
@@ -45,12 +45,11 @@ export class NotificationsRenderer {
     const withAudiences = resolveAudienceLabels(t, payload ?? {});
     // `<имя>Bytes` — машинный объём (квоты Диска): «4,1 ГБ» собирается единицами и
     // правилами зрителя, а не запечённой строкой продюсера.
+    // `<имя>Country` — код страны (гео-заголовок CDN): имя страны — на языке зрителя.
+    const fmt = this.i18n.format(locale);
     const values = resolveLabelKeys(
       t,
-      resolveIsoValues(
-        this.i18n.format(locale),
-        resolveByteValues((v) => this.i18n.bytes(v, locale), { ...toValues(withAudiences), n }),
-      ),
+      resolveCountryValues(fmt, resolveIsoValues(fmt, resolveByteValues((v) => this.i18n.bytes(v, locale), { ...toValues(withAudiences), n }))),
     );
     const titleKey = `notifications.${type}.title`;
     const bodyKey = `notifications.${type}.body`;

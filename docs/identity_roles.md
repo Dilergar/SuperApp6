@@ -57,6 +57,10 @@ contractor < trainee (Стажёр) < staff (Сотрудник) < manager < adm
 - `{personalOnly: true}` — отключает рабочий пропуск для ЛИЧНЫХ ресурсов (книга финансов, календарь, витрина, вишлист);
 - «коллега» везде = белый список `TEAM_WORKSPACE_ROLES` (одно определение, не копировать).
 
+## Актор журнала безопасности
+
+Кто совершил действие, журнал безопасности берёт из АУТЕНТИФИКАЦИИ, а не из тела запроса (`RequestActor` в `shared/context/request-context.ts`): `user` — сессия человека (+ `sid`/`fam`), `bot` — ключ бота (`actor_key_id`), `platform_staff` — сессия Кабинета (интерцептор кладёт актора с ролями сотрудника: события внутри команд Кабинета не пишутся «анонимом»), `system` — крон/джоб, `anonymous` — до входа. Состояния аккаунта, которые держит журнал: `users.login_locked_until` (блокировка входа по аккаунту), `security_frozen_at/reason` (экстренная заморозка: `self` | `platform`) — [audit_engine.md](audit_engine.md).
+
 ## Связанные доки
 
-[access_engine.md](access_engine.md) (способности и проекции) · [workspaces.md](workspaces.md) (организации, приглашения, архив) · [staff.md](staff.md) (оргструктура) · [security.md](security.md) (аутентификация).
+[access_engine.md](access_engine.md) (способности и проекции) · [workspaces.md](workspaces.md) (организации, приглашения, архив) · [staff.md](staff.md) (оргструктура) · [security.md](security.md) (аутентификация) · [audit_engine.md](audit_engine.md) (журнал безопасности).

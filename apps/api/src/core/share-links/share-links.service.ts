@@ -600,6 +600,23 @@ export class ShareLinksService {
     return count;
   }
 
+  /**
+   * Каскад окончательного удаления организации: ВСЕ её ссылки отзываются системой (по
+   * `workspaceId` и по владельцу — у части ссылок денормализации нет), а её гости
+   * (имя + подтверждённый номер — ПДн) удаляются. Акты подписи гостей это не задевает:
+   * внешнего ключа на гостя у них нет намеренно, имя и номер сняты в сам акт. Визиты
+   * ссылок теряют ссылку на гостя (SetNull). Права проверяет вызывающий.
+   */
+  async forgetWorkspace(workspaceId: string): Promise<{ revoked: number; guests: number }> {
+    const { count: revoked } = await this.db.shareLink.updateMany({
+      where: { OR: [{ workspaceId }, { ownerType: 'workspace', ownerId: workspaceId }], revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    const { count: guests } = await this.db.shareLinkGuest.deleteMany({ where: { ownerType: 'workspace', ownerId: workspaceId } });
+    if (revoked || guests) this.logger.log(`Workspace ${workspaceId} forgotten: ${revoked} link(s) revoked, ${guests} guest(s) removed`);
+    return { revoked, guests };
+  }
+
   /** Сколько действующих ссылок у объекта — для значка «доступно по ссылке» в интерфейсе */
   async countActiveForRefs(refType: string, refIds: string[]): Promise<Map<string, number>> {
     const out = new Map<string, number>();

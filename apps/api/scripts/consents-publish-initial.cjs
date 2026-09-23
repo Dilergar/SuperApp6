@@ -107,6 +107,7 @@ async function main() {
   const { DatabaseService } = require(path.join(DIST, 'shared/database/database.service.js'));
   const { ConsentsDocumentsService } = require(path.join(DIST, 'core/consents/consents.documents.service.js'));
   const { ConsentsSeedService } = require(path.join(DIST, 'core/consents/consents.seed.service.js'));
+  const { AuditService } = require(path.join(DIST, 'core/audit/audit.service.js'));
   const { CONSENT_TEXT_DOCUMENT_KEYS, CONSENT_BUNDLES, SUPPORTED_LOCALES } = require('@superapp/shared');
 
   // Контекст без HTTP: нужен контейнер (движок ключей для подписи, jobs, i18n), не сервер.
@@ -116,6 +117,7 @@ async function main() {
     const db = app.get(DatabaseService);
     const documents = app.get(ConsentsDocumentsService);
     const seed = app.get(ConsentsSeedService);
+    const audit = app.get(AuditService);
 
     // Скрипт запирает сам себя. Считаются ВСЕ люди, включая удалённых: был хоть один человек —
     // значит Кабинет был достижим, и публикация мимо него уже ничем не оправдана.
@@ -189,18 +191,23 @@ async function main() {
           if (stale) await documents.saveDraft(tx, null, { documentKey: key, bodies: source.bodies, summaries: source.summaries, material: true });
           // Первая версия вступает в силу сразу: заменять нечего, и принимать её задним числом некому
           const res = await documents.publish(tx, { userId: null, reason: REASON }, { documentKey: key });
-          await tx.platformAuditEntry.create({
-            data: {
-              actorId: null,
-              commandKey: AUDIT_COMMAND,
-              commandVersion: 1,
+          // След в журнале безопасности (core/audit): команда Кабинета от имени системы, клиент — скрипт
+          await audit.record(tx, {
+            key: 'platform.command.executed',
+            op: AUDIT_COMMAND,
+            actor: { kind: 'system' },
+            ctx: { client: 'script' },
+            target: { type: 'consent_document', id: key },
+            details: {
+              version: 1,
               input: { documentKey: key, draftRewrittenFromFiles: stale },
-              targetType: 'consent_document',
-              targetId: key,
+              before: null,
               after: { version: res.version, effectiveFrom: res.effectiveFrom.toISOString(), manifestHash: res.manifestHash },
-              outcome: 'ok',
+              readOnly: false,
               risk: 'critical',
               reason: REASON,
+              dryRun: false,
+              durationMs: 0,
             },
           });
           out.push(res);

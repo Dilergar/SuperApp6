@@ -228,6 +228,7 @@ export class ApiKeysService {
       await this.audit.log(tx, {
         actorId: actor.userId,
         workspaceId,
+        subjectUserId: actor.userId,
         subjectType: 'api_key',
         subjectId: row.id,
         subjectName: row.name,
@@ -302,7 +303,7 @@ export class ApiKeysService {
           ...(input.ipAllowlist !== undefined ? { ipAllowlist: input.ipAllowlist as Prisma.InputJsonValue } : {}),
         },
       });
-      await this.audit.log(tx, { actorId: actor.userId, workspaceId: row.bot?.workspaceId ?? row.workspaceId, subjectType: 'api_key', subjectId: row.id, subjectName: u.name, action: 'api_key.updated', ip: actor.ip ?? null, details: { fields: Object.keys(input) } });
+      await this.audit.log(tx, { actorId: actor.userId, workspaceId: row.bot?.workspaceId ?? row.workspaceId, subjectUserId: row.userId, subjectType: 'api_key', subjectId: row.id, subjectName: u.name, action: 'api_key.updated', ip: actor.ip ?? null, details: { fields: Object.keys(input) } });
       return u;
     });
     await this.auth.invalidateByHash(row.hash);
@@ -349,7 +350,7 @@ export class ApiKeysService {
             createdById: actor.userId,
           },
         });
-        await this.audit.log(tx, { actorId: actor.userId, workspaceId: row.workspaceId, subjectType: 'api_key', subjectId: created.id, subjectName: created.name, action: 'api_key.rotated', ip: actor.ip ?? null, details: { rotatedFromId: row.id, graceUntil: graceUntil?.toISOString() ?? null } });
+        await this.audit.log(tx, { actorId: actor.userId, workspaceId: row.workspaceId, subjectUserId: row.userId, subjectType: 'api_key', subjectId: created.id, subjectName: created.name, action: 'api_key.rotated', ip: actor.ip ?? null, details: { rotatedFromId: row.id, graceUntil: graceUntil?.toISOString() ?? null } });
         await this.analytics.track(tx, 'keys.key.created', { kind: 'pat', contextType: row.workspaceId ? 'workspace' : 'personal', hasExpiry: !!expiresAt, hasAllowlist: allowlist.length > 0, rotation: true }, { userId: actor.userId, workspaceId: row.workspaceId });
         minted = { row: created, secret: m.secret };
       }
@@ -385,7 +386,7 @@ export class ApiKeysService {
     const updated = await tx.apiKey.findUniqueOrThrow({ where: { id: row.id } });
     if (count === 0) return updated;
     const workspaceId = row.workspaceId ?? (row.botId ? (await tx.bot.findUnique({ where: { id: row.botId }, select: { workspaceId: true } }))?.workspaceId ?? null : null);
-    await this.audit.log(tx, { actorId: actor.actorId, actorKind: actor.actorKind, workspaceId, subjectType: 'api_key', subjectId: row.id, subjectName: row.name, action: 'api_key.revoked', reason: note, ip: actor.ip ?? null, details: { reason } });
+    await this.audit.log(tx, { actorId: actor.actorId, actorKind: actor.actorKind, workspaceId, subjectUserId: row.userId, subjectType: 'api_key', subjectId: row.id, subjectName: row.name, action: 'api_key.revoked', reason: note, ip: actor.ip ?? null, details: { reason } });
     await this.analytics.track(tx, 'keys.key.revoked', { kind: row.kind, reason }, { userId: actor.actorId ?? undefined, workspaceId });
     await this.notifier.keyEvent(tx, reason === 'leaked' ? 'key.leaked' : 'key.revoked', { id: row.id, name: row.name, userId: row.userId, workspaceId }, { reasonLabelKey: `keys.revokeReason.${reason}`, source: note ?? '' }, { actorId: actor.actorId });
     return updated;

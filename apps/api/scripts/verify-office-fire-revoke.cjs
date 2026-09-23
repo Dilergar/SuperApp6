@@ -11,6 +11,7 @@ for (const line of fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8').s
   if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
 }
 const { PrismaClient } = require('@prisma/client');
+const { createSuiteWorkspace, archiveSuiteWorkspaces } = require('./_lib.cjs');
 // Адрес API переопределяется переменной окружения: два экземпляра на одной машине
 // (например, когда :3001 занят чужим дев-сервером) — обычная ситуация при проверке правок.
 const BASE = process.env.SA6_API_BASE || 'http://localhost:3001/api';
@@ -33,7 +34,7 @@ async function main() {
   const cleanup = { wsId: null };
   try {
     // ===== Сетап: организация P1 + найм P2 (Стажёр) =====
-    const ws = await call('POST', '/workspaces', t1, { name: 'office-fire-e2e' });
+    const ws = await createSuiteWorkspace(t1, 'Сьют-Офис-Увольнение', {}, { purge: true });
     if (!ws.ok) throw new Error(`workspace: ${ws.status}`);
     const wsId = ws.json.data.id; cleanup.wsId = wsId;
 
@@ -83,26 +84,11 @@ async function main() {
 
     console.log(fails === 0 ? '\n✅ FIRE-REVOKE ПРОЙДЕН' : `\n❌ FIRE-REVOKE: провалов ${fails}`);
   } finally {
-    // Уборка: снести чаты/встречи/членства/роли/tuples тестовой организации
-    if (cleanup.wsId) {
-      const wsId = cleanup.wsId;
-      const rooms = await prisma.officeRoom.findMany({ where: { workspaceId: wsId }, select: { id: true } });
-      const roomIds = rooms.map((r) => r.id);
-      const chats = await prisma.chat.findMany({ where: { parentType: 'office_room', parentId: { in: roomIds } }, select: { id: true } });
-      const chatIds = chats.map((c) => c.id);
-      await prisma.message.deleteMany({ where: { chatId: { in: chatIds } } }).catch(() => {});
-      await prisma.chatMember.deleteMany({ where: { chatId: { in: chatIds } } }).catch(() => {});
-      await prisma.relationTuple.deleteMany({ where: { resourceType: 'chat', resourceId: { in: chatIds } } }).catch(() => {});
-      await prisma.chat.deleteMany({ where: { id: { in: chatIds } } }).catch(() => {});
-      await prisma.relationTuple.deleteMany({ where: { resourceType: 'office_room', resourceId: { in: roomIds } } }).catch(() => {});
-      await prisma.officeRoomParticipant.deleteMany({ where: { roomId: { in: roomIds } } }).catch(() => {});
-      await prisma.officeRoom.deleteMany({ where: { workspaceId: wsId } }).catch(() => {});
-      await prisma.workspaceInvitation.deleteMany({ where: { workspaceId: wsId } }).catch(() => {});
-      await prisma.workspaceMember.deleteMany({ where: { workspaceId: wsId } }).catch(() => {});
-      await prisma.userRole.deleteMany({ where: { context: 'workspace', tenantId: wsId } }).catch(() => {});
-      await prisma.notificationEvent.deleteMany({ where: { workspaceId: wsId } }).catch(() => {});
-      await prisma.workspace.delete({ where: { id: wsId } }).catch(() => {});
-    }
+    // Уборка штатно: архив + каскад purgeWorkspace (чаты встреч, комнаты, членства, роли,
+    // рёбра доступа) — источник правды удаления, а не его копия в сьюте. События
+    // уведомлений FK-free, каскад их не удаляет — свои убираем сами.
+    if (cleanup.wsId) await prisma.notificationEvent.deleteMany({ where: { workspaceId: cleanup.wsId } }).catch(() => {});
+    fails += await archiveSuiteWorkspaces();
     await prisma.$disconnect();
     process.exit(fails === 0 ? 0 : 1);
   }

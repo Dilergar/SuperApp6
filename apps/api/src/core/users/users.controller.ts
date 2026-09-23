@@ -6,12 +6,16 @@ import { UsersService } from './users.service';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { updateProfileSchema, changePasswordSchema, changePhoneSchema, deleteAccountSchema, maskLastName, type AccountDeletionBlockersDto } from '@superapp/shared';
 import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
+import { AuditSessionsService } from '../audit/audit.sessions.service';
 
 @ApiTags('Users')
 @ApiBearerAuth()
 @Controller('users')
 export class UsersController {
-  constructor(private usersService: UsersService) {}
+  constructor(
+    private usersService: UsersService,
+    private sessions: AuditSessionsService,
+  ) {}
 
   // Мотивированный отказ показывается ДО ввода пароля — и за блокирующим экраном согласий тоже
   @SkipConsentGate()
@@ -41,31 +45,15 @@ export class UsersController {
     return { success: true, data: updated };
   }
 
-  @Get('me/sessions')
-  @ApiOperation({ summary: 'The active sessions' })
-  async getSessions(@CurrentUser() user: JwtPayload) {
-    const sessions = await this.usersService.getSessions(user.sub, user.sid);
-    return { success: true, data: sessions };
-  }
-
-  @Delete('me/sessions/:id')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'End a session' })
-  async deleteSession(
-    @CurrentUser() user: JwtPayload,
-    @Param('id') sessionId: string,
-  ) {
-    await this.usersService.deleteSession(user.sub, sessionId);
-    return { success: true };
-  }
-
   @Post('me/change-password')
   @HttpCode(HttpStatus.OK)
   @Throttle({ long: { limit: 5, ttl: 900000 } })
   @ApiOperation({ summary: 'Change the password (the current password plus an SMS code; other sessions are revoked)' })
   async changePassword(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const data = changePasswordSchema.parse(body);
-    const result = await this.usersService.changePassword(user.sub, data);
+    // Cooling (core/audit): свежая неподтверждённая сессия не меняет пароль (угонщик с паролем)
+    await this.sessions.assertConfirmed(user);
+    const result = await this.usersService.changePassword(user, data);
     return { success: true, data: result };
   }
 
@@ -75,7 +63,8 @@ export class UsersController {
   @ApiOperation({ summary: 'Change the phone number (password plus an SMS code to the old and to the new one)' })
   async changePhone(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
     const data = changePhoneSchema.parse(body);
-    const result = await this.usersService.changePhone(user.sub, data);
+    await this.sessions.assertConfirmed(user);
+    const result = await this.usersService.changePhone(user, data);
     return { success: true, data: result };
   }
 

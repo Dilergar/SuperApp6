@@ -56,6 +56,10 @@ export class SignInboxProvider implements OnModuleInit {
             : scope.personalOnly
               ? { workspaceId: null }
               : {}),
+          // Организации в архиве — не показываем (личные заявки без организации — всегда)
+          ...(scope.closedWorkspaceIds?.length
+            ? { AND: [{ OR: [{ workspaceId: null }, { workspaceId: { notIn: scope.closedWorkspaceIds } }] }] }
+            : {}),
         },
       },
     };

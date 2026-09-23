@@ -8,7 +8,7 @@
 // корня (keys-verify-root.cjs копией файла); журнал ключей append-only (UPDATE → ошибка).
 // Фазы B–F дописывают свои секции ниже.
 // Run: node apps/api/scripts/verify-keys.cjs
-const { SUITE, call, login, makeChecker, devCode } = require('./_lib.cjs');
+const { SUITE, call, login, makeChecker, devCode, createSuiteWorkspace, archiveSuiteWorkspace, crash } = require('./_lib.cjs');
 const { PrismaClient } = require('@prisma/client');
 const { execFileSync } = require('child_process');
 const fs = require('fs');
@@ -33,14 +33,14 @@ async function main() {
     check('provider software, root fingerprint 16 hex', st.json?.data?.provider === 'software' && /^[0-9a-f]{16}$/.test(st.json?.data?.rootKid ?? ''), JSON.stringify(st.json?.data?.rootKid));
     const audiences = (st.json?.data?.signing ?? []).map((s) => s.audience).sort();
     // `consents` — подпись версий документов платформы (core/consents, архивная проверка)
-    check('signing keys for all 7 audiences', JSON.stringify(audiences) === JSON.stringify(['consents', 'files_url', 'platform', 'product', 'share_link', 'webhook', 'wopi']), audiences.join(','));
+    check('signing keys for all 8 audiences', JSON.stringify(audiences) === JSON.stringify(['audit', 'consents', 'files_url', 'platform', 'product', 'share_link', 'webhook', 'wopi']), audiences.join(','));
     check('every audience has a primary kid', (st.json?.data?.signing ?? []).every((s) => !!s.primaryKid));
     const macs = (st.json?.data?.mac ?? []).map((m) => m.name).sort();
     // `idempotency` — отпечаток формы запроса (core/idempotency); `google_channel` — токен
     // канала push-уведомлений Google (проверка отправителя в приёмнике)
     check(
-      'mac keys: api_key_pepper, blind_index, google_channel, idempotency, oauth_state, verify_otp',
-      JSON.stringify(macs) === JSON.stringify(['api_key_pepper', 'blind_index', 'google_channel', 'idempotency', 'oauth_state', 'verify_otp']),
+      'mac keys: api_key_pepper, audit, blind_index, google_channel, idempotency, oauth_state, verify_otp',
+      JSON.stringify(macs) === JSON.stringify(['api_key_pepper', 'audit', 'blind_index', 'google_channel', 'idempotency', 'oauth_state', 'verify_otp']),
       macs.join(','),
     );
 
@@ -126,18 +126,19 @@ async function main() {
     check('after unfreeze: roundtrip works', rtBack.ok && rtBack.json?.data?.roundtripOk === true);
 
     // ===== A7. Журнал append-only =====
-    const last = await prisma.keyAuditEntry.findFirst({ orderBy: { id: 'desc' } });
-    check('audit: entries exist (scope.frozen present)', !!(await prisma.keyAuditEntry.findFirst({ where: { action: 'scope.frozen', subjectId: `user:${s1.id}` } })));
+    // Журнал ключей — проекция журнала безопасности (core/audit): категория keys, действие в `op`
+    const last = await prisma.securityEvent.findFirst({ where: { eventKey: { startsWith: 'keys.' } }, orderBy: { id: 'desc' } });
+    check('audit: entries exist (scope.frozen present)', !!(await prisma.securityEvent.findFirst({ where: { eventKey: 'keys.crypto.scope_frozen', op: 'scope.frozen', targetId: `user:${s1.id}` } })));
     let immutable = false;
     try {
-      await prisma.keyAuditEntry.update({ where: { id: last.id }, data: { reason: 'tamper' } });
+      await prisma.securityEvent.updateMany({ where: { id: last.id, occurredAt: last.occurredAt }, data: { reasonCode: 'tamper' } });
     } catch (e) {
       immutable = /append-only/.test(String(e.message));
     }
     check('audit: UPDATE is refused by trigger', immutable);
     let noDelete = false;
     try {
-      await prisma.keyAuditEntry.delete({ where: { id: last.id } });
+      await prisma.securityEvent.deleteMany({ where: { id: last.id, occurredAt: last.occurredAt } });
     } catch (e) {
       noDelete = /append-only/.test(String(e.message));
     }
@@ -193,7 +194,9 @@ async function main() {
     check('refresh: rotation issues a new pair', r1.ok && r1.json.data.refreshToken !== refresh, r1.status);
     const sessions = await call('GET', '/users/me/sessions', r1.json.data.accessToken);
     const familyRows = await prisma.session.count({ where: { userId: s1.id === ap.sub ? s1.id : ap.sub, rotatedAt: { not: null } } });
-    check('rotated rows are kept in DB but hidden from the device list', familyRows >= 1 && !(sessions.json?.data ?? []).some((x) => x.id === ap.sid), `rotated=${familyRows}`);
+    // Список сессий (core/audit) — семейства: прокрученные строки хранятся, но сессия видна ОДНОЙ строкой
+    const famRows = (sessions.json?.data?.active ?? []).filter((x) => x.id === ap.fam);
+    check('rotated rows are kept in DB but the family is one entry in the device list', familyRows >= 1 && famRows.length === 1, `rotated=${familyRows} entries=${famRows.length}`);
     const r2 = await call('POST', '/auth/refresh', null, { refreshToken: refresh });
     check('reuse within grace (network retry): still 200', r2.ok, r2.status);
     console.log('  waiting 11 s for the reuse grace window…');
@@ -301,7 +304,7 @@ async function main() {
     }
 
     // Кред Процессов: envelope с KEK организации
-    const ws = await call('POST', '/workspaces', s1.token, { name: `keys-ws-${Date.now()}` });
+    const ws = await createSuiteWorkspace(s1.token, 'Сьют-Ключи');
     if (ws.ok) {
       const wsId = ws.json.data.id;
       const cred = await call('POST', `/workspaces/${wsId}/processes/credentials`, s1.token, { name: 'suite', type: 'bearer', token: 'tok-secret-123' }, { 'X-Workspace-Id': wsId });
@@ -318,7 +321,7 @@ async function main() {
         const ch = await prisma.verifyChallenge.findUnique({ where: { id: otp.json.data.challengeId } });
         check('OTP code hash uses the verify_otp mac key (sa6m:)', ch?.codeHash?.startsWith('sa6m:1:') === true, ch?.codeHash?.slice(0, 12));
       }
-      await call('DELETE', `/workspaces/${wsId}`, s1.token).catch(() => undefined);
+      await archiveSuiteWorkspace(wsId);
     } else {
       check('workspace create', false, JSON.stringify(ws.json).slice(0, 200));
     }
@@ -341,7 +344,7 @@ async function main() {
       };
       const flipLast = (secret) => secret.slice(0, -8) + (secret.slice(-8, -7) === 'a' ? 'b' : 'a') + secret.slice(-7);
 
-      const wsE = await call('POST', '/workspaces', s1.token, { name: `keys-e-${Date.now()}` });
+      const wsE = await createSuiteWorkspace(s1.token, 'Сьют-Ключи-Боты');
       check('E: workspace created', wsE.ok, wsE.status);
       const W = wsE.json?.data?.id;
       const WSH = { 'X-Workspace-Id': W };
@@ -575,7 +578,7 @@ async function main() {
       // Журнал append-only: UPDATE/DELETE отвергаются триггером
       let journalImmutable = false;
       try {
-        await prisma.$executeRawUnsafe(`DELETE FROM key_audit_entries WHERE workspace_id = '${W}'`);
+        await prisma.$executeRawUnsafe(`DELETE FROM security_events WHERE workspace_id = '${W}'::uuid`);
       } catch (e) {
         journalImmutable = true;
       }
@@ -629,7 +632,7 @@ async function main() {
       const seats = await call('GET', '/entitlements/me', s1.token, undefined, WSH);
       check('entitlements/me answers in the workspace context (bots do not take seats)', seats.ok && JSON.stringify(seats.json).includes('keys.maxBots'), `${seats.status} ${JSON.stringify(seats.json).slice(0, 100)}`);
 
-      await call('DELETE', `/workspaces/${W}`, s1.token).catch(() => undefined);
+      await archiveSuiteWorkspace(W);
     }
   } finally {
     await prisma.$disconnect();
@@ -637,7 +640,4 @@ async function main() {
   finish();
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main().catch(crash);

@@ -72,6 +72,8 @@ const run = (token, key, input, extra = {}) =>
 async function main() {
   const { check, finish } = makeChecker();
   const prisma = new PrismaClient();
+  /** Событие команды Кабинета в журнале безопасности (core/audit): бывший `PlatformAuditEntry`. */
+  const cmdEvent = (where) => prisma.securityEvent.findFirst({ where: { eventKey: 'platform.command.executed', ...where }, orderBy: { id: 'desc' } });
   const s1 = await login(SUITE.p1);
   const s2 = await login(SUITE.p2);
   const s3 = await login(SUITE.p3);
@@ -150,10 +152,10 @@ async function main() {
     const prev = await call('POST', `/platform/commands/entitlements.plan.publishVersion/preview`, t1, { input: { planVersionId: draft.id } });
     const still = await prisma.planVersion.findUnique({ where: { id: draft.id } });
     check('preview публикации показывает after.status=published, эффекта нет (draft остался)', prev.ok && prev.json.data.after?.status === 'published' && still.status === 'draft', `${prev.status} ${still.status}`);
-    const viewLogAfterPreview = await waitFor(() => prisma.platformAccessLog.findFirst({ where: { actorId: s1.id, kind: 'view' }, orderBy: { occurredAt: 'desc' } }), 5000);
+    const viewLogAfterPreview = await waitFor(() => prisma.securityEvent.findFirst({ where: { eventKey: 'platform.access.view', actorId: s1.id }, orderBy: { id: 'desc' } }), 5000);
     check('предпросмотр считается чтением (бюджет просмотров общий)', !!viewLogAfterPreview);
-    const dryRow = await prisma.platformAuditEntry.findFirst({ where: { commandKey: 'entitlements.plan.publishVersion', targetId: draft.id, dryRun: true }, orderBy: { occurredAt: 'desc' } });
-    check('предпросмотр оставляет строку журнала (dryRun, readOnly)', !!dryRow && dryRow.readOnly === true && dryRow.outcome === 'ok', JSON.stringify({ dry: dryRow?.dryRun, ro: dryRow?.readOnly }));
+    const dryRow = await cmdEvent({ op: 'entitlements.plan.publishVersion', targetId: draft.id, details: { path: ['dryRun'], equals: true } });
+    check('предпросмотр оставляет строку журнала (dryRun, readOnly)', !!dryRow && dryRow.details.readOnly === true && dryRow.outcome === 0, JSON.stringify({ dry: dryRow?.details?.dryRun, ro: dryRow?.details?.readOnly }));
     const pub = await run(t1, 'entitlements.plan.publishVersion', { planVersionId: draft.id }, { reason: `suite ${tag}: publish personal draft` });
     check('публикация с sudo и причиной → ok', pub.ok && pub.json.data.status === 'ok', `${pub.status} ${pub.code}`);
     const audit = await call('GET', `/platform/audit?commandKey=entitlements.plan.publishVersion&targetId=${draft.id}`, t1);
@@ -206,7 +208,7 @@ async function main() {
     // ===== 4. Журнал неизменяем; маскирование =====
     let trigger = false;
     try {
-      await prisma.platformAuditEntry.update({ where: { id: pub.json.data.auditId }, data: { reason: 'tampered' } });
+      await prisma.securityEvent.updateMany({ where: { eventId: pub.json.data.auditId }, data: { reasonCode: 'tampered' } });
     } catch (e) {
       trigger = /append-only/.test(String(e.message));
     }
@@ -231,8 +233,8 @@ async function main() {
     const t2 = c2.token;
     const denied = await call('GET', '/platform/audit', t2);
     check('без capability → 403 platform.capability_denied', denied.status === 403 && denied.code === 'platform.capability_denied', `${denied.status} ${denied.code}`);
-    const deniedRow = await waitFor(() => prisma.platformAuditEntry.findFirst({ where: { actorId: s2.id, outcome: 'denied' }, orderBy: { occurredAt: 'desc' } }), 5000);
-    check('отказ записан в журнал как denied', !!deniedRow, JSON.stringify(deniedRow?.input));
+    const deniedRow = await waitFor(() => prisma.securityEvent.findFirst({ where: { eventKey: 'platform.command.executed', actorId: s2.id, outcome: 2 }, orderBy: { id: 'desc' } }), 5000);
+    check('отказ записан в журнал как denied', !!deniedRow, JSON.stringify(deniedRow?.details?.input));
     const grant = await run(t1, 'platform.staff.role.grant', { userId: s2.id, role: 'platform_owner' }, { reason: `suite ${tag}: second owner` });
     check('выдача роли platform_owner второму сотруднику → ok', grant.ok, `${grant.status} ${grant.code}`);
     await sleep(300);
@@ -265,16 +267,16 @@ async function main() {
     const prof = await call('GET', `/platform/entities/user/${s3.id}/panels/user.profile`, t1);
     const profStr = JSON.stringify(prof.json?.data);
     check('панель профиля без запрещённых полей и с масками', prof.ok && !/"password"|"tokenEpoch"|"token"/.test(profStr) && !profStr.includes(SUITE.p3) && /phoneMasked/.test(profStr), profStr.slice(0, 200));
-    const accessLog = await waitFor(() => prisma.platformAccessLog.findFirst({ where: { actorId: s1.id, kind: 'view', targetType: 'user', targetId: s3.id } }), 5000);
-    check('просмотр карточки пишет PlatformAccessLog', !!accessLog);
+    const accessLog = await waitFor(() => prisma.securityEvent.findFirst({ where: { eventKey: 'platform.access.view', actorId: s1.id, targetType: 'user', targetId: s3.id } }), 5000);
+    check('просмотр карточки пишет platform.access.view в журнал безопасности', !!accessLog);
     // Раскрытие PII под SMS-подтверждением: свежая сессия (sudo ещё нет) получает отказ
     const freshForPii = await consoleLogin(SUITE.p1);
     const revNoSudo = await run(freshForPii.token, 'platform.pii.reveal', { entity: 'user', id: s3.id, fields: ['phone'] }, { reason: `suite ${tag}: reveal without sudo` });
     check('pii.reveal без sudo → 403 platform.step_up_required', revNoSudo.status === 403 && revNoSudo.code === 'platform.step_up_required', `${revNoSudo.status} ${revNoSudo.code}`);
     const reveal = await run(t1, 'platform.pii.reveal', { entity: 'user', id: s3.id, fields: ['phone'] }, { reason: `suite ${tag}: support ticket` });
     check('pii.reveal с причиной → полный телефон', reveal.ok && reveal.json.data.result?.fields?.phone === SUITE.p3, JSON.stringify(reveal.json).slice(0, 200));
-    const revealLog = await waitFor(() => prisma.platformAuditEntry.findFirst({ where: { commandKey: 'platform.pii.reveal', targetId: s3.id, outcome: 'ok' }, orderBy: { occurredAt: 'desc' } }), 5000);
-    check('pii.reveal записан в журнал команд, результат не сохранён', !!revealLog && !JSON.stringify(revealLog.after ?? {}).includes(SUITE.p3));
+    const revealLog = await waitFor(() => cmdEvent({ op: 'platform.pii.reveal', targetId: s3.id, outcome: 0 }), 5000);
+    check('pii.reveal записан в журнал команд, результат не сохранён', !!revealLog && !JSON.stringify(revealLog.details?.after ?? {}).includes(SUITE.p3));
 
     const revNoReason = await call('POST', '/platform/commands/platform.pii.reveal', t1, {
       input: { entity: 'user', id: s3.id, fields: ['phone'] },
@@ -324,8 +326,8 @@ async function main() {
     const applied = await prisma.entitlementOverride.findFirst({ where: { subjectType: 'user', subjectId: s3.id, key: 'contacts.maxCircles' } });
     check('оверрайд применён (77)', applied?.value === 77, JSON.stringify(applied?.value));
     const execRow = await prisma.platformCommandRequest.findUnique({ where: { id: reqId } });
-    const execAudit = execRow?.executedAuditId ? await prisma.platformAuditEntry.findUnique({ where: { id: execRow.executedAuditId } }) : null;
-    check('запись исполнения несёт approvalId и onBehalfOfId (кто одобрил)', !!execAudit?.approvalId && execAudit?.onBehalfOfId === s2.id && execAudit?.actorId === s1.id);
+    const execAudit = execRow?.executedAuditId ? await prisma.securityEvent.findFirst({ where: { eventId: execRow.executedAuditId } }) : null;
+    check('запись исполнения несёт approvalId и onBehalfOfId (кто одобрил)', !!execAudit?.details?.approvalId && execAudit?.onBehalfOfId === s2.id && execAudit?.actorId === s1.id);
     const meProduct3 = (await call('GET', '/entitlements/me', s3.token)).json?.data;
     check('клиент видит оверрайд без reason/createdBy', meProduct3?.values?.['contacts.maxCircles']?.value === 77 && meProduct3?.values?.['contacts.maxCircles']?.source === 'override' && !JSON.stringify(meProduct3).includes('override reason'));
     const replay = await run(t1, 'entitlements.override.set', ovInput, { reason: `suite ${tag}: override via four-eyes`, idempotencyKey: ovKey });
@@ -379,8 +381,8 @@ async function main() {
       if (stepUpBlocked.status === 429) break;
     }
     check('6 неверных паролей на step-up → 429 platform.login_blocked', stepUpBlocked?.status === 429 && stepUpBlocked?.code === 'platform.login_blocked', `${stepUpBlocked?.status} ${stepUpBlocked?.code}`);
-    const stepUpDenied = await prisma.platformAuditEntry.findFirst({ where: { actorId: s2.id, commandKey: 'platform.auth.step_up', outcome: 'denied' }, orderBy: { occurredAt: 'desc' } });
-    check('неверный пароль step-up оставляет след в журнале', !!stepUpDenied && stepUpDenied.errorCode === 'auth.wrongPassword');
+    const stepUpDenied = await prisma.securityEvent.findFirst({ where: { eventKey: 'platform.auth.step_up_failed', actorId: s2.id, outcome: 2 }, orderBy: { id: 'desc' } });
+    check('неверный пароль step-up оставляет след в журнале', !!stepUpDenied && stepUpDenied.reasonCode === 'auth.wrongPassword');
 
     const susp = await run(t1, 'platform.staff.suspend', { userId: s2.id }, { reason: `suite ${tag}: suspend second owner` });
     check('приостановка второго владельца → ok (владелец остаётся)', susp.ok, `${susp.status} ${susp.code}`);
@@ -408,8 +410,8 @@ async function main() {
       check('включение политики единственным владельцем → ok', polOnSolo.ok && polOnSolo.json.data.after?.dualControlEnabled === true, `${polOnSolo.status} ${polOnSolo.code}`);
       const soloAdd = await run(t1, 'platform.staff.add', { userId: s3.id, note: `suite ${tag} solo` }, { reason: `suite ${tag}: add staff while alone` });
       check('штат при включённой политике и одном владельце → исполнено напрямую (не заперлись)', soloAdd.ok && soloAdd.json.data.status === 'ok', `${soloAdd.status} ${soloAdd.json?.data?.status} ${soloAdd.code}`);
-      const soloAudit = await prisma.platformAuditEntry.findFirst({ where: { commandKey: 'platform.staff.add', targetId: s3.id, outcome: 'ok' }, orderBy: { occurredAt: 'desc' } });
-      check('строка одиночного исполнения отличима: approvalId пуст', !!soloAudit && soloAudit.approvalId === null);
+      const soloAudit = await cmdEvent({ op: 'platform.staff.add', targetId: s3.id, outcome: 0 });
+      check('строка одиночного исполнения отличима: approvalId пуст', !!soloAudit && (soloAudit.details?.approvalId ?? null) === null);
       const polOffSolo = await run(t1, 'platform.policy.set', { dualControlEnabled: false }, { reason: `suite ${tag}: disable dual control solo` });
       check('выключение политики единственным владельцем → ok (замка нет)', polOffSolo.ok && polOffSolo.json.data.status === 'ok', `${polOffSolo.status} ${polOffSolo.json?.data?.status}`);
     }

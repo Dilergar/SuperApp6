@@ -41,7 +41,7 @@ CheckFileInfo (`BaseFileName` ОБЯЗАН нести расширение — �
 
 ## API (кратко)
 
-`GET /docs/status` · `POST /docs/from-file` · `GET /docs/:id?refType=&refId=` · `PATCH /docs/:id` (title/mode; владелец) · `DELETE /docs/:id` (архив) · `POST /docs/:id/open` (form POST в iframe; refreshAt — молчаливый перепост свежего токена) · `GET|POST /docs/:id/versions` + `restore` (место передавать обязательно тому, чьё право от места) · `POST /docs/:id/rendition` · `DocsService.systemSetMode` (правка закрывается системно — подателя нельзя пускать размораживать своё заявление).
+`GET /docs/status` · `POST /docs/from-file` · `GET /docs/:id?refType=&refId=` · `PATCH /docs/:id` (title/mode; владелец) · `DELETE /docs/:id` (архив) · `POST /docs/:id/open` (form POST в iframe; refreshAt — молчаливый перепост свежего токена) · `GET|POST /docs/:id/versions` + `restore` (место передавать обязательно тому, чьё право от места) · `POST /docs/:id/rendition` · `DocsService.archiveAllOwnedBy(ownerType, ownerId)` (каскад удаления организации: все её документы через `archive` — единственную точку конца жизни) · `DocsService.systemSetMode` (правка закрывается системно — подателя нельзя пускать размораживать своё заявление).
 
 Веб: `/docs/[id]` (dynamic ssr:false; мост postMessage `Host_PostmessageReady`); кнопка «Редактировать» — в `FileChip` при `docPlace={refType, refId}`. Страница живёт ВНЕ каркаса (полноэкранный iframe), поэтому словарь кладёт себе сама — `app/docs/layout.tsx` с `<ServiceMessages ns="docs">`.
 
