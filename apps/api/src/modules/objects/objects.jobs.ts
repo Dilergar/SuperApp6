@@ -101,23 +101,26 @@ export class ObjectsJobs implements OnModuleInit {
    */
   @Cron('10 3 * * 1')
   async generateHorizon(): Promise<void> {
-    // Инстансов несколько — крон отрабатывает один раз (Redis-лок движка).
-    const token = await this.redis.acquireLock('cron:objects:shifts-horizon', 55 * 60 * 1000);
-    if (!token) return;
-    const patterns = await this.db.shiftPattern.findMany({
-      where: { archivedAt: null, OR: [{ activeTo: null }, { activeTo: { gte: new Date() } }] },
-      select: { id: true },
-      take: 5000,
+    // Инстансов несколько — крон отрабатывает один раз. withLock, а не голый acquireLock:
+    // лок отпускается по окончании (раньше висел 55 минут и после быстрой работы, а сбой
+    // посреди прогона держал его до истечения — ручной перезапуск молча ничего не делал).
+    const ran = await this.redis.withLock('cron:objects:shifts-horizon', 55 * 60 * 1000, async () => {
+      const patterns = await this.db.shiftPattern.findMany({
+        where: { archivedAt: null, OR: [{ activeTo: null }, { activeTo: { gte: new Date() } }] },
+        select: { id: true },
+        take: 5000,
+      });
+      // Ключ идемпотентности — НАЧАЛО НЕДЕЛИ, а не сегодняшняя дата: иначе
+      // `uniqueKey sp:<pattern>:<week>` из канона был бы посуточным и не защищал
+      // от повторной постановки внутри той же недели.
+      const weekStart = ShiftsService.weekKey(new Date().toISOString().slice(0, 10));
+      for (const p of patterns) {
+        await this.enqueueGenerate(null, p.id, weekStart).catch((e) =>
+          this.logger.warn(`enqueue generate ${p.id}: ${(e as Error).message}`),
+        );
+      }
     });
-    // Ключ идемпотентности — НАЧАЛО НЕДЕЛИ, а не сегодняшняя дата: иначе
-    // `uniqueKey sp:<pattern>:<week>` из канона был бы посуточным и не защищал
-    // от повторной постановки внутри той же недели.
-    const weekStart = ShiftsService.weekKey(new Date().toISOString().slice(0, 10));
-    for (const p of patterns) {
-      await this.enqueueGenerate(null, p.id, weekStart).catch((e) =>
-        this.logger.warn(`enqueue generate ${p.id}: ${(e as Error).message}`),
-      );
-    }
+    if (ran === null) this.logger.debug('shifts horizon skipped: lock held by another instance');
   }
 }
 

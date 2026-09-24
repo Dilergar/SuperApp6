@@ -2,7 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestj
 import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { RRule } from 'rrule';
-import { CalendarEvent as CalEventRow } from '@prisma/client';
+import { CalendarEvent as CalEventRow, Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AnalyticsService } from '../../core/analytics/analytics.service';
 import { fullName } from '../../shared/utils/user-name';
@@ -46,6 +46,10 @@ import type {
   SharedCalendarSource,
   ResourceBookingStatus,
 } from '@superapp/shared';
+import { decodeCursor, encodeCursor } from '@superapp/shared';
+
+/** Курсор корзины для раннера сроков: (deletedAt, id) — общий кодек платформы */
+const CAL_TRASH_CURSOR = { d: 'date', i: 'uuid' } as const;
 
 const MS_PER_DAY = 86_400_000;
 /** Тип джоба напоминания календаря в реестре core/jobs. */
@@ -688,13 +692,36 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   }
 
   /** Корзина старше срока — навсегда (крон под Redis-локом; раннер purge core/lifecycle). */
-  async purgeExpired(cutoff: Date): Promise<number> {
+  /**
+   * Пачка корзины (шаг `calendar.trash` раннера сроков core/lifecycle): мастер-события,
+   * удалённые раньше `before`, keyset (deletedAt, id); удерживаемые заморозкой пропускаются.
+   */
+  async purgeTrashBatch(opts: {
+    before: Date;
+    limit: number;
+    cursor: string | null;
+    releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>;
+  }): Promise<{ rows: number; more: boolean; cursor: string | null }> {
+    const take = Math.min(opts.limit, CALENDAR_LIMITS.purgeBatch);
+    const c = decodeCursor(opts.cursor, CAL_TRASH_CURSOR);
     const rows = await this.db.calendarEvent.findMany({
-      where: { recurrenceParentId: null, deletedAt: { lt: cutoff } },
-      take: CALENDAR_LIMITS.purgeBatch,
+      where: {
+        recurrenceParentId: null,
+        deletedAt: { lt: opts.before },
+        ...(c ? { OR: [{ deletedAt: { gt: c.d } }, { deletedAt: c.d, id: { gt: c.i } }] } : {}),
+      },
+      orderBy: [{ deletedAt: 'asc' }, { id: 'asc' }],
+      take,
     });
-    for (const r of rows) await this.hardDeleteEvent(r);
-    return rows.length;
+    if (!rows.length) return { rows: 0, more: false, cursor: null };
+    const ok = new Set(await this.db.$transaction((tx) => opts.releasable(tx, rows.map((r) => r.id))));
+    for (const r of rows) if (ok.has(r.id)) await this.hardDeleteEvent(r);
+    const last = rows[rows.length - 1]!;
+    return { rows: ok.size, more: rows.length === take, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
+  }
+
+  countTrashDue(before: Date): Promise<number> {
+    return this.db.calendarEvent.count({ where: { recurrenceParentId: null, deletedAt: { lt: before } } });
   }
 
   /** Окончательное удаление: строка (исключения, напоминания, участники — каскадом FK). */
@@ -786,6 +813,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     const existing = await this.db.eventParticipant.findMany({
       where: { eventId, userId: { in: ids } },
       select: { userId: true },
+      take: ids.length,
     });
     const have = new Set(existing.map((e) => e.userId));
     const toAdd = ids.filter((id) => !have.has(id));
@@ -967,6 +995,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     const users = await this.db.user.findMany({
       where: { id: { in: ownerIds } },
       select: { id: true, firstName: true, lastName: true, avatar: true },
+      take: ownerIds.length,
     });
     const out: SharedCalendarSource[] = users.map((u) => ({
       userId: u.id,
@@ -1365,30 +1394,6 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     return processed;
   }
 
-  /**
-   * Чистка ОТПРАВЛЕННЫХ напоминаний старше 30 дней — иначе таблица растёт вечно
-   * (повтор «ежедневно, 2 оффсета, 2 участника» = 4 строки в день навсегда).
-   * Батчами: миллионное deleteMany одним стейтментом = лавина WAL + долгие локи.
-   */
-  async purgeSentReminders(): Promise<number> {
-    const cutoff = new Date(Date.now() - 30 * MS_PER_DAY);
-    const BATCH = 10_000;
-    let total = 0;
-    for (;;) {
-      const rows = await this.db.calendarEventReminder.findMany({
-        where: { sentAt: { lt: cutoff } },
-        select: { id: true },
-        take: BATCH,
-      });
-      if (!rows.length) break;
-      await this.db.calendarEventReminder.deleteMany({
-        where: { id: { in: rows.map((r) => r.id) } },
-      });
-      total += rows.length;
-      if (rows.length < BATCH) break;
-    }
-    return total;
-  }
 
   // ============================================================
   // Helpers

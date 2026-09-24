@@ -9,6 +9,7 @@ import { TasksModule } from '../tasks/tasks.module';
 import { CalendarModule } from '../calendar/calendar.module';
 import { MessengerModule } from '../messenger/messenger.module';
 import { ShopNotificationRefsProvider } from './shop-notification-refs.provider';
+import { ShopLifecycleProvider } from './shop.lifecycle.provider';
 
 /**
  * My Wish & Shop. Catalog + sharing/staff/management decided by the @Global AccessService
@@ -22,6 +23,7 @@ import { ShopNotificationRefsProvider } from './shop-notification-refs.provider'
   imports: [WalletModule, TasksModule, CalendarModule, MessengerModule],
   controllers: [ShopController],
   providers: [
+    ShopLifecycleProvider,
     // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
     ShopNotificationRefsProvider,
     ShopService,

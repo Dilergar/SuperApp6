@@ -1107,6 +1107,58 @@ export class ShopService implements OnModuleInit {
   // Scheduled sweeps (Phase 7) — driven by ShopCron under a Redis lock
   // ============================================================
 
+  /**
+   * Каскад удаления организации (шаг `shop.owner` core/lifecycle): магазин организации
+   * закрывается. Живые заказы возвращают деньги — эскроу снимается целиком (у складчины — всем
+   * участникам), покупатель получает «отклонён»; витрины с лотами, их права и фото лотов уходят;
+   * история заказов остаётся (срок закона, ссылка на лот обнуляется). Идемпотентно;
+   * `deadline` прошёл — `done: false`, каскад продолжит следующим заходом.
+   */
+  async closeOwnerShop(ownerType: 'workspace', ownerId: string, deadline: number | null): Promise<{ rows: number; done: boolean }> {
+    const shop = await this.db.shop.findUnique({ where: { ownerType_ownerId: { ownerType, ownerId } }, select: { id: true } });
+    if (!shop) return { rows: 0, done: true };
+    let rows = 0;
+    for (;;) {
+      if (deadline !== null && Date.now() > deadline) return { rows, done: false };
+      const live = await this.db.order.findMany({
+        where: { listing: { showcase: { shopId: shop.id } }, status: { in: ['pending', 'funding', 'confirmed'] } },
+        select: { id: true, status: true, buyerId: true, titleSnapshot: true },
+        orderBy: { id: 'asc' },
+        take: 100,
+      });
+      if (!live.length) break;
+      for (const o of live) {
+        const closed = await this.db.$transaction(async (tx) => {
+          // Status-guarded: встречное решение продавца или покупателя — выигрывает одно
+          const claimed = await tx.order.updateMany({
+            where: { id: o.id, status: o.status },
+            data: { status: o.status === 'confirmed' ? 'refunded' : 'rejected', closedAt: new Date() },
+          });
+          if (claimed.count === 0) return false;
+          await this.escrow.releaseAll(tx, { refType: 'order', refId: o.id });
+          return true;
+        });
+        if (closed) {
+          rows++;
+          await this.notifyOrder('shop.order.rejected', o.id, o.buyerId, null, o.titleSnapshot);
+        }
+      }
+    }
+    const showcases = await this.db.showcase.findMany({ where: { shopId: shop.id }, select: { id: true }, take: 1000 });
+    for (const sc of showcases) {
+      if (deadline !== null && Date.now() > deadline) return { rows, done: false };
+      const listings = await this.db.listing.findMany({ where: { showcaseId: sc.id }, select: { id: true }, take: 10_000 });
+      await this.files.unlinkAllForRefs('listing', listings.map((l) => l.id), 'gallery').catch(() => undefined);
+      await this.db.$transaction(async (tx) => {
+        await tx.showcase.deleteMany({ where: { id: sc.id } }); // каскад: лоты и цены
+        await this.access.revokeResource('showcase', sc.id, tx);
+      });
+      rows++;
+    }
+    await this.db.shop.deleteMany({ where: { id: shop.id } });
+    return { rows, done: true };
+  }
+
   /** Archive listings whose availability window has closed (active → archived). Returns the count. */
   async archiveExpiredListings(): Promise<number> {
     const res = await this.db.listing.updateMany({

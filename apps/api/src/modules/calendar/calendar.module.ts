@@ -7,6 +7,7 @@ import { ResourcesController } from './resources.controller';
 import { CalendarRichCardsProvider } from './calendar-rich-cards.provider';
 import { CalendarLayersRegistry } from './calendar-layers.registry';
 import { CalendarNotificationRefsProvider } from './calendar-notification-refs.provider';
+import { CalendarLifecycleProvider } from './calendar.lifecycle.provider';
 
 @Module({
   // Чужих модулей календарь НЕ импортирует: слои «Задачи»/«Платежи» (и любые будущие —
@@ -14,6 +15,7 @@ import { CalendarNotificationRefsProvider } from './calendar-notification-refs.p
   // импортирует CalendarModule и регистрирует провайдер в onModuleInit (розетка платформы).
   controllers: [CalendarController, ResourcesController],
   providers: [
+    CalendarLifecycleProvider,
     // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
     CalendarNotificationRefsProvider,
     CalendarService,

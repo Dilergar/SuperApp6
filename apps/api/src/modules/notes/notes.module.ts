@@ -5,7 +5,6 @@ import { MessengerModule } from '../messenger/messenger.module';
 import { NotesAccessService } from './notes-access.service';
 import { NotesBoardService } from './notes-board.service';
 import { NotesController } from './notes.controller';
-import { NotesCron } from './notes.cron';
 import { NotesFoldersService } from './notes-folders.service';
 import { NotesJobs } from './notes.jobs';
 import { NotesLinksService } from './notes-links.service';
@@ -16,7 +15,7 @@ import { NotesShareService } from './notes-share.service';
 import { NoteTargetRegistry } from './notes-targets.registry';
 import { NotesService } from './notes.service';
 import { NotesNotificationRefsProvider } from './notes-notification-refs.provider';
-import { NotesWorkspacePurgeProvider } from './notes-workspace-purge.provider';
+import { NotesLifecycleProvider } from './notes.lifecycle.provider';
 
 /**
  * Сервис «Заметки» — B2C и B2B в одном модуле (пространство личное или организации).
@@ -46,9 +45,8 @@ import { NotesWorkspacePurgeProvider } from './notes-workspace-purge.provider';
     NotesRichCardsProvider,
     NotesRegistriesProvider,
     NotesJobs,
-    NotesCron,
     // Каскад окончательного удаления организации: её пространство заметок уходит с ней
-    NotesWorkspacePurgeProvider,
+    NotesLifecycleProvider,
   ],
   exports: [NoteTargetRegistry, NotesService],
 })

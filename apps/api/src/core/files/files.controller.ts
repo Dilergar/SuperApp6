@@ -23,8 +23,6 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { diskStorage } from 'multer';
 import type { Request, Response } from 'express';
-import * as fs from 'fs';
-import * as path from 'path';
 import { randomUUID } from 'crypto';
 import {
   completeFileSchema,
@@ -40,14 +38,10 @@ import { FilesService } from './files.service';
 import { FilesUrlService } from './files-url.service';
 import { FilesContentLengthGuard } from './files-content-length.guard';
 import { serveStream } from './files-http.util';
+import { storageTmpDir } from '../../shared/fs/temp-file.util';
 
-/** Temp-каталог multer'а — на том же томе, что и local-хранилище (rename дёшев) */
-function uploadTmpDir(): string {
-  const root = path.resolve(process.cwd(), process.env.FILES_LOCAL_ROOT ?? './storage');
-  const dir = path.join(root, 'tmp');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
+/** Temp-каталог multer'а — на том же томе, что и local-хранилище (rename дёшев); брошенное уберёт files.upload-tmp */
+const uploadTmpDir = storageTmpDir;
 
 /**
  * Files Engine — тонкий контроллер (Zod → сервис, AI-ready по Принципу 4).

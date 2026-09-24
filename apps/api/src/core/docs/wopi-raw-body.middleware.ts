@@ -5,6 +5,7 @@ import * as path from 'path';
 import { Transform, pipeline } from 'stream';
 import type { NextFunction, Request, Response } from 'express';
 import { FILE_LIMITS } from '@superapp/shared';
+import { storageTmpDir } from '../../shared/fs/temp-file.util';
 
 const logger = new Logger('WopiRawBody');
 
@@ -21,12 +22,7 @@ export interface WopiRawBody {
 }
 
 /** Тот же tmp-каталог, что у загрузок: один том с local-хранилищем → rename дёшев */
-function tmpDir(): string {
-  const root = path.resolve(process.cwd(), process.env.FILES_LOCAL_ROOT ?? './storage');
-  const dir = path.join(root, 'tmp');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
+const tmpDir = storageTmpDir;
 
 /**
  * Тело PutFile — это БАЙТЫ ДОКУМЕНТА, а не JSON: принимаем их потоком на диск, минуя

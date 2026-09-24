@@ -7,6 +7,7 @@ import { ApprovalsRichCardProvider } from './approvals-rich-card.provider';
 import { ApprovalsDevController, ApprovalsDevProvider } from './approvals.dev';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { ApprovalsNotificationRefsProvider } from './approvals-notification-refs.provider';
+import { ApprovalsLifecycleProvider } from './approvals.lifecycle.provider';
 
 /**
  * core/approvals — 14-й платформенный движок: «Задачник для решений».
@@ -30,6 +31,7 @@ import { ApprovalsNotificationRefsProvider } from './approvals-notification-refs
   // просто НЕТ (404), а не «есть, но отвечают 403».
   controllers: isDevEnv() ? [ApprovalsController, ApprovalsDevController] : [ApprovalsController],
   providers: [
+    ApprovalsLifecycleProvider,
     // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
     ApprovalsNotificationRefsProvider,ApprovalsService, ApprovalsRegistry, ApprovalsJobs, ApprovalsRichCardProvider, ApprovalsDevProvider],
   exports: [ApprovalsService, ApprovalsRegistry],

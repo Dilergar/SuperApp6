@@ -10,8 +10,6 @@ import { badRequest, notFound } from '../../shared/errors/api-error';
 import { Prisma, VoiceTranscript } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import { pipeline } from 'stream/promises';
 import {
   RequestTranscriptInput,
@@ -30,6 +28,7 @@ import { JobContext, JobDiscardError, JobsRegistry } from '../jobs/jobs.registry
 import { JobsService } from '../jobs/jobs.service';
 import { VoiceSttClient } from './voice-stt.client';
 import { VoiceAudioPrep } from './voice-audio';
+import { appTmpPath } from '../../shared/fs/temp-file.util';
 
 /** Тип джоба STT-транскрипции в реестре core/jobs. */
 const VOICE_TRANSCRIBE_JOB = 'voice.transcribe';
@@ -348,7 +347,7 @@ export class VoiceService implements OnModuleInit, OnApplicationBootstrap {
       // Байты: на local-драйвере читаем прямо с диска (без стрим-копии 200 МБ), s3 → tmp
       let sourcePath = this.files.localPathFor(file.storageKey);
       if (!sourcePath) {
-        tmpSource = path.join(os.tmpdir(), `sa6-voice-src-${randomUUID()}`);
+        tmpSource = appTmpPath(`voice-src-${randomUUID()}`);
         const { result } = await this.files.openRawStream(fileId, null);
         await pipeline(result.stream, fs.createWriteStream(tmpSource));
         sourcePath = tmpSource;

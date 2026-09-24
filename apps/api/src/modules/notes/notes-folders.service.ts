@@ -330,15 +330,28 @@ export class NotesFoldersService {
   }
 
   /** Папки, пролежавшие в корзине дольше ретеншна (заметки внутри чистит purge заметок) */
-  async purgeExpiredFolders(cutoff: Date): Promise<number> {
+  /**
+   * Пачка корзины папок (шаг `notes.trash` / политика `NoteFolder`): удалённые раньше
+   * `before`, keyset по id (удерживаемые заморозкой остаются и курсором обходятся).
+   */
+  async purgeTrashFoldersBatch(opts: {
+    before: Date;
+    limit: number;
+    after: string | null;
+    releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>;
+  }): Promise<{ rows: number; more: boolean; last: string | null }> {
+    const take = Math.min(opts.limit, NOTE_LIMITS.purgeBatch);
     const rows = await this.db.noteFolder.findMany({
-      where: { deletedAt: { lt: cutoff } },
+      where: { deletedAt: { lt: opts.before }, ...(opts.after ? { id: { gt: opts.after } } : {}) },
       select: { id: true },
-      take: NOTE_LIMITS.purgeBatch,
+      orderBy: { id: 'asc' },
+      take,
     });
-    if (!rows.length) return 0;
-    const ids = rows.map((r) => r.id);
-    return this.db.$transaction(async (tx) => {
+    if (!rows.length) return { rows: 0, more: false, last: null };
+    const last = rows[rows.length - 1]!.id;
+    const count = await this.db.$transaction(async (tx) => {
+      const ids = await opts.releasable(tx, rows.map((r) => r.id));
+      if (!ids.length) return 0;
       for (const id of ids) await this.acl.revokeAll(NOTE_FOLDER_REF_TYPE, id, tx);
       // FK ставит folder_id = NULL, но материализованный путь остаётся ссылаться на
       // мёртвые папки — чистим руками, иначе заметка «в корне» тащит призрачный путь.
@@ -349,6 +362,7 @@ export class NotesFoldersService {
       const res = await tx.noteFolder.deleteMany({ where: { id: { in: ids } } });
       return res.count;
     });
+    return { rows: count, more: rows.length === take, last };
   }
 
   /** Счётчики живых заметок по папкам — одним groupBy под предикатом видимости */

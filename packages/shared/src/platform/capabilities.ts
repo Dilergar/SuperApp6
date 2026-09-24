@@ -58,6 +58,10 @@ export const PLATFORM_CAPABILITIES = [
   'security.read',
   'security.write',
   'security.approve',
+  // Жизненный цикл данных (core/lifecycle): окончательное удаление архивной организации
+  // командой — ВСЕГДА через второго сотрудника (пара «пишет / одобряет»)
+  'lifecycle.purge.write',
+  'lifecycle.purge.approve',
 ] as const;
 
 export type PlatformCapability = (typeof PLATFORM_CAPABILITIES)[number];

@@ -168,10 +168,6 @@ export function notificationTypesForContext(service: NotificationServiceKey, con
 export const NOTIFICATION_LIMITS = {
   /** Строк на страницу ленты */
   pageSize: 30,
-  /** Ретеншн строк ленты (дни); Saved — бессрочно */
-  retentionDays: 90,
-  /** Ретеншн журнала доставки (дни) */
-  deliveryRetentionDays: 30,
   /** Устройство без визита дольше — отключается (окно свежести FCM) */
   deviceStaleDays: 60,
   /** Адресатов на чанк фанаута (дочерние джобы сверх) */

@@ -26,6 +26,11 @@ export const FIN_LIMITS = {
   transactionsPageSize: 50,
   /** «Близкие» — the curated quick-pick list inside Финансы. */
   maxPeople: 100,
+  /**
+   * Удалённая операция скрыта столько дней (журнал книги хранит её снимок), дальше строка
+   * уходит навсегда — шаг `finances.trash` раннера сроков core/lifecycle.
+   */
+  trashRetentionDays: 30,
 } as const;
 
 // Засев книги пишет ИМЕНА в базу: человек их потом переименовывает, значит слово

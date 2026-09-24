@@ -21,6 +21,7 @@ import { I18nService } from '../../shared/i18n/i18n.service';
 import { FilesService } from '../files/files.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
+import { storageTmpDir } from '../../shared/fs/temp-file.util';
 
 const [SESSION_OPEN] = DOCUMENT_SESSION_STATUSES;
 
@@ -406,9 +407,6 @@ export class DocsVersionsService implements OnModuleInit {
   }
 
   private tmpDir(): string {
-    const root = path.resolve(process.cwd(), process.env.FILES_LOCAL_ROOT ?? './storage');
-    const dir = path.join(root, 'tmp');
-    fs.mkdirSync(dir, { recursive: true });
-    return dir;
+    return storageTmpDir();
   }
 }

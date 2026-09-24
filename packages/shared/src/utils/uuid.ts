@@ -78,3 +78,28 @@ export function opaqueIdTail(id: string, n = 4): string {
   const hex = id.replace(/-/g, '');
   return hex.slice(Math.max(0, hex.length - n));
 }
+
+// ---------------------------------------------------------------- типизированные id
+
+declare const ID_BRAND: unique symbol;
+/**
+ * Id сущности с видом на уровне типов (Atlassian 2022: скрипт удаления принял id сайта за
+ * id приложения — 883 сайта, две недели восстановления). Разрушающие пути (каскад
+ * организации, стирание человека) принимают ТОЛЬКО типизированный id: перепутать
+ * организацию с человеком не даёт компилятор, вид по БД проверяет сам путь.
+ */
+export type EntityId<K extends string> = string & { readonly [ID_BRAND]: K };
+export type WorkspaceId = EntityId<'workspace'>;
+export type UserId = EntityId<'user'>;
+
+/** Строка → id организации (только формат; существование и вид проверяет разрушающий путь по БД). */
+export function asWorkspaceId(id: string): WorkspaceId {
+  if (!isUuid(id)) throw new Error('asWorkspaceId: not a uuid');
+  return id as WorkspaceId;
+}
+
+/** Строка → id человека (только формат). */
+export function asUserId(id: string): UserId {
+  if (!isUuid(id)) throw new Error('asUserId: not a uuid');
+  return id as UserId;
+}

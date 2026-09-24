@@ -61,7 +61,9 @@ async function main() {
     const circles = await prisma.circle.findMany({ where: { ownerId: u1, name: { startsWith: 'SKIN_TEST' } }, select: { id: true } });
     for (const c of circles) await prisma.circleMembership.deleteMany({ where: { circleId: c.id } }).catch(() => {});
     await prisma.circle.deleteMany({ where: { ownerId: u1, name: { startsWith: 'SKIN_TEST' } } }).catch(() => {});
-    await prisma.cardSkinInstance.deleteMany({ where: { ownerId: u1 } }).catch(() => {});
+    // Ошибку не глотаем: молча не удалённый экземпляр ломает следующий прогон («не куплен»),
+    // а за ним прятался настоящий дефект прав каскада (владелец истории не видел родителя)
+    await prisma.cardSkinInstance.deleteMany({ where: { ownerId: u1 } }).catch((e) => console.warn('  ! уборка экземпляров скинов:', e.message.split(/\r?\n/).slice(-2).join(' ')));
     await prisma.cardSkin.deleteMany({ where: { name: { startsWith: 'SKIN_TEST' } } }).catch(() => {});
   };
   await cleanup();

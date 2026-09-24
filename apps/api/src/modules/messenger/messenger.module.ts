@@ -15,6 +15,7 @@ import { OfficeSystemListener } from './office-system.listener';
 import { DocsSystemListener } from './docs-system.listener';
 import { ChatCallsListener } from './chat-calls.listener';
 import { DriveModule } from '../drive/drive.module';
+import { MessengerLifecycleProvider } from './messenger.lifecycle.provider';
 
 @Module({
   // Токен рукопожатия сокета проверяет SessionValidatorService (@Global,
@@ -28,6 +29,7 @@ import { DriveModule } from '../drive/drive.module';
   imports: [DriveModule],
   controllers: [MessengerController],
   providers: [
+    MessengerLifecycleProvider,
     MessengerService,
     MentionsService,
     MessengerSearchService,

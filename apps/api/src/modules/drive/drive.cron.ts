@@ -1,14 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { DRIVE_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { DriveJobs } from './drive.jobs';
-import { DriveTreeService } from './drive-tree.service';
 
 /**
  * Обслуживание Диска. Всё под Redis-локом: в мультиинстансной раскатке прогон должен
- * выполнять ровно один процесс, иначе крон-удаление пойдёт дважды.
+ * выполнять ровно один процесс. Корзина (шаг drive.trash) и отметки «недавно открывал»
+ * (политика DriveRecent) — раннер сроков core/lifecycle.
  */
 @Injectable()
 export class DriveCron {
@@ -17,31 +16,8 @@ export class DriveCron {
   constructor(
     private readonly db: DatabaseService,
     private readonly redis: RedisService,
-    private readonly tree: DriveTreeService,
     private readonly jobs: DriveJobs,
   ) {}
-
-  /** Корзина: удаляем навсегда то, что пролежало дольше ретеншна */
-  @Cron('25 3 * * *')
-  async purgeTrash(): Promise<void> {
-    await this.redis.withLock('cron:drive-purge', 10 * 60 * 1000, async () => {
-      let total = 0;
-      // Батчами: одна папка может унести десятки тысяч файлов, и разгребать это
-      // одним заходом значит держать соединение и блокировки полчаса.
-      for (let pass = 0; pass < 20; pass++) {
-        const purged = await this.tree.purgeExpired();
-        total += purged;
-        if (purged < DRIVE_LIMITS.purgeBatch) break;
-      }
-      if (total) this.logger.log(`Drive trash: ${total} items deleted for good`);
-
-      // Отметки «недавно открывал»: строка на каждую пару (человек, объект) сама не
-      // истекает, а показываем мы одну страницу — без ретеншна таблица растёт вечно.
-      const cutoff = new Date(Date.now() - DRIVE_LIMITS.recentRetentionDays * 86_400_000);
-      const gone = await this.db.driveRecent.deleteMany({ where: { openedAt: { lt: cutoff } } });
-      if (gone.count) this.logger.log(`Recent: ${gone.count} stale marks removed`);
-    });
-  }
 
   /**
    * Сверка роллапов: сентинел (subtree_bytes IS NULL) самовосстанавливается сам, но

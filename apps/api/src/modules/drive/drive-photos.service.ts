@@ -10,6 +10,7 @@ import { FilesService } from '../../core/files/files.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { DriveAccessService } from './drive-access.service';
 import { DriveService } from './drive.service';
+import { decodeCursor as decodeKeyset, encodeCursor as encodeKeyset } from '@superapp/shared';
 
 interface PhotoRow {
   id: string;
@@ -159,16 +160,14 @@ function monthRange(month: string): { from: string; to: string } {
   return { from: `${y}-${pad(m)}-01 00:00:00`, to: `${nextY}-${pad(nextM)}-01 00:00:00` };
 }
 
+/** Курсор ленты фото (takenAtLocal, id) — общий кодек платформы (`@superapp/shared` utils/cursor). */
+const PHOTO_CURSOR = { t: 'date', i: 'uuid' } as const;
+
 function encodeCursor(row: PhotoRow): string {
-  return Buffer.from(JSON.stringify({ t: row.takenAtLocal.toISOString(), i: row.id })).toString('base64url');
+  return encodeKeyset({ t: row.takenAtLocal, i: row.id });
 }
 
 function decodeCursor(raw?: string): { t: string; i: string } | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as { t: string; i: string };
-    return typeof parsed?.t === 'string' && typeof parsed?.i === 'string' ? parsed : null;
-  } catch {
-    return null;
-  }
+  const c = decodeKeyset(raw, PHOTO_CURSOR);
+  return c ? { t: c.t.toISOString(), i: c.i } : null;
 }

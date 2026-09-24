@@ -24,7 +24,7 @@ import { NotificationsService } from './notifications.service';
 import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { NotificationsPreferencesService } from './notifications.preferences.service';
 import { NotificationsSettingsService } from './notifications.settings.service';
-import { NotificationsCron } from './notifications.cron';
+import { LifecyclePurgeRunner } from '../lifecycle/lifecycle.purge';
 import type { NotificationReason, NotificationType } from '@superapp/shared';
 
 /**
@@ -39,7 +39,7 @@ export class NotificationsController {
     private readonly notifications: NotificationsService,
     private readonly preferences: NotificationsPreferencesService,
     private readonly settings: NotificationsSettingsService,
-    private readonly cron: NotificationsCron,
+    private readonly purge: LifecyclePurgeRunner,
   ) {}
 
   @Get()
@@ -88,12 +88,12 @@ export class NotificationsController {
 
   @Post('dev/retention')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Run retention now' })
+  @ApiOperation({ summary: '[dev] Run retention now (the lifecycle runner, feed rows then events)' })
   async devRetention() {
     if (!isDevEnv()) throw notFound('notification.notFound');
-    const rows = await this.cron.pruneRows();
-    const events = await this.cron.pruneEvents();
-    return { success: true, data: { rows, events } };
+    const rows = await this.purge.runInline('Notification', { force: true });
+    const events = await this.purge.runInline('NotificationEvent', { force: true });
+    return { success: true, data: { rows: rows.run.rows, events: events.run.rows } };
   }
 
   // Операция «стало так», а не «сделай ещё раз»: повтор ничего не добавляет.

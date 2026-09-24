@@ -1,17 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { WORKSPACE_LIMITS } from '@superapp/shared';
 import { WorkspacesService } from './workspaces.service';
 import { RedisService } from '../../shared/redis/redis.service';
 
 /**
- * Ретеншн архива организаций: пролежавшая в архиве дольше `archiveRetentionDays`
- * удаляется НАВСЕГДА (со всеми задачами, чатами, процессами и хроникой — см.
- * `purgeWorkspace`). Redis-лок — чтобы при нескольких инстансах чистил один.
- *
- * Обычный крон, а не движок джобов: это ретеншн-свип по расписанию, у него нет
- * доменного события-триггера и нечего терять при пропуске прогона — завтрашний
- * заход доберёт всё, что созрело (правило платформы, как у остальных ретеншнов).
+ * Предупреждения владельцам архивных организаций за 7 / 3 / 1 день до окончательного
+ * удаления. Само удаление — ретеншн архива раннера сроков core/lifecycle (шаг
+ * workspaces.purge ставит каскад реестра джобом на организацию). Redis-лок — один инстанс.
  */
 @Injectable()
 export class WorkspacesCron {
@@ -22,28 +17,12 @@ export class WorkspacesCron {
     private redis: RedisService,
   ) {}
 
-  @Cron('40 3 * * *') // Ежедневно в 03:40 — рядом с остальными ретеншнами, но не в них
-  async handleArchiveRetention(): Promise<void> {
-    const ran = await this.redis.withLock(
-      'cron:workspaces-archive-retention',
-      15 * 60 * 1000,
-      async () => {
-        // Сначала удаляем созревшее, потом предупреждаем оставшихся — иначе на
-        // организацию, которую сносим в этом же прогоне, ушло бы прощальное письмо.
-        const purged = await this.workspaces.purgeExpiredArchives();
-        if (purged > 0) {
-          this.logger.log(
-            `Workspaces purged by the archive retention (${WORKSPACE_LIMITS.archiveRetentionDays} days): ${purged}`,
-          );
-        }
-        const warned = await this.workspaces.warnExpiringArchives();
-        if (warned > 0) {
-          this.logger.log(`Warnings about the coming deletion sent: ${warned}`);
-        }
-      },
-    );
-    if (ran === null) {
-      this.logger.debug('Skipped — another instance holds the lock');
-    }
+  @Cron('40 3 * * *') // Ежедневно в 03:40
+  async handleArchiveWarnings(): Promise<void> {
+    const ran = await this.redis.withLock('cron:workspaces-archive-warnings', 15 * 60 * 1000, async () => {
+      const warned = await this.workspaces.warnExpiringArchives();
+      if (warned > 0) this.logger.log(`Warnings about the coming deletion sent: ${warned}`);
+    });
+    if (ran === null) this.logger.debug('Skipped — another instance holds the lock');
   }
 }

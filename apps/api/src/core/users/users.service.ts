@@ -32,7 +32,7 @@ import { EntitlementsService } from '../entitlements/entitlements.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { PlatformAccessService } from '../platform/platform-access.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
-import { USER_PHONE_INVITATIONS_JOB } from './user-jobs';
+import { USER_ANONYMIZE_REDACT_JOB, USER_PHONE_INVITATIONS_JOB } from './user-jobs';
 import { ContactsService } from '../../modules/contacts/contacts.service';
 import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -46,6 +46,7 @@ import {
   CONSENT_AGE,
   CONSENT_ERROR_CODES,
   SOURCE_LOCALE,
+  isUuid,
   ageOnDate,
   maskPhone,
   platformTodayIso,
@@ -61,6 +62,7 @@ import {
   type VisibilityPreviewAs,
   type VisibilityPreviewQuery,
 } from '@superapp/shared';
+import { ChatterService } from '../chatter/chatter.service';
 
 /** Days a deleted account stays recoverable before permanent anonymization. */
 // 14 календарных дней: от отзыва согласия до прекращения обработки закон даёт 15 РАБОЧИХ дней
@@ -104,10 +106,24 @@ export class UsersService implements OnModuleInit {
     private visibility: VisibilityService,
     private discoverability: VisibilityDiscoverabilityService,
     private userCards: UserCardService,
+    private chatter: ChatterService,
   ) {}
 
   onModuleInit(): void {
     this.jobsRegistry.register(USER_PHONE_INVITATIONS_JOB, (payload) => this.runPhoneInvitationsJob(payload));
+    this.jobsRegistry.register(USER_ANONYMIZE_REDACT_JOB, (payload) => this.runAnonymizeRedactJob(payload));
+  }
+
+  /**
+   * След стёртого человека вне его строки (`USER_ANONYMIZE_REDACT_JOB`): снимок имени в хронике и
+   * снимки текста его событий уведомлений. Идемпотентно — ретрай движка джобов безопасен.
+   */
+  private async runAnonymizeRedactJob(payload: Record<string, unknown>): Promise<void> {
+    const userId = String(payload.userId ?? '');
+    if (!isUuid(userId)) throw new JobDiscardError('users.anonymize.redact: userId is required');
+    const chatter = await this.chatter.redactActor(userId);
+    const events = await this.notifications.redactActorSnapshots(userId);
+    this.logger.log(`anonymized ${userId}: ${chatter} chronicle snapshot(s), ${events} notification snapshot(s) redacted`);
   }
 
   /**
@@ -676,6 +692,8 @@ export class UsersService implements OnModuleInit {
       // хранения по закону), а устройства человека, которого больше нет, — нет
       await tx.userDevice.deleteMany({ where: { userId } });
       await this.audit.record(tx, { key: 'account.anonymized', subjectUserId: userId, actor: { kind: 'system' }, details: {} });
+      // След человека вне его строки (хроника, снимки уведомлений) — пачками джобом того же коммита
+      await this.jobs.enqueue(tx, { type: USER_ANONYMIZE_REDACT_JOB, payload: { userId }, uniqueKey: `anon-redact:${userId}` });
       await tx.userRole.updateMany({
         where: { userId },
         data: { isActive: false },

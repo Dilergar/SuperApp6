@@ -14,7 +14,6 @@ import { Throttle } from '@nestjs/throttler';
 import { badRequest } from '../../shared/errors/api-error';
 import { diskStorage } from 'multer';
 import * as fs from 'fs';
-import * as os from 'os';
 import { randomUUID } from 'crypto';
 import {
   requestTranscriptSchema,
@@ -24,6 +23,7 @@ import {
 } from '@superapp/shared';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { VoiceService } from './voice.service';
+import { appTmpDir } from '../../shared/fs/temp-file.util';
 
 /**
  * Голосовой движок — тонкий контроллер (Zod → сервис, AI-ready по Принципу 4).
@@ -66,8 +66,9 @@ export class VoiceController {
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
-        destination: (_req, _file, cb) => cb(null, os.tmpdir()),
-        filename: (_req, _file, cb) => cb(null, `sa6-stt-${Date.now()}-${randomUUID()}`),
+        // Каталог платформы: брошенную загрузку (обрыв клиента) уберёт шаг files.upload-tmp раннера сроков
+        destination: (_req, _file, cb) => cb(null, appTmpDir()),
+        filename: (_req, _file, cb) => cb(null, `stt-${Date.now()}-${randomUUID()}`),
       }),
       limits: { fileSize: VOICE_LIMITS.maxSyncSttBytes, files: 1 },
     }),

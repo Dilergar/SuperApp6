@@ -5,7 +5,7 @@ import { DriveController } from './drive.controller';
 import { DriveCron } from './drive.cron';
 import { DriveJobs } from './drive.jobs';
 import { DriveCoreRoutesProvider } from './drive-core-routes.provider';
-import { DriveWorkspacePurgeProvider } from './drive-workspace-purge.provider';
+import { DriveLifecycleProvider } from './drive.lifecycle.provider';
 import { DrivePhotosService } from './drive-photos.service';
 import { DriveQuickActionsProvider } from './drive-quick-actions.provider';
 import { DriveRichCardsProvider } from './drive-rich-cards.provider';
@@ -54,7 +54,7 @@ import { DriveNotificationRefsProvider } from './drive-notification-refs.provide
     // Маршруты файлов движков платформы (выгрузки журнала безопасности → «Безопасность»)
     DriveCoreRoutesProvider,
     // Каскад окончательного удаления организации: её пространство Диска уходит с ней
-    DriveWorkspacePurgeProvider,
+    DriveLifecycleProvider,
   ],
   exports: [DriveService, DriveAccessService, DriveRoutingRegistry],
 })

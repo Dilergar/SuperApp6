@@ -16,6 +16,7 @@ import { DriveAccessService } from './drive-access.service';
 import { DriveJobs } from './drive.jobs';
 import { DriveSearchService } from './drive-search.service';
 import { DriveService } from './drive.service';
+import { decodeCursor as decodeKeyset, encodeCursor as encodeKeyset } from '@superapp/shared';
 
 type Tx = Prisma.TransactionClient;
 type NodeRow = Prisma.DriveNodeGetPayload<Record<string, never>>;
@@ -417,10 +418,27 @@ export class DriveTreeService {
 
     let purged = 0;
     for (const root of roots) {
-      const subtree = await this.db.driveNode.findMany({
-        where: { OR: [{ id: root.id }, { ancestorIds: { has: root.id } }] },
-        select: { id: true, fileId: true },
-      });
+      await this.purgeSubtree(root.id);
+      await this.db.$transaction((tx) => this.drive.markDirty(tx, root.ancestorIds));
+      purged++;
+    }
+    return purged;
+  }
+
+  /**
+   * Поддерево узла — пачками «сначала листья»: самые глубокие узлы уходят первыми, строки
+   * удаляются явным списком, поэтому каскад по parent_id не снесёт узел, чьи файлы, гранты и
+   * ссылки ещё не сняты. Папка на десятки тысяч файлов больше не читается одним запросом и не
+   * держит соединение полчаса; сбой посреди — следующий прогон продолжит с оставшихся.
+   */
+  private async purgeSubtree(rootId: string): Promise<void> {
+    for (;;) {
+      const subtree = await this.db.$queryRaw<Array<{ id: string; fileId: string | null }>>`
+        SELECT id::text AS id, file_id::text AS "fileId" FROM "drive_nodes"
+         WHERE id = ${rootId}::uuid OR ${rootId}::uuid = ANY(ancestor_ids)
+         ORDER BY cardinality(ancestor_ids) DESC, id
+         LIMIT ${DRIVE_LIMITS.purgeBatch}`;
+      if (!subtree.length) return;
       const nodeIds = subtree.map((n) => n.id);
       // Снимки версий тоже уходят вместе с узлом — иначе их байты и квота остались бы
       // висеть навсегда: строки DriveNodeVersion умрут каскадом, а FileObject нет.
@@ -446,14 +464,12 @@ export class DriveTreeService {
           this.logger.warn(`Could not delete file ${fileId}: ${err instanceof Error ? err.message : err}`);
         });
       }
-      // Каскад по parent_id снял бы потомков и сам, но явное удаление по списку
-      // не зависит от того, остались ли строки согласованными после сбоя выше.
+      // Явное удаление по списку (листья раньше родителей) не зависит от того, остались ли
+      // строки согласованными после сбоя выше
       await this.db.driveNode.deleteMany({ where: { id: { in: nodeIds } } });
       await this.search.removeMany(nodeIds);
-      await this.db.$transaction((tx) => this.drive.markDirty(tx, root.ancestorIds));
-      purged++;
+      if (subtree.length < DRIVE_LIMITS.purgeBatch) return;
     }
-    return purged;
   }
 
   /**
@@ -463,16 +479,24 @@ export class DriveTreeService {
    * (узлы и фото-корзины снимет внешний ключ). Узлы, выпавшие из дерева корня после
    * сбоя прошлого прогона, добираются по пространству. Идемпотентно.
    */
-  async purgeOwnerSpaces(ownerType: 'workspace', ownerId: string): Promise<number> {
+  async purgeOwnerSpaces(ownerType: 'workspace', ownerId: string, deadline: number | null = null): Promise<{ rows: number; done: boolean }> {
     const spaces = await this.db.driveSpace.findMany({ where: { ownerType, ownerId }, select: { id: true } });
-    if (!spaces.length) return 0;
+    if (!spaces.length) return { rows: 0, done: true };
     const spaceIds = spaces.map((s) => s.id);
-    const roots = await this.db.driveNode.findMany({ where: { spaceId: { in: spaceIds }, parentId: null }, select: { id: true } });
-    if (roots.length) await this.purge(null, roots.map((r) => r.id));
-    const strays = await this.db.driveNode.findMany({ where: { spaceId: { in: spaceIds } }, select: { id: true } });
-    if (strays.length) await this.purge(null, strays.map((n) => n.id));
+    // Корни, затем узлы, выпавшие из дерева после сбоя прошлого прогона, — по одному узлу
+    // верхнего уровня за шаг, каждый пачками; бюджет вышел — продолжит следующий заход
+    for (;;) {
+      if (deadline !== null && Date.now() > deadline) return { rows: 0, done: false };
+      const next = await this.db.driveNode.findFirst({
+        where: { spaceId: { in: spaceIds } },
+        orderBy: [{ parentId: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
+        select: { id: true },
+      });
+      if (!next) break;
+      await this.purge(null, [next.id]);
+    }
     await this.db.driveSpace.deleteMany({ where: { id: { in: spaceIds } } });
-    return spaces.length;
+    return { rows: spaces.length, done: true };
   }
 
   /**
@@ -518,15 +542,40 @@ export class DriveTreeService {
   }
 
   /** Крон: узлы, пролежавшие в корзине дольше ретеншна */
-  async purgeExpired(): Promise<number> {
+  /**
+   * Пачка корзины (шаг `drive.trash` раннера сроков core/lifecycle): корни корзины старше
+   * `DRIVE_LIMITS.trashRetentionDays`, keyset (trashedAt, id), удерживаемые заморозкой
+   * пропускаются (`releasable` — в транзакции выборки; байты файлов гаснут мягко и уходят
+   * физически только шагом files.deleted, который перепроверяет заморозку).
+   */
+  async purgeTrashBatch(opts: {
+    limit: number;
+    cursor: string | null;
+    releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>;
+  }): Promise<{ rows: number; more: boolean; cursor: string | null }> {
     const cutoff = new Date(Date.now() - DRIVE_LIMITS.trashRetentionDays * 86_400_000);
+    const after = decodeTrashCursor(opts.cursor ?? undefined);
     const due = await this.db.driveNode.findMany({
-      where: { trashedRootId: null, trashedAt: { lt: cutoff } },
-      select: { id: true },
-      take: DRIVE_LIMITS.purgeBatch,
+      where: {
+        trashedRootId: null,
+        trashedAt: { lt: cutoff },
+        ...(after ? { OR: [{ trashedAt: { gt: after.t } }, { trashedAt: after.t, id: { gt: after.i } }] } : {}),
+      },
+      select: { id: true, trashedAt: true },
+      orderBy: [{ trashedAt: 'asc' }, { id: 'asc' }],
+      take: Math.min(opts.limit, DRIVE_LIMITS.purgeBatch),
     });
-    if (!due.length) return 0;
-    return this.purge(null, due.map((d) => d.id));
+    if (!due.length) return { rows: 0, more: false, cursor: null };
+    const ok = await this.db.$transaction((tx) => opts.releasable(tx, due.map((d) => d.id)));
+    const rows = ok.length ? await this.purge(null, ok) : 0;
+    const last = due[due.length - 1]!;
+    return { rows, more: due.length === Math.min(opts.limit, DRIVE_LIMITS.purgeBatch), cursor: encodeTrashCursor(last) };
+  }
+
+  /** Сколько корней корзины к удалению сейчас (ожидание прогона). */
+  countTrashDue(): Promise<number> {
+    const cutoff = new Date(Date.now() - DRIVE_LIMITS.trashRetentionDays * 86_400_000);
+    return this.db.driveNode.count({ where: { trashedRootId: null, trashedAt: { lt: cutoff } } });
   }
 
   private async versionFileIds(nodeIds: string[]): Promise<string[]> {
@@ -543,20 +592,13 @@ export class DriveTreeService {
 // Курсор корзины: пара (время удаления, id)
 // ============================================================
 
+/** Курсор корзины — общий кодек платформы (`@superapp/shared` utils/cursor). */
+const TRASH_CURSOR = { t: 'date', i: 'uuid' } as const;
+
 function encodeTrashCursor(row: { trashedAt: Date | null; id: string }): string {
-  return Buffer.from(
-    JSON.stringify({ t: row.trashedAt?.toISOString() ?? null, i: row.id }),
-  ).toString('base64url');
+  return encodeKeyset({ t: row.trashedAt, i: row.id });
 }
 
 function decodeTrashCursor(raw?: string): { t: Date; i: string } | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as { t: string; i: string };
-    if (typeof parsed?.t !== 'string' || typeof parsed?.i !== 'string') return null;
-    const t = new Date(parsed.t);
-    return Number.isNaN(t.getTime()) ? null : { t, i: parsed.i };
-  } catch {
-    return null;
-  }
+  return decodeKeyset(raw, TRASH_CURSOR);
 }

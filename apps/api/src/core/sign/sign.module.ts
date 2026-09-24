@@ -18,6 +18,7 @@ import { SignService } from './sign.service';
 import { SignQrBridgeService } from './drivers/sign-qr.driver';
 import { SignVerifierService } from './drivers/sign-verifier.driver';
 import { SignNotificationRefsProvider } from './sign-notification-refs.provider';
+import { SignLifecycleProvider } from './sign.lifecycle.provider';
 
 /**
  * core/sign — 15-й платформенный движок: электронная подпись.
@@ -47,6 +48,7 @@ import { SignNotificationRefsProvider } from './sign-notification-refs.provider'
     ? [SignController, SignQrBridgeController, SignGuestController, SignDevController]
     : [SignController, SignQrBridgeController, SignGuestController],
   providers: [
+    SignLifecycleProvider,
     // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
     SignNotificationRefsProvider,
     SignService,

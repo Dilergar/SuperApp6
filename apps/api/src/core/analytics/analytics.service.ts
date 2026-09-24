@@ -284,16 +284,32 @@ export class AnalyticsService implements OnModuleDestroy {
     await this.jobs.enqueue(tx, { type: ANALYTICS_JOBS.userErase, payload: { userId, pass: 1 }, uniqueKey: `erase:user:${userId}:1` });
   }
 
-  /** В транзакции purge организации: роллапы с её измерением — сразу, сырьё — джобом. */
-  async forgetWorkspace(tx: Tx, workspaceId: string): Promise<void> {
-    if (!isUuid(workspaceId)) return;
-    await tx.analyticsRollupActorDay.deleteMany({ where: { workspaceId } });
-    await tx.analyticsRollupEventDay.deleteMany({ where: { workspaceId } });
-    await tx.analyticsRollupSessionDay.deleteMany({ where: { workspaceId } });
-    await this.jobs.enqueue(tx, {
+  /**
+   * Каскад удаления организации (шаг `analytics.workspace` core/lifecycle): роллапы с её
+   * измерением — пачками (у крупной организации сотни тысяч строк актор×день — один DELETE
+   * держал бы замки и раздувал WAL), сырьё — джобом батчами с повторным проходом. Идемпотентно;
+   * `deadline` прошёл — `done: false`, каскад продолжит следующим заходом.
+   */
+  async forgetWorkspace(workspaceId: string, deadline: number | null = null): Promise<{ rows: number; done: boolean }> {
+    if (!isUuid(workspaceId)) return { rows: 0, done: true };
+    const BATCH = 5000;
+    let rows = 0;
+    for (const table of ['analytics_rollup_actor_day', 'analytics_rollup_event_day', 'analytics_rollup_session_day'] as const) {
+      for (;;) {
+        if (deadline !== null && Date.now() > deadline) return { rows, done: false };
+        const n = await this.db.$executeRaw`
+          DELETE FROM ${Prisma.raw(`"${table}"`)} t
+           USING (SELECT ctid FROM ${Prisma.raw(`"${table}"`)} WHERE workspace_id = ${workspaceId}::uuid LIMIT ${BATCH}) d
+           WHERE t.ctid = d.ctid`;
+        rows += n;
+        if (n < BATCH) break;
+      }
+    }
+    await this.jobs.enqueue(null, {
       type: ANALYTICS_JOBS.workspaceErase,
       payload: { workspaceId, pass: 1 },
       uniqueKey: `erase:workspace:${workspaceId}:1`,
     });
+    return { rows, done: true };
   }
 }

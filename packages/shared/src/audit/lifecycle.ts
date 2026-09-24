@@ -21,7 +21,7 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
   /** Прогон раннера purge по одной политике (батчи, строки, dry-run) */
   'lifecycle.purge.run': {
     category: 'lifecycle',
-    status: 'planned',
+    status: 'live',
     severity: 'info',
     visibility: AUDIT_VIS.platform,
     details: z

@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 
 import { createWriteStream, promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import {
@@ -30,6 +29,7 @@ import { AUDIT_EXPORT_REF, AUDIT_JOBS, AUDIT_NOTIFICATION_REF, AUDIT_PLATFORM_EX
 import { AuditQueryService, type AuditQueryFilter, type AuditViewer } from './audit.query.service';
 import { AuditService } from './audit.service';
 import { AuditWorkspaceAccess } from './audit.workspace-access';
+import { appTmpPath } from '../../shared/fs/temp-file.util';
 
 export const AUDIT_EXPORT_PROFILE = 'audit_export';
 
@@ -228,7 +228,7 @@ export class AuditExportService implements OnModuleInit {
     }
 
     const ext = p.format === 'csv' ? 'csv' : 'ndjson';
-    const tmp = join(os.tmpdir(), `sa6-audit-export-${p.exportId}.${ext}`);
+    const tmp = appTmpPath(`audit-export-${p.exportId}.${ext}`);
     let rows = 0;
     try {
       const out = createWriteStream(tmp, { encoding: 'utf8' });

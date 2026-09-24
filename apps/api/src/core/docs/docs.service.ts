@@ -471,7 +471,8 @@ export class DocsService implements OnModuleInit {
       await this.db.$transaction(async (tx) => {
         await tx.document.updateMany({
           where: { id: doc.id, status: 'active' },
-          data: { status: 'archived', tokenEpoch: { increment: 1 } },
+          // deletedAt — момент конца жизни: от него считается срок шага docs.trash
+          data: { status: 'archived', tokenEpoch: { increment: 1 }, deletedAt: new Date() },
         });
         // Открытую сессию закрываем БЕЗ вехи: резать снимок содержимого ровно в тот
         // момент, когда файл уезжает в уборку, — значит создать копию, которую тут же

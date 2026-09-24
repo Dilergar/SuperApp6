@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { RecorderService } from './recorder.service';
 import { RecorderController } from './recorder.controller';
-import { RecorderCron } from './recorder.cron';
+import { RecorderLifecycleProvider } from './recorder.lifecycle.provider';
 import { RecorderEvents } from './recorder.events';
 import { RecorderNotificationRefsProvider } from './recorder-notification-refs.provider';
 
@@ -14,7 +14,7 @@ import { RecorderNotificationRefsProvider } from './recorder-notification-refs.p
   controllers: [RecorderController],
   providers: [
     // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
-    RecorderNotificationRefsProvider, RecorderService, RecorderEvents, RecorderCron],
+    RecorderNotificationRefsProvider, RecorderService, RecorderEvents, RecorderLifecycleProvider],
   exports: [RecorderService],
 })
 export class RecorderModule {}

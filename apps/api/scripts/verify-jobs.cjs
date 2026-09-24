@@ -259,7 +259,7 @@ async function main() {
     await prisma.job.updateMany({ where: { type: 'jobs.dev.echo', uniqueKey: kOld }, data: { finishedAt: new Date(Date.now() - 25 * 3_600_000) } });
     await prisma.job.updateMany({ where: { type: 'jobs.dev.echo', uniqueKey: kFresh }, data: { finishedAt: new Date(Date.now() - 3_600_000) } });
     r = await http('POST', '/jobs/dev/prune', { token: t1.token, body: {} });
-    check('ретеншн отработал', r.ok && typeof r.json?.data?.completed === 'number', JSON.stringify(r.json?.data));
+    check('ретеншн отработал', r.ok && typeof r.json?.data?.rows === 'number' && r.json.data.rows >= 1, JSON.stringify(r.json?.data));
     check('выполненный больше суток назад удалён', (await byKey(kOld)) === null);
     check('выполненный час назад на месте', (await byKey(kFresh))?.status === 'completed');
     r = await http('POST', '/jobs/dev/reindex', { token: t1.token, body: {} });

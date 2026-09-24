@@ -24,6 +24,7 @@ import { PlatformNotifier, type PlatformSecurityEvent } from '../platform/platfo
 import { AUDIT_NOTIFICATION_REF } from './audit.constants';
 import { AuditMetrics } from './audit.metrics';
 import { AuditService } from './audit.service';
+import { decodeCursor as decodeKeyset, encodeCursor as encodeKeyset } from '@superapp/shared';
 
 type Tx = Prisma.TransactionClient;
 
@@ -98,20 +99,15 @@ export interface AuditOrgNotice {
 
 const isOf = <T extends string>(list: readonly T[], v: string | null): v is T => v !== null && (list as readonly string[]).includes(v);
 
+/** Курсор очереди тревог — общий кодек платформы (`@superapp/shared` utils/cursor). */
+const ALERT_CURSOR = { at: 'date', id: 'uuid' } as const;
+
 function encodeCursor(at: Date, id: string): string {
-  return Buffer.from(`${at.toISOString()}|${id}`).toString('base64url');
+  return encodeKeyset({ at, id });
 }
 
 function decodeCursor(raw: string | undefined): { at: Date; id: string } | null {
-  if (!raw) return null;
-  try {
-    const [at, id] = Buffer.from(raw, 'base64url').toString().split('|');
-    const d = new Date(at ?? '');
-    if (Number.isNaN(d.getTime()) || !id || !/^[0-9a-f-]{36}$/i.test(id)) return null;
-    return { at: d, id };
-  } catch {
-    return null;
-  }
+  return decodeKeyset(raw, ALERT_CURSOR);
 }
 
 /**

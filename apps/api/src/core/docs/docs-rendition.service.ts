@@ -11,6 +11,7 @@ import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { DocsEditorClient } from './docs-editor.client';
 import { DocsRouterService } from './docs-router.service';
+import { storageTmpDir } from '../../shared/fs/temp-file.util';
 
 type RenditionTarget = 'pdf' | 'text';
 
@@ -128,9 +129,6 @@ export class DocsRenditionService implements OnModuleInit {
   }
 
   private tmpDir(): string {
-    const root = path.resolve(process.cwd(), process.env.FILES_LOCAL_ROOT ?? './storage');
-    const dir = path.join(root, 'tmp');
-    fs.mkdirSync(dir, { recursive: true });
-    return dir;
+    return storageTmpDir();
   }
 }

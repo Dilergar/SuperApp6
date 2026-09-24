@@ -102,6 +102,11 @@ jobs:
       - name: Data lifecycle registry guard
         run: node scripts/check-lifecycle.cjs
 
+      # Страж миграций без простоя: заголовок таймаутов, CONCURRENTLY — одним оператором файла,
+      # без PARTITION OF / DEFAULT-партиций / int4-ключей / перезаписи больших таблиц.
+      - name: Zero-downtime migrations guard
+        run: node scripts/check-migrations.cjs
+
       - name: Build shared package
         run: pnpm --filter @superapp/shared build
 

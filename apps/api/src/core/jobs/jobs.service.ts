@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { JOB_LIMITS, JobStatsDto, JobStatus } from '@superapp/shared';
+import { JOB_LIMITS, JobStatsDto, JobStatus, lifecyclePolicy } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -467,27 +467,59 @@ export class JobsService {
    * первый прогон после накопленного бэклога иначе снёс бы сотни тысяч строк одним
    * DELETE (WAL-всплеск, длинная блокировка индекса) — правило платформы из скейл-ревью.
    */
-  async pruneTerminal(): Promise<{ completed: number; discarded: number }> {
-    const completedBefore = new Date(Date.now() - JOB_LIMITS.completedRetentionDays * 86_400_000);
-    const discardedBefore = new Date(Date.now() - JOB_LIMITS.discardedRetentionDays * 86_400_000);
-    const prune = async (statuses: JobStatus[], before: Date): Promise<number> => {
-      let total = 0;
-      for (;;) {
-        const batch = await this.db.job.findMany({
-          where: { status: { in: statuses }, finishedAt: { lt: before } },
-          select: { id: true },
-          take: RETENTION_BATCH,
-        });
-        if (batch.length === 0) return total;
-        const res = await this.db.job.deleteMany({ where: { id: { in: batch.map((r) => r.id) } } });
-        total += res.count;
-        if (batch.length < RETENTION_BATCH) return total;
-      }
+  /**
+   * Правила ретеншна терминальных строк — из политики `Job` реестра core/lifecycle
+   * (основное правило + дополнительные): completed — сутки, discarded|cancelled — 30 дней.
+   */
+  private terminalRules(now: Date): Array<{ statuses: JobStatus[]; before: Date }> {
+    const policy = lifecyclePolicy('Job');
+    if (!policy || policy.enforcement.kind !== 'batched_delete') return [];
+    const out: Array<{ statuses: JobStatus[]; before: Date }> = [];
+    const rule = (filter: Readonly<Record<string, readonly (string | null)[]>> | undefined, days: number) => {
+      const statuses = (filter?.status ?? []).filter((s): s is JobStatus => typeof s === 'string');
+      if (statuses.length && Number.isFinite(days)) out.push({ statuses, before: new Date(now.getTime() - days * 86_400_000) });
     };
-    const a = await prune(['completed'], completedBefore);
-    const b = await prune(['discarded', 'cancelled'], discardedBefore);
-    if (a + b > 0) this.logger.log(`pruned ${a} completed + ${b} discarded/cancelled job(s)`);
-    return { completed: a, discarded: b };
+    if (typeof policy.retention.defaultDays === 'number') rule(policy.enforcement.filter, policy.retention.defaultDays);
+    for (const r of policy.extraRules ?? []) rule(r.filter, r.days);
+    return out;
+  }
+
+  /**
+   * Пачка ретеншна (шаг `jobs.terminal` раннера core/lifecycle): ≤ `limit` терминальных строк
+   * старше своего срока. `more` — пачка была, возможно, есть ещё.
+   */
+  async pruneTerminalBatch(limit: number, now = new Date()): Promise<{ rows: number; more: boolean }> {
+    for (const r of this.terminalRules(now)) {
+      const batch = await this.db.job.findMany({
+        where: { status: { in: r.statuses }, finishedAt: { lt: r.before } },
+        select: { id: true },
+        orderBy: { finishedAt: 'asc' },
+        take: limit,
+      });
+      if (batch.length === 0) continue;
+      const res = await this.db.job.deleteMany({ where: { id: { in: batch.map((b) => b.id) } } });
+      return { rows: res.count, more: true };
+    }
+    return { rows: 0, more: false };
+  }
+
+  /** Сколько терминальных строк к удалению сейчас (ожидание прогона раннера). */
+  async countTerminalDue(now = new Date()): Promise<number> {
+    let total = 0;
+    for (const r of this.terminalRules(now)) total += await this.db.job.count({ where: { status: { in: r.statuses }, finishedAt: { lt: r.before } } });
+    return total;
+  }
+
+  /** Весь хвост ретеншна сразу (дев-ручка; ночью — раннер core/lifecycle пачками). */
+  async pruneTerminal(): Promise<{ rows: number }> {
+    let rows = 0;
+    for (;;) {
+      const r = await this.pruneTerminalBatch(RETENTION_BATCH);
+      rows += r.rows;
+      if (!r.more) break;
+    }
+    if (rows > 0) this.logger.log(`pruned ${rows} terminal job(s)`);
+    return { rows };
   }
 
   /**

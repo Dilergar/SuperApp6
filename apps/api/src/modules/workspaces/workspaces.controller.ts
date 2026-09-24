@@ -36,7 +36,14 @@ import {
 import { z } from 'zod';
 import { isDevEnv } from '../../shared/config/env.validation';
 
-const devPurgeBody = z.object({ workspaceId: z.string().uuid().optional() }).strict();
+const devPurgeBody = z
+  .object({
+    workspaceId: z.string().uuid().optional(),
+    // Уборка (gc-test-workspaces.cjs): человек подтверждает объём сверх порога «подозрительно много»
+    force: z.boolean().optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+  })
+  .strict();
 const devOrphansBody = z.object({ apply: z.boolean().default(false), limit: z.number().int().min(1).max(100).default(20) }).strict();
 
 @ApiTags('Workspaces')
@@ -94,7 +101,8 @@ export class WorkspacesController {
       await this.workspaces.purgeArchivedWorkspaceNow(user.sub, body.workspaceId);
       return { success: true, data: { purged: 1, warned: 0 } };
     }
-    const purged = await this.workspaces.purgeExpiredArchives();
+    // Дев: каскад каждой созревшей организации — сразу, а не джобом (сьюты ждут результата)
+    const purged = await this.workspaces.purgeExpiredArchives({ inline: true, force: body.force, limit: body.limit });
     const warned = await this.workspaces.warnExpiringArchives();
     return { success: true, data: { purged, warned } };
   }

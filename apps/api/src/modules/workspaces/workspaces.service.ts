@@ -4,7 +4,6 @@ import { DI_TOKENS } from '../../shared/di-tokens';
 import { DatabaseService } from '../../shared/database/database.service';
 import { USER_CARD_SELECT, UserCardService } from '../../core/users/user-card.service';
 import { VisibilityService, markShaped, type VisibilityViewer } from '../../core/visibility/visibility.service';
-import { VisibilityPolicyService } from '../../core/visibility/visibility.policy.service';
 import { VisibilityDiscoverabilityService } from '../../core/visibility/visibility.discoverability.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { DEFAULT_DOCUMENT_LANGUAGE } from '../../shared/i18n/document-words';
@@ -26,10 +25,9 @@ import { AnalyticsService } from '../../core/analytics/analytics.service';
 import { ConsentsService } from '../../core/consents/consents.service';
 import { ConsentsDocumentsService } from '../../core/consents/consents.documents.service';
 import { AuditService } from '../../core/audit/audit.service';
-import { SignService } from '../../core/sign/sign.service';
-import { DocsService } from '../../core/docs/docs.service';
-import { ShareLinksService } from '../../core/share-links/share-links.service';
-import { WorkspacePurgeRegistry } from './workspace-purge.registry';
+import { LifecycleTenantPurgeService } from '../../core/lifecycle/lifecycle.tenant-purge';
+import { LifecycleBlastRadiusError, LifecycleTenantHeldError } from '../../core/lifecycle/lifecycle.purge.registry';
+import { lockHoldsShared, tenantHeld } from '../../core/lifecycle/lifecycle.sql';
 import { consentsRequired } from '../../shared/config/env.validation';
 import type { ConsentSelectionInput } from '@superapp/shared';
 import { RedisService } from '../../shared/redis/redis.service';
@@ -62,6 +60,8 @@ import {
   type WorkspaceInvitation,
   isHidden,
   maskLastName,
+  asWorkspaceId,
+  LIFECYCLE_LIMITS,
 } from '@superapp/shared';
 import { Prisma } from '@prisma/client';
 
@@ -119,13 +119,9 @@ export class WorkspacesService implements OnModuleInit {
     private consents: ConsentsService,
     private consentDocs: ConsentsDocumentsService,
     private audit: AuditService,
-    private sign: SignService,
-    private docs: DocsService,
-    private shareLinks: ShareLinksService,
-    private purgeHooks: WorkspacePurgeRegistry,
+    private tenantPurge: LifecycleTenantPurgeService,
     private readonly userCards: UserCardService,
     private readonly visibility: VisibilityService,
-    private readonly visibilityPolicies: VisibilityPolicyService,
     private readonly discoverability: VisibilityDiscoverabilityService,
   ) {}
 
@@ -656,144 +652,59 @@ export class WorkspacesService implements OnModuleInit {
   }
 
   /**
-   * Полное, безвозвратное удаление организации. Каскад в схеме закрывает только семь
-   * таблиц (члены, приглашения, справочники, назначения, комнаты офиса), поэтому всё
-   * остальное сносим руками — и порядок здесь несущий:
-   *
-   * • `tasks.workspace_id` стоит на **SET NULL**. Удалить организацию, не тронув её
-   *   задачи, значит не убрать их, а превратить в ЛИЧНЫЕ задачи людей — мусор переехал
-   *   бы на видное место. Поэтому задачи удаляются явно и ПЕРВЫМИ.
-   * • Ещё десять таблиц (процессы, хроника, звонки, ресурсы, tuples доступа, роли)
-   *   ссылаются на `workspace_id` вообще без FK — их строки просто повисли бы навсегда.
-   * • Чаты задач и встреч физически принадлежат мессенджеру и на организацию не
-   *   ссылаются — ищем их через задачи и комнаты, иначе останутся в списке чатов
-   *   людей с мёртвым заголовком.
-   *
-   * НЕ трогаем осознанно: счета/валюты кошелька, магазин и книгу финансов организации.
-   * Журнал двойной записи неизменяем — удаление счёта ломает инвариант Σ=0 и ночную
-   * сверку WalletCron. Без организации они недостижимы.
+   * Полное, безвозвратное удаление организации сейчас (дев-полигон, сьюты) — каскад по плану
+   * реестра core/lifecycle (`lifecycleTenantPurgePlan`): хуки модулей и пачки строк в порядке
+   * графа удаления, строка организации — последней (шаг `workspaces.row` ниже). Ночной
+   * ретеншн архива ставит тот же каскад джобом (`purgeExpiredArchives`).
    */
   async purgeWorkspace(workspaceId: string): Promise<void> {
-    const ws = await this.db.workspace.findUnique({
-      where: { id: workspaceId },
-      select: { id: true, ownerId: true },
-    });
-    if (!ws) return;
-
-    // Фаза 1 — данные в движках и сервисах без внешнего ключа на организацию. До строки
-    // организации: сбой здесь оставляет её на месте, и ретеншн повторит каскад целиком.
-    await this.purgeWorkspaceData(workspaceId);
-
-    const [tasks, rooms, positions, departments, branches] = await Promise.all([
-      this.db.task.findMany({ where: { workspaceId }, select: { id: true } }),
-      this.db.officeRoom.findMany({ where: { workspaceId }, select: { id: true } }),
-      this.db.staffPosition.findMany({ where: { workspaceId }, select: { id: true } }),
-      this.db.staffDepartment.findMany({ where: { workspaceId }, select: { id: true } }),
-      this.db.staffBranch.findMany({ where: { workspaceId }, select: { id: true } }),
-    ]);
-    const taskIds = tasks.map((t) => t.id);
-    const roomIds = rooms.map((r) => r.id);
-    // Оси оргструктуры: их рёбра в движке прав (position#holder, department#member|head,
-    // branch#member|head, гранты «отделу продаж» как получателю) не несут workspaceId и
-    // FK — без явной чистки остались бы сиротами навсегда. StaffDeputy каскадится FK.
-    const orgAxisIds = [...positions, ...departments, ...branches].map((r) => r.id);
-    const chats = await this.db.chat.findMany({
-      where: {
-        OR: [
-          { parentType: 'task', parentId: { in: taskIds } },
-          { parentType: 'office_room', parentId: { in: roomIds } },
-        ],
-      },
-      select: { id: true },
-    });
-    const chatIds = chats.map((c) => c.id);
-    const refIds = [workspaceId, ...taskIds];
-
-    let consentsAfterPurge: (() => Promise<void>) | null = null;
-    await this.db.$transaction(async (tx) => {
-      // Ключи API и боты организации гаснут, KEK — на уничтожение (crypto-shredding, 30 дней)
-      await this.keysCascades.onWorkspacePurge(tx, workspaceId);
-      // Тариф: подписка, гранты, оверрайды и счётчики организации — строки без FK
-      await this.entitlements.forgetSubject(tx, { type: 'workspace', id: workspaceId });
-      // Аналитика: роллапы с измерением организации — сразу, сырьё — джобом
-      await this.analytics.forgetWorkspace(tx, workspaceId);
-      // Правила видимости организации (полиморфный владелец, без FK) — иначе пережили бы её (R1)
-      await this.visibilityPolicies.purgeOwner(tx, 'workspace', workspaceId);
-      // Согласия организации (условия для организаций, соглашение об обработке ПДн) прекращаются
-      // вместе с ней; сами записи приёмки остаются — это доказательство, а не данные организации
-      consentsAfterPurge = (await this.consents.revokeAllForSubject(tx, { type: 'workspace', id: workspaceId }, 'workspace_purged', null)).afterCommit;
-      await tx.searchDocument.deleteMany({ where: { chatId: { in: chatIds } } });
-      await tx.chat.deleteMany({ where: { id: { in: chatIds } } }); // каскад: сообщения, участники, отложенные
-      await tx.chatterEntry.deleteMany({
-        where: { OR: [{ workspaceId }, { refType: 'task', refId: { in: taskIds } }] },
-      });
-      await tx.task.deleteMany({ where: { id: { in: taskIds } } }); // каскад: участники, теги
-      await tx.processInstance.deleteMany({ where: { workspaceId } });
-      await tx.processDefinition.deleteMany({ where: { workspaceId } });
-      await tx.processTrigger.deleteMany({ where: { workspaceId } });
-      await tx.processCredential.deleteMany({ where: { workspaceId } });
-      await tx.callRecording.deleteMany({ where: { workspaceId } });
-      await tx.callSession.deleteMany({ where: { workspaceId } });
-      await tx.resource.deleteMany({ where: { workspaceId } });
-      await tx.relationTuple.deleteMany({
-        where: { OR: [{ resourceId: { in: refIds } }, { subjectId: { in: refIds } }] },
-      });
-      if (orgAxisIds.length) {
-        await tx.relationTuple.deleteMany({
-          where: {
-            OR: [
-              { resourceType: { in: ['position', 'department', 'branch'] }, resourceId: { in: orgAxisIds } },
-              { subjectType: { in: ['position', 'department', 'branch'] }, subjectId: { in: orgAxisIds } },
-            ],
-          },
-        });
-      }
-      await tx.userRole.deleteMany({ where: { context: WS_CONTEXT, tenantId: workspaceId } });
-      // `Notification.workspaceId` — колонка без FK: строки пережили бы организацию и
-      // остались бы «призраком контекста» (в бейдже есть, отфильтровать нечем).
-      await this.notifications.archiveWorkspaceRowsForAll(tx, workspaceId);
-      // Журнал безопасности организации ПЕРЕЖИВАЕТ удаление (строки без FK, срок — по закону)
-      const members = await tx.workspaceMember.count({ where: { workspaceId } });
-      await this.audit.record(tx, { key: 'org.workspace.purged', workspaceId, subjectUserId: ws.ownerId, actor: { kind: 'system' }, target: { type: 'workspace', id: workspaceId }, details: { members } });
-      await tx.workspace.delete({ where: { id: workspaceId } });
-    });
-
-    // KEK организации ушёл на уничтожение — кэши keystore сбрасываются ПОСЛЕ коммита
-    await this.keysCascades.afterScopeDestroyCommitted();
-    // Кэш мягкого шлюза согласий организации — после коммита
-    await (consentsAfterPurge as (() => Promise<void>) | null)?.().catch(() => undefined);
-    await this.roles.invalidateUserCache(ws.ownerId);
-    await this.redis.invalidateUserProfile(ws.ownerId);
-    this.logger.log(`Workspace ${workspaceId} purged by the archive retention`);
+    await this.tenantPurge.purgeNow(asWorkspaceId(workspaceId));
+    this.logger.log(`Workspace ${workspaceId} purged`);
   }
 
   /**
-   * Фаза 1 окончательного удаления: данные организации, живущие в движках и сервисах без
-   * внешнего ключа на неё. Порядок несущий:
-   *  1. незакрытые согласования и подписи отменяются — стопки людей чистеют, поставленные
-   *     подписи остаются доказательствами;
-   *  2. сервисы с полиморфным владельцем (Диск, Заметки — `WorkspacePurgeRegistry`)
-   *     стирают свои данные своим путём;
-   *  3. офисные документы проходят единственную точку конца жизни;
-   *  4. все оставшиеся файлы организации — системным удалением: личный архив КЭДО
-   *     (`blocksDeletion`) и доказательства подписи пропускаются и живут дальше;
-   *  5. ссылки наружу отзываются, гости ссылок (имя + номер — ПДн) удаляются.
-   * Каждый шаг идемпотентен и работает для организации, строки которой уже нет (уборка
-   * хвостов прошлых удалений). Сбой БРОСАЕТСЯ — каскад прерывается целиком.
+   * Последний шаг каскада (`workspaces.row`): согласия организации прекращаются (записи
+   * приёмки остаются доказательством), событие журнала, DELETE строки — одной транзакцией под
+   * общим замком заморозок: заморозка, поставленная посреди каскада, останавливает его здесь
+   * (каскад FK от строки снёс бы удерживаемое). Журнал безопасности организации переживает
+   * удаление (строки без FK, срок — по закону). Роли всех бывших членов сбрасываются из кэша
+   * ПОСЛЕ коммита — доступ не живёт в кэше лишнюю минуту.
+   */
+  async deleteWorkspaceRow(workspaceId: string): Promise<{ rows: number }> {
+    const ws = await this.db.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, ownerId: true } });
+    if (!ws) return { rows: 0 };
+    let consentsAfterPurge: (() => Promise<void>) | null = null;
+    const memberIds = await this.db.$transaction(async (tx) => {
+      await lockHoldsShared(tx);
+      if (await tenantHeld(tx, workspaceId)) throw new LifecycleTenantHeldError(workspaceId);
+      consentsAfterPurge = (await this.consents.revokeAllForSubject(tx, { type: 'workspace', id: workspaceId }, 'workspace_purged', null)).afterCommit;
+      const members = await tx.workspaceMember.findMany({ where: { workspaceId }, select: { userId: true }, take: 100_000 });
+      await this.audit.record(tx, {
+        key: 'org.workspace.purged',
+        workspaceId,
+        subjectUserId: ws.ownerId,
+        actor: { kind: 'system' },
+        target: { type: 'workspace', id: workspaceId },
+        details: { members: members.length },
+      });
+      await tx.workspace.delete({ where: { id: workspaceId } });
+      return members.map((m) => m.userId);
+    });
+    await (consentsAfterPurge as (() => Promise<void>) | null)?.().catch(() => undefined);
+    for (const uid of new Set([ws.ownerId, ...memberIds])) {
+      await this.roles.invalidateUserCache(uid).catch(() => undefined);
+    }
+    await this.redis.invalidateUserProfile(ws.ownerId);
+    return { rows: 1 };
+  }
+
+  /**
+   * Хвосты организации, строки которой уже нет (удалена до того, как каскад научился чистить
+   * движки, или сырым удалением): тот же каскад реестра без последнего шага. Вид подтверждён
+   * тем, что id найден в колонках «владелец = организация» (`orphanedWorkspaceIds`).
    */
   async purgeWorkspaceData(workspaceId: string): Promise<void> {
-    await this.approvals.cancelAllForWorkspace(workspaceId);
-    await this.sign.cancelAllForWorkspace(workspaceId);
-    for (const [key, hook] of this.purgeHooks.entries()) {
-      try {
-        await hook.purge(workspaceId);
-      } catch (err) {
-        throw new Error(`workspace purge hook "${key}" failed for ${workspaceId}: ${err instanceof Error ? err.message : err}`);
-      }
-    }
-    await this.docs.archiveAllOwnedBy('workspace', workspaceId);
-    await this.files.systemDeleteAllOwnedBy('workspace', workspaceId);
-    await this.shareLinks.forgetWorkspace(workspaceId);
+    await this.tenantPurge.purgeNow(asWorkspaceId(workspaceId), { orphan: true });
   }
 
   /**
@@ -901,26 +812,38 @@ export class WorkspacesService implements OnModuleInit {
     return sent;
   }
 
-  /** Ретеншн архива: удалить организации, пролежавшие в нём дольше срока. Зовёт крон. */
-  async purgeExpiredArchives(): Promise<number> {
-    const cutoff = new Date(
-      Date.now() - WORKSPACE_LIMITS.archiveRetentionDays * 24 * 3600 * 1000,
-    );
+  /**
+   * Ретеншн архива (шаг `workspaces.purge` раннера сроков, политика `Workspace`): организации,
+   * пролежавшие в архиве дольше срока, уходят каскадом реестра. Ночью — каскад ставится
+   * джобом на организацию (`inline: false`, не больше `tenantPurgesPerRun` за ночь); на
+   * дев-полигоне — исполняется сразу. Под заморозкой — пропуск. К удалению разом больше
+   * `tenantPurgeHaltAbove` — стоп до подтверждения человеком (Atlassian 2022: 883 сайта).
+   */
+  async purgeExpiredArchives(opts: { cutoff?: Date; inline?: boolean; limit?: number; force?: boolean } = {}): Promise<number> {
+    const cutoff = opts.cutoff ?? new Date(Date.now() - WORKSPACE_LIMITS.archiveRetentionDays * 24 * 3600 * 1000);
     const due = await this.db.workspace.findMany({
       where: { isActive: false, archivedAt: { not: null, lt: cutoff } },
       select: { id: true },
-      take: 100, // потолок на прогон: крон ежедневный, хвост доберёт завтра
+      orderBy: { archivedAt: 'asc' },
+      take: LIFECYCLE_LIMITS.tenantPurgeHaltAbove + 1,
     });
+    if (!opts.force && due.length > LIFECYCLE_LIMITS.tenantPurgeHaltAbove) {
+      throw new LifecycleBlastRadiusError(due.length, LIFECYCLE_LIMITS.tenantPurgeHaltAbove);
+    }
     let purged = 0;
-    for (const w of due) {
+    for (const w of due.slice(0, opts.limit ?? LIFECYCLE_LIMITS.tenantPurgesPerRun)) {
+      const id = asWorkspaceId(w.id);
       try {
-        await this.purgeWorkspace(w.id);
-        purged++;
+        if (await this.tenantPurge.isHeld(id)) continue;
+        if (opts.inline) {
+          await this.tenantPurge.purgeNow(id);
+          purged++;
+        } else if ((await this.tenantPurge.schedule(id)).queued) {
+          purged++;
+        }
       } catch (err) {
-        // Одна сломанная организация не должна останавливать уборку остальных
-        this.logger.error(
-          `purgeWorkspace ${w.id}: ${err instanceof Error ? err.message : err}`,
-        );
+        // Одна сломанная организация не останавливает остальные
+        this.logger.error(`archive retention ${w.id}: ${err instanceof Error ? err.message : err}`);
       }
     }
     return purged;

@@ -18,6 +18,7 @@ import { VisibilityRevealService } from './visibility.reveal.service';
 import { VisibilityScrapeDetector } from './visibility.scrape.service';
 import { VisibilityService } from './visibility.service';
 import { VisibilityWorkspaceController } from './visibility.workspace.controller';
+import { VisibilityLifecycleProvider } from './visibility.lifecycle.provider';
 
 /**
  * core/visibility — 27-й платформенный движок: правила видимости ПОЛЕЙ (Field-Level Security
@@ -34,6 +35,7 @@ import { VisibilityWorkspaceController } from './visibility.workspace.controller
 @Module({
   controllers: isDevEnv() ? [VisibilityController, VisibilityWorkspaceController, VisibilityDevController] : [VisibilityController, VisibilityWorkspaceController],
   providers: [
+    VisibilityLifecycleProvider,
     VisibilityMetrics,
     VisibilityCache,
     VisibilityTypeRegistry,

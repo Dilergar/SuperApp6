@@ -98,6 +98,7 @@ export * from './validation/entitlements';
 export * from './validation/platform';
 export * from './validation/analytics';
 export * from './validation/keys';
+export * from './validation/lifecycle';
 export * from './validation/consents';
 export * from './validation/audit';
 export * from './validation/visibility';
@@ -112,6 +113,7 @@ export * from './utils/glyph';
 export * from './utils/requisites';
 export * from './utils/cidr';
 export * from './utils/uuid';
+export * from './utils/cursor';
 
 // Constants
 export * from './constants/i18n';

@@ -1414,12 +1414,14 @@ export class FilesService implements OnModuleInit {
    * (личный архив КЭДО — `blocksDeletion`) тихо пропускаются и живут дальше своими
    * местами. Пачками по id (курсор), идемпотентно: повторный прогон доберёт остаток.
    * Байты уходят ночной физической зачисткой soft-deleted. Права проверяет вызывающий.
-   * Возвращает число пройденных файлов (защищённые пропуски тоже в счёте).
+   * `deadline` прошёл — возврат с `done: false` (каскад продолжит следующим заходом).
+   * `rows` — число пройденных файлов (защищённые пропуски тоже в счёте).
    */
-  async systemDeleteAllOwnedBy(ownerType: FileOwnerType, ownerId: string): Promise<number> {
+  async systemDeleteAllOwnedBy(ownerType: FileOwnerType, ownerId: string, opts: { deadline?: number | null } = {}): Promise<{ rows: number; done: boolean }> {
     let seen = 0;
     let after: string | undefined;
     for (;;) {
+      if (opts.deadline && Date.now() > opts.deadline) return { rows: seen, done: false };
       const rows = await this.db.fileObject.findMany({
         where: { ownerType, ownerId, status: { not: 'deleted' }, ...(after ? { id: { gt: after } } : {}) },
         select: { id: true },
@@ -1433,7 +1435,7 @@ export class FilesService implements OnModuleInit {
       }
       after = rows[rows.length - 1].id;
     }
-    return seen;
+    return { rows: seen, done: true };
   }
 
   async getUsage(userId: string): Promise<FileUsageDto> {

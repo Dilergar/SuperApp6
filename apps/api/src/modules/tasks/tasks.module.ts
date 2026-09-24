@@ -11,6 +11,7 @@ import { MessengerModule } from '../messenger/messenger.module';
 import { CalendarModule } from '../calendar/calendar.module';
 import { DriveModule } from '../drive/drive.module';
 import { TasksNotificationRefsProvider } from './tasks-notification-refs.provider';
+import { TasksLifecycleProvider } from './tasks.lifecycle.provider';
 
 @Module({
   // CalendarModule — регистрация слоя «Задачи» в календаре-платформе
@@ -20,6 +21,7 @@ import { TasksNotificationRefsProvider } from './tasks-notification-refs.provide
   imports: [WalletModule, MessengerModule, CalendarModule, DriveModule, NotesModule],
   controllers: [TasksController],
   providers: [
+    TasksLifecycleProvider,
     // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
     TasksNotificationRefsProvider,TasksService, TasksNotesTargetProvider, TasksCron, TasksRichCardsProvider, TasksCalendarProvider],
   exports: [TasksService],

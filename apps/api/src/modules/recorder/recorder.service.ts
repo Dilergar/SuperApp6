@@ -22,6 +22,10 @@ import {
   type CallRecordingReadyContext,
 } from '../../core/calls/calls-recording.registry';
 import { NotificationsService } from '../../core/notifications/notifications.service';
+import { decodeCursor, encodeCursor } from '@superapp/shared';
+
+/** Курсор корзины для раннера сроков: (deletedAt, id) — общий кодек платформы */
+const REC_TRASH_CURSOR = { d: 'date', i: 'uuid' } as const;
 
 /** Минимум, из которого собирается автоимя записи (строка целиком не нужна). */
 export interface AutoTitleRow {
@@ -238,14 +242,28 @@ export class RecorderService implements OnModuleInit {
   }
 
   /** Корзина старше срока — навсегда (крон под Redis-локом; раннер purge core/lifecycle). */
-  async purgeExpired(cutoff: Date): Promise<number> {
+  /**
+   * Пачка корзины (шаг `recorder.trash` раннера сроков core/lifecycle): записи, удалённые
+   * раньше `before`, keyset (deletedAt, id); удерживаемые заморозкой пропускаются.
+   */
+  async purgeTrashBatch(opts: { before: Date; limit: number; cursor: string | null; releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>; }): Promise<{ rows: number; more: boolean; cursor: string | null }> {
+    const take = Math.min(opts.limit, RECORDER_LIMITS.purgeBatch);
+    const c = decodeCursor(opts.cursor, REC_TRASH_CURSOR);
     const rows = await this.db.voiceRecording.findMany({
-      where: { deletedAt: { lt: cutoff } },
-      select: { id: true },
-      take: RECORDER_LIMITS.purgeBatch,
+      where: { deletedAt: { lt: opts.before }, ...(c ? { OR: [{ deletedAt: { gt: c.d } }, { deletedAt: c.d, id: { gt: c.i } }] } : {}) },
+      select: { id: true, deletedAt: true },
+      orderBy: [{ deletedAt: 'asc' }, { id: 'asc' }],
+      take,
     });
-    for (const r of rows) await this.hardDelete(r.id);
-    return rows.length;
+    if (!rows.length) return { rows: 0, more: false, cursor: null };
+    const ok = await this.db.$transaction((tx) => opts.releasable(tx, rows.map((r) => r.id)));
+    for (const id of ok) await this.hardDelete(id);
+    const last = rows[rows.length - 1]!;
+    return { rows: ok.length, more: rows.length === take, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
+  }
+
+  countTrashDue(before: Date): Promise<number> {
+    return this.db.voiceRecording.count({ where: { deletedAt: { lt: before } } });
   }
 
   /** Окончательное удаление: отвязка (движок реапит осиротевший файл) → транскрипты ТОЛЬКО прибранных файлов → строка */

@@ -252,6 +252,153 @@ export function lifecycleDeletionOrder(ids: readonly string[]): string[] {
 }
 
 // ============================================================
+// Каскад удаления организации
+// ============================================================
+
+/** Строка самой организации — всегда последний шаг каскада. */
+export const LIFECYCLE_TENANT_ROOT = 'Workspace';
+
+/**
+ * Шаг каскада удаления организации:
+ *  - `hook` — шаг модуля-владельца (`LifecycleTenantHookRegistry`), один на ключ, сколько бы
+ *    политик его ни объявили (`files.owned` — файл и все профили байтов);
+ *  - `batched` — строки политики уходят пачками раннера по колонке организации.
+ */
+export type LifecycleTenantPurgeStep =
+  | { kind: 'hook'; key: string; policies: readonly string[] }
+  | { kind: 'batched'; key: string; policy: string; column: string };
+
+function tenantStepOf(p: LifecyclePolicy): { key: string; kind: 'hook' | 'batched'; column?: string } | null {
+  const tp = p.onTenantPurge;
+  if (tp.kind === 'registry_hook') return { key: tp.key, kind: 'hook' };
+  if (tp.kind === 'retain_legal' && tp.hook) return { key: tp.hook, kind: 'hook' };
+  if (tp.kind === 'batched_delete') return { key: `batched:${p.id}`, kind: 'batched', column: tp.column };
+  return null;
+}
+
+/**
+ * План каскада окончательного удаления организации — из реестра, не из кода модуля
+ * организаций (замена «знания в голове»: раньше порядок жил комментариями в purgeWorkspace).
+ *
+ * Порядок:
+ *  - `deep`: дети раньше родителей (RESTRICT-ключи и «ребёнок без родителя» иначе);
+ *  - `refcount`: ссылающиеся раньше файла — файл умирает с последним ссылающимся, сперва
+ *    Диск, документы и записи звонков снимают свои ссылки своим путём;
+ *  - политики без своего шага (каскад FK, «по закону», ссылки файлов, которые модуль снимает
+ *    своим путём) уходят вместе с шагом родителя — их рёбра считаются рёбрами родителя
+ *    (вложения заметок и сообщений — `FileLink` → файл: Заметки и Мессенджер раньше файлов);
+ *  - строка организации (`Workspace`, хук `workspaces.row`) — последней;
+ *  - прочее — в порядке реестра. Цикл — ошибка реестра (страж и смоук бута).
+ */
+export function lifecycleTenantPurgePlan(): LifecycleTenantPurgeStep[] {
+  const stepOfPolicy = new Map<string, string>();
+  const steps = new Map<string, LifecycleTenantPurgeStep>();
+  const members = new Map<string, string[]>();
+  for (const id of LIFECYCLE_POLICY_IDS) {
+    const s = tenantStepOf(LIFECYCLE_POLICIES[id]);
+    if (!s) continue;
+    stepOfPolicy.set(id, s.key);
+    if (!members.has(s.key)) members.set(s.key, []);
+    members.get(s.key)!.push(id);
+    if (!steps.has(s.key)) steps.set(s.key, s.kind === 'hook' ? { kind: 'hook', key: s.key, policies: [] } : { kind: 'batched', key: s.key, policy: id, column: s.column! });
+  }
+  for (const [key, step] of steps) if (step.kind === 'hook') (step.policies as string[]).push(...members.get(key)!);
+  const rootKey = stepOfPolicy.get(LIFECYCLE_TENANT_ROOT);
+
+  // Замыкание шага: его политики + всё, что уходит с ними (deep / async_delete) без своего шага
+  const closure = (key: string): Set<string> => {
+    const out = new Set<string>(members.get(key));
+    const queue = [...out];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const e of lifecyclePolicy(cur)?.edges ?? []) {
+        if ((e.kind !== 'deep' && e.kind !== 'async_delete') || out.has(e.to) || stepOfPolicy.has(e.to)) continue;
+        out.add(e.to);
+        queue.push(e.to);
+      }
+    }
+    return out;
+  };
+
+  // before[a] = шаги, которые обязаны пройти раньше a
+  const before = new Map<string, Set<string>>();
+  for (const key of steps.keys()) before.set(key, new Set());
+  for (const key of steps.keys()) {
+    if (key === rootKey) continue;
+    for (const pid of closure(key)) {
+      for (const e of lifecyclePolicy(pid)?.edges ?? []) {
+        const other = stepOfPolicy.get(e.to);
+        if (!other || other === key || other === rootKey) continue;
+        if (e.kind === 'deep') before.get(key)!.add(other);
+        else if (e.kind === 'refcount') before.get(other)!.add(key);
+      }
+    }
+  }
+
+  // Кан с порядком реестра как разрывом ничьих; корень — в конце
+  const order: string[] = [];
+  const placed = new Set<string>();
+  const pending = [...steps.keys()].filter((k) => k !== rootKey);
+  while (pending.length) {
+    const i = pending.findIndex((k) => [...before.get(k)!].every((d) => placed.has(d)));
+    if (i < 0) throw new Error(`tenant purge plan has a cycle among: ${pending.join(', ')}`);
+    const [k] = pending.splice(i, 1);
+    placed.add(k);
+    order.push(k);
+  }
+  if (rootKey) order.push(rootKey);
+  return order.map((k) => steps.get(k)!);
+}
+
+/**
+ * Ключи обработчиков purge и хуков каскада, чья регистрация в API ждёт этапа стройки
+ * (`stage` — код этапа плана латиницей: E4 = Э4).
+ * Одна правда для стража (`check:lifecycle`) и смоука бута: ключа нет здесь и нет
+ * регистрации — красный CI и падение старта.
+ */
+export const LIFECYCLE_PENDING_KEYS: Readonly<Record<string, { stage: string; as: 'handler' | 'hook' }>> = {
+  'lifecycle.exports': { stage: 'E6', as: 'handler' },
+  'lifecycle.hold-store': { stage: 'E4', as: 'handler' },
+  'lifecycle.erasure-requests': { stage: 'E4', as: 'handler' },
+};
+
+/** Ключи обработчиков purge (`batched_delete.handler`) и хуков каскада организации — по видам. */
+export function lifecycleRegistrationKeys(): { handlers: string[]; hooks: string[] } {
+  const handlers = new Set<string>();
+  const hooks = new Set<string>();
+  for (const id of LIFECYCLE_POLICY_IDS) {
+    const p = LIFECYCLE_POLICIES[id];
+    if (p.enforcement.kind === 'batched_delete' && p.enforcement.handler) handlers.add(p.enforcement.handler);
+    const s = tenantStepOf(p);
+    if (s?.kind === 'hook') hooks.add(s.key);
+  }
+  return { handlers: [...handlers].sort(), hooks: [...hooks].sort() };
+}
+
+/** Ребро loose FK: строки ребёнка без внешнего ключа, которые добирает воркер после удаления родителя. */
+export interface LifecycleLooseFkEdge {
+  parent: string;
+  child: string;
+  kind: 'async_delete' | 'async_nullify';
+  via: string;
+}
+
+/**
+ * Рёбра `async_delete` / `async_nullify` реестра по родителям. Корень `User` сюда не входит:
+ * строка человека не удаляется (томбстоун), его след стирает оркестратор стирания.
+ */
+export function lifecycleLooseFkEdges(): LifecycleLooseFkEdge[] {
+  const out: LifecycleLooseFkEdge[] = [];
+  for (const parent of LIFECYCLE_POLICY_IDS) {
+    if (parent === 'User') continue;
+    for (const e of LIFECYCLE_POLICIES[parent].edges) {
+      if ((e.kind === 'async_delete' || e.kind === 'async_nullify') && e.via) out.push({ parent, child: e.to, kind: e.kind, via: e.via });
+    }
+  }
+  return out;
+}
+
+// ============================================================
 // Проверки реестра (смоук бута + страж)
 // ============================================================
 
@@ -364,6 +511,7 @@ export function lifecycleRegistryProblems(): string[] {
     if (tp.kind === 'retain_legal') {
       if (!CITATIONS.has(tp.citation)) add(at, `tenant retain_legal without a known citation ("${tp.citation}")`);
       if (!isLifecycleDuration(tp.untilDays)) add(at, 'tenant retain_legal.untilDays must be a duration');
+      if (tp.hook !== undefined && !tp.hook) add(at, 'tenant retain_legal hook key is empty');
     }
 
     // рёбра
@@ -427,6 +575,12 @@ export function lifecycleRegistryProblems(): string[] {
     if (p.enforcement.kind === 'cascade' && !lifecycleIncomingEdges(id).some((e) => DELETION_EDGE_KINDS.has(e.kind))) {
       add(id, 'cascade enforcement without an incoming deep/refcount/async_delete edge — nothing deletes it');
     }
+  }
+  // Каскад организации обязан упорядочиваться: цикл шагов = удаление, которое никогда не закончится
+  try {
+    lifecycleTenantPurgePlan();
+  } catch (e) {
+    add('tenant purge plan', e instanceof Error ? e.message : String(e));
   }
   return problems;
 }

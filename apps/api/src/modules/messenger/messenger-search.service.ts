@@ -82,6 +82,10 @@ export class MessengerSearchService implements OnModuleInit {
       return;
     }
     if (!msg.content) return;
+    // Организация документа поиска = организация чата: по ней каскад удаления организации
+    // находит проекции её переписки (и изоляция B2B фильтрует выдачу)
+    const workspaceId =
+      msg.workspaceId !== undefined ? msg.workspaceId : ((await this.db.chat.findUnique({ where: { id: msg.chatId }, select: { workspaceId: true } }))?.workspaceId ?? null);
     await this.projection.upsert({
       sourceType: 'message',
       sourceId: msg.id,
@@ -90,7 +94,7 @@ export class MessengerSearchService implements OnModuleInit {
       chatId: msg.chatId,
       seq: msg.seq,
       authorId: msg.authorId,
-      workspaceId: msg.workspaceId ?? null,
+      workspaceId,
       itemCreatedAt: msg.createdAt,
     });
   }

@@ -14,7 +14,7 @@
 
 ## API
 
-`GET /recorder/recordings` (+файл+статус транскрипта батчем) · `POST /recorder/recordings {fileId, title?, source?, language?}` · `PATCH /:id {title}` → лёгкий `{id,title}` · **корзина** (30 дней, `deletedAt`): `POST /:id/trash|restore`, `GET /recorder/trash` (с файлом — послушать перед восстановлением), `DELETE /:id` — навсегда и только из корзины (`400 recorder.trashFirst`; файл и транскрипт прибирают движки). Запись в корзине не видна в ленте, не принимает вложения и переименование, не шлёт уведомлений о расшифровке; старше 30 дней — навсегда кроном `recorder.cron`. Веб — `/recorder/trash`.
+`GET /recorder/recordings` (+файл+статус транскрипта батчем) · `POST /recorder/recordings {fileId, title?, source?, language?}` · `PATCH /:id {title}` → лёгкий `{id,title}` · **корзина** (30 дней, `deletedAt`): `POST /:id/trash|restore`, `GET /recorder/trash` (с файлом — послушать перед восстановлением), `DELETE /:id` — навсегда и только из корзины (`400 recorder.trashFirst`; файл и транскрипт прибирают движки). Запись в корзине не видна в ленте, не принимает вложения и переименование, не шлёт уведомлений о расшифровке; старше 30 дней — навсегда шагом `recorder.trash` раннера сроков core/lifecycle (`recorder.lifecycle.provider.ts`). Веб — `/recorder/trash`.
 
 ## Язык
 

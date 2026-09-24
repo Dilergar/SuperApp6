@@ -205,7 +205,8 @@
   "dev": {
     "developmentOnly": "The dev playground is available only in development",
     "simulatedFailure": "A failure simulated by the dev playground",
-    "jobTypeRegistered": "This job type has a handler on this server — there is nothing to clean up"
+    "jobTypeRegistered": "This job type has a handler on this server — there is nothing to clean up",
+    "lifecyclePolicyNotEnforceable": "This retention policy is not enforced by the runner."
   },
   "docs": {
     "accessRevoked": "The access to the document was revoked",
@@ -1604,5 +1605,8 @@
     "owner_only": "Only the owner changes these settings",
     "lookup_rate": "Too many phone lookups from this organization — try again later",
     "no_second_admin": "Nobody else can approve: another owner or admin is needed, or turn off second-admin approval"
+  },
+  "lifecycle": {
+    "tenantHeld": "The organization is under a legal hold, so it cannot be deleted."
   }
 }

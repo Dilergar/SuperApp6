@@ -62,45 +62,8 @@ const PENDING = {
   partition: {},
   /** Индексы, ведущие колонкой времени/владельца, для batched_delete */
   index: {},
-  /** Обработчики purge (`handler`) и хуки удаления организации — регистрируются в API */
-  hook: {
-    'access.tuples': 'Э3',
-    'notifications.events': 'Э3',
-    'notifications.rows': 'Э3',
-    'notifications.workspace-rows': 'Э3',
-    'files.deleted': 'Э3',
-    'files.owned': 'Э3',
-    'files.upload-tmp': 'Э3',
-    'jobs.terminal': 'Э3',
-    'chatter.retention': 'Э3',
-    'share-links.workspace': 'Э3',
-    'approvals.workspace': 'Э3',
-    'docs.trash': 'Э3',
-    'docs.owned': 'Э3',
-    'entitlements.subject': 'Э3',
-    'analytics.workspace': 'Э3',
-    'keys.workspace': 'Э3',
-    'idempotency.inbox': 'Э3',
-    'idempotency.keys': 'Э3',
-    'visibility.owner': 'Э3',
-    'messenger.workspace-chats': 'Э3',
-    'messenger.retention': 'Э3',
-    'workspaces.purge': 'Э3',
-    'workspaces.row': 'Э3',
-    'tasks.trash': 'Э3',
-    'calendar.trash': 'Э3',
-    'shop.owner': 'Э3',
-    'finances.owner': 'Э3',
-    'finances.trash': 'Э3',
-    'drive.workspace': 'Э3',
-    'drive.trash': 'Э3',
-    'notes.workspace': 'Э3',
-    'notes.trash': 'Э3',
-    'recorder.trash': 'Э3',
-    'lifecycle.exports': 'Э6',
-    'lifecycle.hold-store': 'Э4',
-    'lifecycle.erasure-requests': 'Э4',
-  },
+  // Обработчики purge и хуки каскада, ждущие этапа, — `LIFECYCLE_PENDING_KEYS` в shared (одна
+  // правда со смоуком бута API)
 };
 
 // ---------- загрузка реестра: транспиляция TS на лету ----------
@@ -437,6 +400,50 @@ for (const id of IDS) {
   }
 }
 
+// ---------- 8b. каскад организации: пачка по колонке организации идёт индексом ----------
+const indexLeads = (id) => {
+  const p = POLICIES[id];
+  const out = new Set();
+  let tKey = null;
+  if (p.store.kind === 'model') {
+    const model = MODELS.get(p.store.model);
+    if (!model) return { leads: out, second: out, tKey };
+    tKey = `${model.schema}.${model.table}`;
+    for (const ix of model.indexes) out.add(fieldToDb(model, ix.fields[0]));
+    const second = new Set(model.indexes.filter((ix) => ix.fields.length > 1).map((ix) => fieldToDb(model, ix.fields[1])));
+    for (const c of SQL_INDEX_LEAD.get(tKey) ?? []) out.add(c);
+    return { leads: out, second, tKey, model };
+  }
+  if (p.store.kind === 'table') {
+    tKey = p.store.table;
+    for (const c of SQL_INDEX_LEAD.get(tKey) ?? []) out.add(c);
+  }
+  return { leads: out, second: new Set(), tKey };
+};
+for (const id of IDS) {
+  const tp = POLICIES[id].onTenantPurge;
+  if (tp.kind !== 'batched_delete') continue;
+  const { leads, model } = indexLeads(id);
+  const col = model ? fieldToDb(model, tp.column) : tp.column;
+  if (!leads.has(col)) err(`${id}: каскад организации пачками по "${col}" без индекса, ведущего этой колонкой (каждая пачка читала бы таблицу целиком)`);
+}
+
+// ---------- 8c. loose FK: ссылка ребёнка идёт индексом, у родителя стоит триггер учёта ----------
+const TRACKED = new Set([...sqlAll.matchAll(/CREATE TRIGGER\s+"?lifecycle_track_delete"?[\s\S]*?\bON\s+(?:"?\w+"?\.)?"?(\w+)"?/gi)].map((m) => m[1]));
+for (const e of reg.lifecycleLooseFkEdges()) {
+  const parent = POLICIES[e.parent];
+  const child = POLICIES[e.child];
+  if (!parent || !child) continue;
+  if (parent.store.kind === 'model') {
+    const pm = MODELS.get(parent.store.model);
+    if (pm && !TRACKED.has(pm.table)) err(`${e.parent} → ${e.child} (${e.kind}): у родителя ${pm.table} нет триггера lifecycle_track_delete — удаление родителя не попадёт в учёт loose FK`);
+  }
+  const { leads, second, model } = indexLeads(e.child);
+  const col = model ? fieldToDb(model, e.via) : e.via;
+  // Ссылка — первой колонкой индекса или второй после колонки типа (ref_type, ref_id — PG18 skip scan)
+  if (!leads.has(col) && !second.has(col)) err(`${e.parent} → ${e.child}: ссылка "${col}" не ведёт ни один индекс — воркер loose FK читал бы таблицу целиком`);
+}
+
 // ---------- 9. каталоги ----------
 const at = (obj, dotted) => dotted.split('.').reduce((o, k) => (o && typeof o === 'object' ? o[k] : undefined), obj);
 const GROUPS = ['policies', 'tables', 'blobs', 'redis', 'derived'];
@@ -464,14 +471,11 @@ for (const loc of LOCALES) {
 // ---------- 10. хуки и обработчики зарегистрированы в API ----------
 const apiText = API_FILES.map(read).join('\n');
 const registered = (key) => new RegExp(`\\.register\\(\\s*['\`]${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['\`]`).test(apiText);
-const hookKeys = new Set();
-for (const id of IDS) {
-  const p = POLICIES[id];
-  if (p.enforcement.kind === 'batched_delete' && p.enforcement.handler) hookKeys.add(p.enforcement.handler);
-  if (p.onTenantPurge.kind === 'registry_hook') hookKeys.add(p.onTenantPurge.key);
-}
-for (const k of hookKeys) if (!PENDING.hook[k] && !registered(k)) err(`обработчик/хук "${k}" объявлен в реестре, но не зарегистрирован в apps/api/src (.register('${k}', …))`);
-for (const k of Object.keys(PENDING.hook)) if (!hookKeys.has(k)) err(`PENDING.hook "${k}" — такого ключа нет в реестре, строку убрать`);
+const { handlers: handlerKeys, hooks: tenantHookKeys } = reg.lifecycleRegistrationKeys();
+const hookKeys = new Set([...handlerKeys, ...tenantHookKeys]);
+const PENDING_KEYS = reg.LIFECYCLE_PENDING_KEYS;
+for (const k of hookKeys) if (!PENDING_KEYS[k] && !registered(k)) err(`обработчик/хук "${k}" объявлен в реестре, но не зарегистрирован в apps/api/src (.register('${k}', …))`);
+for (const k of Object.keys(PENDING_KEYS)) if (!hookKeys.has(k)) err(`LIFECYCLE_PENDING_KEYS "${k}" — такого ключа нет в реестре, строку убрать`);
 
 // ---------- 11. манифест канареечного сьюта ----------
 if (!fs.existsSync(SUITE)) err(`нет сьюта ${path.relative(ROOT, SUITE)} (манифест CANARY_STORES)`);
@@ -499,6 +503,8 @@ for (const id of byStore('model')) {
       if (ix.kind === 'id') continue;
       // BRIN — сводка физического порядка журнала: пути к строке не задаёт, в ячейке — свой
       if (ix.brin) continue;
+      // Индекс под колонку срока раннера (требование правила 8): обслуживание, не путь чтения
+      if (p.enforcement.kind === 'batched_delete' && ix.fields[0] === p.enforcement.column) continue;
       if (ix.fields[0] !== oc && !(p.ownerKey.kind === 'polymorphic' && ix.fields[0] === p.ownerKey.typeColumn)) readiness.indexNotOwnerLed.push(`${id}(${ix.fields.join(',')})`);
     }
   }

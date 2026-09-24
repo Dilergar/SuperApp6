@@ -108,6 +108,9 @@ END $$;
 --   можно только осознанно, `SET ROLE sa6_data_owner`.
 -- sa6_readonly — чтение для поддержки и отчётов (pg_read_all_data, без записи).
 -- sa6_backup — pgBackRest и логические выгрузки (чтение + функции резервного копирования).
+-- sa6_monitor — владелец ОДНОЙ функции `lifecycle_health_signals` (сигналы здоровья раннера
+--   сроков): pg_read_all_stats живёт у неё, а не у роли приложения — иначе приложению видны
+--   тексты запросов всех сессий (pg_stat_activity.query). Приложению — только EXECUTE.
 -- Все роли создаются NOLOGIN: вход и пароль выдаёт эксплуатация из хранилища секретов
 -- (`ALTER ROLE … LOGIN PASSWORD …`) — секретов в этом файле нет.
 -- Аварийный выход (суперпользователь): `ALTER EVENT TRIGGER lifecycle_guard_drop DISABLE`.
@@ -116,7 +119,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['sa6_data_owner', 'sa6_migrate', 'sa6_readonly', 'sa6_backup'] LOOP
+  FOREACH r IN ARRAY ARRAY['sa6_data_owner', 'sa6_migrate', 'sa6_readonly', 'sa6_backup', 'sa6_monitor'] LOOP
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN
       EXECUTE format('CREATE ROLE %I NOLOGIN', r);
     END IF;
@@ -132,6 +135,7 @@ GRANT pg_read_all_data TO sa6_readonly;
 GRANT pg_read_all_data, pg_read_all_settings, pg_checkpoint TO sa6_backup;
 ALTER ROLE sa6_backup REPLICATION;
 GRANT EXECUTE ON FUNCTION pg_backup_start(text, boolean), pg_backup_stop(boolean), pg_create_restore_point(text), pg_switch_wal() TO sa6_backup;
+GRANT pg_read_all_stats TO sa6_monitor;
 
 -- Роль приложения — в настройку сессии: DO-блок не видит переменных psql
 SELECT set_config('sa6.app_role', :'app_role', false);
@@ -176,6 +180,11 @@ GRANT SELECT, INSERT, UPDATE ON "escrow_agreements", "escrow_holds" TO :"app_rol
 -- Удаление строки истории — только вместе с родителем (триггер); каскад FK идёт от владельца
 GRANT SELECT, INSERT, DELETE ON "card_skin_transfers", "fin_audit_logs" TO :"app_role";
 GRANT USAGE, SELECT ON SEQUENCE "card_skin_transfers_id_seq" TO :"app_role";
+-- Каскад FK (экземпляр скина → его история) PostgreSQL исполняет ОТ ВЛАДЕЛЬЦА дочерней
+-- таблицы, и триггер append-only спрашивает «жив ли родитель» тоже от его имени: без права
+-- на колонку id родителя любое удаление экземпляра (стирание аккаунта, каскад организации)
+-- падает 42501. Владельцу — только id родителей: сами строки ему не нужны.
+GRANT SELECT ("id") ON "card_skin_instances", "fin_books" TO sa6_data_owner;
 
 -- ---- Владение: таблицы движка жизненного цикла, где право на удаление = подлог ----
 ALTER TABLE "lifecycle_holds" OWNER TO sa6_data_owner;
@@ -209,6 +218,10 @@ ALTER FUNCTION lifecycle_append_only_with_parent() OWNER TO sa6_data_owner;
 ALTER FUNCTION lifecycle_escrow_guard() OWNER TO sa6_data_owner;
 REVOKE ALL ON FUNCTION lifecycle_ensure_partition(text, timestamptz), lifecycle_drop_partition(text, text), lifecycle_analyze_partitioned(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lifecycle_ensure_partition(text, timestamptz), lifecycle_drop_partition(text, text), lifecycle_analyze_partitioned(text) TO :"app_role";
+-- Сигналы здоровья раннера: SECURITY DEFINER под монитором (pg_read_all_stats) — наружу пять чисел
+ALTER FUNCTION lifecycle_health_signals(regclass) OWNER TO sa6_monitor;
+REVOKE ALL ON FUNCTION lifecycle_health_signals(regclass) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lifecycle_health_signals(regclass) TO :"app_role";
 
 -- ---- Событийный триггер: DROP защищённой таблицы — только роли владельца ----
 -- Срабатывает на sql_drop (DROP TABLE, DROP SCHEMA … CASCADE, DROP OWNED, DROP COLUMN) ДО

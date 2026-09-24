@@ -45,6 +45,7 @@ import type {
   FileDto,
   OffsetPage,
 } from '@superapp/shared';
+import { decodeCursor, encodeCursor } from '@superapp/shared';
 
 // What every task query pulls so a row can be mapped to the shared Task DTO.
 const TASK_INCLUDE = {
@@ -65,6 +66,8 @@ type TaskRow = Prisma.TaskGetPayload<{ include: typeof TASK_INCLUDE }>;
 
 /** Потолок поддерева задачи (корзина и окончательное удаление идут одним поддеревом). */
 const SUBTREE_CAP = 5_000;
+/** Курсор корзины для раннера сроков: (deletedAt, id) — общий кодек платформы */
+const TRASH_CURSOR = { d: 'date', i: 'uuid' } as const;
 type UserMini = { id: string; firstName: string; lastName: string | null; avatar: string | null };
 
 // Numeric mirror of priority for ORDER BY — the string column sorts lexicographically
@@ -1235,14 +1238,78 @@ export class TasksService implements OnModuleInit {
   }
 
   /** Корзина старше срока — навсегда (крон под Redis-локом; раннер purge core/lifecycle). */
-  async purgeExpired(cutoff: Date): Promise<number> {
+  /**
+   * Пачка корзины (шаг `tasks.trash` раннера сроков core/lifecycle): корни корзины (сама
+   * задача в корзине, родитель — нет), удалённые раньше `before`, keyset (deletedAt, id);
+   * удерживаемые заморозкой пропускаются.
+   */
+  async purgeTrashBatch(opts: {
+    before: Date;
+    limit: number;
+    cursor: string | null;
+    releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>;
+  }): Promise<{ rows: number; more: boolean; cursor: string | null }> {
+    const take = Math.min(opts.limit, TASK_LIMITS.purgeBatch);
+    const c = decodeCursor(opts.cursor, TRASH_CURSOR);
     const rows = await this.db.task.findMany({
-      where: { deletedAt: { lt: cutoff }, OR: [{ parentId: null }, { parent: { deletedAt: null } }] },
-      select: { id: true },
-      take: TASK_LIMITS.purgeBatch,
+      where: {
+        deletedAt: { lt: opts.before },
+        AND: [
+          { OR: [{ parentId: null }, { parent: { deletedAt: null } }] },
+          ...(c ? [{ OR: [{ deletedAt: { gt: c.d } }, { deletedAt: c.d, id: { gt: c.i } }] }] : []),
+        ],
+      },
+      select: { id: true, deletedAt: true },
+      orderBy: [{ deletedAt: 'asc' }, { id: 'asc' }],
+      take,
     });
-    for (const r of rows) await this.hardDelete(r.id);
-    return rows.length;
+    if (!rows.length) return { rows: 0, more: false, cursor: null };
+    const ok = await this.db.$transaction((tx) => opts.releasable(tx, rows.map((r) => r.id)));
+    for (const id of ok) await this.hardDelete(id);
+    const last = rows[rows.length - 1]!;
+    return { rows: ok.length, more: rows.length === take, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
+  }
+
+  /** Сколько корней корзины к удалению (ожидание прогона). */
+  countTrashDue(before: Date): Promise<number> {
+    return this.db.task.count({ where: { deletedAt: { lt: before }, OR: [{ parentId: null }, { parent: { deletedAt: null } }] } });
+  }
+
+  /**
+   * Каскад удаления организации (шаг `tasks.workspace`): каждая задача организации уходит
+   * тем же путём, что «навсегда из корзины» — заморозки наград возвращаются плательщикам,
+   * вложения, права и чаты снимаются. Корни поддеревьев пачками; удерживаемые заморозкой
+   * остаются (строка организации тогда не удалится — каскад остановит заморозка).
+   */
+  async purgeWorkspaceTasks(
+    workspaceId: string,
+    opts: {
+      deadline: number | null;
+      checkpoint: () => Promise<void>;
+      releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>;
+    },
+  ): Promise<{ rows: number; done: boolean }> {
+    let rows = 0;
+    let after: string | undefined;
+    for (;;) {
+      if (opts.deadline !== null && Date.now() > opts.deadline) return { rows, done: false };
+      await opts.checkpoint();
+      const roots = await this.db.task.findMany({
+        where: {
+          workspaceId,
+          OR: [{ parentId: null }, { parent: { workspaceId: { not: workspaceId } } }, { parent: { workspaceId: null } }],
+          ...(after ? { id: { gt: after } } : {}),
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: TASK_LIMITS.purgeBatch,
+      });
+      if (!roots.length) return { rows, done: true };
+      const ok = await this.db.$transaction((tx) => opts.releasable(tx, roots.map((r) => r.id)));
+      for (const id of ok) await this.hardDelete(id);
+      rows += ok.length;
+      after = roots[roots.length - 1]!.id;
+    }
   }
 
   /**

@@ -7,6 +7,7 @@ import { FinancesCron } from './finances.cron';
 import { FinancesEvents } from './finances.events';
 import { CalendarModule } from '../calendar/calendar.module';
 import { FinancesNotificationRefsProvider } from './finances-notification-refs.provider';
+import { FinancesLifecycleProvider } from './finances.lifecycle.provider';
 
 /**
  * «Финансы» (B2C): personal + family managerial accounting — an editable bookkeeping
@@ -20,6 +21,7 @@ import { FinancesNotificationRefsProvider } from './finances-notification-refs.p
   imports: [CalendarModule],
   controllers: [FinancesController],
   providers: [
+    FinancesLifecycleProvider,
     // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
     FinancesNotificationRefsProvider,
     FinancesService,

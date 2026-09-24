@@ -85,7 +85,9 @@ export const MESSENGER_LIFECYCLE = {
     // стирает все его сообщения (tombstone: content = null, payload = null)
     onSubjectErasure: retainLegal('kz_civil_code_art41_4', FOREVER),
     onTenantPurge: CASCADE_FK,
-    edges: [shallow('Message', 'replyToId'), { to: 'FileLink', kind: 'async_delete', via: 'refId' }],
+    edges: [shallow('Message', 'replyToId'), { to: 'FileLink', kind: 'async_delete', via: 'refId' },
+      // Проекция в поиске: стёртое по сроку сообщение не находится поиском
+      { to: 'SearchDocument', kind: 'async_delete', via: 'sourceId' }],
     enforcement: batched('createdAt', undefined, 'messenger.retention'),
     holdAware: true,
     rootEntity: true,

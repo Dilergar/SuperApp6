@@ -381,22 +381,28 @@ export class IdempotencyStore {
     );
   }
 
-  /** Чистка по сроку: батчами (массовый DELETE душит WAL и индекс). */
-  sweep(batch: number): Promise<number> {
+  /**
+   * Одна пачка чистки по сроку (шаг `idempotency.keys` раннера core/lifecycle — пачками,
+   * массовый DELETE душит WAL и индекс). Срок строки — её `expires_at` (ставится при заявке).
+   */
+  sweepBatch(batch: number): Promise<number> {
     const limit = Math.max(1, Math.floor(batch));
+    return runInternal(() =>
+      this.db.$executeRawUnsafe(
+        `DELETE FROM idem.keys
+         WHERE (scope_hash, key_hash) IN (
+           SELECT scope_hash, key_hash FROM idem.keys
+           WHERE expires_at < (now() AT TIME ZONE 'UTC') LIMIT ${limit}
+         )`,
+      ),
+    );
+  }
+
+  /** Сколько ключей просрочено (ожидание прогона раннера). */
+  countExpired(): Promise<number> {
     return runInternal(async () => {
-      let total = 0;
-      for (;;) {
-        const n = await this.db.$executeRawUnsafe(
-          `DELETE FROM idem.keys
-           WHERE (scope_hash, key_hash) IN (
-             SELECT scope_hash, key_hash FROM idem.keys
-             WHERE expires_at < (now() AT TIME ZONE 'UTC') LIMIT ${limit}
-           )`,
-        );
-        total += n;
-        if (n < limit) return total;
-      }
+      const rows = await this.db.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*)::bigint AS n FROM idem.keys WHERE expires_at < (now() AT TIME ZONE 'UTC')`);
+      return Number(rows[0]?.n ?? 0);
     });
   }
 

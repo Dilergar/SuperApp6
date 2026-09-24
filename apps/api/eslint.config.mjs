@@ -152,6 +152,21 @@ const VISIBILITY_SELECTORS = [
   { selector: 'FunctionDeclaration[id.name=/^mask[A-Z]/], VariableDeclarator[id.name=/^mask[A-Z]/]', message: VISIBILITY_HINT_MASK },
 ];
 
+/**
+ * Седьмой страж: временные файлы — только каталоги платформы (`src/shared/fs/temp-file.util.ts`).
+ * Голый `os.tmpdir()` и `diskStorage` multer без `destination` (его умолчание — тот же общий
+ * /tmp) кладут байты туда, где их не видит уборка по сроку (шаг `files.upload-tmp` раннера
+ * core/lifecycle) и где нет прав 0700: брошенная загрузка живёт вечно (multer CVE-2026-88932).
+ */
+const TEMP_DIR_HINT =
+  'Временный файл — только appTmpDir()/appTmpPath()/withTempFile() или storageTmpDir() (src/shared/fs/temp-file.util.ts), у multer diskStorage — явный destination: общий /tmp не убирается по сроку и не закрыт правами 0700.';
+const TEMP_DIR_SELECTORS = [
+  { selector: "CallExpression[callee.property.name='tmpdir']", message: TEMP_DIR_HINT },
+  { selector: "ImportDeclaration[source.value=/^(node:)?os$/] ImportSpecifier[imported.name='tmpdir']", message: TEMP_DIR_HINT },
+  { selector: "VariableDeclarator > ObjectPattern > Property[key.name='tmpdir']", message: TEMP_DIR_HINT },
+  { selector: "CallExpression[callee.name='diskStorage']:not(:has(Property[key.name='destination']))", message: TEMP_DIR_HINT },
+];
+
 /** Селекторы стража исходящих — общие для основного блока и для блока движка ключей (там без стража секрета). */
 const OUTBOUND_SYNTAX_SELECTORS = [
   {
@@ -220,7 +235,7 @@ export default [
       // без этого селектора такая запись проходила линтер молча.
       // Селекторы живут в OUTBOUND_SYNTAX_SELECTORS (их же переиспользует блок движка
       // ключей); здесь к ним добавлен страж мастер-секрета (KEYS_SECRET_SELECTORS).
-      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...KEYS_SECRET_SELECTORS, ...SECRET_LOG_SELECTORS, ...KEYS_CRYPTO_SELECTORS, ...VISIBILITY_SELECTORS],
+      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...KEYS_SECRET_SELECTORS, ...SECRET_LOG_SELECTORS, ...KEYS_CRYPTO_SELECTORS, ...VISIBILITY_SELECTORS, ...TEMP_DIR_SELECTORS],
       // Обход правила «возьму другой HTTP-клиент» — тоже закрыт. На момент введения
       // (2026-08-30) ни одного такого импорта в apps/api нет: единственный способ
       // ходить наружу — `fetch`. Правило держит это состояние. Сюда же — библиотеки
@@ -248,7 +263,7 @@ export default [
     // исходящих и страж логов остаются целиком.
     files: ['src/core/keys/**/*.ts'],
     rules: {
-      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...SECRET_LOG_SELECTORS, ...VISIBILITY_SELECTORS],
+      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...SECRET_LOG_SELECTORS, ...VISIBILITY_SELECTORS, ...TEMP_DIR_SELECTORS],
     },
   },
   {
@@ -256,7 +271,7 @@ export default [
     // страж масок (свои маски запрещены и здесь — только shared) и остальные остаются.
     files: ['src/core/visibility/**/*.ts'],
     rules: {
-      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...KEYS_SECRET_SELECTORS, ...SECRET_LOG_SELECTORS, ...KEYS_CRYPTO_SELECTORS, VISIBILITY_SELECTORS[1]],
+      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...KEYS_SECRET_SELECTORS, ...SECRET_LOG_SELECTORS, ...KEYS_CRYPTO_SELECTORS, VISIBILITY_SELECTORS[1], ...TEMP_DIR_SELECTORS],
     },
   },
   {
@@ -266,6 +281,11 @@ export default [
     // (правило уже не срабатывает, а разрешение висит) — это тихо расширенное
     // исключение ровно в том месте, ради которого написан весь конфиг.
     files: ['src/shared/http/**/*.ts'],
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
+  },
+  {
+    // Дверь временных файлов: одна живая директива на единственный законный os.tmpdir().
+    files: ['src/shared/fs/temp-file.util.ts'],
     linterOptions: { reportUnusedDisableDirectives: 'error' },
   },
   // ============================================================

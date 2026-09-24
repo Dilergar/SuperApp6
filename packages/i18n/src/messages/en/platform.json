@@ -252,6 +252,10 @@
     "securityStreamReplay": {
       "title": "Replay the SIEM stream",
       "description": "Sends the organization security events of the window to its webhooks again"
+    },
+    "lifecycleWorkspacePurge": {
+      "title": "Delete an archived organization permanently",
+      "description": "Runs the full deletion cascade now instead of waiting for the archive period to end: tasks, chats, Drive, notes, files and access go; legal records stay. Only for an archived organization without a legal hold. Needs a second staff member to approve."
     }
   },
   "fields": {

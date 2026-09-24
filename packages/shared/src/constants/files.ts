@@ -281,8 +281,6 @@ export const FILE_LIMITS = {
   partUrlTtlSec: 900,
   /** Кэш публичных файлов (immutable), сек */
   publicCacheMaxAgeSec: 31536000,
-  /** Через сколько дней физически удалять soft-deleted файлы */
-  deletedRetentionDays: 7,
   /** Через сколько часов считать незавершённую загрузку брошенной */
   staleUploadHours: 24,
   /**

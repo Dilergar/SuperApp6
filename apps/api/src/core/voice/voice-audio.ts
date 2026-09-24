@@ -1,11 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import { AUDIO_MIME_TO_EXT } from '@superapp/shared';
 import { execFF, ffBinaries, ffprobeFormat } from '../../shared/ffmpeg/ffmpeg.util';
 import { mediaSemaphore } from '../../shared/utils/semaphore';
+import { appTmpPath } from '../../shared/fs/temp-file.util';
 
 /**
  * Подготовка звука перед STT: транскод в 16 кГц mono WAV + лёгкий серверный
@@ -55,7 +54,7 @@ export class VoiceAudioPrep {
     }
 
     const durationMs = knownDurationMs ?? (await this.probeDurationMs(bins.ffprobe, sourcePath));
-    const out = path.join(os.tmpdir(), `sa6-voice-${randomUUID()}.wav`);
+    const out = appTmpPath(`voice-${randomUUID()}.wav`);
     try {
       // Пер-инстансный лимит медиа-CPU: транскод часовой записи — минуты ffmpeg;
       // параллельные джобы/синхронный /voice/stt без потолка душили бы инстанс.

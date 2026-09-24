@@ -42,6 +42,9 @@ import type {
   WsReceipt,
 } from '@superapp/shared';
 
+/** Сообщений за один DELETE при окончательном удалении чата */
+const PURGE_MESSAGES_BATCH = 5000;
+
 type Principal = { type: string; id: string };
 
 const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true } as const;
@@ -718,6 +721,7 @@ export class MessengerService implements OnModuleInit {
       select: {
         title: true,
         creatorId: true,
+        workspaceId: true,
         participants: { select: { userId: true, role: true } },
       },
     });
@@ -741,7 +745,9 @@ export class MessengerService implements OnModuleInit {
     try {
       return await this.db.$transaction(async (tx) => {
         const chat = await tx.chat.create({
-          data: { type: 'context', parentType: 'task', parentId: taskId, title: task.title },
+          // Организация чата = организация задачи: вложения уходят на её Диск, звонки — её,
+          // каскад её удаления находит чат (docs/lifecycle_engine.md)
+          data: { type: 'context', parentType: 'task', parentId: taskId, title: task.title, workspaceId: task.workspaceId ?? null },
           select: sel,
         });
         await this.analytics.track(tx, 'messenger.chat.created', { kind: 'context' });
@@ -844,6 +850,62 @@ export class MessengerService implements OnModuleInit {
     }
   }
 
+  /**
+   * Окончательно удалить чат: вложения отвязываются, сообщения — пачками (крупный чат одним
+   * DELETE держал бы замки минутами и раздувал WAL), права снимаются, затем строка (участники,
+   * отложенные — каскадом FK) и индекс поиска. Идемпотентно; `deadline` прошёл — `false`
+   * (удалено не всё, следующий заход продолжит).
+   */
+  async purgeChat(chatId: string, deadline: number | null = null): Promise<boolean> {
+    await this.reapChatAttachments(chatId);
+    for (;;) {
+      if (deadline !== null && Date.now() > deadline) return false;
+      const n = await this.db.$executeRaw`
+        DELETE FROM "messages" t
+         USING (SELECT ctid FROM "messages" WHERE chat_id = ${chatId}::uuid ORDER BY seq DESC LIMIT ${PURGE_MESSAGES_BATCH}) d
+         WHERE t.ctid = d.ctid`;
+      if (n < PURGE_MESSAGES_BATCH) break;
+    }
+    await this.access.revokeResource('chat', chatId);
+    await this.db.chat.deleteMany({ where: { id: chatId } });
+    await this.searchIndex.removeChat(chatId);
+    return true;
+  }
+
+  /**
+   * Каскад удаления организации (шаг `messenger.workspace-chats`): все чаты организации
+   * (задач, заказов её магазина, встреч офиса) уходят окончательно; удерживаемые заморозкой —
+   * остаются (строка организации тогда не удалится — каскад остановит заморозка).
+   */
+  async purgeWorkspaceChats(
+    workspaceId: string,
+    ctx: {
+      deadline: number | null;
+      checkpoint: () => Promise<void>;
+      releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>;
+    },
+  ): Promise<{ rows: number; done: boolean }> {
+    let rows = 0;
+    let after: string | undefined;
+    for (;;) {
+      if (ctx.deadline !== null && Date.now() > ctx.deadline) return { rows, done: false };
+      await ctx.checkpoint();
+      const chats = await this.db.chat.findMany({
+        where: { workspaceId, ...(after ? { id: { gt: after } } : {}) },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: 50,
+      });
+      if (!chats.length) return { rows, done: true };
+      const ok = await this.db.$transaction((tx) => ctx.releasable(tx, chats.map((c) => c.id)));
+      for (const id of ok) {
+        if (!(await this.purgeChat(id, ctx.deadline))) return { rows, done: false };
+        rows++;
+      }
+      after = chats[chats.length - 1]!.id;
+    }
+  }
+
   /** Best-effort: delete the task's chat when the task is deleted. */
   async deleteTaskChat(taskId: string): Promise<void> {
     try {
@@ -905,9 +967,12 @@ export class MessengerService implements OnModuleInit {
         buyerId: true,
         sellerId: true,
         contributions: { select: { contributorId: true } },
+        listing: { select: { showcase: { select: { shop: { select: { ownerType: true, ownerId: true } } } } } },
       },
     });
     if (!order) throw notFound('chat.orderNotFound');
+    const orderShop = order.listing?.showcase.shop;
+    const orderWorkspaceId = orderShop?.ownerType === 'workspace' ? orderShop.ownerId : null;
 
     // Usersets: buyer + seller always; contributor only if any contributions exist.
     const contributorIds = [...new Set(order.contributions.map((c) => c.contributorId))];
@@ -921,7 +986,7 @@ export class MessengerService implements OnModuleInit {
     try {
       return await this.db.$transaction(async (tx) => {
         const chat = await tx.chat.create({
-          data: { type: 'context', parentType: 'order', parentId: orderId, title: order.titleSnapshot },
+          data: { type: 'context', parentType: 'order', parentId: orderId, title: order.titleSnapshot, workspaceId: orderWorkspaceId },
           select: sel,
         });
         await this.analytics.track(tx, 'messenger.chat.created', { kind: 'context' });
@@ -1211,7 +1276,7 @@ export class MessengerService implements OnModuleInit {
 
     const room = await this.db.officeRoom.findUnique({
       where: { id: roomId },
-      select: { name: true, participants: { select: { userId: true } } },
+      select: { name: true, workspaceId: true, participants: { select: { userId: true } } },
     });
     if (!room) throw notFound('chat.roomNotFound');
 
@@ -1222,7 +1287,7 @@ export class MessengerService implements OnModuleInit {
     try {
       return await this.db.$transaction(async (tx) => {
         const chat = await tx.chat.create({
-          data: { type: 'context', parentType: 'office_room', parentId: roomId, title: room.name },
+          data: { type: 'context', parentType: 'office_room', parentId: roomId, title: room.name, workspaceId: room.workspaceId },
           select: sel,
         });
         await this.analytics.track(tx, 'messenger.chat.created', { kind: 'context' });

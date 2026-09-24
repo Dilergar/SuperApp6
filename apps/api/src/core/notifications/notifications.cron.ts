@@ -1,72 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { NOTIFICATION_LIMITS } from '@superapp/shared';
-import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { NotificationsSettingsService } from './notifications.settings.service';
 
 /**
- * Ретеншн: строки ленты 90 дней (Saved — вечно, отложенные в будущее не трогаем),
- * события — когда не осталось строк адресатов, устройства без визита 60 дней —
- * отключаются. Батчами по индексу createdAt, под Redis-локом. Журнал доставки
- * (`notification_deliveries`, месячные партиции) уходит сбросом партиции — core/lifecycle.
+ * Устройства без визита 60 дней отключаются (окно свежести FCM) — смена состояния, а не
+ * удаление. Сроки хранения (строки ленты, события, устройства, журнал доставки) ведёт
+ * раннер core/lifecycle по реестру (`notifications.lifecycle.provider.ts`).
  */
 @Injectable()
 export class NotificationsCron {
   private readonly logger = new Logger(NotificationsCron.name);
 
   constructor(
-    private readonly db: DatabaseService,
     private readonly redis: RedisService,
     private readonly settings: NotificationsSettingsService,
   ) {}
 
   @Cron('30 3 * * *')
-  async retention(): Promise<void> {
-    const ran = await this.redis.withLock('cron:notifications-retention', 20 * 60 * 1000, async () => {
-      const rows = await this.pruneRows();
-      const events = await this.pruneEvents();
+  async staleDevices(): Promise<void> {
+    const ran = await this.redis.withLock('cron:notifications-devices', 10 * 60 * 1000, async () => {
       const devices = await this.settings.expireStaleDevices();
-      this.logger.log(`retention: rows ${rows}, events ${events}, devices disabled ${devices}`);
+      if (devices) this.logger.log(`stale devices disabled: ${devices}`);
     });
-    if (ran === null) this.logger.debug('retention skipped: lock held by another instance');
-  }
-
-  async pruneRows(): Promise<number> {
-    const cutoff = new Date(Date.now() - NOTIFICATION_LIMITS.retentionDays * 86_400_000);
-    const now = new Date();
-    const BATCH = 10_000;
-    let total = 0;
-    for (;;) {
-      const rows = await this.db.notification.findMany({
-        where: { createdAt: { lt: cutoff }, savedAt: null, OR: [{ snoozedUntil: null }, { snoozedUntil: { lte: now } }] },
-        select: { id: true },
-        take: BATCH,
-      });
-      if (!rows.length) break;
-      const res = await this.db.notification.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
-      total += res.count;
-      if (rows.length < BATCH) break;
-    }
-    return total;
-  }
-
-  /** Событие без строк адресатов и без свежих доставок — мусор. */
-  async pruneEvents(): Promise<number> {
-    const cutoff = new Date(Date.now() - NOTIFICATION_LIMITS.deliveryRetentionDays * 86_400_000);
-    const BATCH = 5_000;
-    let total = 0;
-    for (;;) {
-      const events = await this.db.notificationEvent.findMany({
-        where: { createdAt: { lt: cutoff }, notifications: { none: {} } },
-        select: { id: true },
-        take: BATCH,
-      });
-      if (!events.length) break;
-      const res = await this.db.notificationEvent.deleteMany({ where: { id: { in: events.map((e) => e.id) } } });
-      total += res.count;
-      if (events.length < BATCH) break;
-    }
-    return total;
+    if (ran === null) this.logger.debug('stale devices skipped: lock held by another instance');
   }
 }

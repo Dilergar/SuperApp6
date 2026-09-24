@@ -15,6 +15,7 @@ import { AnalyticsReadDb } from './analytics.read-db';
 import { AnalyticsReportsService } from './analytics.reports.service';
 import { AnalyticsRollupService } from './analytics.rollup.service';
 import { AnalyticsService } from './analytics.service';
+import { AnalyticsLifecycleProvider } from './analytics.lifecycle.provider';
 
 /**
  * core/analytics — 21-й платформенный движок: продуктовая аналитика. Реестр событий как
@@ -31,6 +32,7 @@ import { AnalyticsService } from './analytics.service';
     ? [AnalyticsController, AnalyticsPlatformController, AnalyticsDevController]
     : [AnalyticsController, AnalyticsPlatformController],
   providers: [
+    AnalyticsLifecycleProvider,
     AnalyticsService,
     AnalyticsPartitions,
     AnalyticsIngestService,

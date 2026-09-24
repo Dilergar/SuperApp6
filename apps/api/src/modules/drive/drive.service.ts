@@ -35,6 +35,7 @@ import { I18nService } from '../../shared/i18n/i18n.service';
 import { DriveAccessService, type DriveGrants } from './drive-access.service';
 import { DRIVE_PHOTO_JOB, DRIVE_ROLLUP_JOB } from './drive.constants';
 import { DriveSearchService } from './drive-search.service';
+import { decodeCursor as decodeKeyset, encodeCursor as encodeKeyset } from '@superapp/shared';
 
 type Tx = Prisma.TransactionClient;
 
@@ -1063,16 +1064,12 @@ function encodeCursor(row: NodeRow, sort: DriveSort): string {
         : row.subtreeBytes === null
           ? null
           : String(row.subtreeBytes);
-  return Buffer.from(JSON.stringify({ r: row.sortRank, k, i: row.id })).toString('base64url');
+  return encodeKeyset({ r: row.sortRank, k, i: row.id });
 }
 
+/** Курсор листинга — общий кодек платформы (`@superapp/shared` utils/cursor): id проверен как uuid. */
+const NODE_CURSOR = { r: 'number', k: 'string?', i: 'uuid' } as const;
+
 function decodeCursor(raw?: string): DecodedCursor | null {
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as DecodedCursor;
-    if (typeof parsed?.r !== 'number' || typeof parsed?.i !== 'string') return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+  return decodeKeyset(raw, NODE_CURSOR);
 }

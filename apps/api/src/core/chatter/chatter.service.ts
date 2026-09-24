@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, ChatterEntry } from '@prisma/client';
 import {
+  SOURCE_LOCALE,
   CHATTER_LIMITS,
   CHATTER_REGISTRY,
   ChatterActorLite,
@@ -97,6 +98,27 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     private readonly jobsRegistry: JobsRegistry,
     private readonly i18n: I18nService,
   ) {}
+
+  /**
+   * Стирание актора (реестр core/lifecycle: `ChatterEntry` — pseudonymize `actorName`): снимок
+   * имени в записях человека заменяется меткой «удалённый пользователь» в языке ИСТОЧНИКА (как
+   * имя его строки User). Пачками по ctid — у активного человека сотни тысяч записей;
+   * идемпотентно (уже заменённые не трогаются). Возвращает число изменённых строк.
+   */
+  async redactActor(userId: string, batch = 5000): Promise<number> {
+    const label = this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.deletedUser');
+    let total = 0;
+    for (;;) {
+      const n = await this.db.$executeRaw`
+        UPDATE "chatter_entries" t SET "actor_name" = ${label}
+          FROM (SELECT ctid FROM "chatter_entries"
+                 WHERE "actor_id" = ${userId}::uuid AND "actor_name" IS DISTINCT FROM ${label}
+                 LIMIT ${batch}) d
+         WHERE t.ctid = d.ctid`;
+      total += n;
+      if (n < batch) return total;
+    }
+  }
 
   /** Обработчик джоба проекции — регистрация до старта воркера (onApplicationBootstrap). */
   onModuleInit(): void {

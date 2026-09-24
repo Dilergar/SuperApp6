@@ -1,7 +1,6 @@
 import { Inject, Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { pipeline as streamPipeline } from 'stream/promises';
@@ -13,6 +12,7 @@ import { mediaSemaphore } from '../../shared/utils/semaphore';
 import { JobContext, JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
+import { appTmpPath } from '../../shared/fs/temp-file.util';
 
 /**
  * Узкая типизация sharp (v0.35 — dual-package, его ESM-типы не дружат с module:commonjs
@@ -159,7 +159,7 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
     let tempSource: string | null = null;
     try {
       if (!source) {
-        tempSource = path.join(os.tmpdir(), `sa6-files-${randomUUID()}`);
+        tempSource = appTmpPath(`files-${randomUUID()}`);
         await this.downloadToFile(row.storageKey, tempSource);
         source = tempSource;
       }
@@ -274,7 +274,7 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
     if (longest >= 640) wanted.push({ kind: 'medium', size: FILE_LIMITS.mediumSize });
 
     for (const v of wanted) {
-      const out = path.join(os.tmpdir(), `sa6-var-${randomUUID()}.webp`);
+      const out = appTmpPath(`var-${randomUUID()}.webp`);
       try {
         const info = await sharp(source)
           .rotate()
@@ -360,7 +360,7 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
     if (probe.width) patch.width = probe.width;
     if (probe.height) patch.height = probe.height;
 
-    const out = path.join(os.tmpdir(), `sa6-poster-${randomUUID()}.jpg`);
+    const out = appTmpPath(`poster-${randomUUID()}.jpg`);
     try {
       // Постер-кадр: сначала с 1-й секунды, для сверхкоротких роликов — с нулевой
       try {
@@ -417,7 +417,7 @@ export class FilesPipelineService implements OnModuleInit, OnApplicationBootstra
     source: string,
     limitSec: number | null,
   ): Promise<{ peaks: number[]; durationMs: number; truncated: boolean } | null> {
-    const out = path.join(os.tmpdir(), `sa6-wave-${randomUUID()}.pcm`);
+    const out = appTmpPath(`wave-${randomUUID()}.pcm`);
     try {
       const args = [
         '-y',

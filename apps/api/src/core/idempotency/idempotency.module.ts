@@ -6,6 +6,7 @@ import { IdempotencyDevController } from './idempotency.dev';
 import { IdempotencyFingerprint } from './idempotency.fingerprint';
 import { IdempotencyInboxService } from './idempotency.inbox.service';
 import { IdempotencyInterceptor } from './idempotency.interceptor';
+import { IdempotencyLifecycleProvider } from './idempotency.lifecycle.provider';
 import { IdempotencyMetrics } from './idempotency.metrics';
 import { IdempotencyPartitions } from './idempotency.partitions';
 import { IdempotencyPlatformProvider } from './idempotency.platform.provider';
@@ -43,6 +44,7 @@ import { IdempotencyStore } from './idempotency.store';
     IdempotencyInterceptor,
     IdempotencyRoutesAudit,
     IdempotencyPlatformProvider,
+    IdempotencyLifecycleProvider,
     IdempotencyCron,
   ],
   exports: [

@@ -191,7 +191,11 @@ export type LifecycleTenantPurge =
   | { kind: 'registry_hook'; key: string }
   | { kind: 'batched_delete'; column: string }
   | { kind: 'crypto_shred' }
-  | { kind: 'retain_legal'; citation: LifecycleCitation; untilDays: LifecycleDuration }
+  /**
+   * Строки остаются по закону; `hook` — шаг модуля, который закрывает ОТКРЫТОЕ (подпись в
+   * ожидании отменяется, доказательства остаются): организация исчезает, процесс — нет.
+   */
+  | { kind: 'retain_legal'; citation: LifecycleCitation; untilDays: LifecycleDuration; hook?: string }
   | { kind: 'not_applicable' };
 
 /**

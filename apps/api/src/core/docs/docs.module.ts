@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { DocsService } from './docs.service';
+import { DocsLifecycleProvider } from './docs.lifecycle.provider';
 import { DocsTokenService } from './docs-token.service';
 import { DocsRouterService } from './docs-router.service';
 import { DocsEditorClient } from './docs-editor.client';
@@ -32,6 +33,7 @@ import { WopiController } from './wopi.controller';
     DocsRenditionService,
     DocsShareLinksProvider,
     DocsCron,
+    DocsLifecycleProvider,
   ],
   // DocsRenditionService экспортирован для сервиса «Документы»: PDF-отпечаток на
   // маршруте снимается его же контентно-адресуемым путём, а не второй конвертацией.

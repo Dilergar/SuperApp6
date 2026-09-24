@@ -36,6 +36,7 @@ import { ApiKeyAccessInterceptor, KeysUsageCron } from './api-keys/keys.usage.cr
 import { WebhooksRegistryPort } from './api-keys/webhooks.port';
 import { WorkspaceKeysController } from './api-keys/workspace-keys.controller';
 import { KeysPiiService } from './pii/keys.pii.service';
+import { KeysLifecycleProvider } from './keys.lifecycle.provider';
 
 /**
  * core/keys — 22-й платформенный движок: ключи, шифрование, подпись. Единственная
@@ -56,6 +57,7 @@ import { KeysPiiService } from './pii/keys.pii.service';
     ? [JwksWellKnownController, JwksApiController, KeysController, WorkspaceKeysController, KeysDevController]
     : [JwksWellKnownController, JwksApiController, KeysController, WorkspaceKeysController],
   providers: [
+    KeysLifecycleProvider,
     {
       provide: KEY_PROVIDER,
       inject: [MetricsService],

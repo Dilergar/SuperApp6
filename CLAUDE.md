@@ -137,7 +137,7 @@ Cybersecurity - очень важен для такой экосистемы
 | «Кто мой руководитель / моя команда» | адресаты `manager_of`/`subordinates_of`/`branch_head_of` (внутри Staff — `managerOf`); свой обход структуры запрещён | `docs/org_structure.md` |
 | Отзыв при разрыве связи | `PersonalGraphRegistry.register(...)` — обязателен при грантах из окружения | `docs/contacts_circles.md` |
 | Файлы сущности → на Диск | `DriveRoutingRegistry.register(...)` | `docs/drive.md` |
-| Данные организации без внешнего ключа на неё (полиморфный `ownerType = workspace`) | `WorkspacePurgeRegistry.register(key, { purge })` — каскад окончательного удаления стирает их ТВОИМ путём; иначе переживут организацию навсегда | `docs/workspaces.md` |
+| Данные организации без внешнего ключа на неё (полиморфный `ownerType = workspace`) | `onTenantPurge: registry_hook(key)` в реестре core/lifecycle + `LifecycleTenantHookRegistry.register(key, { purge })` в `<модуль>.lifecycle.provider.ts` — каскад окончательного удаления стирает их ТВОИМ путём; иначе переживут организацию навсегда | `docs/lifecycle_engine.md`, `docs/workspaces.md` |
 | Закрыть папку от наследования | `DriveNode.restricted` | `docs/drive.md` |
 | Вторая сторона договора (без аккаунта) | `modules/counterparties` — единый справочник | `docs/counterparties.md` |
 | Исходящий HTTP наружу | Две двери `shared/http`: safeFetch (адрес из данных) / trustedFetch (из .env) | `docs/security.md` |

@@ -200,7 +200,9 @@ async function main() {
 
       const purgeId = track(crypto.randomUUID());
       await prisma.fileObject.create({ data: { id: purgeId, ownerType: 'user', ownerId: u1, uploaderId: u1, profile: 'generic', kind: 'other', name: 'old.bin', mime: 'application/octet-stream', size: BigInt(10), status: 'deleted', visibility: 'private', storageDriver: 'local', storageKey: `zz/zz/${purgeId}`, deletedAt: new Date(Date.now() - 8 * 24 * 3600 * 1000) } });
-      await cron.sweepDeleted();
+      // Физическое удаление по сроку — шаг files.deleted раннера сроков core/lifecycle (политика FileObject)
+      const purgeRun = await call('POST', '/lifecycle/dev/purge/run', t1, { policyId: 'FileObject', force: true });
+      check('GC: прогон раннера сроков FileObject завершён', purgeRun.ok && purgeRun.json?.data?.status === 'done', JSON.stringify(purgeRun.json).slice(0, 200));
       const purgedRow = await prisma.fileObject.findUnique({ where: { id: purgeId } });
       check('GC: soft-deleted (8д) удалён физически', purgedRow === null);
 

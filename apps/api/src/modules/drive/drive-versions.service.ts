@@ -9,6 +9,7 @@ import { FilesService } from '../../core/files/files.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest, notFound } from '../../shared/errors/api-error';
 import { DriveService } from './drive.service';
+import { storageTmpDir } from '../../shared/fs/temp-file.util';
 
 /** Роль связи файла-снимка: отдельная от 'attachment', иначе версии попадали бы в вложения */
 const VERSION_LINK_ROLE = 'version';
@@ -227,9 +228,6 @@ export class DriveVersionsService {
   }
 
   private tmpDir(): string {
-    const root = path.resolve(process.cwd(), process.env.FILES_LOCAL_ROOT ?? './storage');
-    const dir = path.join(root, 'tmp');
-    fs.mkdirSync(dir, { recursive: true });
-    return dir;
+    return storageTmpDir();
   }
 }

@@ -242,7 +242,9 @@ export const CORE_LIFECYCLE = {
     legalBasis: CONTRACT,
     retention: forDays(90),
     onSubjectErasure: HARD_DELETE,
-    onTenantPurge: tenantHook('notifications.workspace-rows'),
+    // Строки с контекстом удалённой организации — общей пачкой по workspaceId (индекс есть):
+    // их диплинки ведут в несуществующее, «архив» оставил бы призрака в бейдже
+    onTenantPurge: tenantBatched('workspaceId'),
     edges: [],
     // Исключения «сохранено» / «отложено» несовместимы со сбросом партиции — строки батчами
     enforcement: batched('createdAt', { savedAt: [null] }, 'notifications.rows'),
@@ -415,7 +417,7 @@ export const CORE_LIFECYCLE = {
     onSubjectErasure: noSubject('participants live in CallSessionParticipant'),
     onTenantPurge: tenantBatched('workspaceId'),
     edges: [deep('CallRecording', 'sessionId'), deep('CallSessionParticipant', 'sessionId')],
-    // Личные звонки раньше росли вечно — теперь покрыты тем же сроком
+    // Срок один для рабочих и личных звонков: у личных нет организации, каскад их не заберёт
     enforcement: batched('updatedAt', { status: ['ended'] }),
     holdAware: true,
   },
@@ -492,7 +494,8 @@ export const CORE_LIFECYCLE = {
     onSubjectErasure: pseudonymize('actorName'),
     onTenantPurge: tenantBatched('workspaceId'),
     edges: [],
-    enforcement: batched('createdAt', undefined, 'chatter.retention'),
+    // Срок выбирает организация (коридор) — общий раннер режет её строки по workspaceId
+    enforcement: batched('createdAt'),
     holdAware: true,
     exportable: 'both',
   },
@@ -606,7 +609,8 @@ export const CORE_LIFECYCLE = {
     legalBasis: law('kz_digital_code_art62'),
     retention: legalFloor(FOREVER, 'created'),
     onSubjectErasure: retainLegal('kz_digital_code_art62', FOREVER),
-    onTenantPurge: tenantRetain('kz_digital_code_art62', FOREVER),
+    // Доказательства подписи живут дальше; подпись В ОЖИДАНИИ отменяется шагом модуля
+    onTenantPurge: tenantRetain('kz_digital_code_art62', FOREVER, 'sign.workspace'),
     edges: [deep('SignAct', 'requestId')],
     enforcement: notEnforced('signature evidence is kept for the life of the signed document'),
     holdAware: true,

@@ -1,7 +1,6 @@
 import { Controller, Get, Injectable, OnModuleInit } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
@@ -40,6 +39,7 @@ import { ConsentsDocumentsService } from './consents.documents.service';
 import { ConsentsIncidentsService } from './consents.incidents.service';
 import { ConsentsService } from './consents.service';
 import { ConsentsGateService } from './gate/consents-gate.service';
+import { appTmpPath } from '../../shared/fs/temp-file.util';
 
 export const CONSENT_VERSION_SIGN_REF = 'consent_version';
 
@@ -225,7 +225,7 @@ export class ConsentsPlatformProvider implements OnModuleInit {
     } catch {
       throw badRequest('consents.pdfUnavailable');
     }
-    const tmp = join(os.tmpdir(), `consent-${randomUUID()}.pdf`);
+    const tmp = appTmpPath(`consent-${randomUUID()}.pdf`);
     await fs.writeFile(tmp, buffer);
     try {
       const file = await this.files.ingestLocalFile({ path: tmp, name: `${row.documentKey}-v${row.version}.pdf`, mime: 'application/pdf', profile: 'document', ownerUserId: actorId });

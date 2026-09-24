@@ -51,6 +51,7 @@ import { NotesFoldersService } from './notes-folders.service';
 import { NotesLinksService } from './notes-links.service';
 import { NotesSearchService } from './notes-search.service';
 import { NoteTargetRegistry } from './notes-targets.registry';
+import { decodeCursor as decodeKeyset, encodeCursor as encodeKeyset } from '@superapp/shared';
 
 type Tx = Prisma.TransactionClient;
 
@@ -777,16 +778,29 @@ export class NotesService {
     await this.hardDelete([noteId]);
   }
 
-  /** Корзина старше ретеншна — навсегда (крон под Redis-локом) */
-  async purgeExpired(cutoff: Date): Promise<number> {
+  /**
+   * Пачка корзины (шаг `notes.trash` раннера сроков core/lifecycle): заметки, удалённые
+   * раньше `before`, keyset (deletedAt, id); удерживаемые заморозкой пропускаются.
+   */
+  async purgeTrashBatch(opts: {
+    before: Date;
+    limit: number;
+    cursor: string | null;
+    releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>;
+  }): Promise<{ rows: number; more: boolean; cursor: string | null }> {
+    const take = Math.min(opts.limit, NOTE_LIMITS.purgeBatch);
+    const c = decodeKeyset(opts.cursor, TRASH_CURSOR);
     const rows = await this.db.note.findMany({
-      where: { deletedAt: { lt: cutoff } },
-      select: { id: true },
-      take: NOTE_LIMITS.purgeBatch,
+      where: { deletedAt: { lt: opts.before }, ...(c ? { OR: [{ deletedAt: { gt: c.d } }, { deletedAt: c.d, id: { gt: c.i } }] } : {}) },
+      select: { id: true, deletedAt: true },
+      orderBy: [{ deletedAt: 'asc' }, { id: 'asc' }],
+      take,
     });
-    if (!rows.length) return 0;
-    await this.hardDelete(rows.map((r) => r.id));
-    return rows.length;
+    if (!rows.length) return { rows: 0, more: false, cursor: null };
+    const ok = await this.db.$transaction((tx) => opts.releasable(tx, rows.map((r) => r.id)));
+    if (ok.length) await this.hardDelete(ok);
+    const last = rows[rows.length - 1]!;
+    return { rows: ok.length, more: rows.length === take, cursor: encodeKeyset({ d: last.deletedAt, i: last.id }) };
   }
 
   /**
@@ -795,22 +809,26 @@ export class NotesService {
    * индекс), гранты папок, затем строка пространства (папки, доску и чанки снимет внешний
    * ключ). Пачками, идемпотентно: прерванный прогон доберёт остаток.
    */
-  async purgeSpaceOf(ownerType: 'workspace', ownerId: string): Promise<void> {
+  async purgeSpaceOf(ownerType: 'workspace', ownerId: string, deadline: number | null = null): Promise<{ rows: number; done: boolean }> {
     const space = await this.db.noteSpace.findUnique({
       where: { ownerType_ownerId: { ownerType, ownerId } },
       select: { id: true },
     });
-    if (!space) return;
+    if (!space) return { rows: 0, done: true };
+    let removed = 0;
     for (;;) {
+      if (deadline !== null && Date.now() > deadline) return { rows: removed, done: false };
       const rows = await this.db.note.findMany({ where: { spaceId: space.id }, select: { id: true }, take: NOTE_LIMITS.purgeBatch });
       if (!rows.length) break;
       await this.hardDelete(rows.map((r) => r.id));
+      removed += rows.length;
     }
     const folders = await this.db.noteFolder.findMany({ where: { spaceId: space.id }, select: { id: true } });
     await this.db.$transaction(async (tx) => {
       for (const f of folders) await this.acl.revokeAll(NOTE_FOLDER_REF_TYPE, f.id, tx);
       await tx.noteSpace.delete({ where: { id: space.id } });
     });
+    return { rows: removed, done: true };
   }
 
   private async hardDelete(noteIds: string[]): Promise<void> {
@@ -899,22 +917,21 @@ interface ListCursor {
   id: string;
 }
 
+/** Курсор корзины для раннера сроков: (deletedAt, id) */
+const TRASH_CURSOR = { d: 'date', i: 'uuid' } as const;
+
+/** Курсор списка заметок — общий кодек платформы (`@superapp/shared` utils/cursor); мусорный = начало списка. */
+const NOTE_CURSOR = { t: 'boolean', p: 'date?', a: 'date', i: 'uuid' } as const;
+
 function encodeCursor(c: ListCursor): string {
-  const raw = c.trashed ? `t|${c.at}|${c.id}` : `n|${c.pinnedAt ?? ''}|${c.at}|${c.id}`;
-  return Buffer.from(raw, 'utf8').toString('base64url');
+  return encodeKeyset({ t: c.trashed, p: c.trashed ? null : (c.pinnedAt ?? null), a: c.at, i: c.id });
 }
 
 function decodeCursor(raw: string): ListCursor | null {
-  try {
-    const parts = Buffer.from(raw, 'base64url').toString('utf8').split('|');
-    if (parts[0] === 't' && parts.length === 3) return { trashed: true, at: parts[1], id: parts[2] };
-    if (parts[0] === 'n' && parts.length === 4) {
-      return { trashed: false, pinnedAt: parts[1] || null, at: parts[2], id: parts[3] };
-    }
-  } catch {
-    /* мусорный курсор = начало списка, а не 500 */
-  }
-  return null;
+  const c = decodeKeyset(raw, NOTE_CURSOR);
+  if (!c) return null;
+  const at = c.a.toISOString();
+  return c.t ? { trashed: true, at, id: c.i } : { trashed: false, pinnedAt: c.p ? c.p.toISOString() : null, at, id: c.i };
 }
 
 /**

@@ -77,13 +77,6 @@ export class JobsCron {
     });
   }
 
-  @Cron('20 4 * * *')
-  async retention(): Promise<void> {
-    await this.guarded('retention', 'cron:jobs-retention', 30 * 60_000, async () => {
-      await this.jobs.pruneTerminal();
-    });
-  }
-
   /**
    * Раз в неделю — REINDEX CONCURRENTLY очереди: индексы горячей таблицы (постоянные UPDATE
    * статуса, DELETE ретеншна) раздуваются, btree сам не сжимается — клейм по раздутому

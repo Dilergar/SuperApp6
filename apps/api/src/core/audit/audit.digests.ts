@@ -2,7 +2,6 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
 import { join } from 'node:path';
 import { Prisma, type SecurityDigest } from '@prisma/client';
 import { type SecurityDigestVerifyDto, uuidv7 } from '@superapp/shared';
@@ -14,6 +13,7 @@ import { AUDIT_REDIS } from './audit.constants';
 import { AuditAlertsService } from './audit.alerts.service';
 import { AuditMetrics } from './audit.metrics';
 import { AuditService } from './audit.service';
+import { appTmpPath } from '../../shared/fs/temp-file.util';
 
 const sha256 = (...parts: Buffer[]) => {
   const h = createHash('sha256');
@@ -260,7 +260,7 @@ export class AuditDigestService {
   private async exportCopy(row: SecurityDigest, payload: string, sig: string): Promise<void> {
     const at = row.signedAt;
     const key = `audit/digests/${at.getUTCFullYear()}/${String(at.getUTCMonth() + 1).padStart(2, '0')}/${row.id}.json`;
-    const tmp = join(os.tmpdir(), `sa6-digest-${row.id}.json`);
+    const tmp = appTmpPath(`audit-digest-${row.id}.json`);
     await fs.writeFile(tmp, JSON.stringify({ id: row.id, payload, kid: row.kid, signature: sig, signedAt: at.toISOString() }, null, 1));
     try {
       await this.storage.putFromFile(key, tmp, 'application/json');

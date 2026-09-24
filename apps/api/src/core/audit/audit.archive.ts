@@ -2,8 +2,6 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, promises as fs } from 'node:fs';
-import * as os from 'node:os';
-import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import { createGzip } from 'node:zlib';
@@ -18,6 +16,7 @@ import { AuditAlertsService } from './audit.alerts.service';
 import { AUDIT_LEAF_VERSION, MerkleBuilder, auditLeafSql, auditLegacyTextOrder } from './audit.digests';
 import { AuditPartitions } from './audit.partitions';
 import { AuditService } from './audit.service';
+import { appTmpPath } from '../../shared/fs/temp-file.util';
 
 const ARCHIVE_BATCH = 5_000;
 const PARTITION_RE = /^security_events_\d{4}_\d{2}$/;
@@ -126,7 +125,7 @@ export class AuditArchiveService {
     if (existing) return { partition, rows: existing.rows, bytes: Number(existing.bytes), sha256: existing.sha256, objectKey: existing.objectKey };
     const info = (await this.partitions.list()).find((p) => p.name === partition);
     if (!info) throw new Error(`audit archive: partition ${partition} does not exist`);
-    const tmp = join(os.tmpdir(), `sa6-${partition}-${Date.now()}.ndjson.gz`);
+    const tmp = appTmpPath(`audit-archive-${partition}-${Date.now()}.ndjson.gz`);
     // Корень — потоково: месяц журнала не держится в памяти ни строками, ни хешами
     const leafVersion = AUDIT_LEAF_VERSION;
     const merkle = new MerkleBuilder();

@@ -7,6 +7,7 @@ import { NotificationsSettingsService } from './notifications.settings.service';
 import { NotificationsFanout } from './notifications.fanout';
 import { NotificationsDelivery } from './notifications.delivery';
 import { NotificationsCron } from './notifications.cron';
+import { NotificationsLifecycleProvider } from './notifications.lifecycle.provider';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsPolicyController } from './notifications.policy.controller';
 import { NotificationChannelRegistry, NotificationRefRegistry, PresenceProviderRegistry } from './notifications.registry';
@@ -36,6 +37,7 @@ import { NotificationsRealtimeProvider } from './notifications-realtime.provider
     NotificationsFanout,
     NotificationsDelivery,
     NotificationsCron,
+    NotificationsLifecycleProvider,
     WebPushDriver,
     NullEmailDriver,
     NotificationsRealtimeProvider,

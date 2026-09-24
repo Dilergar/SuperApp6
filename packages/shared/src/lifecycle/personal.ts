@@ -123,13 +123,17 @@ export const PERSONAL_LIFECYCLE = {
     retention: keep(),
     // Личная задача стирается с человеком; задача организации остаётся (автор — томбстоун)
     onSubjectErasure: HARD_DELETE_PERSONAL,
-    onTenantPurge: tenantBatched('workspaceId'),
+    // Шаг модуля, а не пачки SQL: у задачи эскроу награды, чат, права и файлы — удаление
+    // тем же путём, что «навсегда из корзины» (заморозки вернутся плательщикам)
+    onTenantPurge: tenantHook('tasks.workspace'),
     edges: [
       deep('TaskParticipant', 'taskId'),
       deep('TaskTag', 'taskId'),
       deep('Task', 'parentId'),
       { to: 'Chat', kind: 'deep', via: 'parentId' },
       { to: 'ChatterEntry', kind: 'async_delete', via: 'refId' },
+      // Страховка: кортежи прав задачи, если строка ушла мимо пути модуля (каскад FK родителя)
+      { to: 'RelationTuple', kind: 'async_delete', via: 'resourceId' },
       { to: 'EscrowAgreement', kind: 'shallow', via: 'refId' },
     ],
     enforcement: batched('deletedAt', undefined, 'tasks.trash'),
@@ -731,7 +735,7 @@ export const PERSONAL_LIFECYCLE = {
     retention: keep(),
     onSubjectErasure: BY_REFERENCE,
     onTenantPurge: CASCADE_FK,
-    edges: [deep('NoteBoardItem', 'noteId'), deep('NoteChunk', 'noteId'), deep('NoteLink', 'noteId'), deep('NoteRevision', 'noteId'), { to: 'FileLink', kind: 'async_delete', via: 'refId' }],
+    edges: [deep('NoteBoardItem', 'noteId'), deep('NoteChunk', 'noteId'), deep('NoteLink', 'noteId'), deep('NoteRevision', 'noteId'), { to: 'FileLink', kind: 'async_delete', via: 'refId' }, { to: 'SearchDocument', kind: 'async_delete', via: 'sourceId' }],
     enforcement: batched('deletedAt', undefined, 'notes.trash'),
     holdAware: true,
     rootEntity: true,

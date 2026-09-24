@@ -38,6 +38,7 @@ import { NOTIFICATION_BUS_EVENTS, NOTIFICATION_JOBS, NOTIFICATION_REDIS } from '
 import { NotificationRefRegistry } from './notifications.registry';
 import { NotificationsRenderer } from './notifications.render';
 import { slidingPeek, slidingRecord } from './notifications.window';
+import { decodeCursor as decodeKeyset, encodeCursor as encodeKeyset } from '@superapp/shared';
 
 type Tx = Prisma.TransactionClient;
 
@@ -456,6 +457,24 @@ export class NotificationsService {
     return res.count;
   }
 
+  /**
+   * Стирание актора (реестр core/lifecycle: `NotificationEvent` — pseudonymize `snapshot`):
+   * снимок текста события (фолбэк для типов, ушедших из реестра) мог нести имя человека —
+   * снимается. Живой рендер берёт актора по id (томбстоун «удалённый пользователь»). Пачками,
+   * идемпотентно. Возвращает число изменённых событий.
+   */
+  async redactActorSnapshots(userId: string, batch = 5000): Promise<number> {
+    let total = 0;
+    for (;;) {
+      const n = await this.db.$executeRaw`
+        UPDATE "notification_events" t SET "snapshot" = NULL
+          FROM (SELECT ctid FROM "notification_events" WHERE "actor_id" = ${userId}::uuid AND "snapshot" IS NOT NULL LIMIT ${batch}) d
+         WHERE t.ctid = d.ctid`;
+      total += n;
+      if (n < batch) return total;
+    }
+  }
+
   private async own(userId: string, id: string) {
     const row = await this.db.notification.findUnique({ where: { id } });
     if (!row || row.userId !== userId) throw notFound('notification.notFound');
@@ -517,17 +536,14 @@ export class NotificationsService {
   }
 }
 
-/** Opaque keyset cursor: "<ISO sortAt>_<id>". */
+/** Курсор ленты (sortAt, id) — общий кодек платформы (`@superapp/shared` utils/cursor). */
+const FEED_CURSOR = { s: 'date', i: 'uuid' } as const;
+
 function encodeCursor(sortAt: Date, id: string): string {
-  return `${sortAt.toISOString()}_${id}`;
+  return encodeKeyset({ s: sortAt, i: id });
 }
 
 function decodeCursor(cursor?: string): { sortAt: Date; id: string } | null {
-  if (!cursor) return null;
-  const idx = cursor.indexOf('_');
-  if (idx === -1) return null;
-  const sortAt = new Date(cursor.slice(0, idx));
-  const id = cursor.slice(idx + 1);
-  if (Number.isNaN(sortAt.getTime()) || !id) return null;
-  return { sortAt, id };
+  const c = decodeKeyset(cursor, FEED_CURSOR);
+  return c ? { sortAt: c.s, id: c.i } : null;
 }

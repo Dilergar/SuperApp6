@@ -40,6 +40,10 @@ import type {
   CursorPage,
 } from '@superapp/shared';
 import type { FinRecurringRule } from '@prisma/client';
+import { decodeCursor, encodeCursor } from '@superapp/shared';
+
+/** Курсор удалённых операций для раннера сроков: (deletedAt, id) — общий кодек платформы */
+const FIN_TRASH_CURSOR = { d: 'date', i: 'uuid' } as const;
 
 type Tx = Prisma.TransactionClient;
 
@@ -783,6 +787,62 @@ export class FinancesService implements OnModuleInit {
       }
     }
     return this.serializeTx(updated, new Map([[from.id, from.kind], [to.id, to.kind]]));
+  }
+
+  /**
+   * Пачка удалённых операций (шаг `finances.trash` раннера сроков core/lifecycle): скрытые
+   * раньше `before`, keyset (deletedAt, id); удерживаемые заморозкой остаются.
+   */
+  async purgeTrashBatch(opts: {
+    before: Date;
+    limit: number;
+    cursor: string | null;
+    releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>;
+  }): Promise<{ rows: number; more: boolean; cursor: string | null }> {
+    const c = decodeCursor(opts.cursor, FIN_TRASH_CURSOR);
+    const rows = await this.db.finTransaction.findMany({
+      where: { deletedAt: { lt: opts.before }, ...(c ? { OR: [{ deletedAt: { gt: c.d } }, { deletedAt: c.d, id: { gt: c.i } }] } : {}) },
+      select: { id: true, deletedAt: true },
+      orderBy: [{ deletedAt: 'asc' }, { id: 'asc' }],
+      take: opts.limit,
+    });
+    if (!rows.length) return { rows: 0, more: false, cursor: null };
+    const deleted = await this.db.$transaction(async (tx) => {
+      const ok = await opts.releasable(tx, rows.map((r) => r.id));
+      if (!ok.length) return 0;
+      const res = await tx.finTransaction.deleteMany({ where: { id: { in: ok }, deletedAt: { not: null } } });
+      return res.count;
+    });
+    const last = rows[rows.length - 1]!;
+    return { rows: deleted, more: rows.length === opts.limit, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
+  }
+
+  countTrashDue(before: Date): Promise<number> {
+    return this.db.finTransaction.count({ where: { deletedAt: { lt: before } } });
+  }
+
+  /**
+   * Каскад удаления организации (шаг `finances.owner`): книга владельца уходит — операции
+   * пачками (у счетов строгий внешний ключ, и каскад книги упёрся бы в него), гранты книги,
+   * затем строка (счета, бюджеты, люди, повторы — каскадом). Журнал книги уходит loose FK
+   * (append-only: удаление строк журнала разрешено только когда книги уже нет).
+   */
+  async purgeOwnerBook(ownerType: 'workspace', ownerId: string, deadline: number | null): Promise<{ rows: number; done: boolean }> {
+    const book = await this.db.finBook.findUnique({ where: { ownerType_ownerId: { ownerType, ownerId } }, select: { id: true } });
+    if (!book) return { rows: 0, done: true };
+    let rows = 0;
+    for (;;) {
+      if (deadline !== null && Date.now() > deadline) return { rows, done: false };
+      const n = await this.db.$executeRaw`
+        DELETE FROM "fin_transactions" t
+         USING (SELECT ctid FROM "fin_transactions" WHERE book_id = ${book.id}::uuid LIMIT 5000) d
+         WHERE t.ctid = d.ctid`;
+      rows += n;
+      if (n < 5000) break;
+    }
+    await this.access.revokeResource('finbook', book.id);
+    await this.db.finBook.deleteMany({ where: { id: book.id } });
+    return { rows: rows + 1, done: true };
   }
 
   async deleteTransaction(userId: string, txId: string, bookId?: string): Promise<{ success: true }> {

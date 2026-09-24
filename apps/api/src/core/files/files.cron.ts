@@ -10,8 +10,10 @@ import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
 
 /**
  * Жизненный цикл файлов (Redis-лок — выполняет один инстанс; строки клеймятся
- * status-guarded updateMany, лок — не гарантия): брошенные загрузки, физическое
- * удаление после ретеншна, сверка квот. Ретраи медиа-конвейера и скана переехали на движок джобов core/jobs.
+ * status-guarded updateMany, лок — не гарантия): брошенные загрузки, сироты, сверка
+ * квот. Физическое удаление по сроку, выгрузки со своим сроком и временный каталог —
+ * шаги раннера сроков core/lifecycle (`files.lifecycle.provider.ts`). Ретраи
+ * медиа-конвейера и скана — движок джобов core/jobs.
  */
 @Injectable()
 export class FilesCron implements OnModuleInit {
@@ -54,42 +56,6 @@ export class FilesCron implements OnModuleInit {
       closed++;
     }
     return closed;
-  }
-
-  /** Ежедневно 04:10: физически удалить soft-deleted старше ретеншна (байты + строки) */
-  @Cron('10 4 * * *')
-  async handlePurgeDeleted(): Promise<void> {
-    const ran = await this.redis.withLock('cron:files-purge-deleted', 30 * 60 * 1000, () =>
-      this.sweepDeleted(),
-    );
-    if (ran !== null && ran > 0) this.logger.log(`Files physically deleted: ${ran}`);
-  }
-
-  async sweepDeleted(): Promise<number> {
-    const cutoff = new Date(Date.now() - FILE_LIMITS.deletedRetentionDays * 24 * 3600 * 1000);
-    const rows = await this.db.fileObject.findMany({
-      // Доказательства подписания не стираем НИКОГДА — второй ремень к запрету в
-      // softDelete: строка, помеченная удалённой до появления того запрета (или
-      // чужим кодом в обход движка), не должна терять байты по сроку ретеншна.
-      where: {
-        status: 'deleted',
-        deletedAt: { lt: cutoff },
-        profile: { notIn: [...EVIDENCE_FILE_PROFILES] },
-      },
-      include: { variants: { select: { storageKey: true } } },
-      take: 500,
-    });
-    let purged = 0;
-    for (const row of rows) {
-      await this.driver.delete(row.storageKey).catch(() => undefined);
-      for (const v of row.variants) {
-        await this.driver.delete(v.storageKey).catch(() => undefined);
-      }
-      // cascade заберёт links/variants
-      await this.db.fileObject.delete({ where: { id: row.id } }).catch(() => undefined);
-      purged++;
-    }
-    return purged;
   }
 
   /** Ежечасно :23 — прибрать осиротевшие ready-файлы (safety net уборки сирот) */

@@ -10,6 +10,7 @@ import { EntitlementsPlatformController, EntitlementsPlatformProvider } from './
 import { EntitlementsQuotaService } from './entitlements.quota.service';
 import { QuotaReconcileRegistry, UsageProviderRegistry } from './entitlements.registry';
 import { EntitlementsService } from './entitlements.service';
+import { EntitlementsLifecycleProvider } from './entitlements.lifecycle.provider';
 
 /**
  * core/entitlements — 19-й платформенный движок: «кто что может и сколько».
@@ -23,6 +24,7 @@ import { EntitlementsService } from './entitlements.service';
     ? [EntitlementsController, EntitlementsPlatformController, EntitlementsDevController]
     : [EntitlementsController, EntitlementsPlatformController],
   providers: [
+    EntitlementsLifecycleProvider,
     UsageProviderRegistry,
     QuotaReconcileRegistry,
     EntitlementsCache,

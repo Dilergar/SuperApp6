@@ -11,7 +11,7 @@ import { StaffModule } from '../staff/staff.module';
 import { WalletModule } from '../wallet/wallet.module';
 import { WorkspacesNotificationRefsProvider } from './workspaces-notification-refs.provider';
 import { WorkspacesEntitlementsProvider } from './workspaces-entitlements.provider';
-import { WorkspacePurgeRegistry } from './workspace-purge.registry';
+import { WorkspacesLifecycleProvider } from './workspaces.lifecycle.provider';
 import { WorkspacesVisibilityProvider } from './workspaces-visibility.provider';
 
 /**
@@ -43,12 +43,12 @@ import { WorkspacesVisibilityProvider } from './workspaces-visibility.provider';
     LegalEntitiesService,
     WorkspacesCron,
     WorkspacesTemplateFieldsProvider,
-    // Хуки сервисов в каскаде окончательного удаления (Диск, Заметки — полиморфные владельцы)
-    WorkspacePurgeRegistry,
+    // Движок сроков: ретеншн архива (workspaces.purge) и последний шаг каскада (workspaces.row)
+    WorkspacesLifecycleProvider,
     // Движок видимости: тип `workspace.card` (анкета и реквизиты организации; раскрытие IBAN)
     WorkspacesVisibilityProvider,
     { provide: 'WorkspacesService', useExisting: WorkspacesService },
   ],
-  exports: [WorkspacesService, LegalEntitiesService, WorkspacePurgeRegistry, 'WorkspacesService'],
+  exports: [WorkspacesService, LegalEntitiesService, 'WorkspacesService'],
 })
 export class WorkspacesModule {}

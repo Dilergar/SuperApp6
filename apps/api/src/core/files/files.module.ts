@@ -7,6 +7,7 @@ import { FilesRefRegistry } from './files-ref.registry';
 import { FilesScanHook } from './files-scan.hook';
 import { FilesPipelineService } from './files-pipeline.service';
 import { FilesCron } from './files.cron';
+import { FilesLifecycleProvider } from './files.lifecycle.provider';
 import { FilesContentLengthGuard } from './files-content-length.guard';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
 import { LocalStorageDriver } from './storage/local.driver';
@@ -33,6 +34,7 @@ import { S3StorageDriver } from './storage/s3.driver';
     FilesPipelineService,
     FilesService,
     FilesCron,
+    FilesLifecycleProvider,
     FilesContentLengthGuard,
   ],
   // Драйвер хранилища — движкам, чьи объекты НЕ файлы продукта (архив журнала безопасности

@@ -456,6 +456,10 @@ model NotificationEvent {
   @@index([refType, refId])
   // Ретеншн: событие удаляется, когда не осталось строк адресатов
   @@index([createdAt])
+  // Частичный индекс каскада организации (миграция lifecycle_purge_runner, руками):
+  //   notification_events_workspace_id_idx (workspace_id) WHERE workspace_id IS NOT NULL
+  // Частичный индекс псевдонимизации следа стёртого актора (миграция lifecycle_actor_indexes, руками):
+  //   notification_events_actor_id_idx (actor_id) WHERE actor_id IS NOT NULL
   @@map("notification_events")
 }
 
@@ -840,6 +844,8 @@ model Resource {
   bookings CalendarEvent[]
 
   @@index([ownerId])
+  // Частичный индекс каскада организации (миграция lifecycle_purge_runner, руками):
+  //   resources_workspace_id_idx (workspace_id) WHERE workspace_id IS NOT NULL
   @@map("resources")
 }
 
@@ -2435,6 +2441,8 @@ model SearchDocument {
   @@index([title(ops: raw("gin_trgm_ops"))], map: "search_documents_title_trgm_idx", type: Gin)
   @@index([body(ops: raw("gin_trgm_ops"))], map: "search_documents_body_trgm_idx", type: Gin)
   @@index([searchVector], type: Gin)
+  // Частичный индекс каскада организации (миграция lifecycle_purge_runner, руками):
+  //   search_documents_workspace_id_idx (workspace_id) WHERE workspace_id IS NOT NULL
   @@map("search_documents")
 }
 
@@ -2843,6 +2851,8 @@ model FinTransaction {
   @@index([fromAccountId])
   @@index([toAccountId])
   @@index([bookId, personUserId])
+  // Частичный индекс шага finances.trash (миграция lifecycle_purge_runner, руками):
+  //   fin_transactions_deleted_at_idx (deleted_at) WHERE deleted_at IS NOT NULL
   @@map("fin_transactions")
 }
 
@@ -2960,6 +2970,8 @@ model ChatterEntry {
   @@index([workspaceId, typeKey, id]) // журнал с фильтром category → typeKey IN
   // Частичный индекс незапощенных плашек (id) WHERE needs_chat_post AND chat_posted_at IS NULL —
   // держит ~0 строк; пересоздан руками в миграции jobs_engine (бэкфилл/страховка движка джобов).
+  // Частичный индекс псевдонимизации следа стёртого актора (миграция lifecycle_actor_indexes, руками):
+  //   chatter_entries_actor_id_idx (actor_id) WHERE actor_id IS NOT NULL
   @@map("chatter_entries")
 }
 
@@ -3181,6 +3193,8 @@ model CallSession {
   //   CREATE UNIQUE INDEX call_sessions_one_active_per_ref ON call_sessions(ref_type, ref_id) WHERE status = 'active'
   @@index([refType, refId])
   @@index([status, updatedAt]) // крон-реконсиляция зависших active
+  // Частичный индекс каскада организации (миграция lifecycle_purge_runner, руками):
+  //   call_sessions_workspace_id_idx (workspace_id) WHERE workspace_id IS NOT NULL
   @@map("call_sessions")
 }
 
@@ -3234,6 +3248,8 @@ model CallRecording {
 
   @@index([sessionId])
   @@index([status, updatedAt]) // крон: редрайв зависших финализаций
+  // Частичный индекс каскада организации (миграция lifecycle_purge_runner, руками):
+  //   call_recordings_workspace_id_idx (workspace_id) WHERE workspace_id IS NOT NULL
   @@map("call_recordings")
 }
 
@@ -3386,6 +3402,8 @@ model Document {
   sessions DocumentSession[]
 
   @@index([ownerType, ownerId, status])
+  // Частичный индекс шага docs.trash (миграция lifecycle_purge_runner, руками):
+  //   documents_archived_deleted_at_idx (deleted_at) WHERE status = 'archived'
   @@map("documents")
 }
 
@@ -5328,6 +5346,7 @@ model AnalyticsRollupSessionDay {
   eventsPerSession Float    @map("events_per_session") @db.Real
 
   @@index([day])
+  @@index([workspaceId, day])
   @@map("analytics_rollup_session_day")
 }
 
@@ -6286,9 +6305,13 @@ model LifecycleDeletedRow {
   workspaceId String?   @map("workspace_id") @db.Uuid
   deletedAt   DateTime  @default(now()) @map("deleted_at") @db.Timestamptz(3)
   processedAt DateTime? @map("processed_at") @db.Timestamptz(3)
+  /// Дети под заморозкой — строка учёта отложена до этого момента (воркер loose FK)
+  retryAt     DateTime? @map("retry_at") @db.Timestamptz(3)
 
   @@id([id, deletedAt])
   @@index([tableName, processedAt])
+  // Частичный индекс очереди воркера (миграция lifecycle_purge_runner, руками — Prisma его не выражает):
+  //   lifecycle_deleted_rows_unprocessed_idx (deleted_at, id) WHERE processed_at IS NULL
   @@map("lifecycle_deleted_rows")
 }
 

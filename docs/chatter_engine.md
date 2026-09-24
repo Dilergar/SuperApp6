@@ -4,7 +4,7 @@
 
 ## Модель
 
-`ChatterEntry` — полиморфно refType+refId, **FK-free** (хроника переживает сущности), BigInt id = append-log и курсор (в DTO строкой), снапшот `actorName` (переживает удаление аккаунта), `workspaceId` денормализован под журнал, `changes` JSONB `[{field, label, from, to, raw?}]`.
+`ChatterEntry` — полиморфно refType+refId, **FK-free** (хроника переживает сущности), BigInt id = append-log и курсор (в DTO строкой), снапшот `actorName` (переживает удаление аккаунта; при стирании человека заменяется меткой «удалённый пользователь» в языке источника — `ChatterService.redactActor`, джоб анонимизации; политика реестра `pseudonymize(actorName)`), `workspaceId` денормализован под журнал, `changes` JSONB `[{field, label, from, to, raw?}]`.
 
 `label` и `from/to` — СНАПШОТЫ на момент записи (фолбэк). `raw` — сырые значения (`{from, to, kind: 'text'|'date'|'datetime'|'number'|'key'}`): дата, записанная как «03.09.2026», навсегда останется этим текстом, а ISO-строка рядом переформатируется под язык и пояс читателя. `kind` может зависеть от строки — у срока задачи это «дата» при `allDay` и «дата+время» иначе.
 

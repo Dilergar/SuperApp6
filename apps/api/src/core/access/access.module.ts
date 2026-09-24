@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common';
 import { AccessService } from './access.service';
 import { AccessProjectionService } from './access-projection.service';
 import { AccessReconcileCron } from './access-reconcile.cron';
+import { AccessLifecycleProvider } from './access.lifecycle.provider';
 
 /**
  * Unified authorization engine (core/access). @Global so any module can inject
@@ -11,7 +12,7 @@ import { AccessReconcileCron } from './access-reconcile.cron';
  */
 @Global()
 @Module({
-  providers: [AccessService, AccessProjectionService, AccessReconcileCron],
+  providers: [AccessLifecycleProvider, AccessService, AccessProjectionService, AccessReconcileCron],
   exports: [AccessService, AccessProjectionService],
 })
 export class AccessModule {}

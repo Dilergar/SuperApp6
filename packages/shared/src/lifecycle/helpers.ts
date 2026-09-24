@@ -82,7 +82,8 @@ export const CASCADE_FK: LifecycleTenantPurge = { kind: 'cascade_fk' };
 export const NOT_TENANT: LifecycleTenantPurge = { kind: 'not_applicable' };
 export const tenantHook = (key: string): LifecycleTenantPurge => ({ kind: 'registry_hook', key });
 export const tenantBatched = (column = 'workspaceId'): LifecycleTenantPurge => ({ kind: 'batched_delete', column });
-export const tenantRetain = (citation: LifecycleCitation, untilDays: LifecycleDuration): LifecycleTenantPurge => ({ kind: 'retain_legal', citation, untilDays });
+export const tenantRetain = (citation: LifecycleCitation, untilDays: LifecycleDuration, hook?: string): LifecycleTenantPurge =>
+  hook ? { kind: 'retain_legal', citation, untilDays, hook } : { kind: 'retain_legal', citation, untilDays };
 
 // ---- рёбра ----
 export const edge = (to: string, kind: LifecycleEdgeKind, viaColumn?: string): LifecycleEdge => (viaColumn ? { to, kind, via: viaColumn } : { to, kind });

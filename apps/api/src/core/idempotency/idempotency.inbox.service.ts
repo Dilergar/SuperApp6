@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { IDEMPOTENCY_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { runInternal } from '../../shared/idempotency/binding';
+import { utcTs } from '../../shared/database/sql-time';
 
 type Tx = Prisma.TransactionClient;
 
@@ -137,21 +138,29 @@ export class IdempotencyInboxService {
     );
   }
 
-  /** Ретенция ящика: строка живёт дольше окна редоставки любого источника. Батчами. */
-  prune(): Promise<number> {
+  /**
+   * Одна пачка ретенции ящика (шаг `idempotency.inbox` раннера core/lifecycle): строки,
+   * полученные раньше `before`. Срок — политика `IdempotencyInbox` реестра; он обязан
+   * превышать окно редоставки любого источника (иначе поздняя редоставка прошла бы вторым
+   * эффектом).
+   */
+  pruneBatch(before: Date, limit: number): Promise<number> {
+    return runInternal(() =>
+      this.db.$executeRaw`
+        DELETE FROM "idempotency_inbox"
+        WHERE "id" IN (
+          SELECT "id" FROM "idempotency_inbox"
+          WHERE "received_at" < ${utcTs(before)}
+          ORDER BY "received_at"
+          LIMIT ${Math.max(1, Math.floor(limit))}::int
+        )`,
+    );
+  }
+
+  countBefore(before: Date): Promise<number> {
     return runInternal(async () => {
-      let total = 0;
-      for (;;) {
-        const n = await this.db.$executeRaw`
-          DELETE FROM "idempotency_inbox"
-          WHERE "id" IN (
-            SELECT "id" FROM "idempotency_inbox"
-            WHERE "received_at" < ${NOW} - make_interval(days => ${IDEMPOTENCY_LIMITS.inboxRetentionDays}::int)
-            LIMIT ${IDEMPOTENCY_LIMITS.sweepBatch}::int
-          )`;
-        total += n;
-        if (n < IDEMPOTENCY_LIMITS.sweepBatch) return total;
-      }
+      const [r] = await this.db.$queryRaw<Array<{ n: bigint }>>`SELECT count(*)::bigint AS n FROM "idempotency_inbox" WHERE "received_at" < ${utcTs(before)}`;
+      return Number(r?.n ?? 0);
     });
   }
 }
