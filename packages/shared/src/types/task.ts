@@ -110,6 +110,22 @@ export type TaskSmartList =
   | 'created_by_me'
   | 'on_review';
 
+/**
+ * Задача в корзине (мягкое скрытие): видна только постановщику в списке корзины.
+ * `purgeAt` — когда уйдёт навсегда; подзадачи ушли в корзину вместе с ней.
+ */
+export interface TaskTrashItem {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  workspaceId: string | null;
+  /** Подзадач, ушедших в корзину вместе с задачей */
+  subtasksCount: number;
+  deletedAt: string;
+  purgeAt: string;
+}
+
 export interface TaskFilter {
   status?: TaskStatus[];
   priority?: TaskPriority[];

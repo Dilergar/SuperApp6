@@ -3,6 +3,7 @@ import type {
   CreateRecordingInput,
   VoiceLanguage,
   VoiceRecordingDto,
+  VoiceRecordingTrashItem,
   VoiceStatusDto,
   VoiceSyncSttResult,
   VoiceTranscriptDto,
@@ -54,8 +55,22 @@ export async function renameRecording(id: string, title: string): Promise<{ id: 
   return apiPatch<{ id: string; title: string }>(`/recorder/recordings/${id}`, { title });
 }
 
-export async function deleteRecording(id: string): Promise<void> {
+/** В корзину: запись пропадает из ленты, файл и расшифровка живы 30 дней. */
+export async function trashRecording(id: string): Promise<void> {
+  await apiPost(`/recorder/recordings/${id}/trash`, {});
+}
+
+export async function restoreRecording(id: string): Promise<VoiceRecordingDto> {
+  return apiPost<VoiceRecordingDto>(`/recorder/recordings/${id}/restore`, {});
+}
+
+/** Навсегда — только из корзины (движки прибирают файл и расшифровку). */
+export async function purgeRecording(id: string): Promise<void> {
   await apiDelete(`/recorder/recordings/${id}`);
+}
+
+export async function listRecorderTrash(): Promise<VoiceRecordingTrashItem[]> {
+  return apiGet<VoiceRecordingTrashItem[]>('/recorder/trash');
 }
 
 // ---- Синхронная расшифровка (диктовка в Заметках, голосовые команды) ----

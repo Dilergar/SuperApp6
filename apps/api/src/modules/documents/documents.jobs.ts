@@ -3,7 +3,7 @@ import { promises as fsp } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buffer as streamToBuffer } from 'node:stream/consumers';
-import { ORG_DOCUMENT_REF_TYPE, SOURCE_LOCALE, driveNameKey, documentTagBag, expandDocFormValues } from '@superapp/shared';
+import { ORG_DOCUMENT_REF_TYPE, SOURCE_LOCALE, driveNameKey, documentTagBag, expandDocFormValues, opaqueIdTail } from '@superapp/shared';
 import { coerceLocale, type Locale } from '@superapp/i18n';
 import { DEFAULT_DOCUMENT_LANGUAGE, documentWords } from '../../shared/i18n/document-words';
 import type { BuilderDoc } from '@superapp/shared';
@@ -762,7 +762,7 @@ export class DocumentsJobs implements OnModuleInit {
       });
       const mine = owners.length === 0 || owners.some((o) => o.subjectId === subjectUserId);
       if (!mine) {
-        return this.drive.systemEnsureFolder(spaceId, personalRootId, `${label} · ${subjectUserId.slice(0, 4)}`);
+        return this.drive.systemEnsureFolder(spaceId, personalRootId, `${label} · ${opaqueIdTail(subjectUserId, 6)}`);
       }
     }
     return this.drive.systemEnsureFolder(spaceId, personalRootId, label, undefined, autoName);

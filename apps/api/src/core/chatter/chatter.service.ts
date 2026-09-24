@@ -492,7 +492,9 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
       payload: e.payload
         ? (e.payload as Prisma.InputJsonValue)
         : Prisma.DbNull,
-      needsChatPost: e.chatPost ?? meta,
+      // Плашка возможна только там, где у типа ссылки есть синк чата: без него джоб проекции
+      // восемь раз ретраился бы и уходил в dead-letter на КАЖДОЙ записи (не падение, а шум и мусор)
+      needsChatPost: (e.chatPost ?? meta) && !!this.registry.getSink(e.refType),
     };
   }
 

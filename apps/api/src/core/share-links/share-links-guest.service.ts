@@ -636,7 +636,7 @@ export class ShareLinksGuestService {
              updated_at = ${utcTs(now)},
              notify_day = ${today}::date,
              notify_count = CASE WHEN notify_day = ${today}::date THEN notify_count + 1 ELSE 1 END
-       WHERE id = ${link.id}
+       WHERE id = ${link.id}::uuid
          AND revoked_at IS NULL
          AND (expires_at IS NULL OR expires_at > ${utcTs(now)})
          AND (max_opens IS NULL OR open_count < max_opens)

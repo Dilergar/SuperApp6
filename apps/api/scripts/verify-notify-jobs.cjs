@@ -77,7 +77,7 @@ async function main() {
     const events = await prisma.notificationEvent.count({ where: { refType: 'task', refId: taskId } });
     check('событий уведомлений по задаче — одно (только assigned)', events === 1, `count ${events}`);
   } finally {
-    if (cleanup.taskId) await call('DELETE', `/tasks/${cleanup.taskId}`, t1.token).catch(() => {});
+    if (cleanup.taskId) await call('POST', `/tasks/${cleanup.taskId}/trash`, t1.token, {}).then(() => call('DELETE', `/tasks/${cleanup.taskId}`, t1.token)).catch(() => {});
     if (cleanup.eventIds.length) await prisma.notificationEvent.deleteMany({ where: { id: { in: cleanup.eventIds } } }).catch(() => {});
     await prisma.$disconnect();
   }

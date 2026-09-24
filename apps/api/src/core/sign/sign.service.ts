@@ -35,8 +35,7 @@ import {
   type SignRequestDto,
   type SignStatusDto,
   type SignSubjectViewDto,
-  type SignSummaryDto,
-} from '@superapp/shared';
+  type SignSummaryDto, opaqueIdTail } from '@superapp/shared';
 import { ApiError, badRequest, forbidden, notFound, type ErrorParams } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
@@ -896,12 +895,12 @@ export class SignService {
 
     // Контейнер и квитанции пишем ДО финализации: строка акта ссылается на файл,
     // а не наоборот, и «подписано, но доказательства нет» невозможно.
-    const cmsFile = await this.storeEvidence(request, actor, `signature-${act.id.slice(0, 8)}.cms`, cms, 'application/pkcs7-signature');
+    const cmsFile = await this.storeEvidence(request, actor, `signature-${opaqueIdTail(act.id, 8)}.cms`, cms, 'application/pkcs7-signature');
     const ocspFile = verdict.ocsp?.raw
-      ? await this.storeEvidence(request, actor, `ocsp-${act.id.slice(0, 8)}.der`, verdict.ocsp.raw, 'application/ocsp-response')
+      ? await this.storeEvidence(request, actor, `ocsp-${opaqueIdTail(act.id, 8)}.der`, verdict.ocsp.raw, 'application/ocsp-response')
       : null;
     const tspFile = verdict.tsp?.raw
-      ? await this.storeEvidence(request, actor, `tsp-${act.id.slice(0, 8)}.der`, verdict.tsp.raw, 'application/timestamp-reply')
+      ? await this.storeEvidence(request, actor, `tsp-${opaqueIdTail(act.id, 8)}.der`, verdict.tsp.raw, 'application/timestamp-reply')
       : null;
 
     return this.finalizeSigned(act.id, {
@@ -1180,7 +1179,7 @@ export class SignService {
       // акту (READ COMMITTED не видит чужую незакоммиченную запись) — и заявка
       // навсегда остаётся «pending» при всех поставленных подписях, а самолечения
       // у движка нет.
-      await tx.$queryRaw`SELECT id FROM sign_requests WHERE id = ${act.requestId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM sign_requests WHERE id = ${act.requestId}::uuid FOR UPDATE`;
       // Заявка закрывается, когда не осталось ни одного ждущего акта.
       const stillPending = await tx.signAct.count({ where: { requestId: act.requestId, status: 'pending' } });
       if (stillPending === 0) {

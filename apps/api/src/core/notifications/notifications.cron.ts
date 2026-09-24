@@ -7,8 +7,9 @@ import { NotificationsSettingsService } from './notifications.settings.service';
 
 /**
  * Ретеншн: строки ленты 90 дней (Saved — вечно, отложенные в будущее не трогаем),
- * события — когда не осталось строк адресатов, журнал доставки — 30 дней, устройства
- * без визита 60 дней — отключаются. Батчами по индексу createdAt, под Redis-локом.
+ * события — когда не осталось строк адресатов, устройства без визита 60 дней —
+ * отключаются. Батчами по индексу createdAt, под Redis-локом. Журнал доставки
+ * (`notification_deliveries`, месячные партиции) уходит сбросом партиции — core/lifecycle.
  */
 @Injectable()
 export class NotificationsCron {
@@ -25,9 +26,8 @@ export class NotificationsCron {
     const ran = await this.redis.withLock('cron:notifications-retention', 20 * 60 * 1000, async () => {
       const rows = await this.pruneRows();
       const events = await this.pruneEvents();
-      const deliveries = await this.pruneDeliveries();
       const devices = await this.settings.expireStaleDevices();
-      this.logger.log(`retention: rows ${rows}, events ${events}, deliveries ${deliveries}, devices disabled ${devices}`);
+      this.logger.log(`retention: rows ${rows}, events ${events}, devices disabled ${devices}`);
     });
     if (ran === null) this.logger.debug('retention skipped: lock held by another instance');
   }
@@ -66,20 +66,6 @@ export class NotificationsCron {
       const res = await this.db.notificationEvent.deleteMany({ where: { id: { in: events.map((e) => e.id) } } });
       total += res.count;
       if (events.length < BATCH) break;
-    }
-    return total;
-  }
-
-  async pruneDeliveries(): Promise<number> {
-    const cutoff = new Date(Date.now() - NOTIFICATION_LIMITS.deliveryRetentionDays * 86_400_000);
-    const BATCH = 10_000;
-    let total = 0;
-    for (;;) {
-      const rows = await this.db.notificationDelivery.findMany({ where: { createdAt: { lt: cutoff } }, select: { id: true }, take: BATCH });
-      if (!rows.length) break;
-      const res = await this.db.notificationDelivery.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
-      total += res.count;
-      if (rows.length < BATCH) break;
     }
     return total;
   }

@@ -110,8 +110,8 @@ async function main() {
     const unb = await call('DELETE', `/contacts/blocks/${u1}`, t2);
     check('разблокировка', unb.ok, `status ${unb.status}`);
   } finally {
-    for (const id of cleanup.taskIds) await call('DELETE', `/tasks/${id}`, t1, null, { 'X-Workspace-Id': cleanup.wsId }).catch(() => {});
-    if (cleanup.eventId) await call('DELETE', `/calendar/events/${cleanup.eventId}`, t1).catch(() => {});
+    for (const id of cleanup.taskIds) await call('POST', `/tasks/${id}/trash`, t1, {}, { 'X-Workspace-Id': cleanup.wsId }).then(() => call('DELETE', `/tasks/${id}`, t1, null, { 'X-Workspace-Id': cleanup.wsId })).catch(() => {});
+    if (cleanup.eventId) await call('POST', `/calendar/events/${cleanup.eventId}/trash`, t1, {}).then(() => call('DELETE', `/calendar/events/${cleanup.eventId}`, t1)).catch(() => {});
     if (cleanup.wsId) await call('DELETE', `/workspaces/${cleanup.wsId}`, t1).catch(() => {});
     await prisma.contactBlock.deleteMany({ where: { OR: [{ blockerId: u1, blockedId: u2 }, { blockerId: u2, blockedId: u1 }] } }).catch(() => {});
     await restoreLink().catch(() => {}); // testers stay linked for other scripts

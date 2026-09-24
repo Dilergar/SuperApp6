@@ -714,7 +714,7 @@ export class MessengerService implements OnModuleInit {
     if (existing) return existing;
 
     const task = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       select: {
         title: true,
         creatorId: true,
@@ -804,7 +804,7 @@ export class MessengerService implements OnModuleInit {
       if (!chat) return;
 
       const task = await this.db.task.findUnique({
-        where: { id: taskId },
+        where: { id: taskId, deletedAt: null },
         select: { creatorId: true, participants: { select: { userId: true } } },
       });
       if (!task) return;
@@ -1058,7 +1058,7 @@ export class MessengerService implements OnModuleInit {
     if (existing) return existing;
 
     const event = await this.db.calendarEvent.findUnique({
-      where: { id: eventId },
+      where: { id: eventId, deletedAt: null },
       select: { title: true, userId: true, participants: { select: { userId: true } } },
     });
     if (!event) throw notFound('calendar.eventNotFound');
@@ -1134,7 +1134,7 @@ export class MessengerService implements OnModuleInit {
       if (!chat) return;
 
       const event = await this.db.calendarEvent.findUnique({
-        where: { id: eventId },
+        where: { id: eventId, deletedAt: null },
         select: { userId: true, participants: { select: { userId: true } } },
       });
       if (!event) return;
@@ -1619,11 +1619,11 @@ export class MessengerService implements OnModuleInit {
       SELECT m.chat_id AS "chatId", COUNT(*)::int AS unread
       FROM messages m
       JOIN chat_members cm
-        ON cm.chat_id = m.chat_id AND cm.user_id = ${userId} AND cm.left_at IS NULL
-      WHERE m.chat_id IN (${Prisma.join(chatIds)})
+        ON cm.chat_id = m.chat_id AND cm.user_id = ${userId}::uuid AND cm.left_at IS NULL
+      WHERE m.chat_id = ANY(${chatIds}::uuid[])
         AND m.deleted_at IS NULL
         AND m.type <> 'system'
-        AND m.author_id <> ${userId}
+        AND m.author_id <> ${userId}::uuid
         AND m.seq > GREATEST(cm.last_read_seq, cm.visible_from_seq - 1)
       GROUP BY m.chat_id
     `);
@@ -2176,7 +2176,7 @@ export class MessengerService implements OnModuleInit {
   private async taskRoleLabels(taskId: string): Promise<Map<string, string | null>> {
     const map = new Map<string, string | null>();
     const task = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       select: { creatorId: true, participants: { select: { userId: true, role: true } } },
     });
     if (!task) return map;
@@ -2212,7 +2212,7 @@ export class MessengerService implements OnModuleInit {
   private async eventRoleLabels(eventId: string): Promise<Map<string, string | null>> {
     const map = new Map<string, string | null>();
     const event = await this.db.calendarEvent.findUnique({
-      where: { id: eventId },
+      where: { id: eventId, deletedAt: null },
       select: { userId: true, participants: { select: { userId: true } } },
     });
     if (!event) return map;

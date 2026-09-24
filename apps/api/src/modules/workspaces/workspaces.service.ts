@@ -1406,7 +1406,7 @@ export class WorkspacesService implements OnModuleInit {
     // входе (тут, под локом строки организации) и на принятии (там — авторитетно, в
     // транзакции членства). Отказ — 402 `entitlement.seat_required`.
     await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`SELECT id FROM workspaces WHERE id = ${workspaceId} FOR UPDATE`);
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM workspaces WHERE id = ${workspaceId}::uuid FOR UPDATE`);
       await this.entitlements.assertCanCreate(tx, { type: 'workspace', id: workspaceId }, 'workspace.seats');
     });
 
@@ -1597,7 +1597,7 @@ export class WorkspacesService implements OnModuleInit {
       // приглашения. Место занимает член trainee+ (провайдер расхода считает роли).
       const already = await tx.workspaceMember.count({ where: { workspaceId: inv.workspaceId, userId } });
       if (already === 0) {
-        await tx.$queryRaw(Prisma.sql`SELECT id FROM workspaces WHERE id = ${inv.workspaceId} FOR UPDATE`);
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM workspaces WHERE id = ${inv.workspaceId}::uuid FOR UPDATE`);
         await this.entitlements.assertCanCreate(tx, { type: 'workspace', id: inv.workspaceId }, 'workspace.seats');
       }
       await tx.workspaceMember.upsert({
@@ -1938,7 +1938,7 @@ export class WorkspacesService implements OnModuleInit {
    * снятия строки нет — отказ.
    */
   private async lockMemberRowTx(tx: Prisma.TransactionClient, workspaceId: string, userId: string): Promise<boolean> {
-    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM workspace_members WHERE workspace_id = ${workspaceId} AND user_id = ${userId} FOR UPDATE`;
+    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM workspace_members WHERE workspace_id = ${workspaceId}::uuid AND user_id = ${userId}::uuid FOR UPDATE`;
     return rows.length > 0;
   }
 

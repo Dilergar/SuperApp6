@@ -110,9 +110,9 @@ export class DriveSearchService implements OnModuleInit {
     if (!ownSpaceIds.length && !grants.viewer.length) return { items: [] };
 
     const tsq = Prisma.sql`websearch_to_tsquery('russian', ${query})`;
-    const granted = Prisma.sql`${grants.viewer}::text[]`;
+    const granted = Prisma.sql`${grants.viewer}::uuid[]`;
     const visible = Prisma.sql`(
-      n."space_id" = ANY(${ownSpaceIds}::text[])
+      n."space_id" = ANY(${ownSpaceIds}::uuid[])
       OR n."id" = ANY(${granted})
       OR n."ancestor_ids" && ${granted}
     )`;
@@ -124,7 +124,7 @@ export class DriveSearchService implements OnModuleInit {
                sd."body" AS "body", n."updated_at" AS "updatedAt",
                (ts_rank(sd.search_vector, ${tsq}) * 4 + word_similarity(${query}, sd.title))::float8 AS "score"
           FROM "search_documents" sd
-          JOIN "drive_nodes" n ON n."id" = sd."source_id"
+          JOIN "drive_nodes" n ON n."id"::text = sd."source_id"
          WHERE sd."source_type" = ${DRIVE_NODE_REF_TYPE}
            AND n."trashed_at" IS NULL
            AND ${visible}

@@ -28,6 +28,14 @@ export const WEBHOOK_AUDIT = {
   verified: 'webhook.endpoint.verified',
 } as const;
 
+/**
+ * Тело доставки старше `WEBHOOK_LIMITS.bodyRetentionDays` заменено отпечатком:
+ * `{ redacted: true, id, type, sha256 }` (id и тип сообщения — для журнала доставок).
+ */
+export function isRedactedBody(payload: unknown): boolean {
+  return !!payload && typeof payload === 'object' && (payload as { redacted?: unknown }).redacted === true;
+}
+
 /** Redis-локи кронов движка. */
 export const WEBHOOK_LOCKS = {
   daily: 'cron:webhooks:daily',

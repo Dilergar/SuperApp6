@@ -15,7 +15,9 @@ const { buildScopedPrismaClient } = require('../dist/shared/database/database.se
 const { WorkspaceContextService } = require('../dist/shared/context/workspace-context.service');
 const { LedgerService } = require('../dist/modules/wallet/ledger.service');
 
-const C = '00000000-0000-4000-8000-00000000c0de';
+// Леджер append-only (триггер core/lifecycle: проводку не изменить и не удалить) — у каждого
+// прогона СВОЯ валюта; в конце она гасится как в продукте (статус deleted), проводки остаются
+const C = require('crypto').randomUUID();
 const A = '00000000-0000-4000-8000-00000000a000';
 const B = '00000000-0000-4000-8000-00000000b000';
 
@@ -48,15 +50,7 @@ async function main() {
   };
   const net = async () => (await ledger.reconcileCurrency(C)).net;
 
-  const wipe = async () => {
-    await db.ledgerTransfer.deleteMany({ where: { currencyId: C } });
-    await db.escrowHold.deleteMany({ where: { currencyId: C } });
-    await db.account.deleteMany({ where: { currencyId: C } });
-    await db.currency.deleteMany({ where: { id: C } });
-  };
-
   try {
-    await wipe();
     await db.currency.create({ data: { id: C, issuerType: 'user', issuerId: A, name: 'ТестКоин', icon: '🪙', scale: 0 } });
 
     // mint 1000 → A (issuance → A); double-entry, conservation holds
@@ -89,17 +83,35 @@ async function main() {
       }),
     );
 
-    // idempotency: same key twice applies once (A=650, B=350)
-    for (let i = 0; i < 2; i++) {
-      await db.$transaction(async (t) => {
+    // idempotency: same key twice applies once (A=650, B=350). Ключ — свой на прогон:
+    // проводка прошлого прогона с тем же ключом живёт вечно (леджер append-only)
+    const idem1 = `verify-wallet:${C}:idem1`;
+    const transferIdem = (amount) =>
+      db.$transaction(async (t) => {
         const from = (await ledger.getOrCreateUserAccount(t, C, A)).id;
         const to = (await ledger.getOrCreateUserAccount(t, C, B)).id;
-        await ledger.transfer(t, { currencyId: C, fromAccountId: from, toAccountId: to, amount: 50, idempotencyKey: 'idem1' });
+        return ledger.transfer(t, { currencyId: C, fromAccountId: from, toAccountId: to, amount, idempotencyKey: idem1 });
       });
-    }
+    const firstId = await transferIdem(50);
+    const againId = await transferIdem(50);
     a = await ledger.getBalance(A, C);
     b = await ledger.getBalance(B, C);
     check('идемпотентность: повтор не задвоил → A=650, B=350', a.balance === 650 && b.balance === 350, `A=${a.balance} B=${b.balance}`);
+    check('повтор вернул ту же проводку', firstId !== null && firstId === againId, `${firstId} / ${againId}`);
+
+    // тот же ключ с ДРУГОЙ суммой — не повтор, а переиспользованный ключ: 409, остатки не тронуты
+    let reuse = null;
+    try {
+      await transferIdem(70);
+    } catch (e) {
+      reuse = e;
+    }
+    const reuseCode = reuse && reuse.code;
+    const reuseStatus = reuse && typeof reuse.getStatus === 'function' ? reuse.getStatus() : null;
+    check('ключ с другой суммой → 409 wallet.idempotencyKeyReused', reuseStatus === 409 && reuseCode === 'wallet.idempotencyKeyReused', reuse ? `${reuseStatus} ${reuseCode}` : 'прошло молча');
+    a = await ledger.getBalance(A, C);
+    b = await ledger.getBalance(B, C);
+    check('после отказа остатки прежние → A=650, B=350', a.balance === 650 && b.balance === 350, `A=${a.balance} B=${b.balance}`);
 
     // burn 100 from B → B=250
     await ledger.burn({ currencyId: C, ownerId: B, amount: 100 });
@@ -137,7 +149,7 @@ async function main() {
 
     // recompute rebuilds the cache from the journal
     const idA = await accId(A);
-    await db.$executeRawUnsafe(`UPDATE accounts SET balance = 123456, held = 777 WHERE id = $1`, idA);
+    await db.$executeRawUnsafe(`UPDATE accounts SET balance = 123456, held = 777 WHERE id = $1::uuid`, idA);
     await ledger.recompute(idA);
     a = await ledger.getBalance(A, C);
     check('recompute восстановил из журнала → A=550, held=0', a.balance === 550 && a.held === 0, JSON.stringify(a));
@@ -147,7 +159,7 @@ async function main() {
     check('журнал append-only: 8 проводок', count === 8, `rows=${count}`);
     check('финальный инвариант: Σ = 0', (await net()) === 0n);
   } finally {
-    await wipe();
+    await db.currency.updateMany({ where: { id: C }, data: { status: 'deleted', deletedAt: new Date() } }).catch(() => undefined);
     await db.$disconnect();
   }
 

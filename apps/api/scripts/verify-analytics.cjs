@@ -326,9 +326,9 @@ const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000
     check('после забвения: нет событий, склеек и агрегатов человека', !!erased);
 
     // ---- 10. Партиции ----
-    await prisma.$executeRawUnsafe(
-      `CREATE TABLE IF NOT EXISTS analytics.events_2020_01 PARTITION OF analytics.events FOR VALUES FROM ('2020-01-01 00:00:00+00') TO ('2020-02-01 00:00:00+00')`,
-    );
+    // Лист заводит функция владельца данных (core/lifecycle): лист чужой роли функция
+    // сброса не тронет — так и задумано (DDL журналов — только от владельца)
+    await prisma.$queryRawUnsafe(`SELECT lifecycle_ensure_partition('analytics.events', '2020-01-15 00:00:00+00'::timestamptz)`);
     const parts = await call('POST', '/platform/analytics/dev/partitions', T, {});
     const nextMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 1));
     const nextName = `events_${nextMonth.getUTCFullYear()}_${String(nextMonth.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -344,7 +344,7 @@ const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000
     try {
       if (T) await runCommand('analytics.event.setStatus', { eventKey: 'entitlements.paywall.clicked', status: 'live' }, 'suite: уборка рубильника после прогона');
       await prisma.analyticsEventOverride.deleteMany({ where: { eventKey: 'entitlements.paywall.clicked', setBy: s1?.id } });
-      for (const t of createdTasks) await call('DELETE', `/tasks/${t.id}`, t.token);
+      for (const t of createdTasks) await call('POST', `/tasks/${t.id}/trash`, t.token, {}).then(() => call('DELETE', `/tasks/${t.id}`, t.token));
       const suiteUsers = [s1?.id, s2?.id, s3?.id].filter(Boolean);
       await prisma.$executeRawUnsafe(`DELETE FROM analytics.events WHERE event_id = ANY($1::uuid[])`, eventIds);
       await prisma.$executeRawUnsafe(

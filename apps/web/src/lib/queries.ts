@@ -50,6 +50,8 @@ import type {
   Task,
   TaskFilter,
   TaskStats,
+  TaskTrashItem,
+  CalendarEventTrashItem,
   Workspace,
   WorkspaceInvitation,
 } from '@superapp/shared';
@@ -311,6 +313,7 @@ export const drivePhotosKey = (ref: DriveSpaceRef, month?: string) =>
 export const voiceStatusKey = ['voice', 'status'] as const;
 export const voiceTranscriptKey = (fileId: string) => ['voice', 'transcript', fileId] as const;
 export const recorderRecordingsKey = ['recorder', 'recordings'] as const;
+export const recorderTrashKey = ['recorder', 'trash'] as const;
 // Движок документов (core/docs): статус кэшируется надолго — от него зависит только
 // показ кнопок «Открыть/Редактировать» у офисных вложений.
 export const docsStatusKey = ['docs', 'status'] as const;
@@ -536,6 +539,7 @@ export async function fetchOfficeHistory(wsId: string, cursor?: string): Promise
 export const taskStatsKey = ['tasks', 'stats'] as const;
 export const tasksListKey = (filters: Record<string, unknown>) => ['tasks', 'list', filters] as const;
 export const taskDetailKey = (id: string) => ['tasks', 'detail', id] as const;
+export const tasksTrashKey = ['tasks', 'trash'] as const;
 
 /** Список задач: смарт-лист/статусы/приоритеты/роль/поиск/пагинация — всё умеет API. */
 export async function fetchTasks(filters: Partial<TaskFilter>): Promise<OffsetPage<Task>> {
@@ -559,6 +563,19 @@ export async function fetchTaskStats(): Promise<TaskStats> {
 
 export async function fetchTask(id: string): Promise<Task> {
   return apiGet<Task>(`/tasks/${id}`);
+}
+
+/** Корзина постановщика: задачи, ушедшие туда (восстановимы 30 дней). */
+export async function fetchTasksTrash(): Promise<TaskTrashItem[]> {
+  return apiGet<TaskTrashItem[]>('/tasks/trash');
+}
+
+// ---- Календарь: корзина ----
+export const calendarTrashKey = ['calendar', 'trash'] as const;
+
+/** Корзина организатора: события и серии, ушедшие туда (восстановимы 30 дней). */
+export async function fetchCalendarTrash(): Promise<CalendarEventTrashItem[]> {
+  return apiGet<CalendarEventTrashItem[]>('/calendar/trash');
 }
 
 // ---- Финансы (B2C) ----

@@ -3,9 +3,12 @@ import { assertAdultForPayment } from './adult-gate';
 import { Prisma } from '@prisma/client';
 import { WALLET_LIMITS } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
-import { badRequest, notFound } from '../../shared/errors/api-error';
+import { badRequest, conflict, notFound } from '../../shared/errors/api-error';
 
 type Tx = Prisma.TransactionClient;
+
+/** Что сверяется у проводки-повтора: ключ тот же, а параметры другие — переиспользованный ключ. */
+type LedgerReplay = { currencyId: string; amount: bigint; debitAccountId?: string; creditAccountId?: string };
 
 interface AccountState {
   id: string;
@@ -101,7 +104,7 @@ export class LedgerService {
     const map = new Map<string, AccountState>();
     for (const id of [...new Set(ids)].sort()) {
       const rows = await tx.$queryRaw<Array<{ balance: bigint; held: bigint; allow_negative: boolean }>>(
-        Prisma.sql`SELECT balance, held, allow_negative FROM accounts WHERE id = ${id} FOR UPDATE`,
+        Prisma.sql`SELECT balance, held, allow_negative FROM accounts WHERE id = ${id}::uuid FOR UPDATE`,
       );
       if (rows.length === 0) throw notFound('wallet.accountNotFound');
       map.set(id, { id, balance: rows[0].balance, held: rows[0].held, allowNegative: rows[0].allow_negative });
@@ -121,16 +124,32 @@ export class LedgerService {
   }
 
   /**
-   * Второй ремень идемпотентности, проверка ПОСЛЕ блокировки счетов. Проверки «до»
-   * мало: две одновременные проводки с одним ключом обе видят «дубля нет», и вторая
-   * падает на уникуме — а конфликт уникума внутри транзакции Postgres абортит её ВСЮ,
-   * то есть вместо тихого «уже сделано» человек получал 500. Блокировка счетов — точка
-   * сериализации: вторая ждёт коммита первой и (READ COMMITTED) уже видит её проводку.
+   * Проводка с этим ключом уже есть — повтор: вернуть её id, остатков не трогать.
+   * Ключ с ДРУГИМИ параметрами (валюта, сумма, счета) — не повтор, а переиспользованный
+   * ключ: тихое «уже сделано» соврало бы вызывающему, что деньги ушли, → 409.
+   *
+   * Зовётся дважды. ДО блокировки — дешёвый ранний выход (счета ещё не известны —
+   * сверяются валюта и сумма). ПОСЛЕ блокировки — второй ремень: две одновременные
+   * проводки с одним ключом обе видят «дубля нет», и вторая падает на уникуме, а
+   * конфликт уникума внутри транзакции Postgres абортит её ВСЮ (вместо тихого «уже
+   * сделано» человек получал 500). Блокировка счетов — точка сериализации: вторая ждёт
+   * коммита первой и (READ COMMITTED) уже видит её проводку.
    */
-  private async appliedAlready(tx: Tx, idempotencyKey: string | null | undefined): Promise<bigint | null> {
+  private async replayOf(tx: Tx, idempotencyKey: string | null | undefined, want: LedgerReplay): Promise<bigint | null> {
     if (!idempotencyKey) return null;
-    const dup = await tx.ledgerTransfer.findUnique({ where: { idempotencyKey }, select: { id: true } });
-    return dup?.id ?? null;
+    const dup = await tx.ledgerTransfer.findUnique({
+      where: { idempotencyKey },
+      select: { id: true, kind: true, currencyId: true, amount: true, debitAccountId: true, creditAccountId: true },
+    });
+    if (!dup) return null;
+    const same =
+      dup.kind === 'posted' &&
+      dup.currencyId === want.currencyId &&
+      dup.amount === want.amount &&
+      (want.debitAccountId === undefined || dup.debitAccountId === want.debitAccountId) &&
+      (want.creditAccountId === undefined || dup.creditAccountId === want.creditAccountId);
+    if (!same) throw conflict('wallet.idempotencyKeyReused');
+    return dup.id;
   }
 
   /** Append an immutable journal row. Returns its id, or null if an idempotency key collided. */
@@ -209,7 +228,7 @@ export class LedgerService {
       // Повтор по производному ключу: проводка уже есть — ничего не делаем и не
       // трогаем остатки. Проверка ДО вставки, а не ловля P2002 после: конфликт
       // уникума внутри транзакции Postgres абортит ВСЮ транзакцию вызывающего.
-      if (input.idempotencyKey && (await t.ledgerTransfer.findUnique({ where: { idempotencyKey: input.idempotencyKey } }))) return;
+      if ((await this.replayOf(t, input.idempotencyKey, { currencyId: input.currencyId, amount })) !== null) return;
       const currency = await t.currency.findUnique({ where: { id: input.currencyId }, select: { issuerType: true } });
       if (currency?.issuerType === 'platform') {
         if (!input.funding) throw new Error('ledger.mint: `funding` is required for the platform currency (real_money | system)');
@@ -218,7 +237,8 @@ export class LedgerService {
       const issuance = await this.getOrCreateIssuanceAccount(t, input.currencyId);
       const user = await this.getOrCreateHolderAccount(t, input.currencyId, input.ownerType ?? 'user', input.ownerId);
       const locks = await this.lock(t, [issuance.id, user.id]);
-      if ((await this.appliedAlready(t, input.idempotencyKey)) !== null) return;
+      const replay = { currencyId: input.currencyId, amount, debitAccountId: issuance.id, creditAccountId: user.id };
+      if ((await this.replayOf(t, input.idempotencyKey, replay)) !== null) return;
       const i = locks.get(issuance.id)!;
       const u = locks.get(user.id)!;
       if (u.balance + amount > BigInt(WALLET_LIMITS.maxInHand)) {
@@ -248,11 +268,12 @@ export class LedgerService {
       // Повтор по производному ключу: проводка уже есть — ничего не делаем и не
       // трогаем остатки. Проверка ДО вставки, а не ловля P2002 после: конфликт
       // уникума внутри транзакции Postgres абортит ВСЮ транзакцию вызывающего.
-      if (input.idempotencyKey && (await t.ledgerTransfer.findUnique({ where: { idempotencyKey: input.idempotencyKey } }))) return;
+      if ((await this.replayOf(t, input.idempotencyKey, { currencyId: input.currencyId, amount })) !== null) return;
       const holder = await this.getOrCreateHolderAccount(t, input.currencyId, input.ownerType ?? 'user', input.ownerId);
       const issuance = await this.getOrCreateIssuanceAccount(t, input.currencyId);
       const locks = await this.lock(t, [holder.id, issuance.id]);
-      if ((await this.appliedAlready(t, input.idempotencyKey)) !== null) return;
+      const replay = { currencyId: input.currencyId, amount, debitAccountId: holder.id, creditAccountId: issuance.id };
+      if ((await this.replayOf(t, input.idempotencyKey, replay)) !== null) return;
       const h = locks.get(holder.id)!;
       const i = locks.get(issuance.id)!;
       if (h.balance - h.held - amount < 0n) {
@@ -292,12 +313,11 @@ export class LedgerService {
       throw badRequest('wallet.selfTransfer');
     }
     const amount = this.toBig(input.amount);
-    if (input.idempotencyKey) {
-      const dup = await tx.ledgerTransfer.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
-      if (dup) return dup.id;
-    }
+    const replay = { currencyId: input.currencyId, amount, debitAccountId: input.fromAccountId, creditAccountId: input.toAccountId };
+    const early = await this.replayOf(tx, input.idempotencyKey, replay);
+    if (early !== null) return early;
     const locks = await this.lock(tx, [input.fromAccountId, input.toAccountId]);
-    const applied = await this.appliedAlready(tx, input.idempotencyKey);
+    const applied = await this.replayOf(tx, input.idempotencyKey, replay);
     if (applied !== null) return applied;
     const from = locks.get(input.fromAccountId)!;
     const to = locks.get(input.toAccountId)!;

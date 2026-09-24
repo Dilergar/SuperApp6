@@ -128,8 +128,8 @@ async function main() {
     const bad = await range(t1, new Date(), new Date(Date.now() + 86400e3), 'habits');
     check('незнакомый слой habits → 400', bad.status === 400, `status ${bad.status}`);
   } finally {
-    for (const id of created.events) await call('DELETE', `/calendar/events/${id}`, t1).catch(() => {});
-    if (created.taskId) await call('DELETE', `/tasks/${created.taskId}`, t1).catch(() => {});
+    for (const id of created.events) await call('POST', `/calendar/events/${id}/trash`, t1, {}).then(() => call('DELETE', `/calendar/events/${id}`, t1)).catch(() => {});
+    if (created.taskId) await call('POST', `/tasks/${created.taskId}/trash`, t1, {}).then(() => call('DELETE', `/tasks/${created.taskId}`, t1)).catch(() => {});
     if (created.ruleId) await call('DELETE', `/finance/recurring/${created.ruleId}`, t1).catch(() => {});
     if (created.debtId) {
       // Долг = liability-счёт; штатного DELETE у долгов нет — закрываем и архивируем свой ряд.

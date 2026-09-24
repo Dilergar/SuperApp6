@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+
 import { Prisma } from '@prisma/client';
 import {
   NOTIFICATION_LIMITS,
@@ -12,8 +12,7 @@ import {
   type NotificationRef,
   type NotificationSkipReason,
   type NotificationTypeDef,
-  type NotificationsCreatedBusPayload,
-} from '@superapp/shared';
+  type NotificationsCreatedBusPayload, uuidv7 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
 import { EventBusService } from '../../shared/events/event-bus.service';
@@ -21,6 +20,7 @@ import { RedisService } from '../../shared/redis/redis.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { AudiencesService } from '../audiences/audiences.service';
+import { LifecyclePartitions } from '../lifecycle/lifecycle.partitions';
 import { NOTIFICATION_BUS_EVENTS, NOTIFICATION_JOBS, NOTIFICATION_QUEUE, NOTIFICATION_REDIS } from './notifications.constants';
 import { NotificationChannelRegistry, NotificationRefRegistry, PresenceProviderRegistry } from './notifications.registry';
 import { NotificationsPreferencesService, decideChannel, smsOptedIn, type PolicyMap, type PrefMap } from './notifications.preferences.service';
@@ -88,6 +88,7 @@ export class NotificationsFanout implements OnModuleInit {
     private readonly channels: NotificationChannelRegistry,
     private readonly prefs: NotificationsPreferencesService,
     private readonly notifications: NotificationsService,
+    private readonly partitions: LifecyclePartitions,
   ) {}
 
   onModuleInit(): void {
@@ -362,38 +363,42 @@ export class NotificationsFanout implements OnModuleInit {
     // Prisma такой чанк на нагруженной БД не проходит: P2028 «Transaction already closed»
     // сжёг бы все попытки джоба, и массовая рассылка не дошла бы НИ ДО КОГО. Транзакция
     // только вставляет (конкуренции за строки нет) — держать её дольше безопасно.
-    await this.db.$transaction(async (tx) => {
+    await this.withDeliveryPartition(ev.createdAt, () => this.db.$transaction(async (tx) => {
+      // Повтор после заведения партиции: накопленное прошлой попыткой откатилось вместе с ней
+      created.length = 0;
+      pushJobs.clear();
+      smsDeliveryIds.length = 0;
       for (const userId of skippedNoAccess) {
-        await this.insertDelivery(tx, eventId, userId, 'inapp', 'skipped', 'no_access', null, null);
+        await this.insertDelivery(tx, ev, userId, 'inapp', 'skipped', 'no_access', null, null);
       }
       for (const p of plans) {
         // Леджер: не легло → адресат уже обработан (ретрай после частичного фанаута)
-        const ledger = await this.insertDelivery(tx, eventId, p.userId, 'inapp', p.inapp.on ? 'sent' : 'skipped', p.inapp.skip, null, null);
+        const ledger = await this.insertDelivery(tx, ev, p.userId, 'inapp', p.inapp.on ? 'sent' : 'skipped', p.inapp.skip, null, null);
         if (ledger === null) continue;
 
         if (p.inapp.on) {
           const row = await this.upsertRow(tx, ev, def, p, collapseKeys.get(p.userId)!, nowTs);
-          await tx.$executeRaw`UPDATE notification_deliveries SET notification_id = ${row.id} WHERE id = ${ledger}`;
+          await tx.$executeRaw`UPDATE notification_deliveries SET notification_id = ${row.id}::uuid WHERE id = ${ledger} AND created_at = ${utcTs(ev.createdAt)}`;
           created.push({ userId: p.userId, notificationId: row.id, context: p.context, unseen: true });
           if (p.push.on) {
-            const id = await this.insertDelivery(tx, eventId, p.userId, 'push', 'queued', null, row.id, p.push.runAt);
+            const id = await this.insertDelivery(tx, ev, p.userId, 'push', 'queued', null, row.id, p.push.runAt);
             if (id !== null) {
               const prev = pushJobs.get(p.userId);
               if (!prev || (p.push.runAt && p.push.runAt < prev)) pushJobs.set(p.userId, p.push.runAt ?? nowTs);
             }
           } else {
-            await this.insertDelivery(tx, eventId, p.userId, 'push', 'skipped', p.push.skip, row.id, null);
+            await this.insertDelivery(tx, ev, p.userId, 'push', 'skipped', p.push.skip, row.id, null);
           }
           if (p.sms.on) {
-            const id = await this.insertDelivery(tx, eventId, p.userId, 'sms', 'queued', null, row.id, nowTs);
+            const id = await this.insertDelivery(tx, ev, p.userId, 'sms', 'queued', null, row.id, nowTs);
             if (id !== null) smsDeliveryIds.push(id);
           } else if (p.sms.skip) {
-            await this.insertDelivery(tx, eventId, p.userId, 'sms', 'skipped', p.sms.skip, row.id, null);
+            await this.insertDelivery(tx, ev, p.userId, 'sms', 'skipped', p.sms.skip, row.id, null);
           }
-          await this.insertDelivery(tx, eventId, p.userId, 'email', 'skipped', 'driver_not_configured', row.id, null);
+          await this.insertDelivery(tx, ev, p.userId, 'email', 'skipped', 'driver_not_configured', row.id, null);
         } else {
           // In-app выключен = строка НЕ создаётся, и остальные каналы молчат (канальная семантика Knock)
-          await this.insertDelivery(tx, eventId, p.userId, 'push', 'skipped', p.push.skip ?? p.inapp.skip, null, null);
+          await this.insertDelivery(tx, ev, p.userId, 'push', 'skipped', p.push.skip ?? p.inapp.skip, null, null);
         }
       }
       for (const [userId, runAt] of pushJobs) {
@@ -401,9 +406,9 @@ export class NotificationsFanout implements OnModuleInit {
         await this.enqueuePushJob(tx, userId, runAt, critical);
       }
       for (const id of smsDeliveryIds) {
-        await this.jobs.enqueue(tx, { type: NOTIFICATION_JOBS.deliverSms, payload: { deliveryId: id.toString() } });
+        await this.jobs.enqueue(tx, { type: NOTIFICATION_JOBS.deliverSms, payload: { deliveryId: id.toString(), at: ev.createdAt.toISOString() } });
       }
-    }, NOTIFICATION_FANOUT_TX);
+    }, NOTIFICATION_FANOUT_TX));
 
     // 5) После коммита — сигнал realtime (потеря допустима: клиент перечитывает counts на reconnect)
     if (created.length) {
@@ -436,10 +441,14 @@ export class NotificationsFanout implements OnModuleInit {
     }
   }
 
-  /** INSERT леджера/журнала доставки. null — уже есть (ретрай). */
+  /**
+   * INSERT леджера/журнала доставки. null — уже есть (ретрай). `created_at` = момент СОБЫТИЯ:
+   * он детерминирован, поэтому уникум (событие, получатель, канал, created_at) месячной
+   * партиции остаётся единственным и на ретрае в другом месяце.
+   */
   private async insertDelivery(
     tx: Tx,
-    eventId: string,
+    ev: EventRow,
     userId: string,
     channel: NotificationChannel,
     status: 'queued' | 'sent' | 'skipped',
@@ -449,9 +458,9 @@ export class NotificationsFanout implements OnModuleInit {
   ): Promise<bigint | null> {
     const rows = await tx.$queryRaw<{ id: bigint }[]>`
       INSERT INTO notification_deliveries (event_id, recipient, user_id, channel, notification_id, status, skip_reason, scheduled_at, sent_at, created_at)
-      VALUES (${eventId}, ${`user:${userId}`}, ${userId}, ${channel}, ${notificationId}, ${status}, ${skipReason},
-              ${scheduledAt ? utcTs(scheduledAt) : null}, ${status === 'sent' ? utcTs(new Date()) : null}, ${utcTs(new Date())})
-      ON CONFLICT (event_id, recipient, channel) DO NOTHING
+      VALUES (${ev.id}::uuid, ${`user:${userId}`}, ${userId}::uuid, ${channel}, ${notificationId}::uuid, ${status}, ${skipReason},
+              ${scheduledAt ? utcTs(scheduledAt) : null}, ${status === 'sent' ? utcTs(new Date()) : null}, ${utcTs(ev.createdAt)})
+      ON CONFLICT (event_id, recipient, channel, created_at) DO NOTHING
       RETURNING id
     `;
     return rows.length ? rows[0].id : null;
@@ -463,21 +472,21 @@ export class NotificationsFanout implements OnModuleInit {
    * sortAt наверх, snooze снят, seen сброшен — бейдж зажигается снова); иначе — новая.
    */
   private async upsertRow(tx: Tx, ev: EventRow, def: NotificationTypeDef, p: UserPlan, collapseKey: string, now: Date): Promise<{ id: string; collapseCount: number }> {
-    const id = randomUUID();
+    const id = uuidv7();
     const workspaceId = p.context === NOTIFICATION_PERSONAL_CONTEXT ? null : p.context;
     const actorArr = ev.actorId ? [ev.actorId] : [];
     const rows = await tx.$queryRaw<{ id: string; collapse_count: number }[]>`
       INSERT INTO notifications (id, event_id, user_id, workspace_id, type, service, priority, reason, collapse_key, collapse_count, actor_ids,
                                  seen_at, read_at, archived_at, saved_at, snoozed_until, sort_at, created_at, updated_at)
-      VALUES (${id}, ${ev.id}, ${p.userId}, ${workspaceId}, ${ev.type}, ${def.service}, ${def.priority}, ${ev.reason}, ${collapseKey}, 1, ${actorArr}::text[],
+      VALUES (${id}::uuid, ${ev.id}::uuid, ${p.userId}::uuid, ${workspaceId}::uuid, ${ev.type}, ${def.service}, ${def.priority}, ${ev.reason}, ${collapseKey}, 1, ${actorArr}::uuid[],
               NULL, NULL, NULL, NULL, NULL, ${utcTs(now)}, ${utcTs(ev.createdAt)}, ${utcTs(now)})
       ON CONFLICT (user_id, collapse_key) WHERE read_at IS NULL AND archived_at IS NULL
       DO UPDATE SET
         event_id = EXCLUDED.event_id,
         collapse_count = notifications.collapse_count + 1,
         actor_ids = CASE
-          WHEN ${ev.actorId}::text IS NULL OR ${ev.actorId}::text = ANY(notifications.actor_ids) THEN notifications.actor_ids
-          ELSE array_append(notifications.actor_ids, ${ev.actorId}::text)
+          WHEN ${ev.actorId}::uuid IS NULL OR ${ev.actorId}::uuid = ANY(notifications.actor_ids) THEN notifications.actor_ids
+          ELSE array_append(notifications.actor_ids, ${ev.actorId}::uuid)
         END,
         reason = COALESCE(EXCLUDED.reason, notifications.reason),
         priority = EXCLUDED.priority,
@@ -494,19 +503,34 @@ export class NotificationsFanout implements OnModuleInit {
   private async queueChatDeliveries(ev: EventRow, chatIds: string[]): Promise<void> {
     const live = !!this.channels.chat();
     const ids: bigint[] = [];
-    await this.db.$transaction(async (tx) => {
+    await this.withDeliveryPartition(ev.createdAt, () => this.db.$transaction(async (tx) => {
+      ids.length = 0;
       for (const chatId of chatIds) {
         const rows = await tx.$queryRaw<{ id: bigint }[]>`
           INSERT INTO notification_deliveries (event_id, recipient, user_id, channel, status, skip_reason, scheduled_at, created_at)
-          VALUES (${ev.id}, ${`chat:${chatId}`}, NULL, 'chat', ${live ? 'queued' : 'skipped'}, ${live ? null : 'driver_not_configured'}, ${utcTs(new Date())}, ${utcTs(new Date())})
-          ON CONFLICT (event_id, recipient, channel) DO NOTHING
+          VALUES (${ev.id}::uuid, ${`chat:${chatId}`}, NULL, 'chat', ${live ? 'queued' : 'skipped'}, ${live ? null : 'driver_not_configured'}, ${utcTs(new Date())}, ${utcTs(ev.createdAt)})
+          ON CONFLICT (event_id, recipient, channel, created_at) DO NOTHING
           RETURNING id
         `;
         if (rows.length && live) ids.push(rows[0].id);
       }
       for (const id of ids) {
-        await this.jobs.enqueue(tx, { type: NOTIFICATION_JOBS.deliverChat, payload: { deliveryId: id.toString() } });
+        await this.jobs.enqueue(tx, { type: NOTIFICATION_JOBS.deliverChat, payload: { deliveryId: id.toString(), at: ev.createdAt.toISOString() } });
       }
-    }, NOTIFICATION_FANOUT_TX);
+    }, NOTIFICATION_FANOUT_TX));
+  }
+
+  /**
+   * Журнал доставок партиционирован по месяцу момента события: месяц без партиции (ночной
+   * крон не успел, событие на стыке месяцев) — завести функцией владельца и повторить один раз.
+   */
+  private async withDeliveryPartition<T>(at: Date, run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (err) {
+      if (!LifecyclePartitions.isMissingPartition(err)) throw err;
+      await this.partitions.ensureFor('public.notification_deliveries', at);
+      return run();
+    }
   }
 }

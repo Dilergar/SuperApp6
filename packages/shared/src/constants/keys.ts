@@ -30,8 +30,6 @@ export const KEYS_LIMITS = {
   lastUsedFlushSec: 60,
   /** Кэш результата проверки ключа, секунд */
   keyCacheSec: 60,
-  /** Ретеншн журнала обращений ключей, дней */
-  accessLogRetentionDays: 90,
   /** Отказов 401/403 на связку IP+префикс ключа за час до блокировки (модель Discord) */
   authFailPerHour: 50,
   /** Потолок обращений одного ключа в минуту (троттлер по ключу, Redis-корзина минуты) */
@@ -141,8 +139,8 @@ export const WEBHOOK_LIMITS = {
   maxPayloadBytes: 64 * 1024,
   /** Аудит битой подписью: раз в сутки (модель Discord) */
   probeIntervalHours: 24,
-  /** Ретеншн доставок, дней */
-  deliveryRetentionDays: 30,
+  /** Тело доставки хранится столько дней, дальше — только его sha256 (минимизация ПДн; строка живёт по сроку реестра `WebhookDelivery`) */
+  bodyRetentionDays: 7,
   /** Событий на endpoint не больше */
   maxEventsPerEndpoint: 100,
   /** Показ последних доставок в карточке */

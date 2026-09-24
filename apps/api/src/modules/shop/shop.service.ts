@@ -457,7 +457,7 @@ export class ShopService implements OnModuleInit {
     // Лимит + линковка под блокировкой строки лота: конкурентные attach'и сериализуются
     // (иначе оба читают count=9<10 и оба линкуют → 11 фото).
     await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "listings" WHERE id = ${listingId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM "listings" WHERE id = ${listingId}::uuid FOR UPDATE`;
       // Через API движка (countLinkedInTx), не прямым чтением file_links — carve-out закрыт.
       const count = await this.files.countLinkedInTx(tx, 'listing', listingId, 'gallery');
       if (count >= SHOP_LIMITS.maxListingImages) {
@@ -722,7 +722,7 @@ export class ShopService implements OnModuleInit {
 
     const order = await this.db.$transaction(async (tx) => {
       // Serialise concurrent pledges on this campaign so two contributors can't overfill a currency.
-      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${campaignId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${campaignId}::uuid FOR UPDATE`;
       const campaign = await tx.order.findUnique({ where: { id: campaignId }, include: ORDER_INCLUDE });
       if (!campaign || campaign.status !== 'funding') throw badRequest('shop.campaignClosed');
       if (campaign.contributions.some((c) => c.contributorId === contributorId)) {
@@ -782,7 +782,7 @@ export class ShopService implements OnModuleInit {
       // Same campaign row lock as contribute(): a withdraw can't race the goal-reaching pledge
       // (otherwise the campaign flips to 'pending' while a leg is being released → owner confirms
       // an under-funded campaign).
-      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
       const fresh = await tx.order.findUnique({ where: { id: orderId }, include: { contributions: true } });
       if (!fresh || fresh.status !== 'funding') {
         throw badRequest('shop.campaignClosedWithdraw');
@@ -1723,14 +1723,14 @@ export class ShopService implements OnModuleInit {
 
   /** Atomically reserve one unit of stock (oversell-safe; null limit = ∞). Throws when sold out. */
   private async reserveStock(tx: Prisma.TransactionClient, listingId: string): Promise<void> {
-    const n = await tx.$executeRaw`UPDATE "listings" SET "stock_sold" = "stock_sold" + 1 WHERE "id" = ${listingId} AND ("stock_limit" IS NULL OR "stock_sold" < "stock_limit")`;
+    const n = await tx.$executeRaw`UPDATE "listings" SET "stock_sold" = "stock_sold" + 1 WHERE "id" = ${listingId}::uuid AND ("stock_limit" IS NULL OR "stock_sold" < "stock_limit")`;
     if (n === 0) throw badRequest('shop.soldOut');
   }
 
   /** Release one reserved unit (cancel / reject / refund / expiry). Guarded so it never goes below 0. */
   private async restoreStock(tx: Prisma.TransactionClient, listingId: string | null): Promise<void> {
     if (!listingId) return;
-    await tx.$executeRaw`UPDATE "listings" SET "stock_sold" = "stock_sold" - 1 WHERE "id" = ${listingId} AND "stock_sold" > 0`;
+    await tx.$executeRaw`UPDATE "listings" SET "stock_sold" = "stock_sold" - 1 WHERE "id" = ${listingId}::uuid AND "stock_sold" > 0`;
   }
 
   // ============================================================

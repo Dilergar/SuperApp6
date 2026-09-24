@@ -52,8 +52,8 @@
     "chatLoading": "Loading the chat…",
     "circleExecutor": "Assignee: Group «{name}»",
     "deleteConfirm": {
-      "message": "The task and its chat will disappear for every participant. This cannot be undone.",
-      "title": "Delete the task?"
+      "message": "The task and its subtasks will disappear for every participant; frozen rewards go back to you. You can restore it from the trash within {days} days.",
+      "title": "Move the task to the trash?"
     },
     "due": "Due date",
     "forward": "Forward to a chat",
@@ -72,7 +72,8 @@
     "rewardEach": "Reward (to each)",
     "submit": "Submit for review",
     "submittedWaiting": "Submitted — waiting for the Assigner to accept it",
-    "take": "Take into work"
+    "take": "Take into work",
+    "trashed": "The task is in the trash"
   },
   "inbox": {
     "actionFailed": "It did not work — try again",
@@ -206,6 +207,10 @@
       "empty": "Nothing planned yet",
       "emptyHint": "Tasks due in the future will show up here",
       "title": "Upcoming"
+    },
+    "trash": {
+      "title": "Trash",
+      "description": "Tasks you deleted"
     }
   },
   "status": {
@@ -214,5 +219,13 @@
     "in_progress": "In progress",
     "on_review": "In review",
     "todo": "To do"
+  },
+  "trash": {
+    "hint": "Tasks are kept here for {days} days — restore returns them to every participant together with the subtasks. After that they are deleted for good together with the chat and the attachments.",
+    "subtasks": "{count, plural, one {# subtask} other {# subtasks}}",
+    "purgeConfirm": {
+      "title": "Delete «{name}» for good?",
+      "message": "The task, its subtasks, chat and attachments will be deleted. This cannot be undone."
+    }
   }
 }

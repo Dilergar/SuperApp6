@@ -8,7 +8,7 @@
   "defaultTitle": "Recording {date} {time}",
   "delete": {
     "failed": "Could not delete: {error}",
-    "message": "The audio and the transcript will be gone for good.",
+    "message": "The recording goes to the trash — you can restore it within {days} days. After that the audio and the transcript are deleted for good.",
     "title": "Delete the recording «{title}»?"
   },
   "empty": {
@@ -57,5 +57,15 @@
   "upload": {
     "hint": "mp3 / m4a / wav / ogg / webm / flac · up to {size}",
     "label": "Upload a recording"
+  },
+  "trash": {
+    "breadcrumb": "Recorder",
+    "title": "Trash",
+    "description": "Recordings you deleted",
+    "hint": "Recordings are kept here for {days} days together with the audio and the transcript.",
+    "purgeConfirm": {
+      "title": "Delete «{name}» for good?",
+      "message": "The audio and the transcript will be gone for good."
+    }
   }
 }

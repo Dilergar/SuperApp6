@@ -269,7 +269,9 @@
       "returned": "The work was sent back for rework",
       "reward_changed": "{actorName} changed the reward: {from} → {to}",
       "submitted": "{actorName} submitted the work for review",
-      "title_changed": "{actorName} renamed the task: «{from}» → «{to}»"
+      "title_changed": "{actorName} renamed the task: «{from}» → «{to}»",
+      "trashed": "{actorName} moved the task to the trash",
+      "restored": "{actorName} restored the task from the trash"
     },
     "visibility_policy": {
       "published": "{actorName} published visibility rules «{typeLabel}», version {version}"

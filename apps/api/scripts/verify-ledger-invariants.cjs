@@ -84,7 +84,7 @@ async function main() {
     check('invariant после выплат: Σ = 0', (await sumAccounts(curId)) === 0n, `Σ=${await sumAccounts(curId)}`);
     check('нет отрицательных пользовательских балансов', (await minUserBalance(curId)) >= 0n, `min=${await minUserBalance(curId)}`);
   } finally {
-    for (const id of tasks) await call('DELETE', `/tasks/${id}`, t1).catch(() => {});
+    for (const id of tasks) await call('POST', `/tasks/${id}/trash`, t1, {}).then(() => call('DELETE', `/tasks/${id}`, t1)).catch(() => {});
     await call('DELETE', '/wallet/currency', t1).catch(() => {});
     if (curId) {
       check('после удаления валюты: Σ = 0', (await sumAccounts(curId)) === 0n, `Σ=${await sumAccounts(curId)}`);

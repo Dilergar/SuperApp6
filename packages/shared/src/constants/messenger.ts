@@ -42,6 +42,8 @@ export const SYSTEM_MESSAGE_EVENTS = [
   'task.returned',
   'task.completed',
   'task.cancelled',
+  'task.trashed',
+  'task.restored',
   'task.deadline_changed',
   'task.priority_changed',
   'task.reward_changed',

@@ -21,7 +21,7 @@ const check = (n, ok, extra) => { console.log(`${ok ? '✓' : '✗ FAIL'}  ${n}$
 async function call(method, p, token, body) {
   const res = await fetch(BASE + p, { method, headers: { 'Content-Type': 'application/json', 'Idempotency-Key': require('crypto').randomUUID(), 'X-Locale': process.env.SA6_SUITE_LOCALE || 'ru', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
   let json = null; try { json = await res.json(); } catch {}
-  return { status: res.status, ok: res.ok, json };
+  return { status: res.status, ok: res.ok, json, code: json?.details?.code };
 }
 const login = async (phone) => (await call('POST', '/auth/login', null, { phone, password: PW })).json.data.accessToken;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -173,7 +173,7 @@ async function main() {
 
     const foreignPatch = await call('PATCH', `/recorder/recordings/${recId}`, t2, { title: 'взлом' });
     check('чужой PATCH → 403', foreignPatch.status === 403, `status ${foreignPatch.status}`);
-    const foreignDel = await call('DELETE', `/recorder/recordings/${recId}`, t2);
+    const foreignDel = await call('POST', `/recorder/recordings/${recId}/trash`, t2, {}).then(() => call('DELETE', `/recorder/recordings/${recId}`, t2));
     check('чужой DELETE → 403', foreignDel.status === 403, `status ${foreignDel.status}`);
 
     const renamed = await call('PATCH', `/recorder/recordings/${recId}`, t1, { title: 'Планёрка (переименована)' });
@@ -203,8 +203,27 @@ async function main() {
       check('чужой файл Диктофона → запрос 403/404', strangerReq.status === 403 || strangerReq.status === 404, `status ${strangerReq.status}`);
     }
 
+    // ---------- 5a. Корзина: скрытие, восстановление, «навсегда» только из корзины ----------
+    const live = await call('DELETE', `/recorder/recordings/${recId}`, t1);
+    check('«навсегда» живой записи — отказ (сначала в корзину)', live.status === 400 && live.code === 'recorder.trashFirst', `${live.status} ${live.code}`);
+    const trashed = await call('POST', `/recorder/recordings/${recId}/trash`, t1, {});
+    check('запись ушла в корзину', trashed.ok, `status ${trashed.status}`);
+    const listT = await call('GET', '/recorder/recordings', t1);
+    check('в ленте записи в корзине нет', listT.ok && !listT.json.data.some((r) => r.id === recId));
+    const trashList = await call('GET', '/recorder/trash', t1);
+    const inTrash = trashList.json?.data?.find?.((r) => r.id === recId);
+    check('корзина показывает запись с файлом и датой окончательного удаления', !!inTrash && !!inTrash.file && !!inTrash.purgeAt, JSON.stringify(inTrash ? { file: !!inTrash.file, purgeAt: inTrash.purgeAt } : null));
+    const linksKept = await prisma.fileLink.count({ where: { refType: 'voice_recording', refId: recId } });
+    check('файл записи в корзине привязан (восстановимо)', linksKept === 1, `links ${linksKept}`);
+    const renameTrashed = await call('PATCH', `/recorder/recordings/${recId}`, t1, { title: 'в корзине' });
+    check('переименовать запись в корзине нельзя (404)', renameTrashed.status === 404, `status ${renameTrashed.status}`);
+    const restored = await call('POST', `/recorder/recordings/${recId}/restore`, t1, {});
+    check('запись восстановлена', restored.ok && restored.json?.data?.id === recId, `status ${restored.status}`);
+    const listR = await call('GET', '/recorder/recordings', t1);
+    check('восстановленная запись снова в ленте', listR.ok && listR.json.data.some((r) => r.id === recId));
+
     // ---------- 5. Удаление записи: связи сняты, файл прибран, транскрипт удалён ----------
-    const del = await call('DELETE', `/recorder/recordings/${recId}`, t1);
+    const del = await call('POST', `/recorder/recordings/${recId}/trash`, t1, {}).then(() => call('DELETE', `/recorder/recordings/${recId}`, t1));
     check('владелец удалил запись', del.ok, `status ${del.status}`);
     const linksLeft = await prisma.fileLink.count({ where: { refType: 'voice_recording', refId: recId } });
     check('fileLink снят', linksLeft === 0, `осталось ${linksLeft}`);
@@ -219,7 +238,7 @@ async function main() {
     const rec2 = await call('POST', '/recorder/recordings', t1, { fileId: voiceFileId, title: 'Из чат-голосового' });
     check('запись из чат-голосового создана (шаренный файл)', rec2.ok, `status ${rec2.status}`);
     if (rec2.ok) {
-      const del2 = await call('DELETE', `/recorder/recordings/${rec2.json.data.id}`, t1);
+      const del2 = await call('POST', `/recorder/recordings/${rec2.json.data.id}/trash`, t1, {}).then(() => call('DELETE', `/recorder/recordings/${rec2.json.data.id}`, t1));
       check('удаление записи с шаренным файлом ок', del2.ok, `status ${del2.status}`);
       const sharedFile = await prisma.fileObject.findUnique({ where: { id: voiceFileId }, select: { status: true } });
       check('файл чат-голосового жив (линк чата остался)', sharedFile?.status === 'ready', sharedFile?.status);

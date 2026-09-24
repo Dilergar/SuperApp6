@@ -76,6 +76,13 @@ export class TasksController {
     return { success: true, data: stats };
   }
 
+  @Get('trash')
+  @ApiOperation({ summary: 'My trash: tasks I moved there (restorable for 30 days)' })
+  async getTrash(@CurrentUser() user: JwtPayload, @Query('workspaceId') workspaceId?: string) {
+    const data = await this.tasksService.listTrash(user.sub, workspaceId === undefined ? undefined : workspaceId === 'null' ? null : workspaceId);
+    return { success: true, data };
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'A task with its participants, subtasks and progress' })
   async getTask(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
@@ -118,12 +125,28 @@ export class TasksController {
     return { success: true, data: task };
   }
 
+  @Post(':id/trash')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'To the trash (assigner only): hidden for everyone with its subtasks, frozen rewards go back' })
+  async trashTask(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.tasksService.trashTask(user.sub, id);
+    return { success: true, data: { ok: true } };
+  }
+
+  @Post(':id/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Restore from the trash (assigner only)' })
+  async restoreTask(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    const task = await this.tasksService.restoreTask(user.sub, id);
+    return { success: true, data: task };
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Delete a task (assigner only)' })
-  async deleteTask(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    await this.tasksService.deleteTask(user.sub, id);
-    return { success: true };
+  @ApiOperation({ summary: 'Delete for good (from the trash only, assigner only)' })
+  async purgeTask(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.tasksService.purgeTask(user.sub, id);
+    return { success: true, data: { ok: true } };
   }
 
   // ---- Acceptance flow ----

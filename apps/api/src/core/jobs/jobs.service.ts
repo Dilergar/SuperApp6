@@ -4,6 +4,7 @@ import { JOB_LIMITS, JobStatsDto, JobStatus } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
 import { EventBusService } from '../../shared/events/event-bus.service';
+import { conflict } from '../../shared/errors/api-error';
 import { JobDiscardError, JobSnoozeError, JobsRegistry, JobTypeDef } from './jobs.registry';
 
 type Tx = Prisma.TransactionClient;
@@ -440,7 +441,7 @@ export class JobsService {
    */
   async purgeUnhandled(type: string): Promise<number> {
     if (this.registry.get(type)) {
-      throw new Error(`type "${type}" IS registered on this instance — there is nothing to clean up`);
+      throw conflict('dev.jobTypeRegistered');
     }
     // ТОЛЬКО available: `executing` не трогаем, потому что «нет обработчика ЗДЕСЬ» не
     // значит «нет нигде» — при мульти-инстансе или раскатке релиза этот джоб прямо
@@ -466,7 +467,7 @@ export class JobsService {
    * первый прогон после накопленного бэклога иначе снёс бы сотни тысяч строк одним
    * DELETE (WAL-всплеск, длинная блокировка индекса) — правило платформы из скейл-ревью.
    */
-  async pruneTerminal(): Promise<void> {
+  async pruneTerminal(): Promise<{ completed: number; discarded: number }> {
     const completedBefore = new Date(Date.now() - JOB_LIMITS.completedRetentionDays * 86_400_000);
     const discardedBefore = new Date(Date.now() - JOB_LIMITS.discardedRetentionDays * 86_400_000);
     const prune = async (statuses: JobStatus[], before: Date): Promise<number> => {
@@ -486,6 +487,26 @@ export class JobsService {
     const a = await prune(['completed'], completedBefore);
     const b = await prune(['discarded', 'cancelled'], discardedBefore);
     if (a + b > 0) this.logger.log(`pruned ${a} completed + ${b} discarded/cancelled job(s)`);
+    return { completed: a, discarded: b };
+  }
+
+  /**
+   * REINDEX CONCURRENTLY таблицы очереди (вне транзакции — сырой запрос Prisma исполняется
+   * вне неё). Оборванный прошлый прогон оставляет невалидные индексы-дубли `*_ccnew*` —
+   * они пишутся при каждой вставке, но не читаются: сперва убираем их, потом перестраиваем.
+   */
+  async reindexQueue(): Promise<void> {
+    const started = Date.now();
+    const leftovers = await this.db.$queryRaw<Array<{ name: string }>>`
+      SELECT c.relname AS name FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indexrelid
+      WHERE i.indrelid = 'jobs'::regclass AND NOT i.indisvalid AND c.relname ~ '_ccnew[0-9]*$'`;
+    for (const l of leftovers) {
+      if (!/^[a-z0-9_]+$/.test(l.name)) continue;
+      await this.db.$executeRawUnsafe(`DROP INDEX CONCURRENTLY IF EXISTS "${l.name}"`);
+    }
+    await this.db.$executeRawUnsafe('REINDEX TABLE CONCURRENTLY "jobs"');
+    this.logger.log(`jobs queue reindexed concurrently in ${Math.round((Date.now() - started) / 1000)}s (${leftovers.length} leftover index(es) dropped)`);
   }
 
   /**

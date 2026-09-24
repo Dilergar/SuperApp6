@@ -99,9 +99,19 @@ export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
               { key: 'tasks-review', labelKey: 'nav.tasksReview', icon: 'eye', href: '/tasks/review', badge: c.tasksReview },
               { key: 'tasks-all', labelKey: 'nav.tasksAll', icon: 'list', href: '/tasks/all' },
               { key: 'tasks-done', labelKey: 'nav.tasksDone', icon: 'check', href: '/tasks/done' },
+              { key: 'tasks-trash', labelKey: 'nav.tasksTrash', icon: 'delete', href: '/tasks/trash' },
             ],
           },
-          { key: 'calendar', labelKey: 'nav.calendar', icon: 'calendar', href: '/calendar' },
+          {
+            key: 'calendar',
+            labelKey: 'nav.calendar',
+            icon: 'calendar',
+            href: '/calendar',
+            children: [
+              { key: 'calendar-main', labelKey: 'nav.calendarMain', icon: 'calendar', href: '/calendar', exact: true },
+              { key: 'calendar-trash', labelKey: 'nav.calendarTrash', icon: 'delete', href: '/calendar/trash' },
+            ],
+          },
           {
             key: 'finance',
             labelKey: 'nav.finance',
@@ -137,7 +147,16 @@ export function buildPersonalNav(c: AppNavCounters = {}): AppNavConfig {
           // КЭДО: личный архив кадровых документов — бессрочный, переживает
           // увольнение и закрытие компании (PersonalDocRecord)
           { key: 'my-documents', labelKey: 'nav.myDocuments', icon: 'file', href: '/my-documents' },
-          { key: 'recorder', labelKey: 'nav.recorder', icon: 'recorder', href: '/recorder' },
+          {
+            key: 'recorder',
+            labelKey: 'nav.recorder',
+            icon: 'recorder',
+            href: '/recorder',
+            children: [
+              { key: 'recorder-main', labelKey: 'nav.recorderMain', icon: 'recorder', href: '/recorder', exact: true },
+              { key: 'recorder-trash', labelKey: 'nav.recorderTrash', icon: 'delete', href: '/recorder/trash' },
+            ],
+          },
         ],
       },
     ],

@@ -56,12 +56,12 @@ const read = (f) => fs.readFileSync(f, 'utf8');
  * позже. Каждая строка — с этапом; этап сдан → строки нет. Пустые списки — цель.
  */
 const PENDING = {
-  /** Корневые сущности без мягкого скрытия — `+deletedAt` и корзина 30 дней (Э2) */
-  softDelete: { Task: 'Э2', CalendarEvent: 'Э2', VoiceRecording: 'Э2' },
-  /** Таблицы под drop_partition, ещё не партиционированные (Э2) */
-  partition: { NotificationDelivery: 'Э2', WebhookDelivery: 'Э2' },
-  /** Индексы, ведущие колонкой времени/владельца, для batched_delete (Э2) */
-  index: { Session: 'Э2', PlatformCommandRequest: 'Э2' },
+  /** Корневые сущности без мягкого скрытия — `+deletedAt` и корзина 30 дней */
+  softDelete: {},
+  /** Таблицы под drop_partition, ещё не партиционированные */
+  partition: {},
+  /** Индексы, ведущие колонкой времени/владельца, для batched_delete */
+  index: {},
   /** Обработчики purge (`handler`) и хуки удаления организации — регистрируются в API */
   hook: {
     'access.tuples': 'Э3',
@@ -98,6 +98,8 @@ const PENDING = {
     'notes.trash': 'Э3',
     'recorder.trash': 'Э3',
     'lifecycle.exports': 'Э6',
+    'lifecycle.hold-store': 'Э4',
+    'lifecycle.erasure-requests': 'Э4',
   },
 };
 
@@ -163,7 +165,7 @@ for (const m of schemaTxt.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)) {
     if (!line) continue;
     if (line.startsWith('@@')) {
       const im = line.match(/^@@(id|unique|index)\(\s*\[([^\]]+)\]/);
-      if (im) indexes.push({ kind: im[1], fields: im[2].split(',').map((s) => s.trim().replace(/\(.*$/, '')) });
+      if (im) indexes.push({ kind: im[1], fields: im[2].split(',').map((s) => s.trim().replace(/\(.*$/, '')), brin: /type:\s*Brin\b/.test(line) });
       continue;
     }
     const fm = line.match(/^(\w+)\s+([\w]+)(\[\])?(\?)?(.*)$/);
@@ -495,6 +497,8 @@ for (const id of byStore('model')) {
   if (oc && oc !== 'id') {
     for (const ix of model.indexes) {
       if (ix.kind === 'id') continue;
+      // BRIN — сводка физического порядка журнала: пути к строке не задаёт, в ячейке — свой
+      if (ix.brin) continue;
       if (ix.fields[0] !== oc && !(p.ownerKey.kind === 'polymorphic' && ix.fields[0] === p.ownerKey.typeColumn)) readiness.indexNotOwnerLed.push(`${id}(${ix.fields.join(',')})`);
     }
   }

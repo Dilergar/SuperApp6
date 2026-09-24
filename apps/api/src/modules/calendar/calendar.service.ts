@@ -31,6 +31,7 @@ import type {
   CalendarRangeResponse,
   CalendarEvent as CalendarEventDto,
   CalendarEventDetail,
+  CalendarEventTrashItem,
   CalendarEventVisibility,
   CalendarAccessLevel,
   CalendarLayer,
@@ -149,9 +150,9 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       if (claimed.count !== 1) return null; // строка удалена правкой / уже отправлено
       const r = await tx.calendarEventReminder.findUnique({
         where: { id: reminderId },
-        include: { event: { select: { id: true, title: true } } },
+        include: { event: { select: { id: true, title: true, deletedAt: true } } },
       });
-      if (!r) return null;
+      if (!r || r.event.deletedAt) return null;
       // Протухшее напоминание (долгий простой/ремонт) — строку закрываем, уведомление нет.
       if (Date.now() - +r.fireAt > REMINDER_MAX_LATENESS_MS) return null;
       const payload = {
@@ -272,6 +273,8 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
         select: { eventId: true },
       });
       const mineWhere = {
+        // Событие в корзине не видно никому (его показывает только список корзины)
+        deletedAt: null,
         OR: [{ userId }, { id: { in: myParticipations.map((p) => p.eventId) } }],
       };
       const masters = await this.db.calendarEvent.findMany({
@@ -344,6 +347,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
 
         const where = {
           userId: ownerId,
+          deletedAt: null,
           visibility: { not: 'hidden' },
           NOT: { participants: { some: { userId } } }, // dedupe events I'm invited to
         };
@@ -569,19 +573,19 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     id: string,
     opts?: { editScope?: 'this' | 'this_and_following' | 'all'; occurrenceStart?: string },
   ): Promise<void> {
-    const row = await this.ownedEvent(userId, id);
     const scope = opts?.editScope ?? 'all';
-    const master = row.recurrenceParentId
-      ? await this.ownedEvent(userId, row.recurrenceParentId)
-      : row;
-
-    if (scope === 'all' || (!master.recurrenceRule && !row.recurrenceParentId)) {
-      const gid = master.googleEventId;
-      await this.notifyParticipants(master.id, master.title, 'calendar.event.cancelled', userId);
-      await this.db.calendarEvent.delete({ where: { id: master.id } }); // cascades overrides, reminders, participants
-      if (gid) this.events.emit('google.push', { userId, op: 'delete', googleEventId: gid }, 'calendar');
+    const any = await this.ownedEvent(userId, id, { includeTrashed: true });
+    const root = any.recurrenceParentId ? await this.ownedEvent(userId, any.recurrenceParentId, { includeTrashed: true }) : any;
+    if (scope === 'all' || (!root.recurrenceRule && !any.recurrenceParentId)) {
+      // Всё событие — навсегда, и только из корзины (`POST events/:id/trash` — первым шагом)
+      if (!root.deletedAt) throw badRequest('calendar.trashFirst');
+      await this.hardDeleteEvent(root);
       return;
     }
+    // Правка серии (исключить повтор / обрезать хвост) — только у живой серии
+    if (root.deletedAt) throw notFound('calendar.eventNotFound');
+    const row = any;
+    const master = root;
 
     if (!opts?.occurrenceStart) {
       throw badRequest('calendar.occurrenceStartDelete');
@@ -611,10 +615,99 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     this.events.emit('google.push', { userId, eventId: master.id, op: 'upsert' }, 'calendar');
   }
 
+  // ============================================================
+  // Корзина (мягкое скрытие 30 дней, по образцу Заметок и Диска)
+  // ============================================================
+
+  /**
+   * В корзину — организатор. Событие (вся серия с её исключениями) скрывается у всех:
+   * участникам — «отменено» (строка жива, поэтому уведомление доходит: прежнее удаление
+   * стирало строку раньше, чем фанаут проверял право видеть, и отмена не доходила
+   * никому), напоминания снимаются, бронь ресурса отпускается сразу (слот нужен другим),
+   * копия в Google удаляется. Восстановление — restoreEvent.
+   */
+  async trashEvent(userId: string, id: string): Promise<void> {
+    const any = await this.ownedEvent(userId, id, { includeTrashed: true });
+    const master = any.recurrenceParentId ? await this.ownedEvent(userId, any.recurrenceParentId, { includeTrashed: true }) : any;
+    if (master.deletedAt) return;
+    const at = new Date();
+    const trashed = await this.db.$transaction(async (tx) => {
+      const r = await tx.calendarEvent.updateMany({
+        where: { OR: [{ id: master.id }, { recurrenceParentId: master.id }], deletedAt: null },
+        data: { deletedAt: at, resourceId: null, resourceStatus: null },
+      });
+      if (r.count === 0) return false;
+      const ids = (await tx.calendarEvent.findMany({ where: { OR: [{ id: master.id }, { recurrenceParentId: master.id }] }, select: { id: true } })).map((e) => e.id);
+      await tx.calendarEventReminder.deleteMany({ where: { eventId: { in: ids }, sentAt: null } });
+      return true;
+    });
+    if (!trashed) return;
+    await this.notifyParticipants(master.id, master.title, 'calendar.event.cancelled', userId);
+    if (master.googleEventId) this.events.emit('google.push', { userId, op: 'delete', googleEventId: master.googleEventId }, 'calendar');
+  }
+
+  /**
+   * Вернуть из корзины — организатор. Серия возвращается с исключениями, ушедшими с ней;
+   * напоминания пересобираются, участники получают «событие изменено» (оно снова в их
+   * календаре), Google получает событие заново. Бронь ресурса не возвращается (её
+   * отпустили при скрытии) — ресурс бронируется правкой события.
+   */
+  async restoreEvent(userId: string, id: string): Promise<CalendarEventDetail> {
+    const any = await this.ownedEvent(userId, id, { includeTrashed: true });
+    const master = any.recurrenceParentId ? await this.ownedEvent(userId, any.recurrenceParentId, { includeTrashed: true }) : any;
+    if (!master.deletedAt) return this.getEventDetail(userId, master.id);
+    await this.db.calendarEvent.updateMany({
+      where: { OR: [{ id: master.id }, { recurrenceParentId: master.id }], deletedAt: master.deletedAt },
+      data: { deletedAt: null },
+    });
+    const fresh = await this.db.calendarEvent.findUnique({ where: { id: master.id } });
+    if (fresh) await this.remassializeAll(fresh);
+    await this.notifyParticipants(master.id, master.title, 'calendar.event.updated', userId);
+    this.events.emit('google.push', { userId, eventId: master.id, op: 'upsert' }, 'calendar');
+    return this.getEventDetail(userId, master.id);
+  }
+
+  /** Корзина организатора: серии и одиночные события, новые сверху. */
+  async listTrash(userId: string): Promise<CalendarEventTrashItem[]> {
+    const rows = await this.db.calendarEvent.findMany({
+      where: { userId, recurrenceParentId: null, deletedAt: { not: null } },
+      select: { id: true, title: true, startTime: true, endTime: true, allDay: true, recurrenceRule: true, deletedAt: true },
+      orderBy: { deletedAt: 'desc' },
+      take: CALENDAR_LIMITS.trashPageSize,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      startTime: r.startTime.toISOString(),
+      endTime: r.endTime.toISOString(),
+      allDay: r.allDay,
+      recurring: !!r.recurrenceRule,
+      deletedAt: r.deletedAt!.toISOString(),
+      purgeAt: new Date(r.deletedAt!.getTime() + CALENDAR_LIMITS.trashRetentionDays * MS_PER_DAY).toISOString(),
+    }));
+  }
+
+  /** Корзина старше срока — навсегда (крон под Redis-локом; раннер purge core/lifecycle). */
+  async purgeExpired(cutoff: Date): Promise<number> {
+    const rows = await this.db.calendarEvent.findMany({
+      where: { recurrenceParentId: null, deletedAt: { lt: cutoff } },
+      take: CALENDAR_LIMITS.purgeBatch,
+    });
+    for (const r of rows) await this.hardDeleteEvent(r);
+    return rows.length;
+  }
+
+  /** Окончательное удаление: строка (исключения, напоминания, участники — каскадом FK). */
+  private async hardDeleteEvent(master: CalEventRow): Promise<void> {
+    await this.db.calendarEvent.delete({ where: { id: master.id } });
+    // Копию в Google сняли при скрытии; повтор безвреден (удалённое там — no-op)
+    if (master.googleEventId) this.events.emit('google.push', { userId: master.userId, op: 'delete', googleEventId: master.googleEventId }, 'calendar');
+  }
+
   /** Full event detail (for the editor/card): owner & participants only. */
   async getEventDetail(viewerId: string, eventId: string): Promise<CalendarEventDetail> {
     const event = await this.db.calendarEvent.findUnique({
-      where: { id: eventId },
+      where: { id: eventId, deletedAt: null },
       include: { participants: true, resource: { select: { name: true, ownerId: true } } },
     });
     if (!event) throw notFound('calendar.eventNotFound');
@@ -725,6 +818,8 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   }
 
   async rsvp(userId: string, eventId: string, status: RsvpStatus): Promise<void> {
+    const alive = await this.db.calendarEvent.findUnique({ where: { id: eventId, deletedAt: null }, select: { id: true } });
+    if (!alive) throw notFound('calendar.eventNotFound');
     const p = await this.db.eventParticipant.findUnique({
       where: { eventId_userId: { eventId, userId } },
     });
@@ -764,7 +859,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   /** Organizer removes a participant, or a participant leaves themselves. */
   async removeParticipant(actorId: string, eventId: string, targetUserId: string): Promise<void> {
     const event = await this.db.calendarEvent.findUnique({
-      where: { id: eventId },
+      where: { id: eventId, deletedAt: null },
       select: { userId: true, title: true },
     });
     if (!event) throw notFound('calendar.eventNotFound');
@@ -785,7 +880,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
 
   /** Set the calling user's own reminders for an event (organizer's or a participant's). */
   async setMyReminders(userId: string, eventId: string, offsets: number[]): Promise<void> {
-    const event = await this.db.calendarEvent.findUnique({ where: { id: eventId } });
+    const event = await this.db.calendarEvent.findUnique({ where: { id: eventId, deletedAt: null } });
     if (!event) throw notFound('calendar.eventNotFound');
     if (event.userId === userId) {
       await this.db.calendarEvent.update({ where: { id: eventId }, data: { reminderOffsets: offsets } });
@@ -950,6 +1045,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     const events = await this.db.calendarEvent.findMany({
       where: {
         userId: { in: userIds },
+        deletedAt: null,
         OR: [
           {
             recurrenceRule: { not: null },
@@ -996,6 +1092,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     const events = await this.db.calendarEvent.findMany({
       where: {
         userId,
+        deletedAt: null,
         OR: [
           // single events overlapping now
           { recurrenceRule: null, startTime: { lte: now }, endTime: { gt: now } },
@@ -1252,6 +1349,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
         // (recurrenceEndsAt in the past) have nothing left to materialize.
         where: {
           recurrenceRule: { not: null },
+          deletedAt: null,
           OR: [{ recurrenceEndsAt: null }, { recurrenceEndsAt: { gte: new Date() } }],
         },
         orderBy: { id: 'asc' },
@@ -1296,8 +1394,8 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   // Helpers
   // ============================================================
 
-  private async ownedEvent(userId: string, id: string): Promise<CalEventRow> {
-    const event = await this.db.calendarEvent.findUnique({ where: { id } });
+  private async ownedEvent(userId: string, id: string, opts: { includeTrashed?: boolean } = {}): Promise<CalEventRow> {
+    const event = await this.db.calendarEvent.findUnique({ where: opts.includeTrashed ? { id } : { id, deletedAt: null } });
     if (!event) throw notFound('calendar.eventNotFound');
     if (event.userId !== userId) throw forbidden('calendar.eventNoAccess');
     return event;

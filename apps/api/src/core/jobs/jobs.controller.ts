@@ -63,6 +63,21 @@ export class JobsController {
     return { success: true, data: { purged: await this.jobs.purgeUnhandled(type) } };
   }
 
+  @Post('dev/prune')
+  @ApiOperation({ summary: 'Run the retention of terminal jobs now: completed after a day, discarded/cancelled after 30 days (development only)' })
+  async devPrune() {
+    this.assertDev();
+    return { success: true, data: await this.jobs.pruneTerminal() };
+  }
+
+  @Post('dev/reindex')
+  @ApiOperation({ summary: 'Run the weekly REINDEX CONCURRENTLY of the job queue now (development only)' })
+  async devReindex() {
+    this.assertDev();
+    await this.jobs.reindexQueue();
+    return { success: true, data: { reindexed: true } };
+  }
+
   @Post('dev/enqueue')
   @ApiOperation({ summary: 'Dev sandbox: enqueue a test job (inside a transaction; rollback=true rolls it back)' })
   async devEnqueue(@Body() body: unknown) {

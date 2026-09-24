@@ -144,7 +144,7 @@ export class AuditAlertsService {
     const evidence = JSON.stringify(ids);
     const rows = await this.db.$queryRaw<Array<{ id: string; fresh: boolean }>>`
       INSERT INTO security_alerts (id, kind, severity, dedupe_key, subject_user_id, workspace_id, ip_hmac, evidence, hits, status, opened_at, updated_at)
-      VALUES (${randomUUID()}, ${input.kind}, ${input.severity}, ${input.dedupeKey.slice(0, 300)},
+      VALUES (${randomUUID()}::uuid, ${input.kind}, ${input.severity}, ${input.dedupeKey.slice(0, 300)},
               ${input.subjectUserId ?? null}::uuid, ${input.workspaceId ?? null}::uuid, ${input.ipHmac ?? null},
               ${evidence}::jsonb, 1, 'open', ${utcTs(now)}, ${utcTs(now)})
       ON CONFLICT (kind, dedupe_key) WHERE status IN ('open', 'ack')

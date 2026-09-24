@@ -87,7 +87,7 @@ async function main() {
     for (const o of (mine.json?.data || [])) if (o.status === 'pending') await call('POST', `/shop/orders/${o.id}/cancel`, t1).catch(() => {});
     for (const id of showcases) await call('DELETE', `/shop/showcases/${id}`, t2).catch(() => {});
     for (const id of wishes) await call('DELETE', `/shop/wishes/${id}`, t1).catch(() => {});
-    for (const { id, t } of tasks) await call('DELETE', `/tasks/${id}`, t).catch(() => {});
+    for (const { id, t } of tasks) await call('POST', `/tasks/${id}/trash`, t, {}).then(() => call('DELETE', `/tasks/${id}`, t)).catch(() => {});
     await call('DELETE', '/wallet/currency', t2).catch(() => {});
     await call('DELETE', `/shop/wishes/shares/user/${u2}`, t1).catch(() => {});
     await prisma.$disconnect();

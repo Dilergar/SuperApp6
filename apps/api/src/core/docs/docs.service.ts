@@ -960,7 +960,9 @@ export class DocsService implements OnModuleInit {
     ];
 
     for (const link of await this.files.listLinksOfFile(doc.fileId)) {
-      if (link.refType === 'document' || !this.chatterRegistry.get(link.refType)) continue;
+      // `task.document_edited` — событие ЗАДАЧИ (плашка в чат задачи): узлу Диска и прочим
+      // местам файла оно не принадлежит (их хроника — `document.edited` самого документа)
+      if (link.refType !== 'task' || !this.chatterRegistry.get(link.refType)) continue;
       const recent = await this.chatter.hasRecent({
         refType: link.refType,
         refId: link.refId,

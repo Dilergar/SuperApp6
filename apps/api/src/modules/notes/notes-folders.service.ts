@@ -257,16 +257,16 @@ export class NotesFoldersService {
       // Потомки: новый префикс + хвост старого пути после переносимой папки
       await tx.$executeRaw`
         UPDATE "note_folders"
-           SET "ancestor_ids" = ${newAncestors}::text[] || "ancestor_ids"[${oldPrefixLen + 1}:],
+           SET "ancestor_ids" = ${newAncestors}::uuid[] || "ancestor_ids"[${oldPrefixLen + 1}:],
                "depth" = "depth" + ${newDepth - folder.depth}
-         WHERE "ancestor_ids" @> ARRAY[${folder.id}]::text[]`;
+         WHERE "ancestor_ids" @> ARRAY[${folder.id}]::uuid[]`;
       // Заметки в поддереве: путь = [папка] || предки папки
       await tx.$executeRaw`
         UPDATE "notes" n
-           SET "folder_path" = ARRAY[f."id"]::text[] || f."ancestor_ids"
+           SET "folder_path" = ARRAY[f."id"]::uuid[] || f."ancestor_ids"
           FROM "note_folders" f
          WHERE n."folder_id" = f."id"
-           AND (f."id" = ${folder.id} OR f."ancestor_ids" @> ARRAY[${folder.id}]::text[])`;
+           AND (f."id" = ${folder.id}::uuid OR f."ancestor_ids" @> ARRAY[${folder.id}]::uuid[])`;
       await this.log(tx, scope, folder.id, 'note.folder.moved', { targetName: folder.name, ...target });
     });
   }
@@ -322,11 +322,11 @@ export class NotesFoldersService {
     await tx.$executeRaw`
       UPDATE "note_folders"
          SET "ancestor_ids" = "ancestor_ids"[${oldPrefixLen + 1}:], "depth" = "depth" - ${folder.depth}
-       WHERE "ancestor_ids" @> ARRAY[${folder.id}]::text[]`;
+       WHERE "ancestor_ids" @> ARRAY[${folder.id}]::uuid[]`;
     await tx.$executeRaw`
-      UPDATE "notes" n SET "folder_path" = ARRAY[f."id"]::text[] || f."ancestor_ids"
+      UPDATE "notes" n SET "folder_path" = ARRAY[f."id"]::uuid[] || f."ancestor_ids"
         FROM "note_folders" f
-       WHERE n."folder_id" = f."id" AND (f."id" = ${folder.id} OR f."ancestor_ids" @> ARRAY[${folder.id}]::text[])`;
+       WHERE n."folder_id" = f."id" AND (f."id" = ${folder.id}::uuid OR f."ancestor_ids" @> ARRAY[${folder.id}]::uuid[])`;
   }
 
   /** Папки, пролежавшие в корзине дольше ретеншна (заметки внутри чистит purge заметок) */
@@ -344,8 +344,8 @@ export class NotesFoldersService {
       // мёртвые папки — чистим руками, иначе заметка «в корне» тащит призрачный путь.
       await tx.$executeRaw`
         UPDATE "notes"
-           SET "folder_path" = ARRAY(SELECT unnest("folder_path") EXCEPT SELECT unnest(${ids}::text[]))
-         WHERE "folder_path" && ${ids}::text[]`;
+           SET "folder_path" = ARRAY(SELECT unnest("folder_path") EXCEPT SELECT unnest(${ids}::uuid[]))
+         WHERE "folder_path" && ${ids}::uuid[]`;
       const res = await tx.noteFolder.deleteMany({ where: { id: { in: ids } } });
       return res.count;
     });

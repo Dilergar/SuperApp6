@@ -52,8 +52,9 @@ async function main() {
   // Чистый старт: у книги unique(owner) — сносим книги тестеров (cascade заберёт всё).
   const oldBooks = await prisma.finBook.findMany({ where: { ownerType: 'user', ownerId: { in: [u1, u2] } }, select: { id: true } });
   if (oldBooks.length) {
-    await prisma.finAuditLog.deleteMany({ where: { bookId: { in: oldBooks.map((b) => b.id) } } });
+    // Журнал книги append-only, пока книга жива (триггер core/lifecycle): сперва книга, потом её журнал
     await prisma.finBook.deleteMany({ where: { id: { in: oldBooks.map((b) => b.id) } } });
+    await prisma.finAuditLog.deleteMany({ where: { bookId: { in: oldBooks.map((b) => b.id) } } });
   }
 
   try {

@@ -292,8 +292,8 @@ export class AuditSessionsService {
       await this.db.session.updateMany({ where: { userId, familyId, revokedAt: null }, data: { lastSeenAt: now } });
       await this.db.$executeRaw`
         UPDATE user_devices SET last_seen_at = ${utcTs(now)}
-        WHERE user_id = ${userId} AND forgotten_at IS NULL
-          AND device_id = (SELECT device_id FROM sessions WHERE family_id = ${familyId} AND device_id IS NOT NULL LIMIT 1)`;
+        WHERE user_id = ${userId}::uuid AND forgotten_at IS NULL
+          AND device_id = (SELECT device_id FROM sessions WHERE family_id = ${familyId}::uuid AND device_id IS NOT NULL LIMIT 1)`;
     })().catch((err: unknown) => this.logger.debug(`session touch skipped: ${err instanceof Error ? err.message : String(err)}`));
   }
 

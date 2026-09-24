@@ -340,7 +340,7 @@ export class GoogleCalendarService implements OnModuleInit {
     const cal = await this.client(c);
 
     const localEvents = await this.db.calendarEvent.findMany({
-      where: { userId, recurrenceParentId: null },
+      where: { userId, recurrenceParentId: null, deletedAt: null },
     });
     for (const ev of localEvents) {
       try { await this.pushEventWith(cal, c, ev); } catch (e) { this.logger.warn(`push ${ev.id}: ${e instanceof Error ? e.message : e}`); }
@@ -357,7 +357,7 @@ export class GoogleCalendarService implements OnModuleInit {
     // Фоновая передача без живого согласия молча не делается (подключения прошлой эпохи ждут согласия)
     const acceptanceId = await this.consents.hasLive({ type: 'user', id: userId }, 'integration_google');
     if (!acceptanceId) return;
-    const ev = await this.db.calendarEvent.findUnique({ where: { id: eventId } });
+    const ev = await this.db.calendarEvent.findUnique({ where: { id: eventId, deletedAt: null } });
     if (!ev || ev.userId !== userId || ev.recurrenceParentId) return; // only own masters/standalone
     const cal = await this.client(c);
     try {
@@ -379,15 +379,21 @@ export class GoogleCalendarService implements OnModuleInit {
   private async pushEventWith(cal: calendar_v3.Calendar, c: GoogleConnection, ev: CalEventRow): Promise<void> {
     const body = this.toGoogleEvent(ev);
     if (ev.googleEventId) {
-      await cal.events.update({ calendarId: c.syncCalendarId!, eventId: ev.googleEventId, requestBody: body });
-    } else {
-      const r = await cal.events.insert({ calendarId: c.syncCalendarId!, requestBody: body });
-      if (r.data.id) {
-        await this.db.calendarEvent.update({
-          where: { id: ev.id },
-          data: { googleEventId: r.data.id, googleCalendarId: c.syncCalendarId },
-        });
+      try {
+        await cal.events.update({ calendarId: c.syncCalendarId!, eventId: ev.googleEventId, requestBody: body });
+        return;
+      } catch (e) {
+        // Копию там удалили (событие побывало в корзине) — вставляем заново под новым id
+        const code = (e as { code?: number; response?: { status?: number } }).code ?? (e as { response?: { status?: number } }).response?.status;
+        if (code !== 404 && code !== 410) throw e;
       }
+    }
+    const r = await cal.events.insert({ calendarId: c.syncCalendarId!, requestBody: body });
+    if (r.data.id) {
+      await this.db.calendarEvent.update({
+        where: { id: ev.id },
+        data: { googleEventId: r.data.id, googleCalendarId: c.syncCalendarId },
+      });
     }
   }
 
@@ -456,6 +462,8 @@ export class GoogleCalendarService implements OnModuleInit {
     if (g.recurringEventId) return 'skip';
 
     const existing = await this.db.calendarEvent.findFirst({ where: { userId, googleEventId: g.id } });
+    // Событие в корзине живёт своим сроком: правки и отмены оттуда его не трогают
+    if (existing?.deletedAt) return 'skip';
 
     if (g.status === 'cancelled') {
       if (existing) { await this.db.calendarEvent.delete({ where: { id: existing.id } }); return 'deleted'; }
@@ -485,7 +493,7 @@ export class GoogleCalendarService implements OnModuleInit {
     if (!c?.tasksCalendarId) return 0;
     const cal = await this.client(c);
     const tasks = await this.db.task.findMany({
-      where: { creatorId: userId, dueDate: { not: null }, status: { notIn: ['done', 'cancelled'] } },
+      where: { creatorId: userId, dueDate: { not: null }, status: { notIn: ['done', 'cancelled'] }, deletedAt: null },
       select: { id: true, title: true, dueDate: true, allDay: true },
       take: 500,
     });

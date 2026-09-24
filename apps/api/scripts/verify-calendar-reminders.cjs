@@ -131,7 +131,7 @@ async function main() {
     const job2 = rem2 ? await prisma.job.findFirst({ where: { type: JOB_TYPE, uniqueKey: `cer:${rem2.id}` } }) : null;
     check('джоб под новое время поставлен (runAt = новый fireAt)', !!job2 && !!rem2 && Math.abs(+job2.runAt - +rem2.fireAt) < 2000, String(job2?.runAt));
 
-    await call('DELETE', `/calendar/events/${eventId}`, t1);
+    await call('POST', `/calendar/events/${eventId}/trash`, t1, {}).then(() => call('DELETE', `/calendar/events/${eventId}`, t1));
   } finally {
     await prisma.$disconnect();
   }

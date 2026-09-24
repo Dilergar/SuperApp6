@@ -29,6 +29,15 @@ export const VOICE_TRANSCRIPT_STATUSES = ['queued', 'processing', 'ready', 'erro
 /** Откуда взялась запись Диктофона: загрузка файла | запись в браузере | SuperTerminal6 (будущее) | запись звонка («Журнал звонков») */
 export const VOICE_RECORDING_SOURCES = ['upload', 'web', 'terminal', 'call'] as const;
 
+/** Корзина Диктофона: запись восстанавливаема столько дней, затем уходит навсегда (файл и транскрипт — движками). */
+export const RECORDER_LIMITS = {
+  trashRetentionDays: 30,
+  /** Записей за один проход окончательного удаления */
+  purgeBatch: 200,
+  /** Строк в списке корзины */
+  trashPageSize: 200,
+} as const;
+
 export const VOICE_LIMITS = {
   /** Потолок длительности голосового сообщения в чате, сек */
   maxVoiceMessageSec: 300,

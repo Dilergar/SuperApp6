@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma, type WebhookDelivery, type WebhookEndpoint } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
+
 import {
   KEYS_ERROR_CODES,
   KEYS_REDIS,
@@ -16,8 +16,7 @@ import {
   type WebhookEndpointDto,
   type WebhookEndpointUpdateInput,
   type WebhookEventKey,
-  type WebhookRotateSecretInput,
-} from '@superapp/shared';
+  type WebhookRotateSecretInput, uuidv7, uuidv7Time } from '@superapp/shared';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest, conflict, notFound, tooMany } from '../../shared/errors/api-error';
@@ -37,9 +36,10 @@ import { WEBHOOK_NOTIFICATION_REF_TYPE } from '../keys/keys.constants';
 import { KeysEnvelopeService } from '../keys/keys.envelope.service';
 import { ed25519RawPublic, generateEd25519 } from '../keys/keys.jwt';
 import { KeysFieldRegistry } from '../keys/keys.registry';
+import { byIdWithTimeHint } from '../lifecycle/lifecycle.time-hint';
 import { NotificationRefRegistry } from '../notifications/notifications.registry';
 import { NotificationsService } from '../notifications/notifications.service';
-import { WEBHOOK_AUDIT, WEBHOOK_ENTITY, WEBHOOK_JOBS } from './webhooks.constants';
+import { WEBHOOK_AUDIT, WEBHOOK_ENTITY, WEBHOOK_JOBS, isRedactedBody } from './webhooks.constants';
 import { WebhooksRegistry } from './webhooks.registry';
 import type { SigningMaterial } from './webhooks.signing';
 
@@ -143,11 +143,14 @@ export class WebhooksService implements OnModuleInit {
   }
 
   private async createDelivery(tx: Tx, endpointId: string, eventKey: string, data: Record<string, unknown>, occurredAt: Date): Promise<WebhookDelivery> {
-    const id = randomUUID();
+    const id = uuidv7();
     const body = { id: `msg_${id}`, type: eventKey, version: this.registry.versionOf(eventKey), occurredAt: occurredAt.toISOString(), data };
     const size = Buffer.byteLength(JSON.stringify(body), 'utf8');
     if (size > WEBHOOK_LIMITS.maxPayloadBytes) throw badRequest('keys.webhook.payloadTooLarge', { bytes: size });
-    const row = await tx.webhookDelivery.create({ data: { id, endpointId, eventKey, payload: body as Prisma.InputJsonObject, status: 'pending', nextAt: new Date() } });
+    // created_at — ключ месячной партиции: из того же момента, что и id (UUIDv7), — поиск
+    // доставки по id потом сужается до одной партиции (byIdWithTimeHint)
+    const createdAt = uuidv7Time(id) ?? new Date();
+    const row = await tx.webhookDelivery.create({ data: { id, endpointId, eventKey, payload: body as Prisma.InputJsonObject, status: 'pending', nextAt: new Date(), createdAt } });
     await this.jobs.enqueue(tx, { type: WEBHOOK_JOBS.deliver, payload: { deliveryId: id }, uniqueKey: id, maxAttempts: this.attemptsFor(eventKey) });
     return row;
   }
@@ -322,11 +325,19 @@ export class WebhooksService implements OnModuleInit {
     await this.keys.assertManager(actor.userId, workspaceId);
     await this.load(workspaceId, id);
     const limit = q.limit ?? WEBHOOK_LIMITS.recentDeliveries;
+    // Курсор — id последней строки страницы; ключ таблицы составной (id, created_at), поэтому
+    // страница продолжается keyset'ом по (created_at, id) от строки курсора
+    const after = q.cursor
+      ? await this.db.webhookDelivery.findFirst({ where: { ...byIdWithTimeHint(q.cursor), endpointId: id }, select: { id: true, createdAt: true } })
+      : null;
+    if (q.cursor && !after) return { items: [], nextCursor: null };
     const rows = await this.db.webhookDelivery.findMany({
-      where: { endpointId: id },
+      where: {
+        endpointId: id,
+        ...(after ? { OR: [{ createdAt: { lt: after.createdAt } }, { createdAt: after.createdAt, id: { lt: after.id } }] } : {}),
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
-      ...(q.cursor ? { cursor: { id: q.cursor }, skip: 1 } : {}),
     });
     const page = rows.slice(0, limit);
     return { items: page.map((d) => this.toDeliveryDto(d)), nextCursor: rows.length > limit ? page[page.length - 1]!.id : null };
@@ -337,11 +348,13 @@ export class WebhooksService implements OnModuleInit {
     await this.keys.assertManager(actor.userId, workspaceId);
     const row = await this.load(workspaceId, id);
     if (row.status === 'disabled') throw conflict('keys.webhook.disabled');
-    const d = await this.db.webhookDelivery.findUnique({ where: { id: deliveryId } });
-    if (!d || d.endpointId !== id) throw notFound('keys.webhook.deliveryNotFound');
+    const d = await this.db.webhookDelivery.findFirst({ where: { ...byIdWithTimeHint(deliveryId), endpointId: id } });
+    if (!d) throw notFound('keys.webhook.deliveryNotFound');
+    // Тело старше недели заменено отпечатком (минимизация) — повторять нечего
+    if (isRedactedBody(d.payload)) throw conflict('keys.webhook.deliveryBodyExpired');
     await this.assertManualBudget(id);
     await this.db.$transaction(async (tx) => {
-      await tx.webhookDelivery.update({ where: { id: deliveryId }, data: { status: 'pending', attempts: 0, nextAt: new Date(), lastError: null } });
+      await tx.webhookDelivery.update({ where: { id_createdAt: { id: d.id, createdAt: d.createdAt } }, data: { status: 'pending', attempts: 0, nextAt: new Date(), lastError: null } });
       // Ждущий ретрая джоб этой же доставки снимаем: иначе постановка упёрлась бы в его
       // uniqueKey и «Повторить» молча ждал бы чужого бэкоффа со старым счётом попыток.
       // Исполняемый прямо сейчас не трогаем — он и есть доставка.

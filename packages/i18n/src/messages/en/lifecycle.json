@@ -596,6 +596,42 @@
     },
     "VoiceRecording": {
       "title": "Recordings"
+    },
+    "LifecycleSetting": {
+      "title": "Organisation retention settings"
+    },
+    "LifecycleHold": {
+      "title": "Legal holds"
+    },
+    "LifecycleHoldStore": {
+      "title": "Records preserved under a legal hold"
+    },
+    "LifecycleHoldExtraction": {
+      "title": "Marks of records extracted under a hold"
+    },
+    "LifecycleErasureRequest": {
+      "title": "Erasure requests"
+    },
+    "LifecycleErasureJournal": {
+      "title": "Erasure journal"
+    },
+    "LifecycleExport": {
+      "title": "Data exports"
+    },
+    "LifecycleDeletedRow": {
+      "title": "Queue of deleted records for clean-up"
+    },
+    "LifecycleRun": {
+      "title": "Retention enforcement runs"
+    },
+    "LifecycleBackupRun": {
+      "title": "Backup and restore drill reports"
+    },
+    "LifecyclePartitionSpec": {
+      "title": "Rules of partitioned logs"
+    },
+    "LifecyclePartitionArchive": {
+      "title": "Archives of log partitions"
     }
   },
   "tables": {

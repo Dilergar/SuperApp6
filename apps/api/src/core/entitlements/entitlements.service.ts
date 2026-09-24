@@ -35,9 +35,8 @@ import {
   type SubscriptionSummaryDto,
   type TrialExtendInput,
   type WorkspaceRole,
-  type WsEntitlementsChanged,
-} from '@superapp/shared';
-import { randomUUID } from 'crypto';
+  type WsEntitlementsChanged, uuidv7 } from '@superapp/shared';
+
 import { DatabaseService } from '../../shared/database/database.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { utcTs } from '../../shared/database/sql-time';
@@ -784,7 +783,7 @@ export class EntitlementsService implements OnModuleInit {
     const inserted = await tx.$queryRaw<{ id: string }[]>`
       INSERT INTO subject_subscriptions
         (id, subject_type, subject_id, plan_version_id, status, started_at, trial_ends_at, source, trial_consumed_by, created_at, updated_at)
-      VALUES (${randomUUID()}, ${subject.type}, ${subject.id}, ${version.id}, 'trialing', ${utcTs(now)}, ${utcTs(trialEndsAt)}, 'trial',
+      VALUES (${uuidv7()}::uuid, ${subject.type}, ${subject.id}, ${version.id}::uuid, 'trialing', ${utcTs(now)}, ${utcTs(trialEndsAt)}, 'trial',
         ${subject.type === 'workspace' ? (opts.consumedBy ?? null) : null}, ${utcTs(now)}, ${utcTs(now)})
       ON CONFLICT DO NOTHING
       RETURNING id

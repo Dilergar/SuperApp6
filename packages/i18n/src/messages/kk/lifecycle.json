@@ -596,6 +596,42 @@
     },
     "VoiceRecording": {
       "title": "Диктофон жазбалары"
+    },
+    "LifecycleSetting": {
+      "title": "Ұйымның сақтау мерзімдері баптаулары"
+    },
+    "LifecycleHold": {
+      "title": "Құқықтық тоқтатулар"
+    },
+    "LifecycleHoldStore": {
+      "title": "Құқықтық тоқтату бойынша сақталған жазбалар"
+    },
+    "LifecycleHoldExtraction": {
+      "title": "Тоқтату бойынша алынған жазбалар белгілері"
+    },
+    "LifecycleErasureRequest": {
+      "title": "Өшіру өтініштері"
+    },
+    "LifecycleErasureJournal": {
+      "title": "Өшіру журналы"
+    },
+    "LifecycleExport": {
+      "title": "Деректер экспорты"
+    },
+    "LifecycleDeletedRow": {
+      "title": "Тазалауға арналған жойылған жазбалар кезегі"
+    },
+    "LifecycleRun": {
+      "title": "Сақтау мерзімін орындау іске қосулары"
+    },
+    "LifecycleBackupRun": {
+      "title": "Сақтық көшірме және қалпына келтіру жаттығуларының есептері"
+    },
+    "LifecyclePartitionSpec": {
+      "title": "Бөлінген журналдар ережелері"
+    },
+    "LifecyclePartitionArchive": {
+      "title": "Журнал бөліктерінің мұрағаттары"
     }
   },
   "tables": {

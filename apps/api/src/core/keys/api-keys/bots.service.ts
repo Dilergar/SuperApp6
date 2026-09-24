@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type Bot } from '@prisma/client';
-import { randomUUID } from 'node:crypto';
+
 import {
   KEYS_ERROR_CODES,
   normalizeKeyScopes,
@@ -10,8 +10,7 @@ import {
   type BotDetailsDto,
   type BotDto,
   type BotKeyCreateInput,
-  type BotUpdateInput,
-} from '@superapp/shared';
+  type BotUpdateInput, uuidv7 } from '@superapp/shared';
 import { DatabaseService } from '../../../shared/database/database.service';
 import { badRequest, conflict, forbidden, notFound } from '../../../shared/errors/api-error';
 import { AnalyticsService } from '../../analytics/analytics.service';
@@ -91,7 +90,7 @@ export class BotsService {
     const scopes = normalizeKeyScopes(input.scopes, true);
     const ws = await this.db.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, documentLanguage: true } });
     if (!ws) throw notFound('workspace.notFound');
-    const botUserId = randomUUID();
+    const botUserId = uuidv7();
     const result = await this.db.$transaction(async (tx) => {
       await this.entitlements.assertCanCreate(tx, { type: 'workspace', id: workspaceId }, 'keys.maxBots');
       // Теневая строка users: без входа (пароль-заглушка), без номера (`bot:<id>`), язык — организации

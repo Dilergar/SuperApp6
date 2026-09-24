@@ -64,7 +64,7 @@ export class DrivePhotosService {
     const rows = await this.db.$queryRaw<Array<{ month: string; count: bigint }>>(Prisma.sql`
       SELECT to_char(n."taken_at_local", 'YYYY-MM') AS "month", COUNT(*) AS "count"
         FROM "drive_nodes" n
-       WHERE n."space_id" = ${space.id}
+       WHERE n."space_id" = ${space.id}::uuid
          AND n."kind" = 'file'
          AND n."taken_at_local" IS NOT NULL
          AND n."trashed_at" IS NULL
@@ -91,7 +91,7 @@ export class DrivePhotosService {
     const cursor = decodeCursor(q.cursor);
     const keyset = cursor
       ? Prisma.sql`AND (n."taken_at_local" < ${cursor.t}::timestamp
-                    OR (n."taken_at_local" = ${cursor.t}::timestamp AND n."id" < ${cursor.i}))`
+                    OR (n."taken_at_local" = ${cursor.t}::timestamp AND n."id" < ${cursor.i}::uuid))`
       : Prisma.empty;
 
     const rows = await this.db.$queryRaw<PhotoRow[]>(Prisma.sql`
@@ -102,7 +102,7 @@ export class DrivePhotosService {
              (f."meta" ->> 'thumbhash')   AS "thumbhash"
         FROM "drive_nodes" n
         JOIN "file_objects" f ON f."id" = n."file_id"
-       WHERE n."space_id" = ${space.id}
+       WHERE n."space_id" = ${space.id}::uuid
          AND n."kind" = 'file'
          AND n."taken_at_local" IS NOT NULL
          AND n."trashed_at" IS NULL

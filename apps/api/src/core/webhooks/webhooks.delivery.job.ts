@@ -11,7 +11,8 @@ import { redactSecrets } from '../../shared/utils/redact';
 import { JobDiscardError, JobSnoozeError, JobsRegistry, type JobContext } from '../jobs/jobs.registry';
 import { KeysNotifier } from '../keys/api-keys/keys.notifications';
 import { KeysAuditService } from '../keys/keys.audit.service';
-import { WEBHOOK_AUDIT, WEBHOOK_JOBS, WEBHOOKS_QUEUE, WEBHOOKS_QUEUE_CONCURRENCY } from './webhooks.constants';
+import { byIdWithTimeHint } from '../lifecycle/lifecycle.time-hint';
+import { WEBHOOK_AUDIT, WEBHOOK_JOBS, WEBHOOKS_QUEUE, WEBHOOKS_QUEUE_CONCURRENCY, isRedactedBody } from './webhooks.constants';
 import { isLoopbackUrl, webhooksDevLoopback, WebhooksService } from './webhooks.service';
 import { bogusSignatureHeaders, buildSignatureHeaders } from './webhooks.signing';
 
@@ -64,7 +65,7 @@ export class WebhooksDeliveryJobs implements OnModuleInit {
       queueConcurrency: WEBHOOKS_QUEUE_CONCURRENCY,
       onDiscard: async (p) => {
         const id = typeof p.deliveryId === 'string' ? p.deliveryId : null;
-        if (id) await this.db.webhookDelivery.updateMany({ where: { id, status: { in: ['pending', 'failed'] } }, data: { status: 'exhausted', nextAt: null } });
+        if (id) await this.db.webhookDelivery.updateMany({ where: { ...byIdWithTimeHint(id), status: { in: ['pending', 'failed'] } }, data: { status: 'exhausted', nextAt: null } });
       },
     });
     // Cap — свойство ОЧЕРЕДИ (min по типам): у аудита он тот же, что у доставки, иначе аудит
@@ -110,7 +111,7 @@ export class WebhooksDeliveryJobs implements OnModuleInit {
     if (count === 1) return;
     const left = e.lastFailureAt ? e.lastFailureAt.getTime() + pause - Date.now() : 0;
     const delay = (left > 0 ? left : pause) + Math.floor(Math.random() * 15_000);
-    await this.db.webhookDelivery.updateMany({ where: { id: deliveryId, status: { in: ['pending', 'failed'] } }, data: { nextAt: new Date(Date.now() + delay) } });
+    await this.db.webhookDelivery.updateMany({ where: { ...byIdWithTimeHint(deliveryId), status: { in: ['pending', 'failed'] } }, data: { nextAt: new Date(Date.now() + delay) } });
     this.deliverySnoozed.inc();
     throw new JobSnoozeError(delay, `endpoint ${e.id}: circuit open after ${e.failures} failures`);
   }
@@ -118,9 +119,16 @@ export class WebhooksDeliveryJobs implements OnModuleInit {
   async deliver(payload: Record<string, unknown>, ctx: JobContext): Promise<void> {
     const deliveryId = typeof payload.deliveryId === 'string' ? payload.deliveryId : null;
     if (!deliveryId) throw new JobDiscardError('webhooks.deliver: deliveryId missing');
-    const d = await this.db.webhookDelivery.findUnique({ where: { id: deliveryId }, include: { endpoint: { include: { workspace: { select: { isActive: true } } } } } });
+    const d = await this.db.webhookDelivery.findFirst({ where: byIdWithTimeHint(deliveryId), include: { endpoint: { include: { workspace: { select: { isActive: true } } } } } });
     if (!d) throw new JobDiscardError('delivery row is gone');
     if (d.status === 'delivered' || d.status === 'exhausted') return;
+    // Ключ строки месячной партиции — (id, created_at)
+    const key = { id_createdAt: { id: d.id, createdAt: d.createdAt } };
+    // Тело уже заменено отпечатком (строка-сирота старше недели) — отправлять нечего
+    if (isRedactedBody(d.payload)) {
+      await this.db.webhookDelivery.update({ where: key, data: { status: 'exhausted', nextAt: null, lastError: 'body expired' } });
+      throw new JobDiscardError('delivery body expired');
+    }
     const e = d.endpoint;
     const isPing = d.eventKey === WEBHOOK_SYSTEM_EVENTS.ping;
     // Отключённый endpoint не получает ничего; pending получает только пинг проверки;
@@ -128,7 +136,7 @@ export class WebhooksDeliveryJobs implements OnModuleInit {
     // восстановление организации вернёт всё как было)
     const blocked = !e.workspace.isActive ? 'workspace archived' : e.status === 'disabled' || (e.status === 'pending_verification' && !isPing) ? `endpoint ${e.status}` : null;
     if (blocked) {
-      await this.db.webhookDelivery.update({ where: { id: d.id }, data: { status: 'exhausted', nextAt: null, lastError: blocked } });
+      await this.db.webhookDelivery.update({ where: key, data: { status: 'exhausted', nextAt: null, lastError: blocked } });
       throw new JobDiscardError(blocked);
     }
     // Пинг — инструмент диагностики админа: предохранитель его не держит
@@ -143,7 +151,7 @@ export class WebhooksDeliveryJobs implements OnModuleInit {
       this.deliveryOk.inc();
       let verified = false;
       await this.db.$transaction(async (tx) => {
-        await tx.webhookDelivery.update({ where: { id: d.id }, data: { status: 'delivered', attempts: ctx.attempt, nextAt: null, lastStatus: res.status, lastError: null, deliveredAt: new Date() } });
+        await tx.webhookDelivery.update({ where: key, data: { status: 'delivered', attempts: ctx.attempt, nextAt: null, lastStatus: res.status, lastError: null, deliveredAt: new Date() } });
         await tx.webhookEndpoint.update({ where: { id: e.id }, data: { failures: 0, failingSince: null, lastFailureAt: null, lastDeliveryAt: new Date() } });
         // Учёт действий с ПДн: данные организации ушли на её адрес по её поручению (субъект — организация;
         // страну получателя знает только она — в реестре получателей поле пустое). Пинг данных не несёт.
@@ -167,7 +175,7 @@ export class WebhooksDeliveryJobs implements OnModuleInit {
     const nextAt = last ? null : new Date(Date.now() + Math.min(WEBHOOK_LIMITS.backoffCapSec, WEBHOOK_LIMITS.backoffBaseSec * 2 ** (ctx.attempt - 1)) * 1000);
     let disabled = false;
     await this.db.$transaction(async (tx) => {
-      await tx.webhookDelivery.update({ where: { id: d.id }, data: { status: last ? 'exhausted' : 'failed', attempts: ctx.attempt, nextAt, lastStatus: res.status || null, lastError: res.error ?? `HTTP ${res.status}` } });
+      await tx.webhookDelivery.update({ where: key, data: { status: last ? 'exhausted' : 'failed', attempts: ctx.attempt, nextAt, lastStatus: res.status || null, lastError: res.error ?? `HTTP ${res.status}` } });
       if (isPing) {
         // Пинг серию провалов не считает. Но не дождались 2xx за ВСЕ попытки — адрес не
         // подтверждён: endpoint не висит «ждёт проверки» вечно, а честно уходит в disabled.

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+
 import { Prisma } from '@prisma/client';
-import { SOURCE_LOCALE } from '@superapp/shared';
+import { SOURCE_LOCALE, uuidv7 } from '@superapp/shared';
 import type { Locale } from '@superapp/i18n';
 import {
   NOTIFICATION_LIMITS,
@@ -114,7 +114,7 @@ export class NotificationsService {
     const payload = input.payload ?? {};
     // Снимок текста в языке-источнике — фолбэк для типов, ушедших из реестра (как у хроники)
     const snapshot = this.renderer.render(SOURCE_LOCALE, input.type, payload);
-    const eventId = randomUUID();
+    const eventId = uuidv7();
     const client = tx ?? this.db;
     const options = {
       channels: input.channels ?? null,
@@ -130,8 +130,8 @@ export class NotificationsService {
           (id, type, service, priority, payload, ref_type, ref_id, actor_id, workspace_id, collapse_key,
            idempotency_key, action_url, reason, recipients, options, snapshot, created_at)
         VALUES
-          (${eventId}, ${input.type}, ${def.service}, ${def.priority}, ${JSON.stringify(payload)}::jsonb,
-           ${input.ref?.type ?? null}, ${input.ref?.id ?? null}, ${input.actorId ?? null}, ${input.workspaceId ?? null},
+          (${eventId}::uuid, ${input.type}, ${def.service}, ${def.priority}, ${JSON.stringify(payload)}::jsonb,
+           ${input.ref?.type ?? null}, ${input.ref?.id ?? null}, ${input.actorId ?? null}::uuid, ${input.workspaceId ?? null}::uuid,
            ${input.collapseKey ?? null}, ${input.idempotencyKey}, ${input.actionUrl ?? null}, ${input.reason ?? null},
            ${JSON.stringify(input.to)}::jsonb, ${JSON.stringify(options)}::jsonb, ${JSON.stringify(snapshot)}::jsonb,
            ${utcTs(new Date())})

@@ -1,7 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Injectable, OnModuleInit, Param, Patch, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
-  PLATFORM_ERROR_CODES,
   analyticsDashboardCreateSchema,
   analyticsDashboardUpdateSchema,
   analyticsEventSetStatusInputSchema,
@@ -16,10 +15,9 @@ import {
 } from '@superapp/shared';
 import { PlatformCommandRegistry } from '../platform/platform-commands.registry';
 import { PlatformPanelRegistry } from '../platform/platform-lookup.registry';
+import { PlatformRateService } from '../platform/platform-rate.service';
 import { CurrentPlatformActor, PlatformCapability, PlatformRoute, type PlatformActor } from '../../shared/decorators/platform.decorator';
 import { SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
-import { RedisService } from '../../shared/redis/redis.service';
-import { tooMany } from '../../shared/errors/api-error';
 import { JobsService } from '../jobs/jobs.service';
 import { AnalyticsActivityService } from './analytics.activity.service';
 import { AnalyticsCatalogService } from './analytics.catalog.service';
@@ -147,19 +145,12 @@ export class AnalyticsPlatformController {
     private readonly query: AnalyticsQueryService,
     private readonly catalog: AnalyticsCatalogService,
     private readonly reports: AnalyticsReportsService,
-    private readonly redis: RedisService,
+    private readonly rate: PlatformRateService,
   ) {}
 
-  private async budget(actor: PlatformActor): Promise<void> {
-    const key = `analytics:rate:${actor.userId}:${Math.floor(Date.now() / 60_000)}`;
-    try {
-      const client = this.redis.getClient();
-      const n = await client.incr(key);
-      if (n === 1) await client.expire(key, 120);
-      if (n > QUERIES_PER_MINUTE) throw tooMany('platform.rate_limited', undefined, { code: PLATFORM_ERROR_CODES.rateLimited, resendInSec: 60 });
-    } catch (err) {
-      if ((err as { status?: number }).status === 429) throw err;
-    }
+  /** Бюджет — общая дверь кабинета (ключ в семействе `platform:rate:*` реестра хранилищ). */
+  private budget(actor: PlatformActor): Promise<void> {
+    return this.rate.assertPanelBudget(actor, 'analytics', QUERIES_PER_MINUTE);
   }
 
   @PlatformCapability('analytics.read')

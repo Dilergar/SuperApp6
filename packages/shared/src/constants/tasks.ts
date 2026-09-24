@@ -95,4 +95,10 @@ export const TASK_LIMITS = {
   listPageSize: 30,
   // If a task has a dueDate but no explicit reminder, the cron warns this many hours before.
   defaultDueSoonHours: 24,
+  /** Корзина: задача (с подзадачами) восстанавливаема столько дней, затем уходит навсегда */
+  trashRetentionDays: 30,
+  /** Задач за один проход окончательного удаления */
+  purgeBatch: 200,
+  /** Строк в списке корзины */
+  trashPageSize: 200,
 } as const;

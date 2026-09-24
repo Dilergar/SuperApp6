@@ -243,6 +243,29 @@ async function main() {
 
     r = await http('GET', '/jobs/stats', { token: t1.token });
     check('после чистки тип ушёл из unhandled', !(r.json?.data?.unhandled ?? []).some((u) => u.type === ghostType));
+
+    // ============================================================
+    console.log('\n-- 9. обслуживание очереди: выполненные живут сутки, REINDEX CONCURRENTLY --');
+    const kOld = K('ret-old');
+    const kFresh = K('ret-fresh');
+    for (const k of [kOld, kFresh]) await enq({ uniqueKey: k });
+    const doneBoth = await waitFor(async () => {
+      const a = await byKey(kOld);
+      const b = await byKey(kFresh);
+      return a?.status === 'completed' && b?.status === 'completed' ? true : null;
+    }, 15000);
+    check('подготовка: оба джоба выполнены', !!doneBoth);
+    // Выполненный 25 часов назад — за сроком (политика Job реестра: сутки); час назад — в сроке
+    await prisma.job.updateMany({ where: { type: 'jobs.dev.echo', uniqueKey: kOld }, data: { finishedAt: new Date(Date.now() - 25 * 3_600_000) } });
+    await prisma.job.updateMany({ where: { type: 'jobs.dev.echo', uniqueKey: kFresh }, data: { finishedAt: new Date(Date.now() - 3_600_000) } });
+    r = await http('POST', '/jobs/dev/prune', { token: t1.token, body: {} });
+    check('ретеншн отработал', r.ok && typeof r.json?.data?.completed === 'number', JSON.stringify(r.json?.data));
+    check('выполненный больше суток назад удалён', (await byKey(kOld)) === null);
+    check('выполненный час назад на месте', (await byKey(kFresh))?.status === 'completed');
+    r = await http('POST', '/jobs/dev/reindex', { token: t1.token, body: {} });
+    check('REINDEX CONCURRENTLY очереди проходит', r.ok && r.json?.data?.reindexed === true, `status ${r.status}`);
+    const invalid = await prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_index WHERE indrelid = 'jobs'::regclass AND NOT indisvalid`);
+    check('после перестройки невалидных индексов у очереди нет', invalid[0]?.n === 0, invalid[0]?.n);
   } finally {
     await prisma.job.deleteMany({ where: { type: { in: ['jobs.dev.echo', 'jobs.dev.ghost'] } } });
     await prisma.$disconnect();

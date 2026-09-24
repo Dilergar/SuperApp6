@@ -180,7 +180,7 @@ export class DriveJobs implements OnModuleInit {
     for (let pass = 0; pass < 32; pass++) {
       const dirty = await this.db.$queryRaw<Array<{ id: string }>>`
         SELECT "id" FROM "drive_nodes"
-         WHERE "space_id" = ${spaceId} AND "kind" = 'folder' AND "subtree_bytes" IS NULL
+         WHERE "space_id" = ${spaceId}::uuid AND "kind" = 'folder' AND "subtree_bytes" IS NULL
          ORDER BY "depth" DESC
          LIMIT ${DRIVE_LIMITS.rollupBatch}`;
       if (!dirty.length) return;
@@ -195,9 +195,9 @@ export class DriveJobs implements OnModuleInit {
                      SUM("subtree_files") AS "f",
                      COUNT(*) FILTER (WHERE "subtree_bytes" IS NULL) AS "unknown"
                 FROM "drive_nodes"
-               WHERE "parent_id" = ${id} AND "trashed_at" IS NULL
+               WHERE "parent_id" = ${id}::uuid AND "trashed_at" IS NULL
             ) c
-           WHERE p."id" = ${id}`;
+           WHERE p."id" = ${id}::uuid`;
       }
       // Ровно полная пачка — вероятно, есть ещё; иначе выходим.
       if (dirty.length < DRIVE_LIMITS.rollupBatch) {

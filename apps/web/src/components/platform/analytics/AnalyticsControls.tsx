@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { parsePlatformQuery, type AnalyticsQualityDto } from '@superapp/shared';
+import { parsePlatformQuery, type AnalyticsQualityDto, opaqueIdTail } from '@superapp/shared';
 import { Chip, DatePicker, SearchField, SegmentedControl, Select, Toggle } from '@/components/ui';
 import { fetchPlatformLookup, platformLookupKey } from '@/lib/platform/api';
 import { usePlatformAuth } from '@/lib/platform/usePlatformAuth';
@@ -70,7 +70,7 @@ export function AnalyticsControls({ quality }: { quality?: AnalyticsQualityDto |
           ))}
           {p.workspaceId && (
             <Chip size="sm" tone="accent" icon="workspace" onRemove={() => p.update({ ws: null })} removeLabel={t('controls.clearWorkspace')}>
-              {wsName ?? t('context.workspaceShort', { id: p.workspaceId.slice(0, 8) })}
+              {wsName ?? t('context.workspaceShort', { id: opaqueIdTail(p.workspaceId, 8) })}
             </Chip>
           )}
         </div>

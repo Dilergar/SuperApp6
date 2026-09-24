@@ -78,7 +78,8 @@ export class ProcessesCron {
       }
       for (let i = 0; i < waitTaskIds.length; i += BATCH) {
         const chunk = waitTaskIds.slice(i, i + BATCH);
-        const tasks = await this.db.task.findMany({ where: { id: { in: chunk } }, select: { id: true, status: true } });
+        // Задача в корзине для процесса — удалённая (сигнал task.deleted мог потеряться: EventBus)
+        const tasks = await this.db.task.findMany({ where: { id: { in: chunk }, deletedAt: null }, select: { id: true, status: true } });
         const statusById = new Map(tasks.map((t) => [t.id, t.status]));
         for (const taskId of chunk) {
           const status = statusById.get(taskId);

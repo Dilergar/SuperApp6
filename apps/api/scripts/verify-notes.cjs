@@ -26,7 +26,9 @@ async function hire(wsId, ownerToken, personToken, phone) {
   const mine = (await call('GET', '/workspaces/invitations/incoming', personToken)).json?.data?.find?.(
     (i) => i.workspaceId === wsId,
   );
-  await call('POST', `/workspaces/invitations/${mine?.id ?? inv?.id}/accept`, personToken);
+  // Уже в команде (повторный прогон) — приглашения нет, принимать нечего
+  const invitationId = mine?.id ?? inv?.id;
+  if (invitationId) await call('POST', `/workspaces/invitations/${invitationId}/accept`, personToken);
 }
 
 const para = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });

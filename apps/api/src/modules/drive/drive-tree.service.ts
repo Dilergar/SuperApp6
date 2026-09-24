@@ -121,9 +121,9 @@ export class DriveTreeService {
         if (node.kind === 'folder') {
           await tx.$executeRaw`
             UPDATE "drive_nodes"
-               SET "ancestor_ids" = ${newAnc}::text[] || "ancestor_ids"[${oldAnc.length + 1}:],
+               SET "ancestor_ids" = ${newAnc}::uuid[] || "ancestor_ids"[${oldAnc.length + 1}:],
                    "depth" = "depth" + ${delta}
-             WHERE "ancestor_ids" @> ARRAY[${node.id}]::text[]`;
+             WHERE "ancestor_ids" @> ARRAY[${node.id}]::uuid[]`;
         }
 
         await this.drive.markDirty(tx, [...oldAnc, ...newAnc]);
@@ -145,7 +145,7 @@ export class DriveTreeService {
   private async subtreeMaxDepth(tx: Tx, nodeId: string, fallback: number): Promise<number> {
     const rows = await tx.$queryRaw<Array<{ max: number | null }>>`
       SELECT MAX("depth")::int AS max FROM "drive_nodes"
-       WHERE "ancestor_ids" @> ARRAY[${nodeId}]::text[]`;
+       WHERE "ancestor_ids" @> ARRAY[${nodeId}]::uuid[]`;
     return rows[0]?.max ?? fallback;
   }
 
@@ -360,9 +360,9 @@ export class DriveTreeService {
           const oldAnc = node.ancestorIds;
           await tx.$executeRaw`
             UPDATE "drive_nodes"
-               SET "ancestor_ids" = ${newAnc}::text[] || "ancestor_ids"[${oldAnc.length + 1}:],
+               SET "ancestor_ids" = ${newAnc}::uuid[] || "ancestor_ids"[${oldAnc.length + 1}:],
                    "depth" = "depth" + ${delta}
-             WHERE "ancestor_ids" @> ARRAY[${node.id}]::text[]`;
+             WHERE "ancestor_ids" @> ARRAY[${node.id}]::uuid[]`;
         }
         await this.drive.markDirty(tx, newAnc);
       });

@@ -339,7 +339,7 @@ export class ShareLinksService {
    * тот показывает «всего за жизнь ссылки», а человеку нужно «что происходит сейчас».
    */
   async statsMine(userId: string): Promise<ShareLinkStatsDto> {
-    return this.statsFor({ createdById: userId }, Prisma.sql`l.created_by_id = ${userId}`);
+    return this.statsFor({ createdById: userId }, Prisma.sql`l.created_by_id = ${userId}::uuid`);
   }
 
   /**
@@ -599,7 +599,7 @@ export class ShareLinksService {
 
   /** Сводка организации — та же форма, что личная (`statsMine`), другой скоуп */
   async statsForWorkspace(workspaceId: string): Promise<ShareLinkStatsDto> {
-    return this.statsFor({ workspaceId }, Prisma.sql`l.workspace_id = ${workspaceId}`);
+    return this.statsFor({ workspaceId }, Prisma.sql`l.workspace_id = ${workspaceId}::uuid`);
   }
 
   // ============================================================

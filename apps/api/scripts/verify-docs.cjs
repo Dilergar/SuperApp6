@@ -441,7 +441,7 @@ async function main() {
     const foreignTaskId = foreign.json?.data?.id;
     const steal = await call('POST', `/tasks/${foreignTaskId}/attachments`, t2, { fileId: file2Id });
     check('чужой файл нельзя прицепить к своей задаче (иначе место = самовыдача прав)', !steal.ok, `status ${steal.status}`);
-    await call('DELETE', `/tasks/${foreignTaskId}`, t2);
+    await call('POST', `/tasks/${foreignTaskId}/trash`, t2, {}).then(() => call('DELETE', `/tasks/${foreignTaskId}`, t2));
 
     const doc2res = await call('POST', '/docs/from-file', t2, { fileId: file2Id, refType: 'task', refId: taskId });
     check('участник оживляет вложение коллеги', doc2res.ok, `status ${doc2res.status} ${JSON.stringify(doc2res.json?.message ?? '')}`);

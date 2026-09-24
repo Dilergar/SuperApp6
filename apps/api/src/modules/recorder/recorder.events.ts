@@ -44,7 +44,8 @@ export class RecorderEvents implements OnModuleInit {
         .map((l) => l.refId as string);
       if (!recIds.length) return; // не запись Диктофона (голосовое в чате и т.п.)
       const recs = await this.db.voiceRecording.findMany({
-        where: { id: { in: recIds } },
+        // Запись в корзине о готовом транскрипте не сообщает
+        where: { id: { in: recIds }, deletedAt: null },
         select: { id: true, ownerId: true, title: true, source: true, titleAt: true, createdAt: true },
       });
       for (const rec of recs) {

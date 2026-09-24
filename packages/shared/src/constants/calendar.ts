@@ -93,6 +93,12 @@ export const CALENDAR_LIMITS = {
   reminderHorizonDays: 35,
   /** safety cap on occurrences expanded from a single recurring event per range. */
   maxOccurrencesPerEvent: 750,
+  /** Корзина: событие (с исключениями серии) восстанавливаемо столько дней, затем уходит навсегда */
+  trashRetentionDays: 30,
+  /** Событий за один проход окончательного удаления */
+  purgeBatch: 200,
+  /** Строк в списке корзины */
+  trashPageSize: 200,
 } as const;
 
 /** Week starts on Monday (KZ/RU convention). 1 = Monday, per date-fns weekStartsOn. */

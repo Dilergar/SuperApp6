@@ -155,7 +155,7 @@ async function main() {
   await http('POST', '/visibility/me/reset', { token: t1.token, body: { fieldKeys: ['presence'] } });
   await http('POST', '/visibility/me/reset', { token: t2.token, body: { fieldKeys: ['presence'] } });
   // cleanup the test event
-  try { if (ev.json?.data?.id) await http('DELETE', `/calendar/events/${ev.json.data.id}`, { token: t2.token }); } catch {}
+  try { if (ev.json?.data?.id) await http('POST', `/calendar/events/${ev.json.data.id}/trash`, { token: t2.token, body: {} }).then(() => http('DELETE', `/calendar/events/${ev.json.data.id}`, { token: t2.token })); } catch {}
   await prisma.$disconnect();
   console.log(`\nRESULT ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

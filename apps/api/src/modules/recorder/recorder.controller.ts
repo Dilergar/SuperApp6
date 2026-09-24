@@ -18,6 +18,13 @@ export class RecorderController {
     return { success: true, data };
   }
 
+  @Get('trash')
+  @ApiOperation({ summary: 'My trash: recordings I moved there (restorable for 30 days)' })
+  async trash(@CurrentUser() user: JwtPayload) {
+    const data = await this.recorder.listTrash(user.sub);
+    return { success: true, data };
+  }
+
   @Post('recordings')
   @ApiOperation({ summary: 'Create a recording from an uploaded audio file (profile dictaphone/voice_message)' })
   async create(@CurrentUser() user: JwtPayload, @Body() body: Record<string, unknown>) {
@@ -34,11 +41,27 @@ export class RecorderController {
     return { success: true, data };
   }
 
+  @Post('recordings/:id/trash')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'To the trash (the file and the transcript stay until deleted for good)' })
+  async trashRecording(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.recorder.trash(user.sub, id);
+    return { success: true, data: { ok: true } };
+  }
+
+  @Post('recordings/:id/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Restore from the trash' })
+  async restoreRecording(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    const data = await this.recorder.restore(user.sub, id);
+    return { success: true, data };
+  }
+
   @Delete('recordings/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Delete a recording (the engines clean up the file and the transcript)' })
+  @ApiOperation({ summary: 'Delete for good — from the trash only (the engines clean up the file and the transcript)' })
   async remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    await this.recorder.remove(user.sub, id);
+    await this.recorder.purge(user.sub, id);
     return { success: true, data: { ok: true } };
   }
 }

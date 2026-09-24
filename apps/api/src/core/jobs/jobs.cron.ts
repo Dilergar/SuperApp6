@@ -6,7 +6,8 @@ import { JobsService } from './jobs.service';
 /**
  * Обслуживание движка джобов — ЕДИНСТВЕННЫЙ крон на все типы (вместо личного
  * редрайв-крона у каждого потребителя): reaper протухших аренд каждую минуту,
- * фиксап очередей раз в час, ретеншн терминальных строк раз в сутки.
+ * фиксап очередей раз в час, ретеншн терминальных строк раз в сутки, перестройка
+ * индексов очереди раз в неделю.
  */
 @Injectable()
 export class JobsCron {
@@ -78,8 +79,19 @@ export class JobsCron {
 
   @Cron('20 4 * * *')
   async retention(): Promise<void> {
-    await this.guarded('retention', 'cron:jobs-retention', 30 * 60_000, () =>
-      this.jobs.pruneTerminal(),
-    );
+    await this.guarded('retention', 'cron:jobs-retention', 30 * 60_000, async () => {
+      await this.jobs.pruneTerminal();
+    });
+  }
+
+  /**
+   * Раз в неделю — REINDEX CONCURRENTLY очереди: индексы горячей таблицы (постоянные UPDATE
+   * статуса, DELETE ретеншна) раздуваются, btree сам не сжимается — клейм по раздутому
+   * частичному индексу замедляется. CONCURRENTLY не блокирует запись. Воскресенье, окно
+   * обслуживания по Алматы.
+   */
+  @Cron('40 4 * * 0', { timeZone: 'Asia/Almaty' })
+  async reindex(): Promise<void> {
+    await this.guarded('reindex', 'cron:jobs-reindex', 2 * 60 * 60_000, () => this.jobs.reindexQueue());
   }
 }

@@ -77,7 +77,8 @@ export class ResourcesService {
         OR: [
           { ownerId: userId },
           { bookerUserIds: { has: userId } },
-          myCircleIds.length ? { bookerCircleIds: { hasSome: myCircleIds } } : { id: '___none___' },
+          // Пустой IN = «ничего»: сторожевая строка на uuid-колонке упала бы (P2023)
+          myCircleIds.length ? { bookerCircleIds: { hasSome: myCircleIds } } : { id: { in: [] } },
         ],
       },
       orderBy: { createdAt: 'desc' },
@@ -142,7 +143,7 @@ export class ResourcesService {
     // Inside the caller's transaction, lock the resource row FIRST: the capacity check and the
     // event write are then atomic — two concurrent bookings of the last free slot can't both
     // pass `active < capacity` (the loser waits here and re-counts the winner's booking).
-    if (tx) await tx.$queryRaw`SELECT id FROM resources WHERE id = ${resourceId} FOR UPDATE`;
+    if (tx) await tx.$queryRaw`SELECT id FROM resources WHERE id = ${resourceId}::uuid FOR UPDATE`;
     const resource = await db.resource.findUnique({ where: { id: resourceId } });
     if (!resource) throw notFound('resource.notFound');
     if (resource.ownerId !== bookerId && !(await this.canBook(resource, bookerId))) {
@@ -167,7 +168,7 @@ export class ResourcesService {
     await this.db.$transaction(async (tx) => {
       // Resource row lock: two parallel confirms of overlapping requests (or a confirm racing a
       // new booking) serialise here — the capacity check and the status flip are atomic.
-      await tx.$queryRaw`SELECT id FROM resources WHERE id = ${ev.resourceId!} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM resources WHERE id = ${ev.resourceId!}::uuid FOR UPDATE`;
       const confirmed = await tx.calendarEvent.count({
         where: {
           resourceId: ev.resourceId!,

@@ -15,7 +15,7 @@ export class TasksNotificationRefsProvider implements OnModuleInit {
     this.refs.register('task', {
       canViewMany: async (userIds, taskId) => {
         const task = await this.db.task.findUnique({
-          where: { id: taskId },
+          where: { id: taskId, deletedAt: null },
           select: { creatorId: true, participants: { select: { userId: true } } },
         });
         if (!task) return [];

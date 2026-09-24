@@ -21,6 +21,8 @@ const CATEGORY_ICON: Record<AuditCategory, IconName> = {
   sharing: 'share',
   files: 'file',
   authz: 'blocked',
+  // Жизненный цикл данных: сроки хранения, заморозки, стирание, экспорт
+  lifecycle: 'archive',
 };
 
 /** Ключи с собственным рисунком (важнее категории) */

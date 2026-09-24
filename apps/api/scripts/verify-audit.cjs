@@ -1160,7 +1160,7 @@ async function sectionIntegrity({ check, prisma, s1 }) {
     const futureTo = BigInt(x) + 10_000_000_000n;
     const fakeId = randomUUID();
     await prisma.$executeRawUnsafe(
-      `INSERT INTO security_digests (id, xact_from, xact_to, count, merkle_root, signature, kid, leaf_version) VALUES ($1, $2::bigint, $3::bigint, 0, '\\x00'::bytea, '\\x00'::bytea, 'probe', 3)`,
+      `INSERT INTO security_digests (id, xact_from, xact_to, count, merkle_root, signature, kid, leaf_version) VALUES ($1::uuid, $2::bigint, $3::bigint, 0, '\\x00'::bytea, '\\x00'::bytea, 'probe', 3)`,
       fakeId,
       String(tail?.xactTo ?? 0n),
       String(futureTo),
@@ -1171,7 +1171,7 @@ async function sectionIntegrity({ check, prisma, s1 }) {
     } finally {
       await prisma.$executeRawUnsafe(`ALTER TABLE security_digests DISABLE TRIGGER security_digests_guard`);
       try {
-        await prisma.$executeRawUnsafe(`DELETE FROM security_digests WHERE id = $1`, fakeId);
+        await prisma.$executeRawUnsafe(`DELETE FROM security_digests WHERE id = $1::uuid`, fakeId);
       } finally {
         await prisma.$executeRawUnsafe(`ALTER TABLE security_digests ENABLE ALWAYS TRIGGER security_digests_guard`);
       }

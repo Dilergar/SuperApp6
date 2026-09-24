@@ -297,12 +297,12 @@ export class NotesAccessService {
   ): Prisma.Sql {
     const col = Prisma.raw(`"${alias}"`);
     const parts: Prisma.Sql[] = [];
-    if (ownerSpaceIds.length) parts.push(Prisma.sql`${col}."space_id" = ANY(${ownerSpaceIds}::text[])`);
+    if (ownerSpaceIds.length) parts.push(Prisma.sql`${col}."space_id" = ANY(${ownerSpaceIds}::uuid[])`);
     if (memberSpaceIds.length) {
-      parts.push(Prisma.sql`(${col}."space_id" = ANY(${memberSpaceIds}::text[]) AND ${col}."created_by_id" = ${userId})`);
+      parts.push(Prisma.sql`(${col}."space_id" = ANY(${memberSpaceIds}::uuid[]) AND ${col}."created_by_id" = ${userId}::uuid)`);
     }
-    if (grants.notes.viewer.length) parts.push(Prisma.sql`${col}."id" = ANY(${grants.notes.viewer}::text[])`);
-    if (grants.folders.viewer.length) parts.push(Prisma.sql`${col}."folder_path" && ${grants.folders.viewer}::text[]`);
+    if (grants.notes.viewer.length) parts.push(Prisma.sql`${col}."id" = ANY(${grants.notes.viewer}::uuid[])`);
+    if (grants.folders.viewer.length) parts.push(Prisma.sql`${col}."folder_path" && ${grants.folders.viewer}::uuid[]`);
     if (!parts.length) return Prisma.sql`FALSE`;
     return Prisma.sql`(${Prisma.join(parts, ' OR ')})`;
   }

@@ -1,10 +1,10 @@
-import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor, OnApplicationBootstrap } from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { Observable, tap } from 'rxjs';
 import { KEYS_ERROR_CODES, KEYS_LIMITS, KEYS_REDIS, routeTemplateOf } from '@superapp/shared';
 import { DatabaseService } from '../../../shared/database/database.service';
-import { MonthlyPartitions } from '../../../shared/database/monthly-partitions';
 import { tooMany } from '../../../shared/errors/api-error';
+import { LifecyclePartitions, type LifecycleParentPartitions } from '../../lifecycle/lifecycle.partitions';
 import { RedisService } from '../../../shared/redis/redis.service';
 import type { JwtPayload } from '../../../shared/decorators/current-user.decorator';
 import { AnalyticsService } from '../../analytics/analytics.service';
@@ -19,15 +19,16 @@ const ACCESS_LOG_MAX = 50_000;
 /**
  * Использование ключей без write amplification: `last_used_at`/`use_count` батчем из Redis
  * раз в минуту; журнал обращений `api_access_log` — списком в Redis, слив батчем в месячные
- * партиции; ежедневно — уведомления об истечении (14 и 1 день, одно на порог), `key.expired`,
- * ретеншн журнала сбросом партиций старше `accessLogRetentionDays`; суточный потолок выгрузки
- * строк одним ключом (`exportRowsPerDay`) — счётчик в Redis.
+ * партиции; ежедневно — уведомления об истечении (14 и 1 день, одно на порог), `key.expired`;
+ * суточный потолок выгрузки строк одним ключом (`exportRowsPerDay`) — счётчик в Redis.
+ * Партиции журнала (вперёд, сброс по сроку политики `ApiAccessLog` реестра) обслуживает
+ * core/lifecycle — функциями владельца данных.
  */
 @Injectable()
-export class KeysUsageCron implements OnApplicationBootstrap {
+export class KeysUsageCron {
   private readonly logger = new Logger(KeysUsageCron.name);
-  /** Месячные партиции `api_access_log` (прецедент analytics.events) */
-  readonly partitions: MonthlyPartitions;
+  /** Месячные партиции `api_access_log` — ручка единой двери core/lifecycle */
+  readonly partitions: LifecycleParentPartitions;
 
   constructor(
     private readonly db: DatabaseService,
@@ -35,15 +36,9 @@ export class KeysUsageCron implements OnApplicationBootstrap {
     private readonly analytics: AnalyticsService,
     private readonly notifier: KeysNotifier,
     private readonly moduleRef: ModuleRef,
+    lifecycle: LifecyclePartitions,
   ) {
-    this.partitions = new MonthlyPartitions(db, { table: 'api_access_log', column: 'at', retentionDays: KEYS_LIMITS.accessLogRetentionDays });
-  }
-
-  /** Партиции на месяцы вперёд — на старте (best-effort, под замком: инстансов много). */
-  async onApplicationBootstrap(): Promise<void> {
-    await this.redis
-      .withLock('cron:keys:access-partitions', 60_000, () => this.partitions.ensureAhead())
-      .catch((err: unknown) => this.logger.error(`api_access_log partitions on boot: ${err instanceof Error ? err.message : String(err)}`));
+    this.partitions = lifecycle.forParent('public.api_access_log');
   }
 
   // ---- Суточный потолок выгрузки строк одним ключом (аномалия объёма) ----
@@ -167,7 +162,7 @@ export class KeysUsageCron implements OnApplicationBootstrap {
       await this.db.apiAccessLog.createMany({ data });
     } catch (err) {
       // Месяц без партиции (крон не успел) — завести и повторить один раз
-      if (!MonthlyPartitions.isMissingPartition(err)) throw err;
+      if (!LifecyclePartitions.isMissingPartition(err)) throw err;
       for (const r of data) await this.partitions.ensureFor(r.at);
       await this.db.apiAccessLog.createMany({ data });
     }
@@ -177,9 +172,7 @@ export class KeysUsageCron implements OnApplicationBootstrap {
   @Cron(CronExpression.EVERY_DAY_AT_5AM)
   async daily(): Promise<void> {
     await this.redis.withLock('cron:keys:daily-usage', 600_000, async () => {
-      await this.partitions.ensureAhead();
       await this.notifyExpiring();
-      await this.retention();
     });
   }
 
@@ -221,13 +214,6 @@ export class KeysUsageCron implements OnApplicationBootstrap {
       sent++;
     }
     return sent;
-  }
-
-  /** Ретеншн — сброс партиций месяцев старше `accessLogRetentionDays`; возвращает число сброшенных. */
-  async retention(): Promise<number> {
-    const dropped = await this.partitions.dropExpired();
-    if (dropped.length) this.logger.log(`api_access_log retention: dropped ${dropped.join(', ')}`);
-    return dropped.length;
   }
 }
 

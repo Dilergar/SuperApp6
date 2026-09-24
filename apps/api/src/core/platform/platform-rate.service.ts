@@ -12,7 +12,8 @@ import { PLATFORM_REDIS } from './platform.constants';
  * отдельным сервисом именно поэтому: как только счётчик принадлежал бы одной витрине,
  * выгрузка шла бы соседней ручкой того же кабинета мимо потолка.
  *
- * Счётчик — минутное окно в Redis; Redis недоступен → считаем по журналу чтений.
+ * Счётчик — минутное окно в Redis (семейство `platform:rate:*` реестра хранилищ);
+ * Redis недоступен → считаем по журналу чтений.
  */
 @Injectable()
 export class PlatformRateService {
@@ -31,19 +32,39 @@ export class PlatformRateService {
     await this.consume(actor, 'lookup', PLATFORM_LIMITS.lookupPerMinute);
   }
 
-  private async consume(actor: PlatformActor, kind: 'lookup' | 'view', perMinute: number): Promise<void> {
-    const window = String(Math.floor(Date.now() / 60_000));
+  /**
+   * Бюджет запросов панели движка со СВОИМ потолком: дашборд аналитики — пачка запросов
+   * за раз, общий потолок просмотров он выбирал бы сразу. Redis недоступен → без потолка:
+   * ответ панели — k-анонимный агрегат, а не чужая запись (у просмотров и поиска запасной
+   * счёт — журнал чтений).
+   */
+  async assertPanelBudget(actor: PlatformActor, panel: string, perMinute: number): Promise<void> {
+    let n: number;
     try {
-      const client = this.redis.getClient();
-      const key = PLATFORM_REDIS.rate(kind, actor.userId, window);
-      const n = await client.incr(key);
-      if (n === 1) await client.expire(key, 120);
-      if (n > perMinute) throw tooMany('platform.rate_limited', undefined, { code: PLATFORM_ERROR_CODES.rateLimited, resendInSec: 60 });
-    } catch (err) {
-      if ((err as { status?: number }).status === 429) throw err;
-      /* Redis недоступен — лимит по журналу чтений (best-effort) */
-      const n = await this.audit.accessCount(actor.userId, kind === 'lookup' ? 'search' : 'view', 60_000);
-      if (n > perMinute) throw tooMany('platform.rate_limited', undefined, { code: PLATFORM_ERROR_CODES.rateLimited, resendInSec: 60 });
+      n = await this.bump(`panel.${panel}`, actor.userId);
+    } catch {
+      return;
     }
+    if (n > perMinute) throw tooMany('platform.rate_limited', undefined, { code: PLATFORM_ERROR_CODES.rateLimited, resendInSec: 60 });
+  }
+
+  private async consume(actor: PlatformActor, kind: 'lookup' | 'view', perMinute: number): Promise<void> {
+    let n: number;
+    try {
+      n = await this.bump(kind, actor.userId);
+    } catch {
+      /* Redis недоступен — лимит по журналу чтений (best-effort) */
+      n = await this.audit.accessCount(actor.userId, kind === 'lookup' ? 'search' : 'view', 60_000);
+    }
+    if (n > perMinute) throw tooMany('platform.rate_limited', undefined, { code: PLATFORM_ERROR_CODES.rateLimited, resendInSec: 60 });
+  }
+
+  /** +1 в минутном окне. Одним MULTI: сбой между INCR и EXPIRE оставил бы счётчик без срока навсегда. */
+  private async bump(kind: string, userId: string): Promise<number> {
+    const key = PLATFORM_REDIS.rate(kind, userId, String(Math.floor(Date.now() / 60_000)));
+    const res = await this.redis.getClient().multi().incr(key).expire(key, 120, 'NX').exec();
+    const [err, n] = res?.[0] ?? [new Error('Redis MULTI aborted'), 0];
+    if (err) throw err;
+    return Number(n);
   }
 }

@@ -198,7 +198,8 @@ export class AudiencesService {
           };
         case 'branch_head_of': {
           // Своя форма нужна ровно для ОБЪЕКТА: имя объекта по его id знает StaffModule.
-          const custom = await this.registry.get(ref.type)?.label?.(ref.id, ctx);
+          // Якорь — правило, а не объект: в чужой справочник его не отдаём.
+          const custom = anchor ? null : await this.registry.get(ref.type)?.label?.(ref.id, ctx);
           if (custom) return { ...base, ...custom };
           return {
             ...base,

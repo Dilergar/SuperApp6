@@ -3,9 +3,11 @@ import { Prisma, VoiceRecording } from '@prisma/client';
 import {
   CreateRecordingInput,
   FileDto,
+  RECORDER_LIMITS,
   VoiceLanguage,
   VoiceRecordingDto,
   VoiceRecordingSource,
+  VoiceRecordingTrashItem,
   VoiceTranscriptStatus,
 } from '@superapp/shared';
 import { coerceLocale, type Locale } from '@superapp/i18n';
@@ -60,7 +62,7 @@ export class RecorderService implements OnModuleInit {
           return rec?.ownerId === viewerId;
         },
         canAttach: async (userId, refId) => {
-          const rec = await this.db.voiceRecording.findUnique({ where: { id: refId }, select: { ownerId: true } });
+          const rec = await this.db.voiceRecording.findUnique({ where: { id: refId, deletedAt: null }, select: { ownerId: true } });
           return rec?.ownerId === userId;
         },
       },
@@ -146,17 +148,20 @@ export class RecorderService implements OnModuleInit {
   /** Список записей владельца (новые сверху; объём Диктофона мал — без курсора в v1) */
   async list(userId: string): Promise<VoiceRecordingDto[]> {
     const rows = await this.db.voiceRecording.findMany({
-      where: { ownerId: userId },
+      where: { ownerId: userId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
-    if (!rows.length) return [];
+    return this.serializeMany(rows);
+  }
 
+  /** Строки → DTO пачкой: файлы и статусы транскриптов одним запросом на всех. */
+  private async serializeMany(rows: VoiceRecording[]): Promise<VoiceRecordingDto[]> {
+    if (!rows.length) return [];
     const filesByRec = await this.files.listLinked('voice_recording', rows.map((r) => r.id));
     const fileIds: string[] = [];
     for (const list of filesByRec.values()) for (const f of list) fileIds.push(f.id);
     const transcriptByFile = await this.voice.getStatusesForFiles(fileIds);
-
     return rows.map((r) => {
       const file = filesByRec.get(r.id)?.[0] ?? null;
       const tr = file ? transcriptByFile.get(file.id) ?? null : null;
@@ -192,9 +197,59 @@ export class RecorderService implements OnModuleInit {
     return { id: row.id, title: row.title ?? title };
   }
 
-  /** Удаление: отвязка (движок реапит осиротевший файл) → транскрипты ТОЛЬКО прибранных файлов → строка */
-  async remove(userId: string, id: string): Promise<void> {
-    await this.assertOwner(userId, id);
+  // ============================================================
+  // Корзина (мягкое скрытие 30 дней, по образцу Заметок и Диска)
+  // ============================================================
+
+  /** В корзину: запись пропадает из ленты, файл и транскрипт живы до окончательного удаления. */
+  async trash(userId: string, id: string): Promise<void> {
+    const row = await this.assertOwner(userId, id, { includeTrashed: true });
+    if (row.deletedAt) return;
+    await this.db.voiceRecording.updateMany({ where: { id, deletedAt: null }, data: { deletedAt: new Date() } });
+  }
+
+  async restore(userId: string, id: string): Promise<VoiceRecordingDto> {
+    const row = await this.assertOwner(userId, id, { includeTrashed: true });
+    if (row.deletedAt) await this.db.voiceRecording.updateMany({ where: { id, deletedAt: row.deletedAt }, data: { deletedAt: null } });
+    const fresh = await this.db.voiceRecording.findUniqueOrThrow({ where: { id } });
+    return (await this.serializeMany([fresh]))[0];
+  }
+
+  /** Корзина владельца: записи с файлом (послушать перед восстановлением), новые сверху. */
+  async listTrash(userId: string): Promise<VoiceRecordingTrashItem[]> {
+    const rows = await this.db.voiceRecording.findMany({
+      where: { ownerId: userId, deletedAt: { not: null } },
+      orderBy: { deletedAt: 'desc' },
+      take: RECORDER_LIMITS.trashPageSize,
+    });
+    const dtos = await this.serializeMany(rows);
+    return dtos.map((d, i) => ({
+      ...d,
+      deletedAt: rows[i].deletedAt!.toISOString(),
+      purgeAt: new Date(rows[i].deletedAt!.getTime() + RECORDER_LIMITS.trashRetentionDays * 86_400_000).toISOString(),
+    }));
+  }
+
+  /** Удалить навсегда — только из корзины. */
+  async purge(userId: string, id: string): Promise<void> {
+    const row = await this.assertOwner(userId, id, { includeTrashed: true });
+    if (!row.deletedAt) throw badRequest('recorder.trashFirst');
+    await this.hardDelete(id);
+  }
+
+  /** Корзина старше срока — навсегда (крон под Redis-локом; раннер purge core/lifecycle). */
+  async purgeExpired(cutoff: Date): Promise<number> {
+    const rows = await this.db.voiceRecording.findMany({
+      where: { deletedAt: { lt: cutoff } },
+      select: { id: true },
+      take: RECORDER_LIMITS.purgeBatch,
+    });
+    for (const r of rows) await this.hardDelete(r.id);
+    return rows.length;
+  }
+
+  /** Окончательное удаление: отвязка (движок реапит осиротевший файл) → транскрипты ТОЛЬКО прибранных файлов → строка */
+  private async hardDelete(id: string): Promise<void> {
     const fileIds = await this.files.getLinkedFileIds('voice_recording', id);
     await this.files.unlinkAllForRef('voice_recording', id);
     // Транскрипт умирает только вместе с файлом: файл, живущий вложением чата,
@@ -203,8 +258,8 @@ export class RecorderService implements OnModuleInit {
     await this.db.voiceRecording.delete({ where: { id } });
   }
 
-  private async assertOwner(userId: string, id: string): Promise<VoiceRecording> {
-    const row = await this.db.voiceRecording.findUnique({ where: { id } });
+  private async assertOwner(userId: string, id: string, opts: { includeTrashed?: boolean } = {}): Promise<VoiceRecording> {
+    const row = await this.db.voiceRecording.findUnique({ where: opts.includeTrashed ? { id } : { id, deletedAt: null } });
     if (!row) throw notFound('recorder.notFound');
     if (row.ownerId !== userId) throw forbidden('recorder.notOwner');
     return row;

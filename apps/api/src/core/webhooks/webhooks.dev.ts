@@ -63,10 +63,10 @@ export class WebhooksDevController {
 
   @Post('daily')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Run the daily webhooks sweep now (probes + retention)' })
+  @ApiOperation({ summary: '[dev] Run the daily webhooks sweep now (probes + body minimisation)' })
   async daily() {
     this.assertDev();
-    return { success: true, data: { probes: await this.cron.enqueueProbes(), purged: await this.cron.retention() } };
+    return { success: true, data: { probes: await this.cron.enqueueProbes(), redacted: await this.cron.redactBodies() } };
   }
 
   @Post('deliver')

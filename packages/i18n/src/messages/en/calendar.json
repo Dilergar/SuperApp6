@@ -262,5 +262,16 @@
     "hiddenHint": "Nobody sees it, not even the availability",
     "inherit": "As configured",
     "inheritHint": "By the access rules of your Groups and people"
+  },
+  "trash": {
+    "breadcrumb": "Calendar",
+    "title": "Trash",
+    "description": "Events and series you deleted",
+    "hint": "Events are kept here for {days} days. Restoring returns the event to the participants’ calendars; a room or resource booking is not restored — book it again when editing the event.",
+    "recurring": "Series",
+    "purgeConfirm": {
+      "title": "Delete «{name}» for good?",
+      "message": "The event with all its occurrences, participants and reminders will be deleted. This cannot be undone."
+    }
   }
 }

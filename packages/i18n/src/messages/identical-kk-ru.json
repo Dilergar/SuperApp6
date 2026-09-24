@@ -196,6 +196,7 @@
   "recorder.source.upload",
   "recorder.source.web",
   "recorder.title",
+  "recorder.trash.breadcrumb",
   "share.guest.devCode",
   "shell.context.aria",
   "shell.nav.drive",

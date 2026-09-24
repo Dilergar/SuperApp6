@@ -12,8 +12,7 @@ import {
   analyticsEventDef,
   analyticsSourceOf,
   type AnalyticsEventDef,
-  type AnalyticsQuarantineReason,
-} from '@superapp/shared';
+  type AnalyticsQuarantineReason, uuidv7 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { utcTs } from '../../shared/database/sql-time';
@@ -595,7 +594,7 @@ export class AnalyticsIngestService implements OnApplicationBootstrap, OnModuleD
     for (const q of items) {
       await client.$executeRaw`
         INSERT INTO analytics_quarantine (id, event_key, reason, count, first_seen_at, last_seen_at, sample_shape)
-        VALUES (${randomUUID()}, ${q.key}, ${q.reason}, ${q.count}, ${utcTs(now)}, ${utcTs(now)}, ${JSON.stringify(q.shape)}::jsonb)
+        VALUES (${uuidv7()}::uuid, ${q.key}, ${q.reason}, ${q.count}, ${utcTs(now)}, ${utcTs(now)}, ${JSON.stringify(q.shape)}::jsonb)
         ON CONFLICT (event_key, reason) DO UPDATE SET
           count = analytics_quarantine.count + EXCLUDED.count,
           last_seen_at = EXCLUDED.last_seen_at,

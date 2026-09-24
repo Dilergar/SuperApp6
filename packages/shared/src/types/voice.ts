@@ -53,6 +53,12 @@ export interface VoiceSyncSttResult {
   language: string | null;
 }
 
+/** Запись в корзине: `purgeAt` — когда уйдёт навсегда (вместе с файлом и транскриптом). */
+export interface VoiceRecordingTrashItem extends VoiceRecordingDto {
+  deletedAt: string;
+  purgeAt: string;
+}
+
 /** Запись Диктофона (файл привязан FileLink'ом refType='voice_recording') */
 export interface VoiceRecordingDto {
   id: string;

@@ -1361,7 +1361,7 @@ export class ProcessesService implements OnModuleInit {
         // отсюда УБРАНЫ: они живут в общей стопке «Ждут решения» движка согласований,
         // где адресатом может быть должность или отдел — `assigneeId` шага такого
         // адресата не выражает, и здесь они просто не находились бы.
-        ...(myDeptIds.length ? { departmentId: { in: myDeptIds }, taskId: null } : { id: '__none__' }),
+        ...(myDeptIds.length ? { departmentId: { in: myDeptIds }, taskId: null } : { id: { in: [] } }),
       },
       orderBy: { startedAt: 'asc' },
       take: 100,
@@ -1414,14 +1414,14 @@ export class ProcessesService implements OnModuleInit {
     const agg = await this.db.$queryRaw<AggRow[]>`
       SELECT sr.node_id,
              MAX(sr.node_type) AS node_type,
-             MAX(sr.department_id) AS department_id,
+             MAX(sr.department_id::text) AS department_id,
              COUNT(*) AS cnt,
              AVG(EXTRACT(EPOCH FROM (sr.completed_at - sr.started_at)) * 1000) AS avg_ms,
              MAX(EXTRACT(EPOCH FROM (sr.completed_at - sr.started_at)) * 1000) AS max_ms,
              SUM(EXTRACT(EPOCH FROM (sr.completed_at - sr.started_at)) * 1000) AS total_ms
       FROM process_step_runs sr
       JOIN process_instances pi ON pi.id = sr.instance_id
-      WHERE pi.definition_id = ${definitionId} AND sr.status = 'done' AND sr.completed_at IS NOT NULL
+      WHERE pi.definition_id = ${definitionId}::uuid AND sr.status = 'done' AND sr.completed_at IS NOT NULL
       GROUP BY sr.node_id`;
 
     const deptIds = [...new Set(agg.map((r) => r.department_id).filter((x): x is string => !!x))];
@@ -1448,7 +1448,7 @@ export class ProcessesService implements OnModuleInit {
     const [cycle] = await this.db.$queryRaw<CycleRow[]>`
       SELECT COUNT(*) AS cnt, AVG(EXTRACT(EPOCH FROM (finished_at - started_at)) * 1000) AS avg_ms
       FROM process_instances
-      WHERE definition_id = ${definitionId} AND status = 'done' AND finished_at IS NOT NULL`;
+      WHERE definition_id = ${definitionId}::uuid AND status = 'done' AND finished_at IS NOT NULL`;
     const finishedInstances = Number(cycle?.cnt ?? 0);
     const avgCycleMs = cycle?.avg_ms != null ? Math.round(cycle.avg_ms) : null;
 

@@ -192,7 +192,7 @@ export class DriveAccessService {
   visibilitySql(alias: string, spaceAccess: DriveAccess | null, granted: string[]): Prisma.Sql {
     if (spaceAccess === 'owner') return Prisma.sql`TRUE`;
     if (!granted.length) return Prisma.sql`FALSE`;
-    const ids = Prisma.sql`${granted}::text[]`;
+    const ids = Prisma.sql`${granted}::uuid[]`;
     const col = Prisma.raw(`"${alias}"`);
     return Prisma.sql`(${col}."id" = ANY(${ids}) OR ${col}."ancestor_ids" && ${ids})`;
   }

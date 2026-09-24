@@ -31,7 +31,7 @@ import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { fullName } from '../../shared/utils/user-name';
 import { Prisma } from '@prisma/client';
-import { APP_TIMEZONE, SOURCE_LOCALE } from '@superapp/shared';
+import { APP_TIMEZONE, SOURCE_LOCALE, TASK_LIMITS } from '@superapp/shared';
 import type {
   Task as TaskDto,
   TaskParticipant as TaskParticipantDto,
@@ -41,6 +41,7 @@ import type {
   UpdateTaskInput,
   TaskFilter,
   TaskStats,
+  TaskTrashItem,
   FileDto,
   OffsetPage,
 } from '@superapp/shared';
@@ -56,10 +57,14 @@ const TASK_INCLUDE = {
   },
   assignedCircle: { select: { id: true, name: true } },
   tags: { select: { name: true } },
-  _count: { select: { subtasks: true } },
+  // Подзадача в корзине не считается (её видно только в корзине)
+  _count: { select: { subtasks: { where: { deletedAt: null } } } },
 } satisfies Prisma.TaskInclude;
 
 type TaskRow = Prisma.TaskGetPayload<{ include: typeof TASK_INCLUDE }>;
+
+/** Потолок поддерева задачи (корзина и окончательное удаление идут одним поддеревом). */
+const SUBTREE_CAP = 5_000;
 type UserMini = { id: string; firstName: string; lastName: string | null; avatar: string | null };
 
 // Numeric mirror of priority for ORDER BY — the string column sorts lexicographically
@@ -174,7 +179,7 @@ export class TasksService implements OnModuleInit {
     this.filesRegistry.register('task', {
       canView: async (viewerId, taskId) => {
         const task = await this.db.task.findUnique({
-          where: { id: taskId },
+          where: { id: taskId, deletedAt: null },
           select: { creatorId: true, participants: { select: { userId: true } } },
         });
         if (!task) return false;
@@ -183,7 +188,7 @@ export class TasksService implements OnModuleInit {
       },
       canAttach: async (userId, taskId) => {
         const task = await this.db.task.findUnique({
-          where: { id: taskId },
+          where: { id: taskId, deletedAt: null },
           select: { creatorId: true, participants: { select: { userId: true } } },
         });
         if (!task) return false;
@@ -195,7 +200,7 @@ export class TasksService implements OnModuleInit {
       // править документ не должно измениться молча вместе с ним.
       canEditContent: async (userId, taskId) => {
         const task = await this.db.task.findUnique({
-          where: { id: taskId },
+          where: { id: taskId, deletedAt: null },
           select: { creatorId: true, participants: { select: { userId: true } } },
         });
         if (!task) return false;
@@ -210,7 +215,7 @@ export class TasksService implements OnModuleInit {
     this.driveRouting.register('task', {
       resolvePlacement: async (taskId, actorId) => {
         const task = await this.db.task.findUnique({
-          where: { id: taskId },
+          where: { id: taskId, deletedAt: null },
           select: { workspaceId: true },
         });
         if (!task) return null;
@@ -225,7 +230,7 @@ export class TasksService implements OnModuleInit {
     this.chatterRegistry.register('task', {
       canView: async (viewerId, taskId) => {
         const task = await this.db.task.findUnique({
-          where: { id: taskId },
+          where: { id: taskId, deletedAt: null },
           select: { creatorId: true, participants: { select: { userId: true } } },
         });
         if (!task) return false;
@@ -284,7 +289,7 @@ export class TasksService implements OnModuleInit {
 
   async listAttachments(userId: string, taskId: string): Promise<FileDto[]> {
     const task = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       select: { creatorId: true, participants: { select: { userId: true } } },
     });
     if (!task) throw notFound('task.notFound');
@@ -294,7 +299,7 @@ export class TasksService implements OnModuleInit {
 
   async attachFile(userId: string, taskId: string, fileId: string): Promise<FileDto[]> {
     const task = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       select: { creatorId: true, participants: { select: { userId: true } } },
     });
     if (!task) throw notFound('task.notFound');
@@ -342,7 +347,7 @@ export class TasksService implements OnModuleInit {
     opts: { skipEnvironmentChecks?: boolean; origin?: string } = {},
   ): Promise<TaskDto> {
     if (data.parentId) {
-      const parent = await this.db.task.findUnique({ where: { id: data.parentId } });
+      const parent = await this.db.task.findUnique({ where: { id: data.parentId, deletedAt: null } });
       const isParticipant = parent
         ? await this.db.taskParticipant.count({
             where: { taskId: parent.id, userId },
@@ -548,7 +553,8 @@ export class TasksService implements OnModuleInit {
 
   /** Индексируемый предикат «я вижу задачу» (создатель ∨ участник по id-списку). */
   private visibilityWhere(userId: string, participantTaskIds: string[]): Prisma.TaskWhereInput {
-    return { OR: [{ creatorId: userId }, { id: { in: participantTaskIds } }] };
+    // Задача в корзине не видна никому, кроме её списка корзины
+    return { deletedAt: null, OR: [{ creatorId: userId }, { id: { in: participantTaskIds } }] };
   }
 
   async getTasks(userId: string, filters: TaskFilter & { parentId?: string | null }): Promise<OffsetPage<TaskDto>> {
@@ -682,8 +688,8 @@ export class TasksService implements OnModuleInit {
     // $queryRaw обходит chokepoint-скоуп ($extends действует только на model-API) —
     // зеркалим его руками: активная организация в ALS → счётчики только её задач.
     const wsId = this.workspaceContext.activeWorkspaceId;
-    const wsFilter = wsId ? Prisma.sql`AND workspace_id = ${wsId}` : Prisma.empty;
-    const wsFilterT = wsId ? Prisma.sql`AND t.workspace_id = ${wsId}` : Prisma.empty;
+    const wsFilter = wsId ? Prisma.sql`AND workspace_id = ${wsId}::uuid` : Prisma.empty;
+    const wsFilterT = wsId ? Prisma.sql`AND t.workspace_id = ${wsId}::uuid` : Prisma.empty;
 
     const rows = await this.db.$queryRaw<
       Array<{
@@ -699,16 +705,16 @@ export class TasksService implements OnModuleInit {
       WITH mine AS (
         SELECT id, creator_id, status, due_date, all_day, inbox
         FROM tasks
-        WHERE parent_id IS NULL AND creator_id = ${userId} ${wsFilter}
+        WHERE parent_id IS NULL AND deleted_at IS NULL AND creator_id = ${userId}::uuid ${wsFilter}
         UNION
         SELECT t.id, t.creator_id, t.status, t.due_date, t.all_day, t.inbox
         FROM tasks t
         JOIN task_participants tp ON tp.task_id = t.id
-        WHERE t.parent_id IS NULL AND tp.user_id = ${userId} ${wsFilterT}
+        WHERE t.parent_id IS NULL AND t.deleted_at IS NULL AND tp.user_id = ${userId}::uuid ${wsFilterT}
       )
       SELECT
         COUNT(*) FILTER (
-          WHERE inbox AND creator_id = ${userId} AND status NOT IN ('done','cancelled')
+          WHERE inbox AND creator_id = ${userId}::uuid AND status NOT IN ('done','cancelled')
         )::int AS inbox,
         COUNT(*) FILTER (
           WHERE status NOT IN ('done','cancelled')
@@ -726,15 +732,15 @@ export class TasksService implements OnModuleInit {
         COUNT(*) FILTER (
           WHERE status NOT IN ('done','cancelled') AND EXISTS (
             SELECT 1 FROM task_participants tp
-            WHERE tp.task_id = mine.id AND tp.user_id = ${userId}
+            WHERE tp.task_id = mine.id AND tp.user_id = ${userId}::uuid
               AND tp.role IN ('executor','co_executor')
           )
         )::int AS assigned_to_me,
         COUNT(*) FILTER (
-          WHERE creator_id = ${userId} AND status NOT IN ('done','cancelled')
+          WHERE creator_id = ${userId}::uuid AND status NOT IN ('done','cancelled')
         )::int AS created_by_me,
         COUNT(*) FILTER (
-          WHERE creator_id = ${userId} AND EXISTS (
+          WHERE creator_id = ${userId}::uuid AND EXISTS (
             SELECT 1 FROM task_participants tp
             WHERE tp.task_id = mine.id AND tp.status = 'submitted'
           )
@@ -756,10 +762,10 @@ export class TasksService implements OnModuleInit {
 
   async getTask(userId: string, taskId: string): Promise<TaskDto> {
     const task = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       include: {
         ...TASK_INCLUDE,
-        subtasks: { select: { status: true } },
+        subtasks: { where: { deletedAt: null }, select: { status: true } },
       },
     });
     if (!task) throw notFound('task.notFound');
@@ -829,7 +835,7 @@ export class TasksService implements OnModuleInit {
 
   async updateTask(userId: string, taskId: string, data: UpdateTaskInput): Promise<TaskDto> {
     const existing = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       include: { participants: { select: { id: true, userId: true, role: true } } },
     });
     if (!existing) throw notFound('task.notFound');
@@ -1123,22 +1129,166 @@ export class TasksService implements OnModuleInit {
     await addWith(data.addObserverIds, 'observer');
   }
 
-  async deleteTask(userId: string, taskId: string) {
+  // ============================================================
+  // Корзина (мягкое скрытие 30 дней, по образцу Заметок и Диска)
+  // ============================================================
+
+  /**
+   * В корзину — постановщик. Задача вместе с подзадачами скрывается у ВСЕХ участников;
+   * награды возвращаются так же, как при прежнем удалении (эскроу — ровно в транзакции
+   * скрытия: деньги не висят замороженными за задачей, которой не видно), поле награды
+   * обнуляется — восстановленная задача честно без награды. Процесс, ждущий задачу,
+   * получает `task.deleted` (задача ушла из работы). Права, вложения и чат живут до
+   * окончательного удаления — восстановление возвращает всё как было.
+   */
+  async trashTask(userId: string, taskId: string): Promise<void> {
     const task = await this.db.task.findUnique({ where: { id: taskId } });
     if (!task) throw notFound('task.notFound');
-    if (task.creatorId !== userId) {
-      throw forbidden('task.deleteCreatorOnly');
+    if (task.creatorId !== userId) throw forbidden('task.deleteCreatorOnly');
+    if (task.deletedAt) return;
+    const ids = await this.liveSubtree(taskId);
+    const at = new Date();
+    const trashed = await this.db.$transaction(async (tx) => {
+      const r = await tx.task.updateMany({ where: { id: { in: ids }, deletedAt: null }, data: { deletedAt: at, coinReward: 0 } });
+      if (r.count === 0) return false;
+      // Подзадачи тоже держали награды: прежнее удаление их забывало (заморозка навсегда)
+      for (const id of ids) await this.escrow.releaseAll(tx, { refType: 'task', refId: id });
+      await tx.taskParticipant.updateMany({ where: { taskId: { in: ids } }, data: { rewardCoins: 0 } });
+      await this.chatter.log(tx, {
+        refType: 'task',
+        refId: taskId,
+        workspaceId: task.workspaceId,
+        actorId: userId,
+        actorName: fullName(await this.userMini(userId)),
+        typeKey: 'task.trashed',
+        payload: { taskTitle: task.title },
+      });
+      return true;
+    });
+    if (!trashed) return;
+    for (const id of ids) this.events.emit('task.deleted', { taskId: id }, 'tasks');
+  }
+
+  /**
+   * Вернуть из корзины — постановщик. Вместе с задачей возвращаются подзадачи, ушедшие
+   * в корзину с ней (тот же момент `deletedAt`). Подзадача, чья родительская задача
+   * всё ещё в корзине, одна не возвращается: сначала родитель.
+   */
+  async restoreTask(userId: string, taskId: string): Promise<TaskDto> {
+    const task = await this.db.task.findUnique({ where: { id: taskId } });
+    if (!task) throw notFound('task.notFound');
+    if (task.creatorId !== userId) throw forbidden('task.deleteCreatorOnly');
+    if (!task.deletedAt) return this.getTask(userId, taskId);
+    if (task.parentId) {
+      const parent = await this.db.task.findUnique({ where: { id: task.parentId }, select: { deletedAt: true } });
+      if (parent?.deletedAt) throw badRequest('task.restoreParentFirst');
     }
+    const ids = await this.subtreeTrashedAt(taskId, task.deletedAt);
     await this.db.$transaction(async (tx) => {
-      await this.escrow.releaseAll(tx, { refType: 'task', refId: taskId }); // refund any frozen / paid reward to the creator
+      await tx.task.updateMany({ where: { id: { in: ids }, deletedAt: task.deletedAt }, data: { deletedAt: null } });
+      await this.chatter.log(tx, {
+        refType: 'task',
+        refId: taskId,
+        workspaceId: task.workspaceId,
+        actorId: userId,
+        actorName: fullName(await this.userMini(userId)),
+        typeKey: 'task.restored',
+        payload: { taskTitle: task.title },
+      });
+    });
+    return this.getTask(userId, taskId);
+  }
+
+  /** Корзина постановщика: корни скрытых поддеревьев, новые сверху. */
+  async listTrash(userId: string, workspaceId?: string | null): Promise<TaskTrashItem[]> {
+    const rows = await this.db.task.findMany({
+      where: {
+        creatorId: userId,
+        deletedAt: { not: null },
+        ...(workspaceId !== undefined ? { workspaceId } : {}),
+        // Подзадача, ушедшая вместе с родителем, показывается его строкой (счётчик)
+        OR: [{ parentId: null }, { parent: { deletedAt: null } }],
+      },
+      select: { id: true, title: true, status: true, priority: true, workspaceId: true, deletedAt: true, _count: { select: { subtasks: { where: { deletedAt: { not: null } } } } } },
+      orderBy: { deletedAt: 'desc' },
+      take: TASK_LIMITS.trashPageSize,
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      status: r.status as TaskTrashItem['status'],
+      priority: r.priority as TaskTrashItem['priority'],
+      workspaceId: r.workspaceId,
+      subtasksCount: r._count.subtasks,
+      deletedAt: r.deletedAt!.toISOString(),
+      purgeAt: new Date(r.deletedAt!.getTime() + TASK_LIMITS.trashRetentionDays * 86_400_000).toISOString(),
+    }));
+  }
+
+  /** Удалить навсегда — только из корзины и только постановщик. */
+  async purgeTask(userId: string, taskId: string): Promise<void> {
+    const task = await this.db.task.findUnique({ where: { id: taskId }, select: { creatorId: true, deletedAt: true } });
+    if (!task) throw notFound('task.notFound');
+    if (task.creatorId !== userId) throw forbidden('task.deleteCreatorOnly');
+    if (!task.deletedAt) throw badRequest('task.trashFirst');
+    await this.hardDelete(taskId);
+  }
+
+  /** Корзина старше срока — навсегда (крон под Redis-локом; раннер purge core/lifecycle). */
+  async purgeExpired(cutoff: Date): Promise<number> {
+    const rows = await this.db.task.findMany({
+      where: { deletedAt: { lt: cutoff }, OR: [{ parentId: null }, { parent: { deletedAt: null } }] },
+      select: { id: true },
+      take: TASK_LIMITS.purgeBatch,
+    });
+    for (const r of rows) await this.hardDelete(r.id);
+    return rows.length;
+  }
+
+  /**
+   * Окончательное удаление задачи с поддеревом: строка (подзадачи уходят каскадом FK),
+   * вложения (полиморфный FileLink не каскадится — иначе файлы вечно в квоте
+   * загрузившего), кортежи прав, чаты задач. Награды вернулись ещё при скрытии; повтор
+   * `releaseAll` — страховка для задачи, ушедшей в корзину до этого правила.
+   */
+  private async hardDelete(taskId: string): Promise<void> {
+    const ids = await this.subtreeIds(taskId);
+    await this.db.$transaction(async (tx) => {
+      for (const id of ids) await this.escrow.releaseAll(tx, { refType: 'task', refId: id });
       await tx.task.delete({ where: { id: taskId } });
     });
-    // Вложения задачи (полиморфный FileLink не каскадится со строкой задачи) —
-    // отвязать и прибрать сироты, иначе файлы вечно висят в квоте загрузившего.
-    await this.files.unlinkAllForRef('task', taskId).catch(() => undefined);
-    await this.accessProjection.taskDeleted(taskId);
-    await this.messenger.deleteTaskChat(taskId);
-    this.events.emit('task.deleted', { taskId }, 'tasks');
+    for (const id of ids) {
+      await this.files.unlinkAllForRef('task', id).catch(() => undefined);
+      await this.accessProjection.taskDeleted(id);
+      await this.messenger.deleteTaskChat(id);
+    }
+  }
+
+  /** Живая задача и все её живые потомки (подзадачи любой глубины). */
+  private async liveSubtree(rootId: string): Promise<string[]> {
+    return this.collectSubtree(rootId, { deletedAt: null });
+  }
+
+  /** Задача и потомки, ушедшие в корзину в тот же момент, что и она. */
+  private async subtreeTrashedAt(rootId: string, at: Date): Promise<string[]> {
+    return this.collectSubtree(rootId, { deletedAt: at });
+  }
+
+  /** Все потомки задачи (для окончательного удаления — независимо от корзины). */
+  private async subtreeIds(rootId: string): Promise<string[]> {
+    return this.collectSubtree(rootId, {});
+  }
+
+  private async collectSubtree(rootId: string, filter: Prisma.TaskWhereInput): Promise<string[]> {
+    const out = [rootId];
+    let frontier = [rootId];
+    // Глубина подзадач мала; потолки — страховка от цикла parentId и патологически широкого дерева
+    for (let depth = 0; frontier.length && depth < 20 && out.length < SUBTREE_CAP; depth++) {
+      const children = await this.db.task.findMany({ where: { parentId: { in: frontier }, ...filter }, select: { id: true }, take: SUBTREE_CAP - out.length });
+      frontier = children.map((c) => c.id).filter((id) => !out.includes(id));
+      out.push(...frontier);
+    }
+    return out;
   }
 
   // ============================================================
@@ -1148,7 +1298,7 @@ export class TasksService implements OnModuleInit {
   /** Executor/co-executor marks their part done. Self-task → completes immediately. */
   async submitWork(userId: string, taskId: string): Promise<TaskDto> {
     const task = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       include: { participants: true, creator: { select: { id: true, firstName: true, lastName: true, avatar: true } } },
     });
     if (!task) throw notFound('task.notFound');
@@ -1160,7 +1310,7 @@ export class TasksService implements OnModuleInit {
       // вебхука (и второго круга уведомлений/расчётов), откат не оставляет события без факта.
       const flipped = await this.db.$transaction(async (tx) => {
         const r = await tx.task.updateMany({
-          where: { id: taskId, status: { not: 'done' } },
+          where: { id: taskId, deletedAt: null, status: { not: 'done' } },
           data: { status: 'done', completedAt: new Date() },
         });
         if (r.count) {
@@ -1337,7 +1487,7 @@ export class TasksService implements OnModuleInit {
 
   private async loadForReview(userId: string, taskId: string, participantUserId?: string) {
     const task = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       include: { participants: true },
     });
     if (!task) throw notFound('task.notFound');
@@ -1355,7 +1505,7 @@ export class TasksService implements OnModuleInit {
   /** Recompute the aggregate Task.status from its participants' states. */
   private async recomputeStatus(taskId: string, actorId?: string) {
     const task = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       include: { participants: { where: { role: { not: 'observer' } } } },
     });
     if (!task) return;
@@ -1383,7 +1533,7 @@ export class TasksService implements OnModuleInit {
       // становится `done` (в т.ч. главный путь «сдал → постановщик принял»).
       const claimed = await this.db.$transaction(async (tx) => {
         const r = await tx.task.updateMany({
-          where: { id: taskId, status: task.status },
+          where: { id: taskId, deletedAt: null, status: task.status },
           data: { status, completedAt: status === 'done' ? new Date() : null },
         });
         if (r.count && becameDone) {
@@ -1397,7 +1547,7 @@ export class TasksService implements OnModuleInit {
     if (becameDone) {
       await this.analytics.track(null, 'tasks.task.completed', {}, { userId: actorId, workspaceId: task.workspaceId ?? null, ref: { type: 'task', id: taskId } });
       const full = await this.db.task.findUnique({
-        where: { id: taskId },
+        where: { id: taskId, deletedAt: null },
         include: { participants: { select: { userId: true } } },
       });
       const recipients = full
@@ -1474,7 +1624,7 @@ export class TasksService implements OnModuleInit {
    */
   async reassignExecutorTrusted(taskId: string, newExecutorId: string): Promise<void> {
     const task = await this.db.task.findUnique({
-      where: { id: taskId },
+      where: { id: taskId, deletedAt: null },
       include: { participants: { select: { id: true, userId: true, role: true } } },
     });
     if (!task) throw notFound('task.notFound');
@@ -1743,6 +1893,7 @@ export class TasksService implements OnModuleInit {
       where: {
         reminderAt: { lte: now },
         reminderSentAt: null,
+        deletedAt: null,
         status: { notIn: ['done', 'cancelled'] },
       },
       include: { participants: { select: { userId: true, role: true } } },
@@ -1770,6 +1921,7 @@ export class TasksService implements OnModuleInit {
     const overdue = await this.db.task.findMany({
       where: {
         dueDate: { gte: since, lt: now },
+        deletedAt: null,
         status: { notIn: ['done', 'cancelled'] },
       },
       include: { participants: { select: { userId: true, role: true } } },

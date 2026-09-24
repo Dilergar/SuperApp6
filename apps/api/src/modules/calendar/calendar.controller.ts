@@ -58,6 +58,29 @@ export class CalendarController {
     return { success: true, data: result };
   }
 
+  @Get('trash')
+  @ApiOperation({ summary: 'My trash: events and series I moved there (restorable for 30 days)' })
+  async trash(@CurrentUser() user: JwtPayload) {
+    const data = await this.calendarService.listTrash(user.sub);
+    return { success: true, data };
+  }
+
+  @Post('events/:id/trash')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'To the trash (organizer only): the whole event or series, participants are told it is cancelled' })
+  async trashEvent(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    await this.calendarService.trashEvent(user.sub, id);
+    return { success: true, data: { ok: true } };
+  }
+
+  @Post('events/:id/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Restore from the trash (organizer only)' })
+  async restoreEvent(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    const data = await this.calendarService.restoreEvent(user.sub, id);
+    return { success: true, data };
+  }
+
   @Get('events/:id')
   @ApiOperation({ summary: 'Event details (with the participants)' })
   async getEvent(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
@@ -90,7 +113,7 @@ export class CalendarController {
 
   @Delete('events/:id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Delete an event or a single occurrence of a series' })
+  @ApiOperation({ summary: 'Remove one occurrence / the tail of a series (editScope), or delete the whole event for good — from the trash only' })
   async deleteEvent(
     @CurrentUser() user: JwtPayload,
     @Param('id') id: string,

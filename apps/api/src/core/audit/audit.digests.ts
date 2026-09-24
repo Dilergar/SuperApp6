@@ -1,11 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
 import { Prisma, type SecurityDigest } from '@prisma/client';
-import type { SecurityDigestVerifyDto } from '@superapp/shared';
+import { type SecurityDigestVerifyDto, uuidv7 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { KeysSigningService } from '../keys/keys.signing.service';
@@ -227,7 +227,7 @@ export class AuditDigestService {
     const prev = last ? AuditDigestService.chainHash(last) : null;
     const payload = AuditDigestService.payload({ version, xactFrom: from, xactTo: to, count: leaves.count, firstAt: leaves.firstAt, lastAt: leaves.lastAt, root, prev });
     const signed = await this.signing.signRaw('audit', payload);
-    const id = randomUUID();
+    const id = uuidv7();
     let row: SecurityDigest;
     try {
       row = await this.db.securityDigest.create({

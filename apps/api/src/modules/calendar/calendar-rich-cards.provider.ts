@@ -69,7 +69,7 @@ export class CalendarRichCardsProvider implements OnModuleInit {
   ): Promise<RichCardPayload | null> {
     if (!(await deps.access.can({ type: 'user', id: viewerId }, 'event.view', refId))) return null;
     const event = await deps.db.calendarEvent.findUnique({
-      where: { id: refId },
+      where: { id: refId, deletedAt: null },
       select: {
         title: true,
         location: true,

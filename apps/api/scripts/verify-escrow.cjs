@@ -105,8 +105,23 @@ async function main() {
     await call('PATCH', `/tasks/${t3Id}`, t1, { status: 'cancelled' });
     o = await ownBal(t1);
     check('после отмены: заморожено снова 100, доступно 900', o.held === 100 && o.available === 900, JSON.stringify(o));
+
+    // 6) В корзину → заморозка возвращается сразу (деньги не висят за скрытой задачей),
+    //    награда обнуляется, восстановленная задача — без награды
+    const t4 = await call('POST', '/tasks', t1, { title: 'В корзину', executorId: u2.id, coinReward: 20 });
+    const t4Id = t4.json?.data?.id; tasks.push(t4Id);
+    o = await ownBal(t1);
+    check('третий hold: заморожено 120', o.held === 120, JSON.stringify(o));
+    const tr = await call('POST', `/tasks/${t4Id}/trash`, t1, {});
+    check('задача с наградой ушла в корзину', tr.ok, `status ${tr.status}`);
+    o = await ownBal(t1);
+    check('после корзины: заморожено снова 100, доступно 900', o.held === 100 && o.available === 900, JSON.stringify(o));
+    const back = await call('POST', `/tasks/${t4Id}/restore`, t1, {});
+    check('восстановленная задача — без награды (заморозка уже вернулась)', back.ok && back.json?.data?.coinReward === 0, JSON.stringify({ status: back.status, coinReward: back.json?.data?.coinReward }));
+    o = await ownBal(t1);
+    check('восстановление не замораживает заново', o.held === 100, JSON.stringify(o));
   } finally {
-    for (const id of tasks) await call('DELETE', `/tasks/${id}`, t1).catch(() => {});
+    for (const id of tasks) await call('POST', `/tasks/${id}/trash`, t1, {}).then(() => call('DELETE', `/tasks/${id}`, t1)).catch(() => {});
     await call('DELETE', '/wallet/currency', t1).catch(() => {});
     await prisma.$disconnect();
   }

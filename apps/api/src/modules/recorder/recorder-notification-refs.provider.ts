@@ -14,7 +14,7 @@ export class RecorderNotificationRefsProvider implements OnModuleInit {
   onModuleInit(): void {
     this.refs.register('voice_recording', {
       canViewMany: async (userIds, id) => {
-        const rec = await this.db.voiceRecording.findUnique({ where: { id }, select: { ownerId: true } });
+        const rec = await this.db.voiceRecording.findUnique({ where: { id, deletedAt: null }, select: { ownerId: true } });
         return rec ? intersect(userIds, [rec.ownerId]) : [];
       },
       href: (ref) => `/recorder?id=${ref.id}`,

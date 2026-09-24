@@ -70,7 +70,12 @@
     "expandBranch": "Развернуть {name}",
     "collapseBranch": "Свернуть {name}",
     "wsIntegrations": "Интеграции и ключи",
-    "wsSecurity": "Безопасность"
+    "wsSecurity": "Безопасность",
+    "tasksTrash": "Корзина",
+    "calendarMain": "Календарь",
+    "calendarTrash": "Корзина",
+    "recorderMain": "Записи",
+    "recorderTrash": "Корзина"
   },
   "topbar": {
     "profile": "Профиль",

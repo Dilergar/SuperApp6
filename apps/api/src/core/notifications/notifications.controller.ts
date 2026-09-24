@@ -93,8 +93,7 @@ export class NotificationsController {
     if (!isDevEnv()) throw notFound('notification.notFound');
     const rows = await this.cron.pruneRows();
     const events = await this.cron.pruneEvents();
-    const deliveries = await this.cron.pruneDeliveries();
-    return { success: true, data: { rows, events, deliveries } };
+    return { success: true, data: { rows, events } };
   }
 
   // Операция «стало так», а не «сделай ещё раз»: повтор ничего не добавляет.

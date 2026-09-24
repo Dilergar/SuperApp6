@@ -99,7 +99,7 @@ export class CirclesService implements OnModuleInit {
     // иначе параллельные создания оба видят «лимит не достигнут» и переступают его.
     const circle = await this.db.$transaction(async (tx) => {
       await tx.$queryRaw(
-        Prisma.sql`SELECT id FROM users WHERE id = ${ownerId} FOR UPDATE`,
+        Prisma.sql`SELECT id FROM users WHERE id = ${ownerId}::uuid FOR UPDATE`,
       );
       // Потолок Групп — тариф человека (core/entitlements): COUNT под advisory-локом в этой tx
       await this.entitlements.assertCanCreate(tx, { type: 'user', id: ownerId }, 'contacts.maxCircles');
@@ -143,7 +143,7 @@ export class CirclesService implements OnModuleInit {
         // Строка блокируется на время «прочитал → записал»: предыдущий уровень календаря
         // нужен проекции прав, и два параллельных PATCH не должны его перепутать.
         const locked = await tx.$queryRaw<Array<{ calendar_visibility: string }>>(
-          Prisma.sql`SELECT calendar_visibility FROM circles WHERE id = ${circleId} FOR UPDATE`,
+          Prisma.sql`SELECT calendar_visibility FROM circles WHERE id = ${circleId}::uuid FOR UPDATE`,
         );
         if (locked.length === 0) throw notFound('contacts.circleNotFound');
         const current = locked[0];
@@ -236,7 +236,7 @@ export class CirclesService implements OnModuleInit {
       // потолок (оба видели «мест хватает»).
       await this.db.$transaction(async (tx) => {
         await tx.$queryRaw(
-          Prisma.sql`SELECT id FROM circles WHERE id = ${circleId} FOR UPDATE`,
+          Prisma.sql`SELECT id FROM circles WHERE id = ${circleId}::uuid FOR UPDATE`,
         );
         const currentCount = await tx.circleMembership.count({ where: { circleId } });
         if (currentCount >= CONTACT_LIMITS.maxMembersPerCircle) {

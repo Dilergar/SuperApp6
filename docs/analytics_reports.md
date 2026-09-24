@@ -28,7 +28,7 @@
 
 ## Кабинет: маршруты, права, команды, панели
 
-Способности: `analytics.read` (раздел, запросы, отчёты), `analytics.person.read` (панель «Активность» карточки 360), `analytics.manage` (рубильник, забвение, пересчёт, правка чужих отчётов). Маршруты `/platform/analytics/*` (`@PlatformRoute` + `@PlatformCapability` на каждом): `POST query` (свой потолок 240 запросов/мин на сотрудника), `GET events` (реестр + объём 14 дней + последний день + рубильник), `GET quality` (карантин, длина и отставание stream'а, outbox, счётчики приёма за сутки, первое событие), CRUD `reports` и `dashboards` (`GET dashboards/:id` принимает id или системный ключ). Команды: `analytics.event.setStatus` (medium, причина обязательна), `analytics.user.forget` (high, не на себя), `analytics.rollup.rebuild` (medium, предпросмотр). Панели: `user.analytics`, `workspace.analytics`.
+Способности: `analytics.read` (раздел, запросы, отчёты), `analytics.person.read` (панель «Активность» карточки 360), `analytics.manage` (рубильник, забвение, пересчёт, правка чужих отчётов). Маршруты `/platform/analytics/*` (`@PlatformRoute` + `@PlatformCapability` на каждом): `POST query` (свой потолок 240 запросов/мин на сотрудника — `PlatformRateService.assertPanelBudget`), `GET events` (реестр + объём 14 дней + последний день + рубильник), `GET quality` (карантин, длина и отставание stream'а, outbox, счётчики приёма за сутки, первое событие), CRUD `reports` и `dashboards` (`GET dashboards/:id` принимает id или системный ключ). Команды: `analytics.event.setStatus` (medium, причина обязательна), `analytics.user.forget` (high, не на себя), `analytics.rollup.rebuild` (medium, предпросмотр). Панели: `user.analytics`, `workspace.analytics`.
 
 ## Отчёты и дашборды
 

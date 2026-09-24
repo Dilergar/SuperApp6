@@ -50,7 +50,7 @@ async function main() {
     const burnOwn = await call('POST', '/wallet/burn', t1, { currencyId: curId, amount: 10 });
     check('сжечь свою валюту запрещено (400)', burnOwn.status === 400, `status ${burnOwn.status}`);
   } finally {
-    if (taskId) await call('DELETE', `/tasks/${taskId}`, t1).catch(() => {});
+    if (taskId) await call('POST', `/tasks/${taskId}/trash`, t1, {}).then(() => call('DELETE', `/tasks/${taskId}`, t1)).catch(() => {});
     await call('DELETE', '/wallet/currency', t1).catch(() => {});
     await prisma.$disconnect();
   }

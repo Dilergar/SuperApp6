@@ -14,7 +14,7 @@ import {
 } from '@/components/ui';
 import { PersonChip } from '../../../circles/PersonCard';
 import type { CompanyWalletDto, CurrencyHolder, WorkspaceMember } from '@superapp/shared';
-import { guardedDisplay } from '@superapp/shared';
+import { guardedDisplay, opaqueIdTail } from '@superapp/shared';
 
 // Локального `type Member` здесь БОЛЬШЕ НЕТ. Он объявлял поля `name/firstName/lastName`,
 // которых на ручке `/workspaces/:id/members` НЕ СУЩЕСТВОВАЛО НИКОГДА (имя приезжает в
@@ -105,7 +105,7 @@ export default function CompanyWalletPage() {
     setPayAmt(''); flash(t('company.paid'));
   }, [companyWalletKey(id), companyHoldersKey(id)]);
 
-  const memberName = (m: WorkspaceMember) => m.userName || m.userId.slice(0, 8);
+  const memberName = (m: WorkspaceMember) => m.userName || opaqueIdTail(m.userId, 8);
 
   const loadError = !denied && companyQ.error ? apiErrorMessage(companyQ.error) : '';
   const shownError = error || loadError;

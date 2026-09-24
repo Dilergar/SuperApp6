@@ -70,7 +70,12 @@
     "expandBranch": "{name} жаю",
     "collapseBranch": "{name} жию",
     "wsIntegrations": "Интеграциялар мен кілттер",
-    "wsSecurity": "Қауіпсіздік"
+    "wsSecurity": "Қауіпсіздік",
+    "tasksTrash": "Себет",
+    "calendarMain": "Күнтізбе",
+    "calendarTrash": "Себет",
+    "recorderMain": "Жазбалар",
+    "recorderTrash": "Себет"
   },
   "topbar": {
     "profile": "Профиль",

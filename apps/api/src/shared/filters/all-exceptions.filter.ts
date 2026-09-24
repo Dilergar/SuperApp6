@@ -175,6 +175,21 @@ export class AllExceptionsFilter implements ExceptionFilter {
         });
         return;
       }
+      if (isMalformedUuid(exception)) {
+        // Идентификаторы — нативный uuid: строка не в формате uuid падает ещё до базы
+        // (P2023) или в ней (22P02 сырого запроса). Записи с таким id нет и быть не может —
+        // тот же 404, что при поиске несуществующего id, на ВСЕХ путях. Предупреждение
+        // в лог: если не-uuid пришёл из НАШЕГО кода, а не от клиента, он не спрячется.
+        // Значение не логируем (это ввод клиента) — только код и место вызова в нашем коде
+        this.logger.warn(`Malformed uuid in a query [request ${requestId ?? '-'}] ${exception.code} at ${ownCallSite(exception.stack)}`);
+        send(HttpStatus.NOT_FOUND, {
+          success: false,
+          statusCode: HttpStatus.NOT_FOUND,
+          message: t('errors.db.notFound'),
+          details: { code: 'db.notFound' },
+        });
+        return;
+      }
     }
 
     // 4) Everything else → 500, logged loudly with the stack (the client gets no internals).
@@ -295,6 +310,28 @@ export class AllExceptionsFilter implements ExceptionFilter {
 function pickSizeKind(type: string): 'string' | 'number' | 'array' | 'date' | 'other' {
   if (type === 'string' || type === 'number' || type === 'array' || type === 'date') return type;
   return 'other';
+}
+
+/**
+ * Строка не в формате uuid против колонки uuid: P2023 клиента Prisma («Error creating UUID»)
+ * или 22P02 базы в сыром запросе (`${x}::uuid`). Прочие P2023/22P02 (число, дата) сюда не
+ * попадают — это другие ошибки.
+ */
+function isMalformedUuid(e: Prisma.PrismaClientKnownRequestError): boolean {
+  if (e.code === 'P2023') return /Error creating UUID/i.test(e.message);
+  if (e.code === 'P2010') {
+    const meta = (e.meta ?? {}) as { code?: unknown; message?: unknown };
+    return meta.code === '22P02' && /type uuid/i.test(String(meta.message ?? e.message));
+  }
+  return false;
+}
+
+/** Первый кадр стека из нашего кода (не node_modules и не обёртки клиента базы) — место, где родился запрос. */
+function ownCallSite(stack: string | undefined): string {
+  const frame = (stack ?? '')
+    .split('\n')
+    .find((l) => /^\s+at /.test(l) && !/node_modules|node:|pii-extension|database\.service/.test(l));
+  return frame?.trim() ?? '-';
 }
 
 /** HTTP-статус → машинный код по умолчанию для наследных исключений. */

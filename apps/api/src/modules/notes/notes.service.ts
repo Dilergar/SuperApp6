@@ -165,7 +165,7 @@ export class NotesService {
     const rows = await this.db.$queryRaw<Array<{ name: string; count: bigint }>>(Prisma.sql`
       SELECT t AS "name", COUNT(*)::bigint AS "count"
         FROM "notes" n, unnest(n."tags") AS t
-       WHERE n."space_id" = ${scope.space.id} AND n."deleted_at" IS NULL AND ${visible}
+       WHERE n."space_id" = ${scope.space.id}::uuid AND n."deleted_at" IS NULL AND ${visible}
        GROUP BY t
        ORDER BY COUNT(*) DESC, t ASC
        LIMIT 200`);

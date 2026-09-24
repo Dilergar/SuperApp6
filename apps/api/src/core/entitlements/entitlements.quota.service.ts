@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { randomUUID } from 'crypto';
-import { ENTITLEMENT_REGISTRY, type EntitlementKey, type EntitlementPeriod, type EntitlementSubjectRef } from '@superapp/shared';
+
+import { ENTITLEMENT_REGISTRY, type EntitlementKey, type EntitlementPeriod, type EntitlementSubjectRef, uuidv7 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
 
@@ -60,7 +60,7 @@ export class EntitlementsQuotaService {
 
     await tx.$executeRaw`
       INSERT INTO quota_counters (id, subject_type, subject_id, key, used, period_start, period_end, updated_at)
-      VALUES (${randomUUID()}, ${subject.type}, ${subject.id}, ${key}, 0, ${startTs}, ${endTs}, ${nowTs})
+      VALUES (${uuidv7()}::uuid, ${subject.type}, ${subject.id}, ${key}, 0, ${startTs}, ${endTs}, ${nowTs})
       ON CONFLICT (subject_type, subject_id, key) DO NOTHING
     `;
 

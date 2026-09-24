@@ -136,7 +136,7 @@ async function main() {
     const t3fin = await stats(t3);
     check('у постороннего stats.inbox не изменился', t3fin.inbox === base3.inbox, `${base3.inbox} → ${t3fin.inbox}`);
   } finally {
-    for (const [id, token] of made.reverse()) await call('DELETE', `/tasks/${id}`, token).catch(() => {});
+    for (const [id, token] of made.reverse()) await call('POST', `/tasks/${id}/trash`, token, {}).then(() => call('DELETE', `/tasks/${id}`, token)).catch(() => {});
     await prisma.$disconnect();
   }
 

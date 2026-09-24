@@ -259,10 +259,10 @@ export class FinancesService implements OnModuleInit {
   private async computeBalances(bookId: string): Promise<Map<string, bigint>> {
     const inflows = await this.db.$queryRaw<{ id: string; total: bigint }[]>`
       SELECT to_account_id AS id, SUM(COALESCE(amount_to, amount))::bigint AS total
-      FROM fin_transactions WHERE book_id = ${bookId} AND deleted_at IS NULL GROUP BY 1`;
+      FROM fin_transactions WHERE book_id = ${bookId}::uuid AND deleted_at IS NULL GROUP BY 1`;
     const outflows = await this.db.$queryRaw<{ id: string; total: bigint }[]>`
       SELECT from_account_id AS id, SUM(amount)::bigint AS total
-      FROM fin_transactions WHERE book_id = ${bookId} AND deleted_at IS NULL GROUP BY 1`;
+      FROM fin_transactions WHERE book_id = ${bookId}::uuid AND deleted_at IS NULL GROUP BY 1`;
     const map = new Map<string, bigint>();
     for (const r of inflows) map.set(r.id, (map.get(r.id) ?? 0n) + BigInt(r.total));
     for (const r of outflows) map.set(r.id, (map.get(r.id) ?? 0n) - BigInt(r.total));
@@ -956,8 +956,8 @@ export class FinancesService implements OnModuleInit {
     const ids = [categoryId, ...children.map((c) => c.id)];
     const rows = await this.db.$queryRaw<{ total: bigint | null }[]>`
       SELECT SUM(amount)::bigint AS total FROM fin_transactions
-      WHERE book_id = ${bookId} AND deleted_at IS NULL AND currency_code = ${currencyCode}
-        AND to_account_id = ANY(${ids}) AND occurred_on >= ${start} AND occurred_on < ${end}`;
+      WHERE book_id = ${bookId}::uuid AND deleted_at IS NULL AND currency_code = ${currencyCode}
+        AND to_account_id = ANY(${ids}::uuid[]) AND occurred_on >= ${start} AND occurred_on < ${end}`;
     return rows[0]?.total != null ? BigInt(rows[0].total) : 0n;
   }
 
@@ -968,13 +968,13 @@ export class FinancesService implements OnModuleInit {
     const expenseRows = await this.db.$queryRaw<{ id: string; code: string; total: bigint }[]>`
       SELECT t.to_account_id AS id, t.currency_code AS code, SUM(t.amount)::bigint AS total
       FROM fin_transactions t JOIN fin_accounts a ON a.id = t.to_account_id
-      WHERE t.book_id = ${book.id} AND t.deleted_at IS NULL AND a.kind = 'expense'
+      WHERE t.book_id = ${book.id}::uuid AND t.deleted_at IS NULL AND a.kind = 'expense'
         AND t.occurred_on >= ${start} AND t.occurred_on < ${end}
       GROUP BY 1, 2`;
     const incomeRows = await this.db.$queryRaw<{ id: string; code: string; total: bigint }[]>`
       SELECT t.from_account_id AS id, t.currency_code AS code, SUM(t.amount)::bigint AS total
       FROM fin_transactions t JOIN fin_accounts a ON a.id = t.from_account_id
-      WHERE t.book_id = ${book.id} AND t.deleted_at IS NULL AND a.kind = 'income'
+      WHERE t.book_id = ${book.id}::uuid AND t.deleted_at IS NULL AND a.kind = 'income'
         AND t.occurred_on >= ${start} AND t.occurred_on < ${end}
       GROUP BY 1, 2`;
     const debtRows = await this.db.$queryRaw<{ code: string; total: bigint }[]>`
@@ -982,7 +982,7 @@ export class FinancesService implements OnModuleInit {
       FROM fin_transactions t
         JOIN fin_accounts af ON af.id = t.from_account_id
         JOIN fin_accounts at ON at.id = t.to_account_id
-      WHERE t.book_id = ${book.id} AND t.deleted_at IS NULL
+      WHERE t.book_id = ${book.id}::uuid AND t.deleted_at IS NULL
         AND af.kind = 'asset' AND at.kind = 'liability'
         AND t.occurred_on >= ${start} AND t.occurred_on < ${end}
       GROUP BY 1`;
@@ -1038,12 +1038,12 @@ export class FinancesService implements OnModuleInit {
     const expenseRows = await this.db.$queryRaw<{ period: string; code: string; total: bigint }[]>`
       SELECT to_char(t.occurred_on, 'YYYY-MM') AS period, t.currency_code AS code, SUM(t.amount)::bigint AS total
       FROM fin_transactions t JOIN fin_accounts a ON a.id = t.to_account_id
-      WHERE t.book_id = ${book.id} AND t.deleted_at IS NULL AND a.kind = 'expense' AND t.occurred_on >= ${start}
+      WHERE t.book_id = ${book.id}::uuid AND t.deleted_at IS NULL AND a.kind = 'expense' AND t.occurred_on >= ${start}
       GROUP BY 1, 2`;
     const incomeRows = await this.db.$queryRaw<{ period: string; code: string; total: bigint }[]>`
       SELECT to_char(t.occurred_on, 'YYYY-MM') AS period, t.currency_code AS code, SUM(t.amount)::bigint AS total
       FROM fin_transactions t JOIN fin_accounts a ON a.id = t.from_account_id
-      WHERE t.book_id = ${book.id} AND t.deleted_at IS NULL AND a.kind = 'income' AND t.occurred_on >= ${start}
+      WHERE t.book_id = ${book.id}::uuid AND t.deleted_at IS NULL AND a.kind = 'income' AND t.occurred_on >= ${start}
       GROUP BY 1, 2`;
 
     const points: FinTrendPointDto[] = [];
@@ -1655,7 +1655,7 @@ export class FinancesService implements OnModuleInit {
     // editor'а общей книги), закрывает переплату сверх остатка и закрытие по устаревшему
     // балансу (модель WalletBalance в кошельке). Остаток считается ВНУТРИ лока.
     const result = await this.db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM fin_accounts WHERE id = ${debtAccountId} AND book_id = ${book.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM fin_accounts WHERE id = ${debtAccountId}::uuid AND book_id = ${book.id}::uuid FOR UPDATE`;
       const debt = await tx.finAccount.findFirst({ where: { id: debtAccountId, bookId: book.id, kind: 'liability' } });
       if (!debt) throw notFound('finance.debtNotFound');
       if (debt.debtClosedAt) throw badRequest('finance.debtClosed');
@@ -1710,8 +1710,8 @@ export class FinancesService implements OnModuleInit {
   private async debtRemainingTx(tx: Tx, accountId: string): Promise<bigint> {
     const rows = await tx.$queryRaw<{ balance: bigint | null }[]>`
       SELECT
-        COALESCE((SELECT SUM(COALESCE(amount_to, amount)) FROM fin_transactions WHERE to_account_id = ${accountId} AND deleted_at IS NULL), 0)
-        - COALESCE((SELECT SUM(amount) FROM fin_transactions WHERE from_account_id = ${accountId} AND deleted_at IS NULL), 0) AS balance`;
+        COALESCE((SELECT SUM(COALESCE(amount_to, amount)) FROM fin_transactions WHERE to_account_id = ${accountId}::uuid AND deleted_at IS NULL), 0)
+        - COALESCE((SELECT SUM(amount) FROM fin_transactions WHERE from_account_id = ${accountId}::uuid AND deleted_at IS NULL), 0) AS balance`;
     const balance = rows[0]?.balance != null ? BigInt(rows[0].balance) : 0n;
     return -balance;
   }
@@ -2083,7 +2083,7 @@ export class FinancesService implements OnModuleInit {
     const taskIds = agreements.filter((a) => a.refType === 'task').map((a) => a.refId);
     const orderIds = agreements.filter((a) => a.refType === 'order').map((a) => a.refId);
     const tasks = taskIds.length
-      ? await this.db.task.findMany({ where: { id: { in: taskIds } }, select: { id: true, title: true } })
+      ? await this.db.task.findMany({ where: { id: { in: taskIds }, deletedAt: null }, select: { id: true, title: true } })
       : [];
     const taskById = new Map(tasks.map((t) => [t.id, t]));
     const orders = orderIds.length

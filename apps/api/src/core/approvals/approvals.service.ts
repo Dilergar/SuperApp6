@@ -346,7 +346,7 @@ export class ApprovalsService implements OnModuleInit {
         await this.db.$transaction(async (tx) => {
           // Замок сериализует пересчёт с параллельными решениями (тот же приём,
           // что в applyDecision у правила «каждый»).
-          await tx.$queryRaw`SELECT id FROM approval_steps WHERE id = ${id} FOR UPDATE`;
+          await tx.$queryRaw`SELECT id FROM approval_steps WHERE id = ${id}::uuid FOR UPDATE`;
           const step = await tx.approvalStep.findUnique({
             where: { id },
             include: { request: { select: { workspaceId: true, status: true, createdById: true, refTitle: true } } },
@@ -923,7 +923,7 @@ export class ApprovalsService implements OnModuleInit {
       // чужую незакоммиченную вставку) и оба выходят молча — шаг остаётся активным
       // навсегда, а самолечения у движка нет. С замком второй считает уже после
       // коммита первого и закрывает шаг.
-      await tx.$queryRaw`SELECT id FROM approval_steps WHERE id = ${step.id} FOR UPDATE`;
+      await tx.$queryRaw`SELECT id FROM approval_steps WHERE id = ${step.id}::uuid FOR UPDATE`;
       const approvals = await tx.approvalDecision.count({
         where: { stepId: step.id, decision: 'approved', userId: { in: step.awaitingUserIds } },
       });

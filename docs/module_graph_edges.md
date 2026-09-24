@@ -4,7 +4,7 @@
 
 | Потребитель | Зависит от |
 |---|---|
-| `core/analytics` | `core/entitlements`, `core/jobs`, `core/platform`, `core/roles` |
+| `core/analytics` | `core/entitlements`, `core/jobs`, `core/lifecycle`, `core/platform`, `core/roles` |
 | `core/approvals` | `core/access`, `core/audiences`, `core/jobs`, `core/notifications`, `core/rich-cards` |
 | `core/audiences` | `core/access` |
 | `core/audit` | `core/analytics`, `core/consents`, `core/entitlements`, `core/files`, `core/jobs`, `core/keys`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify`, `core/webhooks` |
@@ -15,9 +15,9 @@
 | `core/docs` | `core/access`, `core/chatter`, `core/files`, `core/jobs`, `core/keys`, `core/share-links` |
 | `core/entitlements` | `core/analytics`, `core/audiences`, `core/jobs`, `core/notifications`, `core/platform`, `core/realtime` |
 | `core/files` | `core/audit`, `core/entitlements`, `core/jobs`, `core/keys` |
-| `core/idempotency` | `core/keys`, `core/platform` |
-| `core/keys` | `core/analytics`, `core/audiences`, `core/audit`, `core/entitlements`, `core/jobs`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify` |
-| `core/notifications` | `core/analytics`, `core/audiences`, `core/consents`, `core/entitlements`, `core/jobs`, `core/realtime`, `core/roles`, `core/verify` |
+| `core/idempotency` | `core/keys`, `core/lifecycle`, `core/platform` |
+| `core/keys` | `core/analytics`, `core/audiences`, `core/audit`, `core/entitlements`, `core/jobs`, `core/lifecycle`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify` |
+| `core/notifications` | `core/analytics`, `core/audiences`, `core/consents`, `core/entitlements`, `core/jobs`, `core/lifecycle`, `core/realtime`, `core/roles`, `core/verify` |
 | `core/platform` | `core/approvals`, `core/audiences`, `core/audit`, `core/keys`, `core/notifications`, `core/verify` |
 | `core/quick-actions` | `core/access` |
 | `core/rich-cards` | `core/access`, `core/notifications` |
@@ -29,7 +29,7 @@
 | `core/verify` | `core/audit`, `core/consents`, `core/keys` |
 | `core/visibility` | `core/access`, `core/analytics`, `core/approvals`, `core/audiences`, `core/audit`, `core/chatter`, `core/consents`, `core/entitlements`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify` |
 | `core/voice` | `core/files`, `core/jobs` |
-| `core/webhooks` | `core/analytics`, `core/consents`, `core/entitlements`, `core/jobs`, `core/keys`, `core/notifications`, `core/platform` |
+| `core/webhooks` | `core/analytics`, `core/consents`, `core/entitlements`, `core/jobs`, `core/keys`, `core/lifecycle`, `core/notifications`, `core/platform` |
 | `modules/calendar` | `core/access`, `core/analytics`, `core/jobs`, `core/notifications`, `core/quick-actions`, `core/rich-cards`, `modules/contacts` |
 | `modules/card-skins` | `core/entitlements`, `modules/wallet` |
 | `modules/circles` | `core/access`, `core/entitlements`, `core/visibility`, `modules/contacts` |

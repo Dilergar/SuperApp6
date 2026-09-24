@@ -8,6 +8,7 @@ import type { FileDto, VoiceLanguage, VoiceRecordingDto, VoiceRecordingSource } 
 import {
   AUDIO_EXT_TO_MIME,
   FILE_PROFILES,
+  RECORDER_LIMITS,
   VOICE_LANGUAGES,
   VOICE_LANGUAGE_ENDONYMS,
   VOICE_LIMITS,
@@ -26,7 +27,7 @@ import { UploadProgressList } from '@/components/files/UploadProgressList';
 import { formatDuration } from '@/components/files/files-ui';
 import {
   createRecording,
-  deleteRecording,
+  trashRecording,
   getVoiceStatus,
   listRecordings,
   renameRecording,
@@ -421,7 +422,7 @@ function RecordingRow({
     confirm(
       {
         title: t('delete.title', { title: rec.title }),
-        message: t('delete.message'),
+        message: t('delete.message', { days: RECORDER_LIMITS.trashRetentionDays }),
         confirmLabel: tc('actions.delete'),
         danger: true,
       },
@@ -431,7 +432,7 @@ function RecordingRow({
 
   const removeNow = async () => {
     try {
-      await deleteRecording(rec.id);
+      await trashRecording(rec.id);
       onDeleted();
     } catch (err) {
       toastError(t('delete.failed', { error: apiErrorMessage(err) }));

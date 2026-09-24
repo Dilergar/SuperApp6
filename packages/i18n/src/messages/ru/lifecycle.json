@@ -596,6 +596,42 @@
     },
     "VoiceRecording": {
       "title": "Записи диктофона"
+    },
+    "LifecycleSetting": {
+      "title": "Настройки сроков хранения организации"
+    },
+    "LifecycleHold": {
+      "title": "Юридические заморозки"
+    },
+    "LifecycleHoldStore": {
+      "title": "Записи, сохранённые под заморозкой"
+    },
+    "LifecycleHoldExtraction": {
+      "title": "Отметки извлечения записей под заморозкой"
+    },
+    "LifecycleErasureRequest": {
+      "title": "Заявки на стирание данных"
+    },
+    "LifecycleErasureJournal": {
+      "title": "Журнал стираний"
+    },
+    "LifecycleExport": {
+      "title": "Выгрузки данных"
+    },
+    "LifecycleDeletedRow": {
+      "title": "Очередь удалённых записей на доочистку"
+    },
+    "LifecycleRun": {
+      "title": "Прогоны принуждения сроков хранения"
+    },
+    "LifecycleBackupRun": {
+      "title": "Отчёты резервного копирования и учений восстановления"
+    },
+    "LifecyclePartitionSpec": {
+      "title": "Правила партиционированных журналов"
+    },
+    "LifecyclePartitionArchive": {
+      "title": "Архивы партиций журналов"
     }
   },
   "tables": {

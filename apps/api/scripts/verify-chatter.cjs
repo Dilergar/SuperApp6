@@ -376,7 +376,7 @@ async function main() {
     const dupCount2 = (await sysMessages()).filter((m) => m.payload?.chatterEntryId === injected.id.toString()).length;
     check('дедуп: повторный джоб НЕ задвоил плашку', dupCount2 === 1, `count ${dupCount2}`);
   } finally {
-    for (const id of cleanup.taskIds) await http('DELETE', `/tasks/${id}`, { token: t1.token }).catch(() => {});
+    for (const id of cleanup.taskIds) await http('POST', `/tasks/${id}/trash`, { token: t1.token, body: {} }).then(() => http('DELETE', `/tasks/${id}`, { token: t1.token })).catch(() => {});
     if (cleanup.wsId) await http('DELETE', `/workspaces/${cleanup.wsId}`, { token: t1.token }).catch(() => {});
     await prisma.$disconnect();
   }

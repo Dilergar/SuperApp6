@@ -194,7 +194,7 @@ async function main() {
       const s2row = await prisma.user.findUnique({ where: { id: s2.id }, select: { phoneBi: true, phoneBiAlt: true } });
       let uniqueHeld = false;
       try {
-        await prisma.$executeRawUnsafe(`UPDATE "users" SET "${colOf(newSlot, 'phone')}" = $1 WHERE "id" = $2`, s2row?.[fieldOf(newSlot, 'phone')], s1.id);
+        await prisma.$executeRawUnsafe(`UPDATE "users" SET "${colOf(newSlot, 'phone')}" = $1 WHERE "id" = $2::uuid`, s2row?.[fieldOf(newSlot, 'phone')], s1.id);
       } catch {
         uniqueHeld = true;
       }

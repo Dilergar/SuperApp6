@@ -1,11 +1,10 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { JobsService } from '../jobs/jobs.service';
 import { ANALYTICS_JOBS, ANALYTICS_REDIS, analyticsEnv } from './analytics.constants';
 import { addDays, dayInZone } from './analytics.enrich';
-import { AnalyticsPartitions } from './analytics.partitions';
 
 /** Карантин живёт столько дней с последнего срабатывания */
 const QUARANTINE_TTL_DAYS = 30;
@@ -16,26 +15,18 @@ const RETENTION_BATCH = 5000;
 /**
  * Кроны движка (лок Redis — исполняет один инстанс; `null` от withLock = лок занят, не результат):
  *  - каждые 10 минут — роллапы «сегодня» и «грязных» дней (куда легли новые события);
- *  - ночью — партиции вперёд, сброс партиций старше ретенции, ретенция `rollup_actor_day`,
- *    уборка карантина, пересчёт последних 7 дней.
+ *  - ночью — ретенция `rollup_actor_day`, уборка карантина, пересчёт последних 7 дней.
+ * Партиции сырья (вперёд на буте и ночью, сброс по сроку) обслуживает core/lifecycle.
  */
 @Injectable()
-export class AnalyticsCron implements OnApplicationBootstrap {
+export class AnalyticsCron {
   private readonly logger = new Logger(AnalyticsCron.name);
 
   constructor(
     private readonly db: DatabaseService,
     private readonly redis: RedisService,
     private readonly jobs: JobsService,
-    private readonly partitions: AnalyticsPartitions,
   ) {}
-
-  /** Партиции вперёд на старте: пропущенный ночной крон не должен оставить месяц без партиции. */
-  onApplicationBootstrap(): void {
-    void this.redis
-      .withLock('cron:analytics-partitions', 60_000, () => this.partitions.ensureAhead())
-      .catch((err: unknown) => this.logger.error(`analytics partitions on boot: ${err instanceof Error ? err.message : String(err)}`));
-  }
 
   @Cron('*/10 * * * *')
   async rollupTick(): Promise<void> {
@@ -60,8 +51,6 @@ export class AnalyticsCron implements OnApplicationBootstrap {
   @Cron('10 2 * * *')
   async nightly(): Promise<void> {
     await this.redis.withLock('cron:analytics-nightly', 30 * 60_000, async () => {
-      await this.partitions.ensureAhead();
-      const dropped = await this.partitions.dropExpired();
       const actorRows = await this.pruneActorDays();
       const quarantine = await this.db.analyticsQuarantine.deleteMany({
         where: { lastSeenAt: { lt: new Date(Date.now() - QUARANTINE_TTL_DAYS * 86_400_000) } },
@@ -69,7 +58,7 @@ export class AnalyticsCron implements OnApplicationBootstrap {
       const today = dayInZone(new Date(), analyticsEnv().timezone);
       for (let i = 1; i <= NIGHTLY_REBUILD_DAYS; i++) await this.enqueueRollup(addDays(today, -i));
       this.logger.log(
-        `analytics nightly: partitions dropped ${dropped.length}, actor-day rows pruned ${actorRows}, quarantine rows removed ${quarantine.count}`,
+        `analytics nightly: actor-day rows pruned ${actorRows}, quarantine rows removed ${quarantine.count}`,
       );
     });
   }

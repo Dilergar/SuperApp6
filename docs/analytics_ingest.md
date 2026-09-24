@@ -19,7 +19,7 @@
 
 ## Кроны и джобы
 
-`analytics.cron.ts`: каждые 10 минут — роллап «сегодня» и «грязных» дней (набор Redis `analytics:dirty-days`); ночью 02:10 — партиции вперёд (текущий + 2 месяца; то же на бутстрапе), `DETACH PARTITION … CONCURRENTLY` + `DROP` партиций старше `ANALYTICS_RAW_RETENTION_DAYS` (вместе с ними сбрасывается кэш «первого события» `analytics:first-event` — он без TTL), ретенция `rollup_actor_day` батчами, уборка карантина, пересчёт последних 7 дней. Джобы очереди `analytics` (параллельность 2):
+`analytics.cron.ts`: каждые 10 минут — роллап «сегодня» и «грязных» дней (набор Redis `analytics:dirty-days`); ночью 02:10 — ретенция `rollup_actor_day` батчами, уборка карантина, пересчёт последних 7 дней. Джобы очереди `analytics` (параллельность 2):
 
 - `analytics.rollup.day` (`uniqueKey rollup:<день>`) — день целиком: DELETE + INSERT трёх роллапов под `pg_advisory_xact_lock` дня, из временной таблицы, с ретро-склейкой анонимов по неоспоренной связи;
 - `analytics.report.run` (`uniqueKey report:<hash>`) — воронка длиннее 90 дней, результат — в ключ кэша запроса;
@@ -33,7 +33,7 @@
 - **Число в сыром SQL приходит `bigint`**: `make_interval(days => $1)` и `date - $1` без `::int` — «function does not exist».
 - **`ctid` у партиционированной таблицы не уникален** — удаление адресуется парой `(event_id, ts)`.
 - **Класс 42 — не «ядовитая строка»**: баг приведения типов, принятый за ошибку данных, хоронил бы валидные события в карантин.
-- `DETACH PARTITION … CONCURRENTLY` не работает внутри транзакции — Prisma исполняет raw вне неё.
+- Партиции сырья (вперёд на буте и ночью, сброс старше `ANALYTICS_RAW_RETENTION_DAYS`) обслуживает `core/lifecycle` функциями владельца данных ([lifecycle_engine.md](lifecycle_engine.md)); `AnalyticsPartitions` — тонкий адаптер: срок из окружения и сброс кэша «первого события» `analytics:first-event` (он без TTL) вместе с самой старой партицией.
 - `SET TRANSACTION READ ONLY` обязан быть первым оператором транзакции.
 - `pg_advisory_xact_lock` возвращает `void` — Prisma не десериализует: `::text`.
 - Параметры автовакуума у партиционированного родителя не ставятся — только на каждую партицию.

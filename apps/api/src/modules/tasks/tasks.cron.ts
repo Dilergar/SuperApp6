@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { TASK_LIMITS } from '@superapp/shared';
 import { TasksService } from './tasks.service';
 import { RedisService } from '../../shared/redis/redis.service';
 
@@ -35,5 +36,21 @@ export class TasksCron {
       if (n > 0) this.logger.log(`Flagged ${n} overdue task(s)`);
     });
     if (ran === null) this.logger.debug('Skipped overdue sweep — another instance holds the lock');
+  }
+
+  /** Корзина: что пролежало дольше срока — навсегда (батчами; окно обслуживания по Алматы). */
+  @Cron('45 3 * * *', { timeZone: 'Asia/Almaty' })
+  async purgeTrash() {
+    const ran = await this.redis.withLock('cron:task-trash-purge', 10 * 60 * 1000, async () => {
+      const cutoff = new Date(Date.now() - TASK_LIMITS.trashRetentionDays * 86_400_000);
+      let purged = 0;
+      for (let pass = 0; pass < 20; pass++) {
+        const n = await this.tasks.purgeExpired(cutoff);
+        purged += n;
+        if (n < TASK_LIMITS.purgeBatch) break;
+      }
+      if (purged) this.logger.log(`Tasks trash: ${purged} task(s) deleted for good`);
+    });
+    if (ran === null) this.logger.debug('Skipped trash purge — another instance holds the lock');
   }
 }

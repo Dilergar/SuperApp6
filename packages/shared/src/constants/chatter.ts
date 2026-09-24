@@ -97,6 +97,17 @@ export const CHATTER_REGISTRY = {
     category: 'tasks',
     chatPost: true,
   },
+  // Корзина: участники теряют задачу из виду — чат задачи узнаёт об этом тем же постом
+  'task.trashed': {
+    icon: '🗑️',
+    category: 'tasks',
+    chatPost: true,
+  },
+  'task.restored': {
+    icon: '♻️',
+    category: 'tasks',
+    chatPost: true,
+  },
   'task.deadline_changed': {
     icon: '📅',
     category: 'tasks',

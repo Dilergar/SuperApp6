@@ -70,7 +70,12 @@
     "expandBranch": "Expand {name}",
     "collapseBranch": "Collapse {name}",
     "wsIntegrations": "Integrations and keys",
-    "wsSecurity": "Security"
+    "wsSecurity": "Security",
+    "tasksTrash": "Trash",
+    "calendarMain": "Calendar",
+    "calendarTrash": "Trash",
+    "recorderMain": "Recordings",
+    "recorderTrash": "Trash"
   },
   "topbar": {
     "profile": "Profile",

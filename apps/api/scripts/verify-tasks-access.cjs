@@ -55,7 +55,7 @@ async function main() {
     const post3 = await call('POST', `/messenger/chats/${chatId}/messages`, t3, { content: 'я кто?' });
     check('t3 (посторонний) НЕ может комментировать (403)', post3.status === 403, `status ${post3.status}`);
   } finally {
-    if (taskId) await call('DELETE', `/tasks/${taskId}`, t1).catch(() => {});
+    if (taskId) await call('POST', `/tasks/${taskId}/trash`, t1, {}).then(() => call('DELETE', `/tasks/${taskId}`, t1)).catch(() => {});
     await prisma.$disconnect();
   }
 

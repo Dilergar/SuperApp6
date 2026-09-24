@@ -3,7 +3,7 @@ import { ApiError, badRequest, conflict, forbidden, notFound } from '../../share
 import * as fs from 'fs';
 import * as nodePath from 'path';
 import { Prisma } from '@prisma/client';
-import { createHash, randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { fromBuffer as fileTypeFromBuffer, fromFile as fileTypeFromFile } from 'file-type';
 import {
   FILE_LIMITS,
@@ -27,8 +27,7 @@ import {
   type FileOwnerType,
   type CompleteFileInput,
   type InitFileInput,
-  type AttachmentFileView,
-} from '@superapp/shared';
+  type AttachmentFileView, uuidv7, opaqueIdTail } from '@superapp/shared';
 import { resolveIsoValues } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
@@ -70,6 +69,15 @@ const OFFICE_SNIFF_OK = new Set(['application/zip', 'application/x-cfb']);
  * байт-стор (local|s3). Контракт загрузки — Slack v2: init → байты → complete.
  * Доступ: владелец/загрузивший/public + наследование от привязанной сущности (FilesRefRegistry).
  */
+/**
+ * Ключ объекта в хранилище: `<xx>/<yy>/<id>` по ХВОСТУ id (случайная часть). Голова UUIDv7 —
+ * время: шардирование по ней свалило бы все файлы одного периода в один каталог / префикс.
+ */
+export function fileStorageKey(id: string): string {
+  const tail = opaqueIdTail(id, 4);
+  return `${tail.slice(0, 2)}/${tail.slice(2, 4)}/${id}`;
+}
+
 @Injectable()
 export class FilesService implements OnModuleInit {
   private readonly logger = new Logger(FilesService.name);
@@ -139,8 +147,8 @@ export class FilesService implements OnModuleInit {
 
     const transport = dto.size > FILE_LIMITS.apiTransportMax && this.driver.supportsMultipart ? 'multipart' : 'api';
 
-    const id = randomUUID();
-    const storageKey = `${id.slice(0, 2)}/${id.slice(2, 4)}/${id}`;
+    const id = uuidv7();
+    const storageKey = fileStorageKey(id);
     let uploadId: string | null = null;
     if (transport === 'multipart') {
       uploadId = await this.driver.createMultipart(storageKey, mime);
@@ -407,10 +415,10 @@ export class FilesService implements OnModuleInit {
     const sha256 = await this.sha256File(opts.path);
 
     // putFromFile ПОТРЕБЛЯЕТ вход (rename) — работаем с копией, исходник не трогаем
-    const id = randomUUID();
-    const tmpCopy = `${opts.path}.ingest-${id.slice(0, 8)}`;
+    const id = uuidv7();
+    const tmpCopy = `${opts.path}.ingest-${opaqueIdTail(id, 12)}`;
     await fs.promises.copyFile(opts.path, tmpCopy);
-    const storageKey = `${id.slice(0, 2)}/${id.slice(2, 4)}/${id}`;
+    const storageKey = fileStorageKey(id);
     let bytesStored = false;
     try {
       await this.driver.putFromFile(storageKey, tmpCopy, mime);
@@ -507,8 +515,8 @@ export class FilesService implements OnModuleInit {
     }
     await this.assertQuota(ownerType, ownerId, size);
 
-    const id = randomUUID();
-    const storageKey = `${id.slice(0, 2)}/${id.slice(2, 4)}/${id}`;
+    const id = uuidv7();
+    const storageKey = fileStorageKey(id);
     await this.driver.copy(src.storageKey, storageKey, src.mime);
 
     const needsPipeline = spec.makeVariants && ['image', 'video', 'audio'].includes(src.kind);
@@ -615,8 +623,8 @@ export class FilesService implements OnModuleInit {
       const delta = stat.size - Number(row.size);
       if (delta > 0) await this.assertQuota(row.ownerType as FileOwnerType, row.ownerId, delta);
 
-      const newId = randomUUID();
-      const newKey = `${newId.slice(0, 2)}/${newId.slice(2, 4)}/${newId}`;
+      const newId = uuidv7();
+      const newKey = fileStorageKey(newId);
       await this.driver.putFromFile(newKey, opts.sourcePath, row.mime);
       consumed = true;
 

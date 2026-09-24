@@ -212,9 +212,11 @@ export function EventModal({
     if (!eventId) return;
     setBusyAction(true);
     try {
-      const params: Record<string, string> = {};
-      if (isSeries) { params.editScope = scope; params.occurrenceStart = occ!.occurrenceStart; }
-      await apiDelete(`/calendar/events/${eventId}`, { params });
+      if (!isSeries || scope === 'all') {
+        await apiPost(`/calendar/events/${eventId}/trash`, {});
+      } else {
+        await apiDelete(`/calendar/events/${eventId}`, { params: { editScope: scope, occurrenceStart: occ!.occurrenceStart } });
+      }
       onClose(true);
     } catch (e) {
       setError(apiErrorMessage(e));

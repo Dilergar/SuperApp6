@@ -64,11 +64,11 @@ export class NotificationsDelivery implements OnModuleInit {
       queue: NOTIFICATION_QUEUE,
       maxAttempts: 5,
     });
-    this.jobsRegistry.register(NOTIFICATION_JOBS.deliverSms, (p) => this.deliverSms(BigInt(String(p['deliveryId'] ?? '0'))), {
+    this.jobsRegistry.register(NOTIFICATION_JOBS.deliverSms, (p) => this.deliverSms(BigInt(String(p['deliveryId'] ?? '0')), atHint(p)), {
       queue: NOTIFICATION_QUEUE,
       maxAttempts: 4,
     });
-    this.jobsRegistry.register(NOTIFICATION_JOBS.deliverChat, (p) => this.deliverChat(BigInt(String(p['deliveryId'] ?? '0'))), {
+    this.jobsRegistry.register(NOTIFICATION_JOBS.deliverChat, (p) => this.deliverChat(BigInt(String(p['deliveryId'] ?? '0')), atHint(p)), {
       queue: NOTIFICATION_QUEUE,
       maxAttempts: 5,
     });
@@ -253,13 +253,14 @@ export class NotificationsDelivery implements OnModuleInit {
   // SMS — только critical + opt-in, KZ-номер, суточные потолки
   // ============================================================
 
-  private async deliverSms(deliveryId: bigint): Promise<void> {
-    const d = await this.db.notificationDelivery.findUnique({ where: { id: deliveryId }, include: { event: true } });
+  private async deliverSms(deliveryId: bigint, at: Date | null): Promise<void> {
+    const d = await this.loadDelivery(deliveryId, at);
     if (!d) throw new JobDiscardError(`delivery ${deliveryId} not found`);
     if (d.status !== 'queued' || !d.userId) return;
+    const key = { id_createdAt: { id: d.id, createdAt: d.createdAt } };
     const user = await this.db.user.findUnique({ where: { id: d.userId }, select: { phone: true, locale: true } });
     const skip = async (reason: string) => {
-      await this.db.notificationDelivery.update({ where: { id: deliveryId }, data: { status: 'skipped', skipReason: reason } });
+      await this.db.notificationDelivery.update({ where: key, data: { status: 'skipped', skipReason: reason } });
     };
     if (!user) return skip('no_access');
     if (!isKzMobilePhone(user.phone)) return skip('no_phone');
@@ -319,13 +320,13 @@ export class NotificationsDelivery implements OnModuleInit {
       res = await this.sms.driver.send(user.phone, body);
     } catch (e) {
       await refund();
-      await this.db.notificationDelivery.update({ where: { id: deliveryId }, data: { attempts: { increment: 1 }, error: (e as Error).message.slice(0, 500) } });
+      await this.db.notificationDelivery.update({ where: key, data: { attempts: { increment: 1 }, error: (e as Error).message.slice(0, 500) } });
       throw e; // транзиентно — движок ретраит, резерв возьмётся заново
     }
     if (!res.ok) {
       await refund();
       await this.db.notificationDelivery.update({
-        where: { id: deliveryId },
+        where: key,
         data: { status: 'failed', attempts: { increment: 1 }, error: (res.error ?? 'failed').slice(0, 500) },
       });
       this.logger.warn(`[${d.eventId}] SMS → ${maskPhone(user.phone)} failed: ${res.error ?? 'no reason'}`);
@@ -335,7 +336,7 @@ export class NotificationsDelivery implements OnModuleInit {
     // Учёт действий с ПДн: номер и текст ушли SMS-шлюзу
     await this.pdActions.record(null, { subjectId: d.userId, recipient: 'kazinfoteh', purpose: 'notification_sms', refType: 'notification_delivery', refId: String(deliveryId) });
     await this.db.notificationDelivery.update({
-      where: { id: deliveryId },
+      where: key,
       data: { status: 'sent', sentAt: new Date(), attempts: { increment: 1 }, providerMessageId: (res as { providerMessageId?: string | null }).providerMessageId ?? null },
     });
   }
@@ -344,13 +345,14 @@ export class NotificationsDelivery implements OnModuleInit {
   // Chat — системное сообщение / рич-карта в чат (драйвер регистрирует мессенджер)
   // ============================================================
 
-  private async deliverChat(deliveryId: bigint): Promise<void> {
-    const d = await this.db.notificationDelivery.findUnique({ where: { id: deliveryId }, include: { event: true } });
+  private async deliverChat(deliveryId: bigint, at: Date | null): Promise<void> {
+    const d = await this.loadDelivery(deliveryId, at);
     if (!d) throw new JobDiscardError(`delivery ${deliveryId} not found`);
     if (d.status !== 'queued' || !d.recipient.startsWith('chat:')) return;
+    const key = { id_createdAt: { id: d.id, createdAt: d.createdAt } };
     const driver = this.channels.chat();
     if (!driver || !driver.live) {
-      await this.db.notificationDelivery.update({ where: { id: deliveryId }, data: { status: 'skipped', skipReason: 'driver_not_configured' } });
+      await this.db.notificationDelivery.update({ where: key, data: { status: 'skipped', skipReason: 'driver_not_configured' } });
       return;
     }
     const chatId = d.recipient.slice('chat:'.length);
@@ -370,7 +372,7 @@ export class NotificationsDelivery implements OnModuleInit {
     });
     if (res.ok) {
       await this.db.notificationDelivery.update({
-        where: { id: deliveryId },
+        where: key,
         data: { status: 'sent', sentAt: new Date(), attempts: { increment: 1 }, providerMessageId: res.messageId ?? null },
       });
       return;
@@ -378,7 +380,7 @@ export class NotificationsDelivery implements OnModuleInit {
     if (res.gone) {
       // Чата нет / он закрыт — постоянная ошибка, ретраить нечего
       await this.db.notificationDelivery.update({
-        where: { id: deliveryId },
+        where: key,
         data: { status: 'skipped', skipReason: 'no_access', attempts: { increment: 1 }, error: (res.error ?? 'failed').slice(0, 500) },
       });
       return;
@@ -386,9 +388,26 @@ export class NotificationsDelivery implements OnModuleInit {
     // Транзиентная ошибка: статус остаётся `queued` — иначе ретрай джоба упёрся бы в
     // собственный гвард «не queued → выходим» и сжёг бы все попытки вхолостую.
     await this.db.notificationDelivery.update({
-      where: { id: deliveryId },
+      where: key,
       data: { attempts: { increment: 1 }, error: (res.error ?? 'failed').slice(0, 500) },
     });
     throw new Error(res.error ?? 'chat post failed');
   }
+
+  /**
+   * Доставка по id. Журнал партиционирован по месяцу `created_at` (= момент события):
+   * подсказка из джоба сужает поиск до одной партиции; джоб старой формы (без `at`) ищет
+   * по всем.
+   */
+  private loadDelivery(id: bigint, at: Date | null) {
+    return this.db.notificationDelivery.findFirst({ where: { id, ...(at ? { createdAt: at } : {}) }, include: { event: true } });
+  }
+}
+
+/** Момент события из payload джоба доставки (подсказка партиции); нет или битый — null. */
+function atHint(p: Record<string, unknown>): Date | null {
+  const raw = typeof p['at'] === 'string' ? p['at'] : null;
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
 }

@@ -3,7 +3,11 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { NotificationRefRegistry } from '../../core/notifications/notifications.registry';
 import { intersect } from '../../core/notifications/notifications.ref-helpers';
 
-/** Событие календаря: видят организатор и участники; рич-карта `event`. */
+/**
+ * Событие календаря: видят организатор и участники; рич-карта `event`. Событие в корзине
+ * своим людям остаётся видимым для уведомления — иначе «отменено» не дошло бы никому (ссылка
+ * откроет календарь, карточка события ответит «не найдено»).
+ */
 @Injectable()
 export class CalendarNotificationRefsProvider implements OnModuleInit {
   constructor(

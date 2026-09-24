@@ -741,7 +741,7 @@ export class DocCampaignsService implements OnModuleInit {
       status: 'active',
       ...(scope.workspaceId ? { workspaceId: scope.workspaceId } : {}),
       // Кампании всегда в организации — «только личное» их не показывает
-      ...(scope.personalOnly ? { workspaceId: '__none__' } : {}),
+      ...(scope.personalOnly ? { workspaceId: { in: [] } } : {}),
       // Сервисы организации в архиве закрыты — её задания стопка не показывает
       ...(scope.closedWorkspaceIds?.length ? { NOT: { workspaceId: { in: scope.closedWorkspaceIds } } } : {}),
     };

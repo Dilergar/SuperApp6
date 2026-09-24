@@ -1,5 +1,6 @@
 'use client';
 
+import { opaqueIdTail } from '@superapp/shared';
 import Link from 'next/link';
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
@@ -58,9 +59,9 @@ function RowWithDetails({ entry: e, index, open, onToggle }: { entry: PlatformAu
         <TableCell hideOnMobile>
           {e.targetType && e.targetId ? (
             e.targetType === 'user' || e.targetType === 'workspace' ? (
-              <Link href={`/platform/${e.targetType === 'user' ? 'users' : 'workspaces'}/${e.targetId}`} className="label-sm">{`${e.targetType} · ${e.targetId.slice(0, 8)}`}</Link>
+              <Link href={`/platform/${e.targetType === 'user' ? 'users' : 'workspaces'}/${e.targetId}`} className="label-sm">{`${e.targetType} · ${opaqueIdTail(e.targetId, 8)}`}</Link>
             ) : (
-              <span className="label-sm">{`${e.targetType} · ${e.targetId.slice(0, 8)}`}</span>
+              <span className="label-sm">{`${e.targetType} · ${opaqueIdTail(e.targetId, 8)}`}</span>
             )
           ) : (
             <span className="label-sm">—</span>
@@ -93,7 +94,7 @@ function RowWithDetails({ entry: e, index, open, onToggle }: { entry: PlatformAu
               <div className="ui-stack" style={{ gap: '0.25rem' }}>
                 {e.reason && <span className="body-sm"><span className="label-caps">{t('audit.reason')}</span> {e.reason}</span>}
                 {e.ticketRef && <span className="body-sm"><span className="label-caps">{t('audit.ticket')}</span> {e.ticketRef}</span>}
-                {e.approvalId && <span className="body-sm"><span className="label-caps">{t('audit.approval')}</span> {e.approvalId.slice(0, 8)}</span>}
+                {e.approvalId && <span className="body-sm"><span className="label-caps">{t('audit.approval')}</span> {opaqueIdTail(e.approvalId, 8)}</span>}
                 {e.stepUpAt && <span className="label-sm">{t('audit.stepUpAt', { time: f.dateTime(e.stepUpAt) })}</span>}
                 {e.ip && <span className="label-sm">{e.ip}</span>}
               </div>

@@ -73,8 +73,8 @@ async function main() {
     check('после разблокировки + повторной связи: задача снова ставится', task3.ok, `status ${task3.status}`);
     if (task3.ok) cleanup.taskIds.push(task3.json.data.id);
   } finally {
-    for (const id of cleanup.taskIds) await call('DELETE', `/tasks/${id}`, t3).catch(() => {});
-    for (const id of cleanup.eventIds) await call('DELETE', `/calendar/events/${id}`, t3).catch(() => {});
+    for (const id of cleanup.taskIds) await call('POST', `/tasks/${id}/trash`, t3, {}).then(() => call('DELETE', `/tasks/${id}`, t3)).catch(() => {});
+    for (const id of cleanup.eventIds) await call('POST', `/calendar/events/${id}/trash`, t3, {}).then(() => call('DELETE', `/calendar/events/${id}`, t3)).catch(() => {});
     await prisma.contactBlock.deleteMany({ where: { OR: [{ blockerId: u1, blockedId: u3 }, { blockerId: u3, blockedId: u1 }] } });
     await prisma.$disconnect();
   }

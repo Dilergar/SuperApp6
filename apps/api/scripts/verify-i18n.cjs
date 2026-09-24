@@ -203,7 +203,7 @@ async function main() {
         check('плашка хроники доехала в чат задачи', false, 'джоб chatter.chatpost не отработал за 10 с');
       }
 
-      await call('DELETE', `/tasks/${taskId}`, u1.token);
+      await call('POST', `/tasks/${taskId}/trash`, u1.token, {}).then(() => call('DELETE', `/tasks/${taskId}`, u1.token));
     }
   }
 

@@ -425,7 +425,7 @@ async function main() {
       const same = (mine.json?.data?.items ?? []).filter((t) => t.title === title).length;
       check('второй задачи не появилось', same === 1, `задач с этим названием: ${same}`);
 
-      await call('DELETE', `/tasks/${taskId}`, u1.token);
+      await call('POST', `/tasks/${taskId}/trash`, u1.token, {}).then(() => call('DELETE', `/tasks/${taskId}`, u1.token));
     }
   }
 

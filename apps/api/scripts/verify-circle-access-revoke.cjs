@@ -119,7 +119,7 @@ async function main() {
       await call('DELETE', `/circles/${cleanup.circleId}`, t1).catch(() => {});
     }
     if (cleanup.showcaseId) await call('DELETE', `/shop/showcases/${cleanup.showcaseId}`, t1).catch(() => {});
-    if (cleanup.eventId) await call('DELETE', `/calendar/events/${cleanup.eventId}`, t1).catch(() => {});
+    if (cleanup.eventId) await call('POST', `/calendar/events/${cleanup.eventId}/trash`, t1, {}).then(() => call('DELETE', `/calendar/events/${cleanup.eventId}`, t1)).catch(() => {});
     await makeLink().catch(() => {}); // restore the testers' link for other scripts
     await prisma.$disconnect();
   }

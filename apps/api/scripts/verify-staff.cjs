@@ -214,7 +214,7 @@ async function main() {
     });
     check('staff-tuples уволенного сняты', leftTuples === 0, `=${leftTuples}`);
   } finally {
-    for (const id of cleanup.taskIds) await call('DELETE', `/tasks/${id}`, t2, null, { 'X-Workspace-Id': cleanup.wsId }).catch(() => {});
+    for (const id of cleanup.taskIds) await call('POST', `/tasks/${id}/trash`, t2, {}, { 'X-Workspace-Id': cleanup.wsId }).then(() => call('DELETE', `/tasks/${id}`, t2, null, { 'X-Workspace-Id': cleanup.wsId })).catch(() => {});
     if (cleanup.wsId) {
       await prisma.workspaceInvitation.deleteMany({ where: { workspaceId: cleanup.wsId } }).catch(() => {});
       await call('DELETE', `/workspaces/${cleanup.wsId}`, t1).catch(() => {});

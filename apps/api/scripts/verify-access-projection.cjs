@@ -21,8 +21,9 @@ const { AccessProjectionService } = require('../dist/core/access/access-projecti
 // (гео-щит перестал быть внутренним делом core/verify и переехал в registerSchema).
 const PHONE_OWN = '+77069990011';
 const PHONE_MEM = '+77069990012';
-const WS = 'acl-test-ws-0001';
-const GHOST = 'acl-test-ghost';
+// Фиксированные UUID: id в базе — нативный uuid (строка «acl-test-…» больше не id)
+const WS = '00000000-0000-4000-8000-00000000ac01';
+const GHOST = '00000000-0000-4000-8000-00000000ac02';
 
 let fails = 0;
 async function check(name, fn, expected) {

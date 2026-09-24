@@ -269,7 +269,9 @@
       "returned": "Жұмыс пысықтауға қайтарылды",
       "reward_changed": "{actorName} сыйақыны өзгертті: {from} → {to}",
       "submitted": "{actorName} жұмысты тексеруге тапсырды",
-      "title_changed": "{actorName} тапсырманың атын өзгертті: «{from}» → «{to}»"
+      "title_changed": "{actorName} тапсырманың атын өзгертті: «{from}» → «{to}»",
+      "trashed": "{actorName} тапсырманы себетке жіберді",
+      "restored": "{actorName} тапсырманы себеттен қалпына келтірді"
     },
     "visibility_policy": {
       "published": "{actorName} «{typeLabel}» көріну ережелерін жариялады, {version}-нұсқа"

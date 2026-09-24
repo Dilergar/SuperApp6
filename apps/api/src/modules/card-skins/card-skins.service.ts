@@ -148,7 +148,7 @@ export class CardSkinsService {
         Prisma.sql`
           UPDATE card_skins
           SET minted = minted + 1, updated_at = ${utcTs(now)}
-          WHERE id = ${skinId}
+          WHERE id = ${skinId}::uuid
             AND status = 'active'
             AND (supply IS NULL OR minted < supply)
             AND (available_from IS NULL OR available_from <= ${utcTs(now)})

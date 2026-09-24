@@ -17,8 +17,7 @@ import {
   platformTodayIso,
   type AuthFailReason,
   type ConsentSelectionInput,
-  type VerifyStartResponse,
-} from '@superapp/shared';
+  type VerifyStartResponse, uuidv7 } from '@superapp/shared';
 import { ConsentsService } from '../consents/consents.service';
 import { ConsentsActionsService } from '../consents/consents.actions.service';
 import { KeysSigningService } from '../keys/keys.signing.service';
@@ -292,7 +291,7 @@ export class AuthService {
     },
   ): Promise<{ tokens: AuthTokens; sessionId: string; familyId: string }> {
     const ctx = this.sessions.requestContext;
-    const familyId = randomUUID();
+    const familyId = uuidv7();
     const minted = await this.mintSession(tx, a.userId, a.phone, a.role, a.epoch, a.deviceInfo, familyId, this.sessions.newFamilyFields(ctx, a.device));
     const actor: AuditActorInput = { kind: 'user', id: a.userId, sessionId: minted.sessionId, familyId };
     const target = { type: 'session', id: familyId };
@@ -572,7 +571,7 @@ export class AuthService {
     familyId: string,
     fields: SessionContextFields,
   ): Promise<{ tokens: AuthTokens; sessionId: string }> {
-    const sessionId = randomUUID();
+    const sessionId = uuidv7();
     const payload: JwtPayload = { sub: userId, phone, role, epoch, sid: sessionId, fam: familyId };
     const accessTtl = parseDurationSec(process.env.JWT_EXPIRES_IN) ?? 15 * 60;
     const refreshTtl = parseDurationSec(process.env.JWT_REFRESH_EXPIRES_IN) ?? 30 * 86_400;

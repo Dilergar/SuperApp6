@@ -115,7 +115,7 @@ export class MessengerSearchService implements OnModuleInit {
     const limit = Math.min(opts.limit, 50);
     const isPage = opts.mode === 'page';
     const tsq = Prisma.sql`websearch_to_tsquery('russian', ${query})`;
-    const chatFilter = opts.chatId ? Prisma.sql`AND sd.chat_id = ${opts.chatId}` : Prisma.empty;
+    const chatFilter = opts.chatId ? Prisma.sql`AND sd.chat_id = ${opts.chatId}::uuid` : Prisma.empty;
 
     // page mode → STABLE recency keyset (in-chat search / "показать ещё");
     // global mode → RELEVANCE ranking, no pagination.
@@ -137,7 +137,7 @@ export class MessengerSearchService implements OnModuleInit {
              c.title AS "chatTitle", c.type AS "chatType",
              (ts_rank(sd.search_vector, ${tsq}) * 4 + word_similarity(${query}, coalesce(sd.body, '')))::float8 AS "score"
       FROM search_documents sd
-      JOIN chat_members cm ON cm.chat_id = sd.chat_id AND cm.user_id = ${viewerId} AND cm.left_at IS NULL
+      JOIN chat_members cm ON cm.chat_id = sd.chat_id AND cm.user_id = ${viewerId}::uuid AND cm.left_at IS NULL
       JOIN chats c ON c.id = sd.chat_id
       WHERE sd.source_type = 'message'
         AND sd.seq >= cm.visible_from_seq

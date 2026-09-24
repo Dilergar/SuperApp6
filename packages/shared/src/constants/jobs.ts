@@ -37,8 +37,8 @@ export const JOB_LIMITS = {
   claimBatch: 10,
   /** Конкурентность очереди по умолчанию (слотов на инстанс). */
   defaultQueueConcurrency: 10,
-  /** Ретеншн терминальных строк — движок чистит сам (completed / discarded+cancelled). */
-  completedRetentionDays: 7,
+  /** Ретеншн терминальных строк — движок чистит сам (completed / discarded+cancelled); политика `Job` реестра lifecycle. */
+  completedRetentionDays: 1,
   discardedRetentionDays: 30,
   /** Дренаж при остановке инстанса: сколько ждать in-flight джобы (мс). */
   shutdownDrainMs: 10_000,

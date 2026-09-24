@@ -7,10 +7,12 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { Chip, useConfirm } from '@/components/ui';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
+import { toast } from '@/lib/toast';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api';
 import { PersonAvatar } from '../../messenger/messenger-ui';
 import { PersonChip } from '../../circles/PersonCard';
 import {
+  TASK_LIMITS,
   TASK_STATUS_META,
   TASK_PRIORITY_META,
   PARTICIPANT_STATUS_META,
@@ -111,7 +113,11 @@ export default function TaskDetailPage() {
       reviewIntent.reset();
     });
   const cancel = () => act(() => apiPatch(`/tasks/${id}`, { status: 'cancelled' }));
-  const remove = () => act(async () => { await apiDelete(`/tasks/${id}`); router.push('/tasks'); });
+  const remove = () => act(async () => {
+    await apiPost(`/tasks/${id}/trash`, {});
+    toast(t('detail.trashed'), 'success');
+    router.push('/tasks');
+  });
 
   // ============================================================
   // Task chat (context chat) — mirrors the /messenger page wiring:
@@ -385,7 +391,7 @@ export default function TaskDetailPage() {
               )}
               <button
                 onClick={() => confirm(
-                  { title: t('detail.deleteConfirm.title'), message: t('detail.deleteConfirm.message'), confirmLabel: tc('actions.delete'), danger: true },
+                  { title: t('detail.deleteConfirm.title'), message: t('detail.deleteConfirm.message', { days: TASK_LIMITS.trashRetentionDays }), confirmLabel: tc('actions.delete'), danger: true },
                   remove,
                 )}
                 disabled={busy}

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CallSession, Prisma } from '@prisma/client';
-import { randomUUID } from 'crypto';
+
 import type { WebhookEvent } from 'livekit-server-sdk';
 import {
   CALL_LIMITS,
@@ -10,8 +10,7 @@ import {
   CallTokenDto,
   CallTokenInput,
   CALL_SESSION_STATUSES,
-  type CallSessionStatus,
-} from '@superapp/shared';
+  type CallSessionStatus, uuidv7 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { I18nService } from '../../shared/i18n/i18n.service';
@@ -342,7 +341,7 @@ export class CallsService {
     });
     if (existing) return existing;
 
-    const id = randomUUID();
+    const id = uuidv7();
     try {
       const created = await this.db.callSession.create({
         data: {

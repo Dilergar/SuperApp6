@@ -300,11 +300,11 @@ export class KeysDevController {
 
   @Post('usage/daily')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Run the daily key sweep now (expiring / expired notifications, access-log retention)' })
+  @ApiOperation({ summary: '[dev] Run the daily key sweep now (expiring / expired notifications; access-log retention — core/lifecycle)' })
   async usageDaily() {
     this.assertDev();
     const notified = await this.usage.notifyExpiring();
-    const purged = await this.usage.retention();
+    const purged = (await this.usage.partitions.dropExpired()).length;
     return { success: true, data: { notified, purged } };
   }
 

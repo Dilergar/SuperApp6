@@ -740,7 +740,7 @@ export class DriveService implements OnModuleInit {
       // классическая аномалия записи: узел Диска, ссылающийся на мёртвый файл.
       // Замок строки сериализует нас с soft-delete движка: кто первый, того и правда.
       const locked = await tx.$queryRaw<Array<{ status: string }>>`
-        SELECT "status" FROM "file_objects" WHERE "id" = ${file.id} FOR UPDATE`;
+        SELECT "status" FROM "file_objects" WHERE "id" = ${file.id}::uuid FOR UPDATE`;
       if (locked[0]?.status !== 'ready') throw notFound('drive.fileGone');
 
       const name = await this.freeName(tx, opts.parentId, opts.name ?? file.name);

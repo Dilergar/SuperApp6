@@ -111,6 +111,7 @@ export * from './utils/interpolate';
 export * from './utils/glyph';
 export * from './utils/requisites';
 export * from './utils/cidr';
+export * from './utils/uuid';
 
 // Constants
 export * from './constants/i18n';

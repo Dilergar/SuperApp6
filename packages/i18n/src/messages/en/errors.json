@@ -76,7 +76,8 @@
     "occurrenceStartDelete": "«occurrenceStart» is required to delete a single occurrence",
     "occurrenceStartEdit": "«occurrenceStart» is required to edit a single occurrence",
     "rangeTooBig": "The range is too large",
-    "shareSelf": "You cannot share it with yourself"
+    "shareSelf": "You cannot share it with yourself",
+    "trashFirst": "Move the event to the trash first"
   },
   "calls": {
     "activeSessionNotFound": "No active call session was found",
@@ -203,7 +204,8 @@
   },
   "dev": {
     "developmentOnly": "The dev playground is available only in development",
-    "simulatedFailure": "A failure simulated by the dev playground"
+    "simulatedFailure": "A failure simulated by the dev playground",
+    "jobTypeRegistered": "This job type has a handler on this server — there is nothing to clean up"
   },
   "docs": {
     "accessRevoked": "The access to the document was revoked",
@@ -595,7 +597,8 @@
       "platformDisabled": "The endpoint was disabled by the platform — contact support to enable it",
       "rotationRace": "The secret has just been rotated by someone else — reload and try again",
       "tooManyManual": "Too many pings and redeliveries for this endpoint — try again in an hour",
-      "notPlatformDisabled": "The endpoint was not disabled by the platform"
+      "notPlatformDisabled": "The endpoint was not disabled by the platform",
+      "deliveryBodyExpired": "The body of this delivery was deleted after 7 days — it can no longer be redelivered"
     },
     "workspace_mismatch": "The key belongs to another organization",
     "policy_allowlist_required": "The organization policy requires an IP allowlist for every key",
@@ -851,7 +854,8 @@
   "recorder": {
     "audioOnly": "The recorder accepts audio only",
     "notFound": "The recording was not found",
-    "notOwner": "This is not your recording"
+    "notOwner": "This is not your recording",
+    "trashFirst": "Move the recording to the trash first"
   },
   "request": {
     "chatIdRequired": "«chatId» is required"
@@ -1059,7 +1063,9 @@
     "rolesCreatorOnly": "Only the assigner can change the roles and the reward",
     "submitExecutorOnly": "Only an assignee can submit the work",
     "useSubmitAccept": "Use «submit» / «accept» to complete a task",
-    "workAlreadyAccepted": "The work has already been accepted"
+    "workAlreadyAccepted": "The work has already been accepted",
+    "trashFirst": "Move the task to the trash first",
+    "restoreParentFirst": "Restore the parent task first"
   },
   "templates": {
     "brokenZip": "The file cannot be read as .docx (a damaged ZIP)",
@@ -1487,7 +1493,8 @@
     "ownerOnly": "Only the company owner manages its wallet",
     "renameCooldown": "A currency may be changed once per 3 months. The next change is available after {date}",
     "selfTransfer": "You cannot transfer to yourself",
-    "tooManyCards": "No more than {max} cards — delete one you no longer need"
+    "tooManyCards": "No more than {max} cards — delete one you no longer need",
+    "idempotencyKeyReused": "This operation was already submitted with different details. Refresh the page and try again."
   },
   "workspace": {
     "adminChangeOwnerOnly": "Only the Owner changes the role of an Administrator",

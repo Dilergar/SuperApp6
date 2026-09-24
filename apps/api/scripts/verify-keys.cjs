@@ -99,7 +99,7 @@ async function main() {
     // а старая версия выведена только потому, что под ней не осталось ни одной строки
     const piiRow = await prisma.user.findUnique({ where: { id: s1.id }, select: { phoneEnc: true } });
     check('PII rewrap: users.phone_enc moved to the new KEK version', !piiRow?.phoneEnc || piiRow.phoneEnc.split(':')[2] === kekRot.json?.data?.kid, String(piiRow?.phoneEnc).slice(0, 60));
-    const strayPii = await prisma.$queryRaw`SELECT COUNT(*)::int AS n FROM "contact_invitations" WHERE "from_user_id" = ${s1.id} AND "to_phone_enc" LIKE 'sa6e:1:%' AND "to_phone_enc" NOT LIKE ${'sa6e:1:' + kekRot.json?.data?.kid + ':%'}`;
+    const strayPii = await prisma.$queryRaw`SELECT COUNT(*)::int AS n FROM "contact_invitations" WHERE "from_user_id" = ${s1.id}::uuid AND "to_phone_enc" LIKE 'sa6e:1:%' AND "to_phone_enc" NOT LIKE ${'sa6e:1:' + kekRot.json?.data?.kid + ':%'}`;
     check('PII rewrap: no contact_invitations rows left under old KEK versions', Number(strayPii[0]?.n ?? 0) === 0, JSON.stringify(strayPii));
     const oldVersions = await prisma.cryptoKeyVersion.findMany({ where: { key: { scope: `user:${s1.id}`, purpose: 'kek' }, id: { not: kekRot.json?.data?.kid } }, select: { state: true } });
     check('old KEK versions retired only after the rewrap left nothing under them', oldVersions.every((v) => v.state !== 'active'), JSON.stringify(oldVersions));

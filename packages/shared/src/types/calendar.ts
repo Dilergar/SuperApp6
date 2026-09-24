@@ -31,6 +31,22 @@ export type ResourceType = 'room' | 'vehicle' | 'equipment' | 'other';
 export type ResourceBookingStatus = 'pending' | 'confirmed' | 'rejected';
 
 /** The stored calendar event (master, standalone, or a single-occurrence override). */
+/**
+ * Событие в корзине (мягкое скрытие): видно только организатору в списке корзины.
+ * Бронь ресурса при уходе в корзину снимается (слот сразу свободен другим).
+ */
+export interface CalendarEventTrashItem {
+  id: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  allDay: boolean;
+  /** Серия (повторяющееся событие) */
+  recurring: boolean;
+  deletedAt: string;
+  purgeAt: string;
+}
+
 export interface CalendarEvent {
   id: string;
   userId: string;

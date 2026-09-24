@@ -277,5 +277,14 @@
       "long_ago": "last seen a long time ago"
     },
     "birthdayNoYear": "{date} (year hidden)"
+  },
+  "trash": {
+    "colName": "Name",
+    "colDeleted": "Deleted",
+    "colPurge": "Deleted for good",
+    "empty": "The trash is empty",
+    "restore": "Restore",
+    "purge": "Delete for good",
+    "restored": "«{name}» is restored"
   }
 }

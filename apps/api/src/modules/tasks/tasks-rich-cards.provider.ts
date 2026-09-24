@@ -47,7 +47,7 @@ export class TasksRichCardsProvider implements OnModuleInit {
   ): Promise<RichCardPayload | null> {
     if (!(await deps.access.can({ type: 'user', id: viewerId }, 'task.view', refId))) return null;
     const task = await deps.db.task.findUnique({
-      where: { id: refId },
+      where: { id: refId, deletedAt: null },
       select: {
         title: true,
         status: true,

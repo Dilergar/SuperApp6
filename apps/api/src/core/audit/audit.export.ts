@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+
 import { createWriteStream, promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
@@ -12,8 +12,7 @@ import {
   type AuditExportFormat,
   type AuditOrgFilter,
   type OrgAuditExportInput,
-  type SecurityEventDto,
-} from '@superapp/shared';
+  type SecurityEventDto, uuidv7 } from '@superapp/shared';
 import { DEFAULT_LOCALE, type Locale } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
@@ -166,7 +165,7 @@ export class AuditExportService implements OnModuleInit {
       throw badRequest('audit.export_range', { days: retentionDays }, { code: AUDIT_ERROR_CODES.exportRange });
     }
     await this.assertDailyLimit(workspaceId);
-    const exportId = randomUUID();
+    const exportId = uuidv7();
     await this.db.$transaction(async (tx) => {
       await this.jobs.enqueue(tx, {
         type: AUDIT_JOBS.export,
@@ -194,7 +193,7 @@ export class AuditExportService implements OnModuleInit {
 
   /** Заказ выгрузки Кабинетом (команда `security.export`): синхронно ставит джоб. */
   async requestPlatform(tx: Parameters<JobsService['enqueue']>[0], actorId: string, input: { format: AuditExportFormat; from: string; to: string }): Promise<{ exportId: string }> {
-    const exportId = randomUUID();
+    const exportId = uuidv7();
     await this.jobs.enqueue(tx, {
       type: AUDIT_JOBS.export,
       payload: { exportId, scope: 'platform', userId: actorId, format: input.format, from: input.from, to: input.to },

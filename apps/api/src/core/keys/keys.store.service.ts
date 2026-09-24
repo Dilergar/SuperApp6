@@ -598,7 +598,7 @@ export class KeysStoreService {
       // разморозка вернёт ровно его и не тронет версии, выключенные поштучно (у тех `frozen_from` пуст)
       const count = await t.$executeRaw`
         UPDATE "crypto_key_versions" SET "frozen_from" = "state", "state" = 'disabled', "deactivated_at" = ${utcTs(new Date())}
-        WHERE "key_id" IN (${Prisma.join(keys.map((k) => k.id))}) AND "state" IN ('active', 'pending')`;
+        WHERE "key_id" = ANY(${keys.map((k) => k.id)}::uuid[]) AND "state" IN ('active', 'pending')`;
       await this.audit.log(t, { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'platform', workspaceId: this.workspaceOf(scope), subjectType: 'crypto_key', subjectId: scope, subjectName: scope, action: KEY_AUDIT_ACTIONS.scopeFrozen, reason: actor.reason ?? null, details: { versions: count } });
       return count;
     };
@@ -615,7 +615,7 @@ export class KeysStoreService {
       // выключенная поштучно (подозрение на утечку), остаётся выключенной
       const count = await t.$executeRaw`
         UPDATE "crypto_key_versions" SET "state" = "frozen_from", "frozen_from" = NULL, "deactivated_at" = NULL
-        WHERE "key_id" IN (${Prisma.join(keys.map((k) => k.id))}) AND "state" = 'disabled' AND "frozen_from" IN ('active', 'pending')`;
+        WHERE "key_id" = ANY(${keys.map((k) => k.id)}::uuid[]) AND "state" = 'disabled' AND "frozen_from" IN ('active', 'pending')`;
       await this.audit.log(t, { actorId: actor.actorId ?? null, actorKind: actor.actorKind ?? 'platform', workspaceId: this.workspaceOf(scope), subjectType: 'crypto_key', subjectId: scope, subjectName: scope, action: KEY_AUDIT_ACTIONS.scopeUnfrozen, reason: actor.reason ?? null, details: { versions: count } });
       return count;
     };

@@ -86,7 +86,7 @@ async function main() {
     const taskId = task.json?.data?.id;
     const linkedBefore = await prisma.fileLink.count({ where: { refType: 'task', refId: taskId } });
     check('3: связь вложения существует', linkedBefore === 1, `links ${linkedBefore}`);
-    const delTask = await call('DELETE', `/tasks/${taskId}`, t1);
+    const delTask = await call('POST', `/tasks/${taskId}/trash`, t1, {}).then(() => call('DELETE', `/tasks/${taskId}`, t1));
     check('3: задача удалена', delTask.ok, `status ${delTask.status}`);
     const tfRow = await prisma.fileObject.findUnique({ where: { id: tf.id } });
     check('3: вложение удалённой задачи soft-deleted', tfRow?.status === 'deleted', tfRow?.status);
@@ -102,7 +102,7 @@ async function main() {
     await call('DELETE', `/tasks/${task2Id}/attachments/${orphanish.id}`, t1);
     const orphanRow = await prisma.fileObject.findUnique({ where: { id: orphanish.id } });
     check('4: непривязанный файл НЕ удалён', orphanRow?.status === 'ready', orphanRow?.status);
-    await call('DELETE', `/tasks/${task2Id}`, t1);
+    await call('POST', `/tasks/${task2Id}/trash`, t1, {}).then(() => call('DELETE', `/tasks/${task2Id}`, t1));
 
     // ============ 5) Удаление лота прибирает фото галереи ============
     console.log('--- 5) удаление лота ---');
