@@ -88,12 +88,9 @@ async function main() {
     await check('persona: seller has marketplace.sell', () => access.can(user('seller'), 'marketplace.sell', `${P}-plat`), true);
     await check('persona: non-seller lacks marketplace.sell', () => access.can(user('u3'), 'marketplace.sell', `${P}-plat`), false);
 
-    // 10) Phase 4 foundation — B2B employee-card visibility: a department grant upgrades that
-    //     department's members from the floor (Имя+Должность) to the FULL card.
-    await access.grant({ resourceType: 'card', resourceId: `${P}-emp`, relation: 'full_viewer', subjectType: 'department', subjectId: `${P}-sales`, subjectRelation: 'member' });
-    await access.grant({ resourceType: 'department', resourceId: `${P}-sales`, relation: 'member', subjectType: 'user', subjectId: `${P}-colleague` });
-    await check('card.view_full: sales member sees full employee card', () => access.can(user('colleague'), 'card.view_full', `${P}-emp`), true);
-    await check('card.view_full: outsider sees only floor (no full)', () => access.can(user('u3'), 'card.view_full', `${P}-emp`), false);
+    // 10) Поля карточки сотрудника — НЕ ребро core/access: бывшая способность `card.view_full`
+    //     снята (core/visibility решает поля планом): неизвестная способность = отказ.
+    await check('card.view_full: capability removed (fields = core/visibility)', () => access.can(user('u3'), 'card.view_full', `${P}-emp`), false);
 
     // 11) Phase 4 foundation — branch as a sharing principal (e.g. a showcase shared to a branch).
     await access.grant({ resourceType: 'showcase', resourceId: `${P}-bsc`, relation: 'viewer', subjectType: 'branch', subjectId: `${P}-br`, subjectRelation: 'member' });

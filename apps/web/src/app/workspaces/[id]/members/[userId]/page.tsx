@@ -44,6 +44,8 @@ import { SubmitDocumentModal } from '../../documents/SubmitDocumentModal';
 import {
   
   ORG_LIMITS,
+  guardedDisplay,
+  visibleOr,
   type ChatterPageDto,
   type HrActionKind,
   type OffsetPage,
@@ -122,7 +124,7 @@ export default function MemberCardPage() {
 
   const card = cardQ.data;
   const e = card.employment;
-  const fullName = `${card.user.firstName} ${card.user.lastName ?? ''}`.trim();
+  const fullName = `${card.user.firstName} ${guardedDisplay(card.user.lastName) ?? ''}`.trim();
   const hasLive = !!e && e.status !== 'terminated';
   const member = membersQ.data ?? null;
 
@@ -197,11 +199,12 @@ export default function MemberCardPage() {
                 size="M"
                 userId={card.user.id}
                 firstName={card.user.firstName}
-                lastName={card.user.lastName}
-                avatar={card.user.avatar}
+                lastName={guardedDisplay(card.user.lastName)}
+                avatar={visibleOr(card.user.avatar, null)}
                 role={card.assignments[0]?.positionName ?? null}
               />
-              {card.user.phone && <div className="meta">{t('card.phone', { value: card.user.phone })}</div>}
+              {/* Номер — правила ЧЕЛОВЕКА (user.card): скрыт — строки нет, маска — символами */}
+              {guardedDisplay(card.user.phone) && <div className="meta">{t('card.phone', { value: guardedDisplay(card.user.phone) ?? '' })}</div>}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <Button variant="matte" size="sm" icon="file" onClick={() => setTab('documents')}>
                   {t('card.documentsCount', { n: card.documentsCount })}
@@ -289,13 +292,14 @@ export default function MemberCardPage() {
             <CardHeader title={t('card.contactsTitle')} subtitle={t('card.contactsSubtitle')} />
             <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
               <div className="ui-stack" style={{ gap: '0.25rem' }}>
-                {card.user.phone && <div className="meta">{t('card.phone', { value: card.user.phone })}</div>}
-                {member?.card?.email && <div className="meta">{t('card.email', { value: member.card.email })}</div>}
-                {member?.card?.city && <div className="meta">{t('card.city', { value: member.card.city })}</div>}
-                {member?.card?.bio && <div className="meta">{t('card.bio', { value: member.card.bio })}</div>}
+                {guardedDisplay(card.user.phone) && <div className="meta">{t('card.phone', { value: guardedDisplay(card.user.phone) ?? '' })}</div>}
+                {/* Карточка — решение ЧЕЛОВЕКА (user.card): скрытое не рисуется, маска — символами */}
+                {member?.card && guardedDisplay(member.card.email) && <div className="meta">{t('card.email', { value: guardedDisplay(member.card.email) ?? '' })}</div>}
+                {member?.card && guardedDisplay(member.card.city) && <div className="meta">{t('card.city', { value: guardedDisplay(member.card.city) ?? '' })}</div>}
+                {member?.card && guardedDisplay(member.card.bio) && <div className="meta">{t('card.bio', { value: guardedDisplay(member.card.bio) ?? '' })}</div>}
               </div>
               {member?.requisites ? (
-                <MemberRequisitesBlock req={member.requisites} title={t('requisites.forContracts')} />
+                <MemberRequisitesBlock req={member.requisites} userId={member.userId} title={t('requisites.forContracts')} />
               ) : (
                 <EmptyState icon="lock" title={t('card.requisitesLocked')} description={t('card.requisitesLockedHint')} />
               )}

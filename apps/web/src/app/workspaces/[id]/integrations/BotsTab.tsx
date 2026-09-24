@@ -15,7 +15,7 @@ import { toastApiError } from '@/lib/api-errors';
 import { toast } from '@/lib/toast';
 import { archiveBot, createBot, createBotKey, fetchBot, fetchBots, fetchKeysPolicy, freezeBot, revokeWorkspaceKey, rotateWorkspaceKey, unfreezeBot, updateBot } from '@/lib/keys-api';
 import { keysBotKey, keysBotsKey, keysPolicyKey, keysRegistryRootKey } from '@/lib/queries';
-import { AllowlistField, BotChip, BotKeyDialog, BotWizard, KeyStatusChip, RevokeKeyDialog, RotateKeyDialog, ScopeMatrix, ScopeSummary, useKeysStepUp } from '@/components/keys';
+import { AllowlistField, BotChip, BotKeyDialog, BotWizard, ContactAccessField, KeyStatusChip, RevokeKeyDialog, RotateKeyDialog, ScopeMatrix, ScopeSummary, useKeysStepUp } from '@/components/keys';
 import { EntitySelector } from '@/components/EntitySelector';
 import { EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 import { Button, Card, Chip, EmptyState, Field, Input, LoadingBlock, Menu, Modal, Select, Skeleton, useConfirm } from '@/components/ui';
@@ -184,6 +184,7 @@ function BotEditDialog({ workspaceId, bot, onClose, onSaved }: { workspaceId: st
   const [responsible, setResponsible] = useState<Principal[]>(bot.responsibleUserId ? [{ type: 'user', id: bot.responsibleUserId }] : []);
   const [scopes, setScopes] = useState<KeyScopes>(bot.scopes);
   const [allowlist, setAllowlist] = useState<string[]>(bot.ipAllowlist);
+  const [contactAccess, setContactAccess] = useState(bot.contactAccess);
   const [busy, setBusy] = useState(false);
   const stepUp = useKeysStepUp();
   const save = async () => {
@@ -193,7 +194,8 @@ function BotEditDialog({ workspaceId, bot, onClose, onSaved }: { workspaceId: st
       // сервер меняет их только под сильным подтверждением, имя и назначение — без него.
       const scopesChanged = JSON.stringify(Object.entries(scopes).sort()) !== JSON.stringify(Object.entries(bot.scopes).sort());
       const allowlistChanged = JSON.stringify([...allowlist].sort()) !== JSON.stringify([...bot.ipAllowlist].sort());
-      const sensitive = rank !== bot.rank || scopesChanged || allowlistChanged;
+      const contactChanged = contactAccess !== bot.contactAccess;
+      const sensitive = rank !== bot.rank || scopesChanged || allowlistChanged || contactChanged;
       const input: BotUpdateInput = {
         ...(name.trim() !== bot.name ? { name: name.trim() } : {}),
         ...(purpose.trim() !== bot.purpose ? { purpose: purpose.trim() } : {}),
@@ -201,6 +203,7 @@ function BotEditDialog({ workspaceId, bot, onClose, onSaved }: { workspaceId: st
         ...((responsible[0]?.id ?? null) !== bot.responsibleUserId ? { responsibleUserId: responsible[0]?.id ?? null } : {}),
         ...(scopesChanged ? { scopes } : {}),
         ...(allowlistChanged ? { ipAllowlist: allowlist } : {}),
+        ...(contactChanged ? { contactAccess } : {}),
       };
       if (sensitive) {
         const res = await stepUp.withStepUp(() => updateBot(workspaceId, bot.id, input));
@@ -234,6 +237,7 @@ function BotEditDialog({ workspaceId, bot, onClose, onSaved }: { workspaceId: st
           <ScopeMatrix value={scopes} onChange={setScopes} forBot />
         </Field>
         <AllowlistField value={allowlist} onChange={setAllowlist} />
+        <ContactAccessField value={contactAccess} onChange={setContactAccess} />
       </div>
     </Modal>
   );

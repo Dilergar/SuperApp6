@@ -9,7 +9,7 @@ import { WorkspaceProfileChrome } from './profile-chrome';
 
 export default function WorkspaceProfileLayout({ children }: { children: ReactNode }) {
   return (
-    <ServiceMessages ns="workspaces">
+    <ServiceMessages ns={['workspaces', 'visibility']}>
       <WorkspaceProfileChrome>{children}</WorkspaceProfileChrome>
     </ServiceMessages>
   );

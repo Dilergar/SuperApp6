@@ -1,3 +1,4 @@
+import type { PresenceBucket } from '../visibility/masks';
 // Presence + typing types — shared by API, web and mobile.
 
 /**
@@ -19,6 +20,12 @@ export interface PresenceInfo {
   online: boolean;
   /** ISO timestamp of the target's last disconnect, or null (hidden / never seen). */
   lastSeen: string | null;
+  /**
+   * «Был в сети» КОРЗИНОЙ (core/visibility, маска `time_bucket`): человек не показывает этому
+   * зрителю точное время (его настройка «Был в сети» либо взаимность) — только «недавно /
+   * на этой неделе / в этом месяце / давно». При точном статусе — null.
+   */
+  lastSeenBucket?: PresenceBucket | null;
   /** Contextual "in a meeting" status, or null. */
   contextual: ContextualStatus;
 }

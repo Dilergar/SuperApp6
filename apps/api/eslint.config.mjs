@@ -137,6 +137,21 @@ const KEYS_CRYPTO_SELECTORS = [
 ];
 const JWT_IMPORT_PATHS = BANNED_JWT_LIBS.map((name) => ({ name, message: KEYS_CRYPTO_HINT }));
 
+/**
+ * Шестой страж: правила видимости (core/visibility). Маркер `{ $v: 'masked' | 'hidden' }`
+ * строит только движок (`shape`), маски — только общие функции shared (одна маска на вид
+ * данных на всех поверхностях: две разные маски одного значения складываются в оригинал —
+ * урок Airbnb 2018 и Directus, где маску считал payload-слой в обход прав).
+ */
+const VISIBILITY_HINT_MARKER =
+  'Маркер видимости (`$v`) строит только core/visibility (`VisibilityService.shape/forExternal`). Сервис отдаёт значения в shape(), а не собирает маску сам — иначе маска живёт отдельно от прав (Directus: 10 CVE).';
+const VISIBILITY_HINT_MASK =
+  'Маски — только из @superapp/shared (visibility/masks.ts): maskPhone, maskEmail, maskIdLast4… Своя маска рядом с общей выдаёт оригинал по сочетанию.';
+const VISIBILITY_SELECTORS = [
+  { selector: "Property[key.name='$v'], Property[key.value='$v']", message: VISIBILITY_HINT_MARKER },
+  { selector: 'FunctionDeclaration[id.name=/^mask[A-Z]/], VariableDeclarator[id.name=/^mask[A-Z]/]', message: VISIBILITY_HINT_MASK },
+];
+
 /** Селекторы стража исходящих — общие для основного блока и для блока движка ключей (там без стража секрета). */
 const OUTBOUND_SYNTAX_SELECTORS = [
   {
@@ -205,7 +220,7 @@ export default [
       // без этого селектора такая запись проходила линтер молча.
       // Селекторы живут в OUTBOUND_SYNTAX_SELECTORS (их же переиспользует блок движка
       // ключей); здесь к ним добавлен страж мастер-секрета (KEYS_SECRET_SELECTORS).
-      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...KEYS_SECRET_SELECTORS, ...SECRET_LOG_SELECTORS, ...KEYS_CRYPTO_SELECTORS],
+      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...KEYS_SECRET_SELECTORS, ...SECRET_LOG_SELECTORS, ...KEYS_CRYPTO_SELECTORS, ...VISIBILITY_SELECTORS],
       // Обход правила «возьму другой HTTP-клиент» — тоже закрыт. На момент введения
       // (2026-08-30) ни одного такого импорта в apps/api нет: единственный способ
       // ходить наружу — `fetch`. Правило держит это состояние. Сюда же — библиотеки
@@ -233,7 +248,15 @@ export default [
     // исходящих и страж логов остаются целиком.
     files: ['src/core/keys/**/*.ts'],
     rules: {
-      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...SECRET_LOG_SELECTORS],
+      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...SECRET_LOG_SELECTORS, ...VISIBILITY_SELECTORS],
+    },
+  },
+  {
+    // Движок видимости — единственное место, где строится маркер `$v`: страж маркера снят,
+    // страж масок (свои маски запрещены и здесь — только shared) и остальные остаются.
+    files: ['src/core/visibility/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', ...OUTBOUND_SYNTAX_SELECTORS, ...KEYS_SECRET_SELECTORS, ...SECRET_LOG_SELECTORS, ...KEYS_CRYPTO_SELECTORS, VISIBILITY_SELECTORS[1]],
     },
   },
   {

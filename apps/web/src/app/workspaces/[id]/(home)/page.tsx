@@ -16,7 +16,7 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import {
-  BentoGrid, Button, Card, CardHeader, Chip, EmptyState, Icon, LoadingBlock, PageHeader, StatTile,
+  BentoGrid, Button, Card, CardHeader, Chip, EmptyState, GuardedValue, Icon, LoadingBlock, PageHeader, StatTile,
   type IconName,
 } from '@/components/ui';
 import { SubmitDocumentModal } from '../documents/SubmitDocumentModal';
@@ -158,7 +158,7 @@ export default function WorkspaceHome() {
 
       <BentoGrid>
         {/* ---------- Показатели ---------- */}
-        <StatTile span={approvalsCount > 0 ? 3 : 4} label={t('home.stat.members')} value={ws.membersCount} icon="staff" tone="accent" href={`/workspaces/${id}/members`} />
+        <StatTile span={approvalsCount > 0 ? 3 : 4} label={t('home.stat.members')} value={<GuardedValue value={ws.membersCount} placeholder />} icon="staff" tone="accent" href={`/workspaces/${id}/members`} />
         {/* Плитка решений появляется, ТОЛЬКО когда что-то действительно ждёт:
             строка «0» на главной — шум, а главная отвечает на один вопрос —
             «что требует меня прямо сейчас». Не ссылка: стопка разбирается

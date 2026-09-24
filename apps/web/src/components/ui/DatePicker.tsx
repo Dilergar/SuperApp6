@@ -77,6 +77,11 @@ export function Calendar({ value, onChange, defaultMonth, min, max, className }:
   }, [value]);
 
   const locale = useLocale();
+  // Имена месяцев, дней и подписи дат — из `Intl` БРАУЗЕРА: у Node на сервере бывает урезанный
+  // ICU (казахский месяц там — «M09»), серверная разметка расходилась с клиентской → ошибка
+  // гидрации. Календарь интерактивный — на сервере не рисуется (см. заглушку ниже).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const MONTHS = useMemo(() => monthNames(locale), [locale]);
   const WEEKDAYS = useMemo(() => weekdayNames(locale), [locale]);
   const t = useTranslations('common');
@@ -94,6 +99,9 @@ export function Calendar({ value, onChange, defaultMonth, min, max, className }:
     if (max && d > new Date(max.getFullYear(), max.getMonth(), max.getDate())) return true;
     return false;
   }
+
+  // До монтирования — пустое место той же высоты (шапка + 6 недель): без скачка вёрстки
+  if (!mounted) return <div className={cx(className)} style={{ minHeight: 272 }} aria-hidden />;
 
   return (
     <div className={cx(className)}>

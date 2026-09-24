@@ -209,8 +209,7 @@
       "single": "Тұрмыс құрмаған",
       "widowed": "Жесір"
     },
-    "peopleCount": "{n, plural, one {# адам} other {# адам}}",
-    "visibleToOthers": "{label}: басқаларға көрінеді"
+    "peopleCount": "{n, plural, one {# адам} other {# адам}}"
   },
   "presence": {
     "at": "{date}, {time}",
@@ -264,5 +263,19 @@
     "getCode": "Код алу",
     "back": "Құпиясөзге оралу",
     "codeTitle": "SMS-тегі кодты енгізіңіз"
+  },
+  "guarded": {
+    "hidden": "Жасырын",
+    "masked": "Ішінара жасырын",
+    "show": "Көрсету",
+    "partHidden": "Деректердің бір бөлігі ұйым ережелерімен жасырылған",
+    "partHiddenAdmin": "Көріну ережелерін ашу",
+    "presence": {
+      "recently": "жақында желіде болды",
+      "week": "осы аптада желіде болды",
+      "month": "осы айда желіде болды",
+      "long_ago": "көптен бері желіде болмаған"
+    },
+    "birthdayNoYear": "{date} (жылы жасырын)"
   }
 }

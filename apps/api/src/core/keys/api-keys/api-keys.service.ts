@@ -156,6 +156,7 @@ export class ApiKeysService {
         hashKid: minted.hashKid,
         scopes: bot.scopes as Prisma.InputJsonValue,
         ipAllowlist: [] as Prisma.InputJsonValue,
+        contactAccess: bot.contactAccess,
         expiresAt,
         rotatedFromId: opts.rotatedFromId ?? null,
         storedHint: input.storedHint ?? null,
@@ -220,6 +221,8 @@ export class ApiKeysService {
           hashKid: minted.hashKid,
           scopes: scopes as Prisma.InputJsonValue,
           ipAllowlist: allowlist as Prisma.InputJsonValue,
+          // Контакты клиентов — только ключу данных организации (свои данные человек видит и так)
+          contactAccess: !!workspaceId && !!input.contactAccess,
           expiresAt,
           storedHint: input.storedHint ?? null,
           createdById: actor.userId,
@@ -234,7 +237,7 @@ export class ApiKeysService {
         subjectName: row.name,
         action: 'api_key.created',
         ip: actor.ip ?? null,
-        details: { kind: 'pat', prefix: row.prefix, expiresAt: expiresAt?.toISOString() ?? null, scopes: Object.keys(scopes).length },
+        details: { kind: 'pat', prefix: row.prefix, expiresAt: expiresAt?.toISOString() ?? null, scopes: Object.keys(scopes).length, contactAccess: row.contactAccess },
       });
       await this.analytics.track(tx, 'keys.key.created', { kind: 'pat', contextType: workspaceId ? 'workspace' : 'personal', hasExpiry: !!expiresAt, hasAllowlist: allowlist.length > 0, rotation: false }, { userId: actor.userId, workspaceId });
       await this.notifier.keyEvent(tx, 'key.created', { id: row.id, name: row.name, userId: actor.userId, workspaceId }, { purpose: row.purpose }, { actorId: actor.userId });
@@ -292,8 +295,13 @@ export class ApiKeysService {
       const policy = await this.policy(row.workspaceId);
       if (policy.requireIpAllowlist) throw badRequest('keys.policy_allowlist_required', undefined, { code: 'keys.policy_allowlist_required' });
     }
-    // Сетевое ограничение ключа — часть его силы: менять его можно только под step-up
-    if (input.ipAllowlist !== undefined) await this.stepUp.assert(actor.userId);
+    // Флаг контактов (R9): ключ бота наследует его от бота; у личного ключа — только данные организации
+    const contactChanged = input.contactAccess !== undefined && input.contactAccess !== row.contactAccess;
+    if (contactChanged && (row.kind !== 'pat' || !row.workspaceId)) {
+      throw badRequest('keys.contact_access_not_applicable', undefined, { code: 'keys.contact_access_not_applicable' });
+    }
+    // Сетевое ограничение и доступ к контактам — часть силы ключа: менять только под step-up
+    if (input.ipAllowlist !== undefined || contactChanged) await this.stepUp.assert(actor.userId);
     const updated = await this.db.$transaction(async (tx) => {
       const u = await tx.apiKey.update({
         where: { id: row.id },
@@ -301,9 +309,10 @@ export class ApiKeysService {
           ...(input.name !== undefined ? { name: input.name } : {}),
           ...(input.storedHint !== undefined ? { storedHint: input.storedHint } : {}),
           ...(input.ipAllowlist !== undefined ? { ipAllowlist: input.ipAllowlist as Prisma.InputJsonValue } : {}),
+          ...(contactChanged ? { contactAccess: input.contactAccess } : {}),
         },
       });
-      await this.audit.log(tx, { actorId: actor.userId, workspaceId: row.bot?.workspaceId ?? row.workspaceId, subjectUserId: row.userId, subjectType: 'api_key', subjectId: row.id, subjectName: u.name, action: 'api_key.updated', ip: actor.ip ?? null, details: { fields: Object.keys(input) } });
+      await this.audit.log(tx, { actorId: actor.userId, workspaceId: row.bot?.workspaceId ?? row.workspaceId, subjectUserId: row.userId, subjectType: 'api_key', subjectId: row.id, subjectName: u.name, action: 'api_key.updated', ip: actor.ip ?? null, details: { fields: Object.keys(input), ...(contactChanged ? { contactAccess: input.contactAccess } : {}) } });
       return u;
     });
     await this.auth.invalidateByHash(row.hash);
@@ -344,6 +353,7 @@ export class ApiKeysService {
             hashKid: m.hashKid,
             scopes: row.scopes as Prisma.InputJsonValue,
             ipAllowlist: row.ipAllowlist as Prisma.InputJsonValue,
+            contactAccess: row.contactAccess,
             expiresAt,
             rotatedFromId: row.id,
             storedHint: input.storedHint ?? row.storedHint,

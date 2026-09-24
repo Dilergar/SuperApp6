@@ -18,6 +18,7 @@ import {
   type CounterpartyDto,
   type OrgDocumentDto,
   type WorkspaceRequisitesDto,
+  guardedDisplay,
 } from '@superapp/shared';
 import { apiGet } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -320,9 +321,9 @@ export function SendToCounterpartyModal({
           </span>
         </div>
 
-        {contact?.phone && (
+        {contact && guardedDisplay(contact.phone) && (
           <Toggle
-            label={tr('send.sendSms', { phone: contact.phone })}
+            label={tr('send.sendSms', { phone: String(guardedDisplay(contact.phone)) })}
             checked={sendSms}
             onChange={setSendSms}
           />

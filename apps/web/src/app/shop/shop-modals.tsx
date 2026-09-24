@@ -27,6 +27,7 @@ import {
 } from '@superapp/shared';
 import { CampaignBars, ListingPhotosSection } from './shop-ui';
 import { daysFromNow, fmtAmount, personName, progressLines } from './shop-lib';
+import { guardedDisplay } from '@superapp/shared';
 
 export interface PriceLine {
   currencyId: string;
@@ -589,7 +590,7 @@ export function StaffPanel({
                   id: c.them.id,
                   title: personName(c),
                   firstName: c.them.firstName,
-                  lastName: c.them.lastName,
+                  lastName: guardedDisplay(c.them.lastName),
                   role: c.myRole,
                 }))}
                 value={userId ? [{ type: 'user', id: userId }] : []}

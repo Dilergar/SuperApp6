@@ -9,7 +9,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useQueryClient } from '@tanstack/react-query';
-import type { NotMeResultDto, SecurityEventDto } from '@superapp/shared';
+import { maskPhone, type NotMeResultDto, type SecurityEventDto } from '@superapp/shared';
 import { Alert, Button, EmojiIcon, Icon, Modal, TickBar } from '@/components/ui';
 import { ChangePasswordDialog, ChangePhoneDialog } from '@/app/profile/[section]/security-dialogs';
 import { notMeComplete, notMeStart } from '@/lib/audit-api';
@@ -25,13 +25,6 @@ type Step = 'intro' | 'protect' | 'password' | 'phone' | 'done';
 /** Адрес страницы заморозки без входа — его стоит запомнить на случай кражи телефона. */
 export const freezeUrl = () => (typeof window === 'undefined' ? '/freeze' : `${window.location.host}/freeze`);
 const PROGRESS: Record<Step, number> = { intro: 0, protect: 25, password: 50, phone: 75, done: 100 };
-
-/** «+7 700 ••• 45 67» — номер человека маской: мастер не показывает его целиком. */
-function maskPhone(phone: string | null | undefined): string {
-  const d = (phone ?? '').replace(/\D/g, '');
-  if (d.length < 10) return phone ?? '';
-  return `+${d.slice(0, d.length - 10)} ${d.slice(-10, -7)} ••• ${d.slice(-4, -2)} ${d.slice(-2)}`;
-}
 
 export function NotMeWizard({ event, onClose }: { event: SecurityEventDto; onClose: () => void }) {
   const t = useTranslations('audit');
@@ -161,7 +154,7 @@ export function NotMeWizard({ event, onClose }: { event: SecurityEventDto; onClo
           {step === 'phone' && (
             <>
               <h3 className="title-md" style={{ margin: 0 }}>{t('ui.notMe.step4Title')}</h3>
-              <p className="body-sm" style={{ margin: 0 }}>{t('ui.notMe.step4Text', { phone: maskPhone(phone) })}</p>
+              <p className="body-sm" style={{ margin: 0 }}>{t('ui.notMe.step4Text', { phone: maskPhone(phone) ?? '' })}</p>
               <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <Button variant="outline" disabled={busy} onClick={() => setDialog('phone')}>{t('ui.notMe.changePhone')}</Button>
                 <Button variant="primary" tone="success" loading={busy} onClick={() => void finish(true)}>{t('ui.notMe.yes')}</Button>

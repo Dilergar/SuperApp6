@@ -4,6 +4,7 @@ import { VerifySmsService } from './verify.sms';
 import { SmsOutboundService } from './sms-outbound.service';
 import { VerifyController } from './verify.controller';
 import { VerifyCron } from './verify.cron';
+import { StepUpService } from './step-up.service';
 
 /**
  * Движок подтверждений (core/verify) — 11-й платформенный движок: SMS-OTP
@@ -19,7 +20,8 @@ import { VerifyCron } from './verify.cron';
   controllers: [VerifyController],
   // SmsOutboundService — служебные SMS (доставка ссылок наружу): зародыш
   // канального движка уведомлений, живёт рядом с драйвером, пока канал один.
-  providers: [VerifyService, VerifySmsService, SmsOutboundService, VerifyCron],
-  exports: [VerifyService, VerifySmsService, SmsOutboundService],
+  // StepUpService — окно «сильного подтверждения» по цели (ключи, правила видимости)
+  providers: [VerifyService, VerifySmsService, SmsOutboundService, VerifyCron, StepUpService],
+  exports: [VerifyService, VerifySmsService, SmsOutboundService, StepUpService],
 })
 export class VerifyModule {}

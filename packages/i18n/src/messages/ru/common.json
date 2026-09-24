@@ -209,8 +209,7 @@
       "single": "Не женат/не замужем",
       "widowed": "Вдовец/вдова"
     },
-    "peopleCount": "{n, plural, one {# человек} few {# человека} many {# человек} other {# человека}}",
-    "visibleToOthers": "{label}: видно другим"
+    "peopleCount": "{n, plural, one {# человек} few {# человека} many {# человек} other {# человека}}"
   },
   "presence": {
     "at": "{date} в {time}",
@@ -264,5 +263,19 @@
     "getCode": "Получить код",
     "back": "Назад к паролю",
     "codeTitle": "Введите код из SMS"
+  },
+  "guarded": {
+    "hidden": "Скрыто",
+    "masked": "Скрыто частично",
+    "show": "Показать",
+    "partHidden": "Часть данных скрыта правилами организации",
+    "partHiddenAdmin": "Открыть правила видимости",
+    "presence": {
+      "recently": "был(а) недавно",
+      "week": "был(а) на этой неделе",
+      "month": "был(а) в этом месяце",
+      "long_ago": "был(а) давно"
+    },
+    "birthdayNoYear": "{date} (год скрыт)"
   }
 }

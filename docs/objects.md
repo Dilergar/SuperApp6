@@ -58,6 +58,8 @@ payroll_viewer: union(THIS, computed('manager'))    // управленческ�
 
 ## Регистрации в движках
 
+Видимость полей ([visibility_engine.md](visibility_engine.md)): `objects.staffing` (деньги штатки — [objects_staffing.md](objects_staffing.md)) и `objects.shift` (факт выхода — [objects_shifts.md](objects_shifts.md)) регистрирует `objects-visibility.provider.ts`; относительные адресаты «руководитель объекта», «видит деньги объекта», «ведёт график» — провайдер отношений `StaffModule`.
+
 `chatter` (`branch`, `asset` — ОБА обязаны быть зарегистрированы в `ChatterRefRegistry`, иначе записи пишутся «в стол»: движок отвечает 404 на незнакомый refType) · `files` (`branch`, `asset`, `asset_model`, `asset_service`; `scopedPlace: true` + список `allowedProfiles` — место со своей видимостью обязано их объявить) · `drive routing` (файлы едут на Диск ОРГАНИЗАЦИИ) · `search` (провайдеры `branch` и `asset`, обрезка правами по `ancestorIds`) · `rich-cards` (`branch` — переслать точку; `shift` — открытая смена с действием `shift.take`) · слой календаря `shifts` · уведомления смен ([objects_shifts.md](objects_shifts.md)).
 
 Джобы: `objects.shifts.generate` (`uniqueKey sp:<patternId>:<week>`) и `staff.assignment.rollover` (`runAt` = полночь в поясе объекта, `uniqueKey sa:<id>:<date>`, эффект — `projectWorkspaceStaff`).

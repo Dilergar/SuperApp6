@@ -17,6 +17,7 @@ import type {
   StaffDirectory,
   WorkspaceMember,
 } from '@superapp/shared';
+import { guardedDisplay } from '@superapp/shared';
 
 export interface Principal {
   type: string;
@@ -103,9 +104,9 @@ async function loadUsers(ctx?: EntityLoadContext): Promise<EntityOption[]> {
       acc.push({
         type: 'user',
         id: c.them.id,
-        title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(),
+        title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(),
         firstName: c.them.firstName,
-        lastName: c.them.lastName,
+        lastName: guardedDisplay(c.them.lastName),
         role: c.myRole,
       });
     }
@@ -123,7 +124,7 @@ async function loadWorkspaceMembers(workspaceId: string): Promise<EntityOption[]
       id: m.userId,
       title: m.userName,
       firstName: m.card?.firstName ?? m.userName,
-      lastName: m.card?.lastName ?? null,
+      lastName: m.card ? guardedDisplay(m.card.lastName) : null,
       // Подпись в пикере = Должность (принцип «роль организации на карте не видна»).
       role: [...new Set(m.assignments.map((a) => a.positionName))].join(', ') || null,
     }));

@@ -20,6 +20,7 @@ import {
 import { PersonAvatar } from '../../../../messenger/messenger-ui';
 import type { StaffDirectory, UserLookupDto, WorkspaceInvitation } from '@superapp/shared';
 import { ChipPickerBlock, MembersHeader, membersSectionHref, useLegacyMembersTabRedirect, useMembersBase } from '../members-lib';
+import { guardedDisplay, visibleOr } from '@superapp/shared';
 
 export default function MembersInvitationsPage() {
   const t = useTranslations('staff');
@@ -162,9 +163,9 @@ function InvitesSection({
                   borderRadius: 'var(--radius-md)', padding: '0.5rem 0.75rem',
                 }}
               >
-                <PersonAvatar userId={lookup.id} name={lookup.firstName} avatar={lookup.avatar} size="sm" />
+                <PersonAvatar userId={lookup.id} name={lookup.firstName} avatar={visibleOr(lookup.avatar, null)} size="sm" />
                 <span>
-                  <span className="title-sm">{lookup.firstName} {lookup.lastName || ''}</span>
+                  <span className="title-sm">{lookup.firstName} {guardedDisplay(lookup.lastName) ?? ''}</span>
                   <span className="label-sm" style={{ display: 'block' }}>{lookup.phone}</span>
                 </span>
               </div>

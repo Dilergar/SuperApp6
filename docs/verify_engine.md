@@ -31,6 +31,10 @@ VerifyService.consume(tx, { verifyToken, purpose, expectedPhone?, expectedUserId
 - Redis-лок `verify:start:<phone>:<purpose>` от двойного старта (замок берётся отдельно от отправки).
 - Secure-by-default: `required` = production (`VERIFY_REQUIRED` перекрывает; false в prod → warn); в dev/test verifyToken опционален (seed и сьюты живут без правок).
 
+## Окна «сильного подтверждения» (`StepUpService`)
+
+Одна служба окна на платформу (`core/verify/step-up.service.ts`): пароль + код на свой номер открывают окно N минут, в течение которого действие не требует нового SMS. Цели с окном — `STEP_UP_WINDOW_PURPOSES`: `keys_manage` (ключи и боты — [keys_api_access.md](keys_api_access.md)), `visibility_reveal` (раскрытие строгих полей одной записи), `visibility_manage` (публикация, ослабляющая строгие поля, и делегирование раскрытия — [visibility_engine.md](visibility_engine.md)). Окно одной цели не открывает другую: ключ Redis `verify:stepup:<цель>:<userId>`. Поток клиента: `POST /verify/step-up {purpose, password}` → `POST /verify/check` → `POST /verify/step-up/confirm {purpose, verifyToken}` → `{until}`; досрочно — `POST /verify/step-up/end`. Потребитель зовёт только `stepUp.assert(userId, purpose)` → `403` с кодом цели из `STEP_UP_REQUIRED_CODES` (клиент ведёт в шаг «пароль → код»). Все окна человека закрываются вместе с сессиями: «выйти везде», смена пароля, «Это не я» (`afterAccessRevoked`). Сюда же встанут passkeys и ЭЦП-вход.
+
 ## Анти-абьюз
 
 Потолки на номер В БД (5/час, 10/день — переживают рестарт; окно от ПОСЛЕДНЕЙ отправки) + per-IP и глобальный часовой SMS-бюджет в Redis скользящим окном (best-effort: упал → warn, БД-лимиты держат; бюджет тратится по факту отправки; IP-эшелон выключен в dev/test) + CAPTCHA-слот (captchaToken в схеме, включение позже). IP — только `req.ip` (TRUST_PROXY).

@@ -11,7 +11,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import type { ShiftDto } from '@superapp/shared';
+import { isVisible, visibleOr, type ShiftDto } from '@superapp/shared';
 import { Button, Chip } from '@/components/ui';
 import { timeIn, tint, todayIn } from '@/lib/objects-time';
 import { dmy } from '@/lib/dates';
@@ -175,12 +175,13 @@ function ShiftChip({
         <span style={{ fontWeight: 600 }}>{time}</span>
         {draft && <Chip tone="neutral">{t('shiftStatus.draft')}</Chip>}
         {cancelled && <Chip tone="danger">{t('shifts.cancelledChip')}</Chip>}
-        {shift.attendance && (
+        {/* Факт — поля движка видимости: скрытый/маскированный исход чипом не рисуется */}
+        {shift.attendance && isVisible(shift.attendance.outcome) && (
           <Chip tone={shift.attendance.outcome === 'absent' ? 'danger' : shift.attendance.outcome === 'late' ? 'warning' : 'success'}>
             {shift.attendance.outcome === 'absent'
               ? t('attendanceOutcome.absent')
               : shift.attendance.outcome === 'late'
-                ? t('shifts.lateBy', { n: shift.attendance.lateMin })
+                ? t('shifts.lateBy', { n: visibleOr(shift.attendance.lateMin, 0) })
                 : t('attendanceOutcome.worked')}
           </Chip>
         )}

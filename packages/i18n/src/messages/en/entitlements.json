@@ -25,7 +25,13 @@
     "workspacesMaxOwned": "Organizations you own",
     "auditRetentionDays": "Security log window, days",
     "auditExport": "Security log export",
-    "auditStream": "Security events stream to SIEM"
+    "auditStream": "Security events stream to SIEM",
+    "visibilityOrgAudiences": "Org-structure audiences in visibility rules",
+    "visibilityRevealDelegation": "Delegating data reveal",
+    "visibilityExplain": "Check what an employee sees",
+    "visibilityPresets": "Visibility rule presets",
+    "visibilityMaxRules": "Visibility rules",
+    "visibilityRevealsPerDay": "Data reveals per day"
   },
   "lock": {
     "quotaFull": "Storage is full",
@@ -66,7 +72,8 @@
     "objects": "Sites",
     "shop": "Shop",
     "workspaces": "Organizations",
-    "audit": "Security log"
+    "audit": "Security log",
+    "visibility": "Visibility rules"
   },
   "source": {
     "grant": "Gift until {date}",

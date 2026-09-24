@@ -38,7 +38,8 @@ const MIME: Record<AuditExportFormat, string> = { ndjson: 'application/x-ndjson'
 const PAGE = 200;
 
 /** Колонки CSV — коды и id, без IP, UA и имён (имя человека — по id в продукте). */
-const CSV_COLUMNS = ['occurredAt', 'eventId', 'key', 'category', 'severity', 'outcome', 'reasonCode', 'title', 'actorKind', 'actorId', 'subjectUserId', 'targetType', 'targetId', 'country', 'deviceClass', 'client', 'requestId'] as const;
+/** `onBehalfOfId` — инициатор системного действия (увольнение КЭДО применил джоб от имени кадровика). */
+export const CSV_COLUMNS = ['occurredAt', 'eventId', 'key', 'category', 'severity', 'outcome', 'reasonCode', 'title', 'actorKind', 'actorId', 'onBehalfOfId', 'subjectUserId', 'targetType', 'targetId', 'country', 'deviceClass', 'client', 'requestId'] as const;
 
 /**
  * Ячейка CSV без «формульной» инъекции (OWASP CSV Injection): значение, начинающееся с
@@ -51,7 +52,8 @@ export function csvCell(v: unknown): string {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-function csvRow(e: SecurityEventDto): string {
+/** Строка CSV выгрузки (экспорт — для сверки сьютом) */
+export function csvRow(e: SecurityEventDto): string {
   const actorId = 'id' in e.actor ? (e.actor.id ?? '') : '';
   const cells: Record<(typeof CSV_COLUMNS)[number], unknown> = {
     occurredAt: e.occurredAt,
@@ -64,6 +66,7 @@ function csvRow(e: SecurityEventDto): string {
     title: e.title,
     actorKind: e.actor.kind,
     actorId,
+    onBehalfOfId: e.actor.kind === 'system' ? (e.actor.onBehalfOf?.id ?? null) : null,
     subjectUserId: e.subject?.id ?? null,
     targetType: e.target?.type ?? null,
     targetId: e.target?.id ?? null,
@@ -76,8 +79,12 @@ function csvRow(e: SecurityEventDto): string {
 }
 
 /** Строка NDJSON: событие проекции зрителя без имён людей (только id) — файл уходит наружу. */
-function ndjsonRow(e: SecurityEventDto): string {
-  const actor = { kind: e.actor.kind, id: 'id' in e.actor ? (e.actor.id ?? null) : null };
+export function ndjsonRow(e: SecurityEventDto): string {
+  const actor = {
+    kind: e.actor.kind,
+    id: 'id' in e.actor ? (e.actor.id ?? null) : null,
+    ...(e.actor.kind === 'system' && e.actor.onBehalfOf ? { onBehalfOfId: e.actor.onBehalfOf.id } : {}),
+  };
   const { subject, target, ...rest } = e;
   return JSON.stringify({ ...rest, actor, subjectUserId: subject?.id ?? null, target: target ? { type: target.type, id: target.id, label: target.label } : null });
 }

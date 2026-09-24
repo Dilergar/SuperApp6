@@ -5,6 +5,7 @@ import { NotesModule } from '../notes/notes.module';
 import { CounterpartiesController } from './counterparties.controller';
 import { CounterpartiesRegistriesProvider } from './counterparties-registries.provider';
 import { CounterpartiesRichCardsProvider } from './counterparties-rich-cards.provider';
+import { CounterpartiesVisibilityProvider } from './counterparties-visibility.provider';
 
 /**
  * Сервис «Контрагенты» (B2B) — единый справочник внешних сторон организации.
@@ -16,7 +17,13 @@ import { CounterpartiesRichCardsProvider } from './counterparties-rich-cards.pro
 @Module({
   imports: [NotesModule],
   controllers: [CounterpartiesController],
-  providers: [CounterpartiesService, CounterpartiesNotesTargetProvider, CounterpartiesRegistriesProvider, CounterpartiesRichCardsProvider],
+  providers: [
+    CounterpartiesService,
+    CounterpartiesNotesTargetProvider,
+    CounterpartiesRegistriesProvider,
+    CounterpartiesRichCardsProvider,
+    CounterpartiesVisibilityProvider,
+  ],
   exports: [CounterpartiesService],
 })
 export class CounterpartiesModule {}

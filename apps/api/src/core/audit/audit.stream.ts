@@ -96,9 +96,10 @@ export class AuditStreamService implements OnModuleInit {
     await this.webhooks.emit(tx, { workspaceId: e.workspaceId, eventKey: eventKey as WebhookEventKey, payload: this.payload(e) as unknown as Record<string, unknown>, occurredAt: e.occurredAt });
   }
 
-  payload(e: Pick<AuditObservedEvent, 'eventId' | 'key' | 'def' | 'occurredAt' | 'outcome' | 'reasonCode' | 'actorKind' | 'actorId' | 'subjectUserId' | 'workspaceId' | 'targetType' | 'targetId' | 'country' | 'client' | 'uaFamily' | 'requestId' | 'details'>): SecurityWebhookPayload {
+  payload(e: Pick<AuditObservedEvent, 'eventId' | 'key' | 'def' | 'occurredAt' | 'outcome' | 'reasonCode' | 'actorKind' | 'actorId' | 'onBehalfOfId' | 'subjectUserId' | 'workspaceId' | 'targetType' | 'targetId' | 'country' | 'client' | 'uaFamily' | 'requestId' | 'details'>): SecurityWebhookPayload {
     const details = Object.fromEntries(Object.entries(e.details).filter(([k]) => !HIDDEN_DETAILS.has(k)));
-    const actor = { kind: e.actorKind, id: e.actorKind === 'platform_staff' ? null : e.actorId };
+    // Инициатор — только у системного актора (делегирование сотрудника платформы наружу не уходит)
+    const actor = { kind: e.actorKind, id: e.actorKind === 'platform_staff' ? null : e.actorId, ...(e.actorKind === 'system' && e.onBehalfOfId ? { onBehalfOfId: e.onBehalfOfId } : {}) };
     const target = e.targetType && e.targetId ? { type: e.targetType, id: e.targetId } : null;
     return {
       schema: 1,
@@ -144,7 +145,7 @@ export class AuditStreamService implements OnModuleInit {
     let events = 0;
     let after: { at: Date; id: bigint } | null = null;
     for (;;) {
-      const rows: Array<{ id: bigint; eventId: string; occurredAt: Date; eventKey: string; category: number; severity: number; outcome: number; reasonCode: string | null; actorKind: number; actorId: string | null; subjectUserId: string | null; targetType: string | null; targetId: string | null; country: string | null; client: number | null; uaFamily: string | null; requestId: string | null; details: Prisma.JsonValue }> =
+      const rows: Array<{ id: bigint; eventId: string; occurredAt: Date; eventKey: string; category: number; severity: number; outcome: number; reasonCode: string | null; actorKind: number; actorId: string | null; onBehalfOfId: string | null; subjectUserId: string | null; targetType: string | null; targetId: string | null; country: string | null; client: number | null; uaFamily: string | null; requestId: string | null; details: Prisma.JsonValue }> =
         await this.db.securityEvent.findMany({
           where: {
             workspaceId,
@@ -154,7 +155,7 @@ export class AuditStreamService implements OnModuleInit {
           },
           orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
           take: 500,
-          select: { id: true, eventId: true, occurredAt: true, eventKey: true, category: true, severity: true, outcome: true, reasonCode: true, actorKind: true, actorId: true, subjectUserId: true, targetType: true, targetId: true, country: true, client: true, uaFamily: true, requestId: true, details: true },
+          select: { id: true, eventId: true, occurredAt: true, eventKey: true, category: true, severity: true, outcome: true, reasonCode: true, actorKind: true, actorId: true, onBehalfOfId: true, subjectUserId: true, targetType: true, targetId: true, country: true, client: true, uaFamily: true, requestId: true, details: true },
         });
       for (const r of rows) {
         const def = auditEventDef(r.eventKey);
@@ -171,6 +172,7 @@ export class AuditStreamService implements OnModuleInit {
           reasonCode: r.reasonCode,
           actorKind: auditActorKindOf(r.actorKind),
           actorId: r.actorId,
+          onBehalfOfId: r.onBehalfOfId,
           subjectUserId: r.subjectUserId,
           workspaceId,
           targetType: r.targetType,

@@ -1,3 +1,5 @@
+import type { Guarded } from '../visibility/types';
+
 // ============================================================
 // User, profile, contact card visibility
 // ============================================================
@@ -16,7 +18,6 @@ export interface User {
   email: string | null;
   maritalStatus: string | null; // single, married, relationship, divorced, widowed, null
   socialLinks: SocialLinks | null;
-  onlineStatusMode: string; // everyone, contacts, nobody
   isVerified: boolean;
   /** `bot` — теневой пользователь бота (core/keys): интеграция по ключу видит, кто она */
   kind: 'person' | 'bot';
@@ -24,9 +25,8 @@ export interface User {
   locale: string;
   timezone: string;
   // ---- Реквизиты («Моя Анкета» → блок «Для договоров и трудоустройства») ----
-  // В личном окружении (Группы) НЕ показываются; коллегам — по тумблерам
-  // companyCardVisibility.extras (по умолчанию скрыты); управляющим организаций —
-  // всегда (нередактируемый уровень «Видимости в Компаниях»).
+  // Служебные поля организации (core/visibility, тип `staff.member`): кто их видит,
+  // решает организация; сам человек видит своё всегда; в личном Окружении их нет.
   iin: string | null;
   residentialAddress: string | null;
   idDocNumber: string | null;
@@ -47,11 +47,6 @@ export interface UserProfile extends User {
   circlesCount: number;
   workspacesCount: number;
   contactsCount: number;
-  /** Owner's DEFAULT card visibility — applied to contacts that are in
-   *  none of the owner's groups. Per-group visibility lives on Circle. */
-  cardVisibility: CardVisibility;
-  /** «Видимость в Компаниях» — что видят коллеги по организации (ростер «Сотрудники»). */
-  companyCardVisibility: CardVisibility;
   roles: UserRoleInfo[];
 }
 
@@ -68,32 +63,14 @@ export interface UserRoleInfo {
  */
 export interface UserLookupDto {
   id: string;
+  /** Эхо номера, который ищущий ввёл сам */
   phone: string;
   firstName: string;
-  lastName: string | null;
-  avatar: string | null;
+  /** По правилам владельца: посторонним — инициалом */
+  lastName: Guarded<string | null>;
+  avatar: Guarded<string | null>;
 }
 
 // Подписка в профиле больше не живёт: тариф и лимиты отдаёт снимок
 // `GET /entitlements/me` (core/entitlements, типы — `types/entitlements.ts`).
 
-// ============================================================
-// Contact card visibility
-// ============================================================
-// Always-visible on your card (regardless of flags):
-//   firstName, lastName, phone, role (the label your contact gave you)
-// Everything else is per-field toggleable by the card owner.
-// A `null` stored in DB means "use defaults" — resolver in API merges with DEFAULT_CARD_VISIBILITY.
-
-export interface CardVisibility {
-  dateOfBirth: boolean;
-  age: boolean;
-  onlineStatus: boolean;
-  maritalStatus: boolean;
-  city: boolean;
-  bio: boolean;
-  email: boolean;
-  socialLinks: boolean;
-  // Future-proof extension bag — per-field flags added later without schema migration
-  extras?: Record<string, boolean>;
-}

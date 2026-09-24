@@ -52,6 +52,7 @@ import {
 import type { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { WebhooksService } from '../../core/webhooks/webhooks.service';
+import { AuditService } from '../../core/audit/audit.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { coerceLocale, type Locale } from '@superapp/i18n';
 import { DEFAULT_DOCUMENT_LANGUAGE, documentWords } from '../../shared/i18n/document-words';
@@ -159,6 +160,7 @@ export class DocumentsService {
     private readonly smsOutbound: SmsOutboundService,
     private readonly i18n: I18nService,
     private readonly webhooks: WebhooksService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Ставится на bootstrap модулем — см. DocumentsModule (разрыв цикла с Процессами). */
@@ -624,17 +626,41 @@ export class DocumentsService {
     await this.requireManager(userId, workspaceId);
     const tpl = await this.templateOrThrow(workspaceId, templateId);
     await this.assertPrincipalOfWorkspace(workspaceId, dto);
-    await this.access.grant({
-      resourceType: 'doc_template',
-      resourceId: tpl.id,
-      relation: 'requester',
-      subjectType: dto.principalType,
-      subjectId: dto.principalId,
-      // БЕЗ отношения грант отделу, должности и филиалу не совпадает НИ С КЕМ:
-      // `principalsOf` отдаёт принципалы вида `department:<id>#member`, а не голый id.
-      // Пока его здесь не было, «выдать шаблон отделу» тихо не работало вовсе.
-      subjectRelation: principalSubjectRelation(dto.principalType),
+    const had = await this.templateGranted(tpl.id, dto.principalType, dto.principalId);
+    // Грант и событие журнала безопасности («кто кому открыл шаблон») — одной транзакцией
+    await this.db.$transaction(async (tx) => {
+      await this.access.grant(
+        {
+          resourceType: 'doc_template',
+          resourceId: tpl.id,
+          relation: 'requester',
+          subjectType: dto.principalType,
+          subjectId: dto.principalId,
+          // БЕЗ отношения грант отделу, должности и филиалу не совпадает НИ С КЕМ:
+          // `principalsOf` отдаёт принципалы вида `department:<id>#member`, а не голый id.
+          // Пока его здесь не было, «выдать шаблон отделу» тихо не работало вовсе.
+          subjectRelation: principalSubjectRelation(dto.principalType),
+        },
+        tx,
+      );
+      if (had) return;
+      await this.audit.record(tx, {
+        key: 'sharing.access.granted',
+        workspaceId,
+        subjectUserId: dto.principalType === 'user' ? dto.principalId : null,
+        target: { type: 'doc_template', id: tpl.id, label: tpl.name },
+        details: { resource: 'doc_template', access: 'use', previousAccess: 'none', principalType: dto.principalType, principalId: dto.principalId },
+      });
     });
+  }
+
+  /** Выдан ли шаблон принципалу (любой формой записи: с отношением и без — наследие старой ошибки) */
+  private async templateGranted(templateId: string, principalType: string, principalId: string): Promise<boolean> {
+    const row = await this.db.relationTuple.findFirst({
+      where: { resourceType: 'doc_template', resourceId: templateId, relation: 'requester', subjectType: principalType, subjectId: principalId },
+      select: { id: true },
+    });
+    return !!row;
   }
 
   async removeGrant(
@@ -650,22 +676,39 @@ export class DocumentsService {
     if (!DOC_GRANT_PRINCIPAL_TYPES.includes(principalType)) {
       throw badRequest('documents.unknownGrantPrincipal');
     }
-    await this.access.revoke({
-      resourceType: 'doc_template',
-      resourceId: tpl.id,
-      relation: 'requester',
-      subjectType: principalType,
-      subjectId: principalId,
-      subjectRelation: principalSubjectRelation(principalType),
-    });
-    // Хвост от старой ошибки: гранты, записанные без отношения, ничего не давали, но
-    // и не исчезали — снятие доступа обязано убирать обе формы записи.
-    await this.access.revoke({
-      resourceType: 'doc_template',
-      resourceId: tpl.id,
-      relation: 'requester',
-      subjectType: principalType,
-      subjectId: principalId,
+    const had = await this.templateGranted(tpl.id, principalType, principalId);
+    await this.db.$transaction(async (tx) => {
+      await this.access.revoke(
+        {
+          resourceType: 'doc_template',
+          resourceId: tpl.id,
+          relation: 'requester',
+          subjectType: principalType,
+          subjectId: principalId,
+          subjectRelation: principalSubjectRelation(principalType),
+        },
+        tx,
+      );
+      // Хвост от старой ошибки: гранты, записанные без отношения, ничего не давали, но
+      // и не исчезали — снятие доступа обязано убирать обе формы записи.
+      await this.access.revoke(
+        {
+          resourceType: 'doc_template',
+          resourceId: tpl.id,
+          relation: 'requester',
+          subjectType: principalType,
+          subjectId: principalId,
+        },
+        tx,
+      );
+      if (!had) return;
+      await this.audit.record(tx, {
+        key: 'sharing.access.revoked',
+        workspaceId,
+        subjectUserId: principalType === 'user' ? principalId : null,
+        target: { type: 'doc_template', id: tpl.id, label: tpl.name },
+        details: { resource: 'doc_template', principalType, principalId },
+      });
     });
   }
 

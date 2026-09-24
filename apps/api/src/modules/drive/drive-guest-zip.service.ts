@@ -39,7 +39,12 @@ export class DriveGuestZipService {
     private readonly files: FilesService,
   ) {}
 
-  async stream(target: NodeRow, res: Response): Promise<void> {
+  /**
+   * `beforeSend(files)` — после проверок и ДО первого байта: вынос папки наружу пишется в
+   * журнал безопасности заранее (fail-closed — без следа выгрузки нет), а пустую или
+   * слишком большую папку журнал не видит: выгрузки не случилось.
+   */
+  async stream(target: NodeRow, res: Response, beforeSend?: (files: number) => Promise<void>): Promise<void> {
     const { entries, totalBytes } = await this.collect(target);
     if (!entries.length) {
       throw new ApiError(HttpStatus.GONE, {
@@ -59,6 +64,8 @@ export class DriveGuestZipService {
         },
       });
     }
+
+    if (beforeSend) await beforeSend(entries.length);
 
     const zip = new yazl.ZipFile();
     // Длину не знаем заранее (сжатие идёт на лету) — отдаём chunked. Браузер покажет

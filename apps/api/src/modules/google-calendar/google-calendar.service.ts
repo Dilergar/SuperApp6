@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConsentsService } from '../../core/consents/consents.service';
 import { ConsentsRevokeRegistry } from '../../core/consents/consents.registry';
 import { ConsentsActionsService } from '../../core/consents/consents.actions.service';
+import { AuditService } from '../../core/audit/audit.service';
 import { CONSENT_ERROR_CODES } from '@superapp/shared';
 import { badRequest, notFound } from '../../shared/errors/api-error';
 import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
@@ -65,6 +66,7 @@ export class GoogleCalendarService implements OnModuleInit {
     private consents: ConsentsService,
     private consentHooks: ConsentsRevokeRegistry,
     private pdActions: ConsentsActionsService,
+    private audit: AuditService,
   ) {}
 
   /** Токены Google — envelope core/keys (KEK человека); строки прошлой эпохи (открытый текст) перешивает legacy-джоб. */
@@ -72,13 +74,20 @@ export class GoogleCalendarService implements OnModuleInit {
     // Согласие `integration_google` отозвано (в т.ч. удалением аккаунта) → подключение гаснет в той же
     // транзакции: без хука отзыв оставлял бы синхронизацию работать (правило «на всех путях»)
     this.consentHooks.register('integration_google', {
-      onRevoked: async (tx, subject) => {
+      onRevoked: async (tx, subject, reason) => {
         if (subject.type !== 'user') return;
         // В транзакции — только база; отзыв токена у Google — ПОСЛЕ коммита (сетевой вызов держал бы
         // транзакцию отзыва открытой до чужого таймаута). Строка читается ДО удаления: токены нужны отзыву.
         const conn = await tx.googleConnection.findUnique({ where: { userId: subject.id } });
         if (!conn) return;
         await tx.googleConnection.deleteMany({ where: { userId: subject.id } });
+        // Журнал безопасности: доступ внешнего приложения закрыт — и почему
+        await this.audit.record(tx, {
+          key: 'account.integration.disconnected',
+          subjectUserId: subject.id,
+          target: { type: 'integration', id: 'google_calendar' },
+          details: { provider: 'google_calendar', reason: reason === 'not_me' ? 'not_me' : reason === 'account_deleted' ? 'account_deleted' : 'self' },
+        });
         return () => this.revokeAtGoogle(conn);
       },
     });
@@ -177,22 +186,37 @@ export class GoogleCalendarService implements OnModuleInit {
     // Токены — envelope core/keys ДО записи; в БД открытого текста больше не бывает
     const accessEnc = tokens.access_token ? await this.encryptToken(userId, 'access_token', tokens.access_token) : null;
     const refreshEnc = tokens.refresh_token ? await this.encryptToken(userId, 'refresh_token', tokens.refresh_token) : null;
-    const conn = await this.db.googleConnection.upsert({
-      where: { userId },
-      create: {
-        userId,
-        googleEmail: email,
-        accessToken: accessEnc ?? '',
-        refreshToken: refreshEnc ?? '',
-        tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      },
-      update: {
-        googleEmail: email,
-        accessToken: accessEnc ?? existing?.accessToken ?? '',
-        // Google omits refresh_token on re-consent sometimes; keep the old one then.
-        refreshToken: refreshEnc ?? existing?.refreshToken ?? '',
-        tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      },
+    // Подключение и событие журнала — одной транзакцией; повторное согласие (токены обновились) —
+    // не новое подключение, события нет
+    const conn = await this.db.$transaction(async (tx) => {
+      const row = await tx.googleConnection.upsert({
+        where: { userId },
+        create: {
+          userId,
+          googleEmail: email,
+          accessToken: accessEnc ?? '',
+          refreshToken: refreshEnc ?? '',
+          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        },
+        update: {
+          googleEmail: email,
+          accessToken: accessEnc ?? existing?.accessToken ?? '',
+          // Google omits refresh_token on re-consent sometimes; keep the old one then.
+          refreshToken: refreshEnc ?? existing?.refreshToken ?? '',
+          tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        },
+      });
+      if (!existing) {
+        // Колбэк OAuth — редирект Google без сессии: человек — из подписанного `state`
+        await this.audit.record(tx, {
+          key: 'account.integration.connected',
+          actor: { kind: 'user', id: userId },
+          subjectUserId: userId,
+          target: { type: 'integration', id: 'google_calendar' },
+          details: { provider: 'google_calendar' },
+        });
+      }
+      return row;
     });
 
     try {
@@ -254,7 +278,15 @@ export class GoogleCalendarService implements OnModuleInit {
   async disconnect(userId: string): Promise<void> {
     await this.revokeAtGoogle(await this.db.googleConnection.findUnique({ where: { userId } }));
     const out = await this.db.$transaction(async (tx) => {
-      await tx.googleConnection.deleteMany({ where: { userId } });
+      const gone = await tx.googleConnection.deleteMany({ where: { userId } });
+      if (gone.count) {
+        await this.audit.record(tx, {
+          key: 'account.integration.disconnected',
+          subjectUserId: userId,
+          target: { type: 'integration', id: 'google_calendar' },
+          details: { provider: 'google_calendar', reason: 'self' },
+        });
+      }
       return this.consents.revoke(tx, { subject: { type: 'user', id: userId }, documentKey: 'integration_google', actorUserId: userId, reason: 'integration_disconnected', system: true });
     });
     await out.afterCommit();

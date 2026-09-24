@@ -31,13 +31,5 @@ export function formatPhone(phone: string): string {
   return normalized;
 }
 
-/**
- * Mask phone for privacy: +7 (***) ***-**-45
- */
-export function maskPhone(phone: string): string {
-  const normalized = normalizePhone(phone);
-  if (normalized.length >= 4) {
-    return normalized.slice(0, -4).replace(/\d/g, '*') + normalized.slice(-4);
-  }
-  return normalized;
-}
+// Маска номера — ОДНА на платформу: `maskPhone` из `visibility/masks.ts` (core/visibility,
+// решение грилла №5: `+7 70* *** *5 67`). Вторая маска здесь складывалась бы с ней в оригинал.

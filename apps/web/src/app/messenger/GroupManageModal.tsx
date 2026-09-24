@@ -9,6 +9,7 @@ import { PersonAvatar } from './messenger-ui';
 import { useContacts } from './ContactPicker';
 import { EntitySelector } from '@/components/EntitySelector';
 import { loadEntities, type EntityOption, type Principal } from '@/lib/entities';
+import { guardedDisplay } from '@superapp/shared';
 
 /** Роль в группе называет СМЫСЛ; слово даёт каталог. */
 const CHAT_ROLE_LABEL_KEYS: Record<ChatMemberRole, string> = {
@@ -73,8 +74,8 @@ export function GroupManageModal({
       .filter((c) => !existingSet.has(c.them.id))
       .map((c) => ({
         type: 'user', id: c.them.id,
-        title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(),
-        firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole,
+        title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(),
+        firstName: c.them.firstName, lastName: guardedDisplay(c.them.lastName), role: c.myRole,
       })),
     ...groups,
   ];

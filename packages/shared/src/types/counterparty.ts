@@ -1,4 +1,5 @@
 import type { CounterpartyKind, SignBasisKind, SignBasisParts } from '../constants/counterparties';
+import type { Guarded } from '../visibility/types';
 
 // ============================================================
 // Сервис «Контрагенты» — DTO. Каждый тип стоит на ОБЕИХ сторонах провода
@@ -26,16 +27,20 @@ export interface CounterpartyContactDto {
   counterpartyId: string;
   name: string;
   position: string | null;
-  /** Нормализованный номер: канал SMS-доставки ссылки и мягкая сверка личности ПЭП */
-  phone: string | null;
-  email: string | null;
+  /**
+   * Нормализованный номер: канал SMS-доставки ссылки и мягкая сверка личности ПЭП. Кто видит —
+   * правила организации (core/visibility, `counterparty.contactPhone`): стажёру и сотруднику — маской
+   */
+  phone: Guarded<string | null>;
+  email: Guarded<string | null>;
   createdAt: string;
 }
 
 /** Банковский счёт контрагента — реквизит для будущих счетов на оплату */
 export interface CounterpartyBankAccountDto {
   id: string;
-  iban: string;
+  /** Конфиденциально (`counterparty.iban`): по умолчанию стажёру и сотруднику — последние четыре */
+  iban: Guarded<string>;
   bankName: string;
   bik: string;
   isPrimary: boolean;
@@ -74,8 +79,9 @@ export interface CounterpartyDto {
   signBasis: string | null;
   /** Она же полями формы — так она и хранится */
   signBasisParts: SignBasisParts | null;
-  phone: string | null;
-  email: string | null;
+  /** Контакты организации-контрагента — правила организации (`counterparty.phone|email`) */
+  phone: Guarded<string | null>;
+  email: Guarded<string | null>;
   comment: string | null;
   createdById: string;
   archivedAt: string | null;

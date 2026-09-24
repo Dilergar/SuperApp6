@@ -16,6 +16,7 @@ import { AuditDigestService } from './audit.digests';
 import { AuditArchiveService } from './audit.archive';
 import { AuditDetections } from './audit.detections';
 import { AuditCron } from './audit.cron';
+import { AuditSettingsCheck } from './audit.settings';
 
 const seedBody = z
   .object({
@@ -24,9 +25,12 @@ const seedBody = z
     workspaceId: z.string().uuid().optional(),
     daysAgo: z.number().int().min(0).max(4000),
     details: z.record(z.unknown()).optional(),
+    /** Системное событие по поручению человека (проекция актора «Система · инициатор») */
+    onBehalfOfId: z.string().uuid().optional(),
   })
   .strict();
 const probeBody = z.object({ rollback: z.boolean() }).strict();
+const settingsCheckBody = z.object({ archiveEnabled: z.boolean().optional() }).strict();
 const unlockBody = z.object({ userId: z.string().uuid() }).strict();
 const verifyBody = z.object({ from: z.string().datetime({ offset: true }), to: z.string().datetime({ offset: true }) }).strict();
 const detectSeedBody = z
@@ -59,6 +63,7 @@ export class AuditDevController {
     private readonly archive: AuditArchiveService,
     private readonly detections: AuditDetections,
     private readonly cron: AuditCron,
+    private readonly settings: AuditSettingsCheck,
   ) {}
 
   private assertDev(): void {
@@ -166,6 +171,27 @@ export class AuditDevController {
     return { success: true, data: { ...r, alert } };
   }
 
+  /**
+   * Сверка настроек журнала сейчас (как на старте). `archiveEnabled` — подменить одну
+   * настройку на время сверки (проверка «смена записывается»): окружение процесса
+   * возвращается сразу после, и следующий вызов записывает возврат.
+   */
+  @Post('settings/check')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Compare security log settings with the journal now' })
+  async settingsCheck(@Body() body: unknown) {
+    this.assertDev();
+    const input = settingsCheckBody.parse(body ?? {});
+    const saved = process.env.AUDIT_ARCHIVE_ENABLED;
+    if (input.archiveEnabled !== undefined) process.env.AUDIT_ARCHIVE_ENABLED = input.archiveEnabled ? 'true' : 'false';
+    try {
+      return { success: true, data: { written: await this.settings.check() } };
+    } finally {
+      if (saved === undefined) delete process.env.AUDIT_ARCHIVE_ENABLED;
+      else process.env.AUDIT_ARCHIVE_ENABLED = saved;
+    }
+  }
+
   /** Чистка закрытых тревог старше срока сейчас (ночной крон). */
   @Post('alerts/purge')
   @HttpCode(HttpStatus.OK)
@@ -195,6 +221,7 @@ export class AuditDevController {
         severity: AUDIT_SEVERITY_CODE[def.severity],
         outcome: 0,
         actorKind: 3,
+        onBehalfOfId: input.onBehalfOfId ?? null,
         subjectUserId: subject,
         workspaceId: input.workspaceId ?? null,
         visSubject: def.visibility.subject,

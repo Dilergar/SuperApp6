@@ -1,8 +1,8 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import { Chip, Divider, Icon } from '@/components/ui';
-import type { Workspace } from '@superapp/shared';
+import { Chip, Divider, GuardedValue, Icon } from '@/components/ui';
+import { guardedDisplay, isHidden, visibleOr, type Guarded, type Workspace } from '@superapp/shared';
 
 // Имя ступени пропуска — из каталога (`common.role.workspace.<role>`): реестр
 // `WORKSPACE_ROLES` несёт права, а не слова.
@@ -64,7 +64,8 @@ export function CompanyCard({
   ) : null;
 
   if (compact) {
-    const meta = [ws.industry, ws.city].filter(Boolean) as string[];
+    const meta = [guardedDisplay(ws.industry), guardedDisplay(ws.city)].filter(Boolean) as string[];
+    const members = visibleOr(ws.membersCount, null);
     return (
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-2)' }}>
@@ -72,7 +73,7 @@ export function CompanyCard({
           <span style={{ minWidth: 0 }}>
             <span className="title-sm" style={{ display: 'block' }}>{ws.name}</span>
             <span className="label-sm">
-              {meta.length > 0 ? `${meta.join(' · ')} · ` : ''}{t('card.membersShort', { n: ws.membersCount })}
+              {[...meta, ...(members !== null ? [t('card.membersShort', { n: members })] : [])].join(' · ')}
             </span>
           </span>
         </div>
@@ -81,15 +82,16 @@ export function CompanyCard({
     );
   }
 
-  const fields: [string, string][] = (
+  // Скрытое правилами поле не рисуется вовсе; маска (контакт) — символами маски
+  const fields: [string, Guarded<string | null>][] = (
     [
       [t('card.industry'), ws.industry],
       [t('card.city'), ws.city],
       [t('card.website'), ws.website],
       [t('card.email'), ws.contactEmail],
       [t('card.phone'), ws.contactPhone],
-    ] as [string, string | null][]
-  ).filter((f): f is [string, string] => !!f[1]);
+    ] as [string, Guarded<string | null>][]
+  ).filter((f) => !isHidden(f[1]) && f[1] !== null && f[1] !== '');
 
   return (
     <div
@@ -110,8 +112,8 @@ export function CompanyCard({
         </div>
       </div>
 
-      {ws.description && (
-        <p className="body-md" style={{ margin: 'var(--spacing-4) 0 0' }}>{ws.description}</p>
+      {visibleOr(ws.description, null) && (
+        <p className="body-md" style={{ margin: 'var(--spacing-4) 0 0' }}>{visibleOr(ws.description, null)}</p>
       )}
 
       {(fields.length > 0 || showMembers) && (
@@ -121,13 +123,13 @@ export function CompanyCard({
             {fields.map(([label, value]) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
                 <span className="label-caps">{label}</span>
-                <span className="body-sm" style={{ textAlign: 'right' }}>{value}</span>
+                <span className="body-sm" style={{ textAlign: 'right' }}><GuardedValue value={value} /></span>
               </div>
             ))}
             {showMembers && (
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--spacing-3)' }}>
                 <span className="label-caps">{t('card.members')}</span>
-                <span className="body-sm">{ws.membersCount}</span>
+                <span className="body-sm"><GuardedValue value={ws.membersCount} placeholder /></span>
               </div>
             )}
           </div>

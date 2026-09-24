@@ -19,6 +19,7 @@ import { Button, Card, CardHeader, Chip, EmptyState, Input, Modal, useConfirm } 
 import { apiGet, apiPost } from '@/lib/api';
 import { legalEntitiesKey, workspaceRequisitesKey } from '@/lib/queries';
 import { RequisitesEditor } from './RequisitesSection';
+import { RevealScope } from '@/components/visibility/RevealButton';
 
 import { toastApiError } from '@/lib/api-errors';
 export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: string; span?: number }) {
@@ -227,25 +228,27 @@ export function LegalEntitiesSection({ workspaceId, span = 12 }: { workspaceId: 
       </Card>
 
       {selected && (
-        <RequisitesEditor
-          key={selected.id}
-          workspaceId={workspaceId}
-          initial={selected}
-          span={span}
-          basePath={`/workspaces/${workspaceId}/legal-entities/${selected.id}`}
-          invalidateKeys={invalidateKeys}
-          title={t('requisites.forEntity', { name: selected.name })}
-          subtitle={t('requisites.entitySubtitle')}
-          nameField={
-            selected.isHead
-              ? undefined
-              : {
-                  value: names[selected.id] ?? selected.name,
-                  onChange: (v) => setNames((prev) => ({ ...prev, [selected.id]: v })),
-                }
-          }
-          headerExtra={selected.isHead ? <Chip tone="success">{t('legalEntities.head')}</Chip> : undefined}
-        />
+        <RevealScope>
+          <RequisitesEditor
+            key={selected.id}
+            workspaceId={workspaceId}
+            initial={selected}
+            span={span}
+            basePath={`/workspaces/${workspaceId}/legal-entities/${selected.id}`}
+            invalidateKeys={invalidateKeys}
+            title={t('requisites.forEntity', { name: selected.name })}
+            subtitle={t('requisites.entitySubtitle')}
+            nameField={
+              selected.isHead
+                ? undefined
+                : {
+                    value: names[selected.id] ?? selected.name,
+                    onChange: (v) => setNames((prev) => ({ ...prev, [selected.id]: v })),
+                  }
+            }
+            headerExtra={selected.isHead ? <Chip tone="success">{t('legalEntities.head')}</Chip> : undefined}
+          />
+        </RevealScope>
       )}
 
       <Modal open={creating} onClose={() => setCreating(false)} title={t('legalEntities.newTitle')}>

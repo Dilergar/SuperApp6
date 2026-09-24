@@ -31,6 +31,7 @@ import { ChatterService, type ChatterTrackSpec } from '../../core/chatter/chatte
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { fullNameOrNull } from '../../shared/utils/user-name';
+import { VisibilityService, markShaped, type ShapeInput, type ShapedValues } from '../../core/visibility/visibility.service';
 
 
 const WS_CONTEXT = 'workspace';
@@ -45,6 +46,8 @@ const WS_CONTEXT = 'workspace';
  * изолирован), запись — Менеджер+. В core/access тип НЕ заводится намеренно —
  * пообъектных грантов у справочника нет, а кэшируемый check() по нему не зовётся.
  */
+type AccountRow = { id: string; iban: string; bankName: string; bik: string; isPrimary: boolean; createdAt: Date };
+
 @Injectable()
 export class CounterpartiesService {
   constructor(
@@ -52,6 +55,7 @@ export class CounterpartiesService {
     private readonly roles: RolesService,
     private readonly chatter: ChatterService,
     private readonly i18n: I18nService,
+    private readonly visibility: VisibilityService,
   ) {}
 
   /**
@@ -171,7 +175,10 @@ export class CounterpartiesService {
     const page = rows.slice(0, q.limit);
     const counts = await this.documentCounts(page.map((r) => r.id));
     return {
-      items: page.map((r) => this.serialize(r, r.contacts, r.bankAccounts, counts.get(r.id) ?? 0)),
+      items: await this.serializeMany(
+        workspaceId,
+        page.map((r) => ({ row: r, contacts: r.contacts, accounts: r.bankAccounts, documentsCount: counts.get(r.id) ?? 0 })),
+      ),
       nextCursor: rows.length > q.limit ? `${page[page.length - 1].name}|${page[page.length - 1].id}` : null,
     };
   }
@@ -202,11 +209,12 @@ export class CounterpartiesService {
       }),
       this.documentCounts([row.id]),
     ]);
-    return this.serialize(row, contacts, accounts, counts.get(row.id) ?? 0);
+    return (await this.serializeMany(workspaceId, [{ row, contacts, accounts, documentsCount: counts.get(row.id) ?? 0 }]))[0]!;
   }
 
   async create(userId: string, workspaceId: string, dto: CreateCounterpartyInput): Promise<CounterpartyDto> {
     await this.requireManager(userId, workspaceId);
+    await this.assertWritable(workspaceId, workspaceId, { phone: dto.phone, email: dto.email });
     // Лимит ДО создания (правило платформы): считаем живых
     const count = await this.db.counterparty.count({ where: { workspaceId, archivedAt: null } });
     if (count >= COUNTERPARTY_LIMITS.maxPerWorkspace) {
@@ -264,6 +272,7 @@ export class CounterpartiesService {
   ): Promise<CounterpartyDto> {
     await this.requireManager(userId, workspaceId);
     const before = await this.rowOrThrow(workspaceId, counterpartyId);
+    await this.assertWritable(workspaceId, before.id, { phone: dto.phone, email: dto.email });
     try {
       await this.db.$transaction(async (tx) => {
         const after = await tx.counterparty.update({
@@ -401,6 +410,7 @@ export class CounterpartiesService {
   ): Promise<CounterpartyContactDto> {
     await this.requireManager(userId, workspaceId);
     const parent = await this.rowOrThrow(workspaceId, counterpartyId);
+    await this.assertWritable(workspaceId, parent.id, { contactPhone: dto.phone, contactEmail: dto.email });
     const count = await this.db.counterpartyContact.count({
       where: { counterpartyId: parent.id, archivedAt: null },
     });
@@ -429,7 +439,7 @@ export class CounterpartiesService {
       });
       return row;
     });
-    return this.serializeContact(created);
+    return this.contactFor(workspaceId, created);
   }
 
   async updateContact(
@@ -441,6 +451,7 @@ export class CounterpartiesService {
   ): Promise<CounterpartyContactDto> {
     await this.requireManager(userId, workspaceId);
     const contact = await this.contactOrThrow(workspaceId, counterpartyId, contactId);
+    await this.assertWritable(workspaceId, contact.id, { contactPhone: dto.phone, contactEmail: dto.email });
     const row = await this.db.counterpartyContact.update({
       where: { id: contact.id },
       data: {
@@ -450,7 +461,7 @@ export class CounterpartiesService {
         ...(dto.email !== undefined ? { email: dto.email } : {}),
       },
     });
-    return this.serializeContact(row);
+    return this.contactFor(workspaceId, row);
   }
 
   /**
@@ -495,6 +506,7 @@ export class CounterpartiesService {
   ): Promise<CounterpartyBankAccountDto> {
     await this.requireManager(userId, workspaceId);
     const parent = await this.rowOrThrow(workspaceId, counterpartyId);
+    await this.assertWritable(workspaceId, parent.id, { iban: dto.iban });
     const count = await this.db.counterpartyBankAccount.count({ where: { counterpartyId: parent.id } });
     if (count >= COUNTERPARTY_LIMITS.maxBankAccountsPerCounterparty) {
       throw badRequest('counterparties.tooManyAccounts');
@@ -520,7 +532,7 @@ export class CounterpartiesService {
         },
       });
     });
-    return this.serializeAccount(row);
+    return this.accountFor(workspaceId, row);
   }
 
   async setPrimaryBankAccount(
@@ -671,10 +683,59 @@ export class CounterpartiesService {
     return { id: row.id, kind: row.kind as CounterpartyKind, name: row.name, bin: row.bin };
   }
 
+  /**
+   * Нельзя записать то, чего не видишь (W, core/visibility): контакты и IBAN — поля типа
+   * `counterparty`; маска в теле — 400, скрытое правилами — 403 с кодом.
+   */
+  private async assertWritable(workspaceId: string, recordId: string, patch: Record<string, unknown>): Promise<void> {
+    await this.visibility.assertWritable(this.visibility.viewer('api', { workspaceId }), 'counterparty', { recordId, subjectId: null, workspaceId }, patch);
+  }
+
+  /**
+   * Контрагенты ГЛАЗАМИ ЗРИТЕЛЯ (core/visibility, `counterparty`): телефон, e-mail, контакты
+   * лиц и IBAN — правила организации (по умолчанию стажёру и сотруднику — маской). Реквизиты
+   * для договора — пол записи. Одна проекция на страницу: записи, их контакты и счета.
+   */
+  private async serializeMany(
+    workspaceId: string,
+    items: Array<{ row: Counterparty; contacts: CounterpartyContact[]; accounts: AccountRow[]; documentsCount: number }>,
+  ): Promise<CounterpartyDto[]> {
+    const inputs: ShapeInput[] = [];
+    const ref = (recordId: string) => ({ recordId, subjectId: null, workspaceId });
+    for (const it of items) {
+      inputs.push({ ref: ref(it.row.id), values: { phone: it.row.phone, email: it.row.email } });
+      for (const c of it.contacts) inputs.push({ ref: ref(c.id), values: { contactPhone: c.phone, contactEmail: c.email } });
+      for (const a of it.accounts) inputs.push({ ref: ref(a.id), values: { iban: a.iban } });
+    }
+    const shaped = await this.visibility.shape(this.visibility.viewer('api', { workspaceId }), 'counterparty', inputs);
+    let k = 0;
+    return items.map((it) => {
+      const own = shaped[k++]!;
+      const contacts = it.contacts.map((c) => this.serializeContact(c, shaped[k++]!));
+      const accounts = it.accounts.map((a) => this.serializeAccount(a, shaped[k++]!));
+      return markShaped(this.serialize(it.row, own, contacts, accounts, it.documentsCount));
+    });
+  }
+
+  private async contactFor(workspaceId: string, row: CounterpartyContact): Promise<CounterpartyContactDto> {
+    const [v] = await this.visibility.shape(this.visibility.viewer('api', { workspaceId }), 'counterparty', [
+      { ref: { recordId: row.id, subjectId: null, workspaceId }, values: { contactPhone: row.phone, contactEmail: row.email } },
+    ]);
+    return this.serializeContact(row, v!);
+  }
+
+  private async accountFor(workspaceId: string, row: AccountRow): Promise<CounterpartyBankAccountDto> {
+    const [v] = await this.visibility.shape(this.visibility.viewer('api', { workspaceId }), 'counterparty', [
+      { ref: { recordId: row.id, subjectId: null, workspaceId }, values: { iban: row.iban } },
+    ]);
+    return this.serializeAccount(row, v!);
+  }
+
   private serialize(
     row: Counterparty,
-    contacts: CounterpartyContact[],
-    accounts: { id: string; iban: string; bankName: string; bik: string; isPrimary: boolean; createdAt: Date }[],
+    v: ShapedValues,
+    contacts: CounterpartyContactDto[],
+    accounts: CounterpartyBankAccountDto[],
     documentsCount: number,
   ): CounterpartyDto {
     return {
@@ -697,42 +758,35 @@ export class CounterpartiesService {
       // Фраза для экрана — в языке зрителя; хранится структура
       signBasis: this.signBasisText(row),
       signBasisParts: signBasisPartsOf(row),
-      phone: row.phone,
-      email: row.email,
+      phone: v.phone as CounterpartyDto['phone'],
+      email: v.email as CounterpartyDto['email'],
       comment: row.comment,
       createdById: row.createdById,
       archivedAt: row.archivedAt?.toISOString() ?? null,
       documentsCount,
-      contacts: contacts.map((c) => this.serializeContact(c)),
-      bankAccounts: accounts.map((a) => this.serializeAccount(a)),
+      contacts,
+      bankAccounts: accounts,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
     };
   }
 
-  private serializeContact(row: CounterpartyContact): CounterpartyContactDto {
-    return {
+  private serializeContact(row: CounterpartyContact, v: ShapedValues): CounterpartyContactDto {
+    return markShaped({
       id: row.id,
       counterpartyId: row.counterpartyId,
       name: row.name,
       position: row.position,
-      phone: row.phone,
-      email: row.email,
+      phone: v.contactPhone as CounterpartyContactDto['phone'],
+      email: v.contactEmail as CounterpartyContactDto['email'],
       createdAt: row.createdAt.toISOString(),
-    };
+    });
   }
 
-  private serializeAccount(row: {
-    id: string;
-    iban: string;
-    bankName: string;
-    bik: string;
-    isPrimary: boolean;
-    createdAt: Date;
-  }): CounterpartyBankAccountDto {
+  private serializeAccount(row: AccountRow, v: ShapedValues): CounterpartyBankAccountDto {
     return {
       id: row.id,
-      iban: row.iban,
+      iban: v.iban as CounterpartyBankAccountDto['iban'],
       bankName: row.bankName,
       bik: row.bik,
       isPrimary: row.isPrimary,

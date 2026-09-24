@@ -10,5 +10,5 @@ import type { ReactNode } from 'react';
 import { ServiceMessages } from '@/i18n/ServiceMessages';
 
 export default function WorkspaceMembersLayout({ children }: { children: ReactNode }) {
-  return <ServiceMessages ns={['staff', 'hr', 'documents', 'entitlements', 'circles']}>{children}</ServiceMessages>;
+  return <ServiceMessages ns={['staff', 'hr', 'documents', 'entitlements', 'circles', 'visibility']}>{children}</ServiceMessages>;
 }

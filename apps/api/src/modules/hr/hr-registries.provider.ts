@@ -84,6 +84,16 @@ export class HrRegistriesProvider implements OnModuleInit {
         const rank = Math.max(0, ...roles.map((r) => WORKSPACE_ROLE_RANK[r.role as keyof typeof WORKSPACE_ROLE_RANK] ?? 0));
         return rank >= WORKSPACE_ROLE_RANK.manager;
       },
+      // «Оклад: было → стало» — поле `hr.employment.salaryAmount`: Менеджер без права на оклад
+      // видит в хронике «Скрыто», руководитель человека и сам — сумму (core/visibility)
+      visibility: {
+        recordType: 'hr.employment',
+        fieldMap: { salaryAmount: 'salaryAmount' },
+        refOf: ({ refId, workspaceId }) => {
+          const [ws, subjectUserId] = refId.split(':');
+          return { recordId: refId, subjectId: subjectUserId ?? null, workspaceId: workspaceId ?? ws ?? null };
+        },
+      },
     });
   }
 }

@@ -1,4 +1,4 @@
-import { normalizePhone } from '../utils/phone';
+import { maskIdLast4, maskPhone } from '../visibility/masks';
 
 // ============================================================
 // PII в кабинете платформы — скрыт по умолчанию, раскрытие командой с причиной
@@ -7,24 +7,14 @@ import { normalizePhone } from '../utils/phone';
 // чтобы человека можно было ОПОЗНАТЬ (последние цифры), но не выгрузить базу
 // поштучно через карточки (S10/S11).
 
-/** `+77001234567` → `+7 700 ••• 45 67` (последние четыре цифры видны). */
-export function maskPhoneForConsole(phone: string | null | undefined): string | null {
-  if (!phone) return null;
-  const n = normalizePhone(phone);
-  const digits = n.replace(/\D/g, '');
-  if (digits.length < 7) return '•••';
-  const last4 = digits.slice(-4);
-  const head = digits.length === 11 ? `+${digits[0]} ${digits.slice(1, 4)}` : `+${digits.slice(0, -8)}`;
-  return `${head} ••• ${last4.slice(0, 2)} ${last4.slice(2)}`;
-}
-
-/** ИИН/БИН (12 цифр) → `••••••••1234`; иные строки — по тому же правилу последних четырёх. */
-export function maskIdNumber(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const s = String(value).trim();
-  if (s.length <= 4) return '•'.repeat(s.length);
-  return `${'•'.repeat(s.length - 4)}${s.slice(-4)}`;
-}
+/**
+ * Маски Кабинета = маски продукта (R23): одна функция на вид данных на ВСЕХ поверхностях,
+ * иначе маска Кабинета и маска карточки складывались бы в оригинал. Имена оставлены для
+ * потребителей Кабинета (`EntityCard` и панели 360).
+ */
+export const maskPhoneForConsole = maskPhone;
+/** ИИН/БИН/номер документа → последние четыре (`id_last4`). */
+export const maskIdNumber = maskIdLast4;
 
 /** Имена полей входа команд, которые аудит маскирует автоматически (S7). */
 export const PLATFORM_REDACT_FIELD_PATTERN = /(password|token|secret|otp|code|pan|iban|cvv|cvc)/i;

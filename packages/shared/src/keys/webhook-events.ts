@@ -45,6 +45,8 @@ export const SECURITY_WEBHOOK_EVENTS = defineWebhookEvents({
   'security.data.recorded': { service: 'security', version: 1 },
   'security.consents.recorded': { service: 'security', version: 1 },
   'security.detect.recorded': { service: 'security', version: 1 },
+  'security.sharing.recorded': { service: 'security', version: 1 },
+  'security.files.recorded': { service: 'security', version: 1 },
 });
 
 const REGISTRY_RAW = {

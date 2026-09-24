@@ -30,6 +30,7 @@ import {
   type Circle,
   type FileDto,
 } from '@superapp/shared';
+import { guardedDisplay } from '@superapp/shared';
 
 const PRIORITY_CHIP_TONE = { low: 'neutral', medium: 'accent', high: 'warning', urgent: 'danger' } as const;
 
@@ -201,7 +202,7 @@ function TaskCreateForm({
           <EntitySelector
             types={['user']}
             multi={false}
-            options={contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+            options={contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(), firstName: c.them.firstName, lastName: guardedDisplay(c.them.lastName), role: c.myRole }))}
             value={executorId ? [{ type: 'user', id: executorId }] : []}
             onChange={(p) => setExecutorId(p[0]?.id ?? null)}
             placeholder={t('create.executorPlaceholder')}
@@ -211,7 +212,7 @@ function TaskCreateForm({
             <EntitySelector
               types={['user']}
               multi
-              options={contacts.filter((c) => c.them.id !== executorId).map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+              options={contacts.filter((c) => c.them.id !== executorId).map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(), firstName: c.them.firstName, lastName: guardedDisplay(c.them.lastName), role: c.myRole }))}
               value={coExecutorIds.map((id) => ({ type: 'user', id }))}
               onChange={(p) => setCoExecutorIds(p.map((x) => x.id))}
               placeholder={t('create.coExecutorsPlaceholder')}
@@ -248,7 +249,7 @@ function TaskCreateForm({
           <EntitySelector
             types={['user']}
             multi
-            options={contacts.filter((c) => c.them.id !== executorId && !coExecutorIds.includes(c.them.id)).map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+            options={contacts.filter((c) => c.them.id !== executorId && !coExecutorIds.includes(c.them.id)).map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(), firstName: c.them.firstName, lastName: guardedDisplay(c.them.lastName), role: c.myRole }))}
             value={observerIds.map((id) => ({ type: 'user', id }))}
             onChange={(p) => setObserverIds(p.map((x) => x.id))}
             placeholder={t('create.observersPlaceholder')}

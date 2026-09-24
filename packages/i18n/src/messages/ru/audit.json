@@ -134,6 +134,16 @@
       "settings_changed": {
         "title": "Настройки безопасности изменены",
         "body": "Неактивные сессии завершаются через {sessionMaxIdleDays} дн."
+      },
+      "integration": {
+        "connected": {
+          "title": "Подключён {provider, select, google_calendar {Google Календарь} other {внешний сервис}}",
+          "body": ""
+        },
+        "disconnected": {
+          "title": "Отключён {provider, select, google_calendar {Google Календарь} other {внешний сервис}}",
+          "body": "{reason, select, self {Отключено в настройках} not_me {Мастер «Это не я»} account_deleted {Аккаунт удалён} other {}}"
+        }
       }
     },
     "org": {
@@ -152,6 +162,10 @@
         },
         "left": {
           "title": "Выход из «{workspace}»",
+          "body": ""
+        },
+        "invitation_cancelled": {
+          "title": "Приглашение в «{workspace}» отозвано",
           "body": ""
         }
       },
@@ -179,6 +193,10 @@
         "purged": {
           "title": "«{workspace}» удалена навсегда",
           "body": ""
+        },
+        "created": {
+          "title": "«{workspace}» создана",
+          "body": ""
         }
       },
       "session": {
@@ -190,6 +208,20 @@
       "audit": {
         "stream_changed": {
           "title": "{enabled, select, true {Стрим журнала безопасности включён} other {Стрим журнала безопасности выключен}}",
+          "body": ""
+        }
+      },
+      "visibility": {
+        "policy_published": {
+          "title": "Опубликованы правила видимости: {recordTypeLabel}",
+          "body": "Версия {version}: виднее — {widened}, скрытнее — {narrowed}"
+        },
+        "explain_viewed": {
+          "title": "Проверено, что видит {target}: {recordTypeLabel}",
+          "body": ""
+        },
+        "settings_changed": {
+          "title": "Изменены настройки политики видимости",
           "body": ""
         }
       }
@@ -426,6 +458,14 @@
       "read": {
         "title": "Чтение персональных данных ограниченного доступа",
         "body": "{count, plural, one {# запись} few {# записи} many {# записей} other {# записи}}"
+      },
+      "reveal": {
+        "title": "Раскрыты защищённые данные",
+        "body": "{recordTypeLabel}: {fieldList}"
+      },
+      "reveal_denied": {
+        "title": "Отказ в раскрытии данных",
+        "body": "{recordTypeLabel}: {fieldList}"
       }
     },
     "pd": {
@@ -454,7 +494,7 @@
     },
     "data": {
       "export": {
-        "title": "{source, select, hr_zip {Выгрузка кадровых документов} documents_zip {Выгрузка документов} audit_org {Выгрузка журнала безопасности} audit_platform {Выгрузка журнала безопасности платформой} my_data {Выгрузка «Мои данные»} analytics_report {Выгрузка отчёта аналитики} other {Выгрузка данных}}",
+        "title": "{source, select, hr_zip {Выгрузка кадровых документов} audit_org {Выгрузка журнала безопасности} audit_platform {Выгрузка журнала безопасности платформой} my_data {Выгрузка «Мои данные»} drive_guest_zip {Папка скачана по публичной ссылке} other {Выгрузка данных}}",
         "body": "{rows, plural, one {# запись} few {# записи} many {# записей} other {# записи}}"
       }
     },
@@ -502,6 +542,22 @@
       "session_context_changed": {
         "title": "Сессия сменила контекст",
         "body": ""
+      },
+      "idor_probing": {
+        "title": "Перебор чужих объектов",
+        "body": "{events, plural, one {# отказ} few {# отказа} many {# отказов} other {# отказа}} за {windowMin} мин"
+      },
+      "malware_burst": {
+        "title": "Серия заражённых загрузок",
+        "body": "{events, plural, one {# заражённый файл} few {# заражённых файла} many {# заражённых файлов} other {# заражённого файла}} за {windowMin} мин"
+      },
+      "mass_reveal": {
+        "title": "Массовое раскрытие данных",
+        "body": "{events} раскрытий за {windowMin} мин"
+      },
+      "pii_scrape": {
+        "title": "Похоже на выгрузку данных перебором",
+        "body": "{events} чужих записей с контактами или личными полями прочитано целиком за {windowMin} мин"
       }
     },
     "audit": {
@@ -536,12 +592,58 @@
       "settings": {
         "changed": {
           "title": "Изменены настройки журнала безопасности",
-          "body": ""
+          "body": "{setting, select, digest_interval_min {Интервал дайджестов, мин} retention_years {Срок хранения, лет} archive_enabled {Архив закрытых месяцев} trusted_country {Доверенный заголовок страны} other {{setting}}}: {to}"
         }
       },
       "lockout_summary": {
         "title": "Попытки входа во время блокировки",
         "body": "{attempts, plural, one {Отбита # попытка} few {Отбиты # попытки} many {Отбито # попыток} other {Отбито # попытки}}"
+      }
+    },
+    "sharing": {
+      "access": {
+        "granted": {
+          "title": "{previousAccess, select, none {Открыт доступ к «{target}»} other {Изменён доступ к «{target}»}}",
+          "body": "{principalType, select, user {Коллега} workspace {Вся команда} department {Отдел} position {Должность} branch {Объект} circle {Группа} other {Участник}} {access, select, viewer {смотрит} editor {правит} manager {управляет доступом} use {пользуется} other {доступ: {access}}}"
+        },
+        "revoked": {
+          "title": "Закрыт доступ к «{target}»",
+          "body": "{principalType, select, user {Коллега} workspace {Вся команда} department {Отдел} position {Должность} branch {Объект} circle {Группа} other {Участник}}"
+        }
+      },
+      "link": {
+        "created": {
+          "title": "Создана публичная ссылка на «{target}»",
+          "body": "{passcode, select, true {С паролем} other {Без пароля}} · {identity, select, true {с подтверждением номера} other {без подтверждения номера}} · {expires, select, true {со сроком действия} other {бессрочно}}"
+        },
+        "updated": {
+          "title": "Изменена публичная ссылка на «{target}»",
+          "body": ""
+        },
+        "revoked": {
+          "title": "Закрыта публичная ссылка на «{target}»",
+          "body": "{reason, select, manual {Закрыта вручную} mine_bulk {Закрыта вместе с другими ссылками автора} workspace_bulk {Закрыл админ организации} object_deleted {Открытый по ссылке объект удалён} other {}}"
+        },
+        "password_locked": {
+          "title": "Подбор пароля к публичной ссылке на «{target}»",
+          "body": "{attempts, plural, one {# неверная попытка} few {# неверные попытки} many {# неверных попыток} other {# неверной попытки}} подряд; ссылка заблокирована на {minutes} мин"
+        },
+        "guest_verified": {
+          "title": "Новый гость с подтверждённым номером открыл «{target}»",
+          "body": ""
+        }
+      }
+    },
+    "files": {
+      "malware_detected": {
+        "title": "Вирус в файле «{target}»",
+        "body": "Файл заблокирован: {signature}"
+      }
+    },
+    "authz": {
+      "denied": {
+        "title": "Отказ в доступе: {reason}",
+        "body": "{attempts, plural, one {# попытка} few {# попытки} many {# попыток} other {# попытки}}"
       }
     }
   },
@@ -557,7 +659,10 @@
     "consents": "Согласия",
     "data": "Выгрузки",
     "detect": "Детекции",
-    "audit": "Сам журнал"
+    "audit": "Сам журнал",
+    "sharing": "Доступы и публичные ссылки",
+    "files": "Файлы",
+    "authz": "Отказы в доступе"
   },
   "severities": {
     "info": "Информация",
@@ -622,11 +727,10 @@
   },
   "exportSources": {
     "hr_zip": "Кадровые документы",
-    "documents_zip": "Документы",
     "audit_org": "Журнал безопасности",
     "audit_platform": "Журнал безопасности (платформа)",
     "my_data": "Мои данные",
-    "analytics_report": "Отчёт аналитики"
+    "drive_guest_zip": "Папка по публичной ссылке"
   },
   "filters": {
     "person": {
@@ -636,7 +740,8 @@
       "credentials": "Пароль и номер",
       "orgs": "Организации",
       "keys": "Ключи и приложения",
-      "data": "Мои данные"
+      "data": "Мои данные",
+      "reveals": "Раскрытия"
     },
     "org": {
       "all": "Все",
@@ -644,7 +749,10 @@
       "devices": "Устройства",
       "keys": "Ключи и интеграции",
       "exports": "Выгрузки",
-      "consents": "Согласия"
+      "consents": "Согласия",
+      "sharing": "Доступы",
+      "files": "Файлы",
+      "reveals": "Раскрытия"
     }
   },
   "unknownWorkspace": "организация",
@@ -705,8 +813,10 @@
     "event": {
       "when": "Когда",
       "who": "Кто",
+      "initiator": "инициатор",
       "subject": "Чей аккаунт",
       "target": "Объект",
+      "openObject": "Открыть",
       "device": "Устройство",
       "where": "Где",
       "approx": "{place} (приблизительно)",

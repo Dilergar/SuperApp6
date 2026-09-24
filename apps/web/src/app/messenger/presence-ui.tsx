@@ -47,6 +47,9 @@ export function usePresenceLine(): (p: PresenceInfo | null | undefined) => strin
     if (p.contextual) return p.contextual.label;
     if (p.online) return t('presence.online');
     if (p.lastSeen) return t('presence.lastSeen', { when: lastSeen(p.lastSeen) });
+    // Человек не показывает этому зрителю точное время (его «Был в сети» или взаимность) —
+    // только корзина «недавно / на неделе / в месяце / давно» (core/visibility, time_bucket)
+    if (p.lastSeenBucket) return t(`guarded.presence.${p.lastSeenBucket}`);
     return null;
   };
 }

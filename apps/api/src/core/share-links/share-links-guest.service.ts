@@ -22,6 +22,7 @@ import { utcTs } from '../../shared/database/sql-time';
 import { VerifyService } from '../verify/verify.service';
 import { ShareLinksRegistry } from './share-links.registry';
 import { ShareLinksTokenService } from './share-links-token.service';
+import { AuditService } from '../audit/audit.service';
 
 /** Контекст запроса гостя — всё, что мы о нём знаем (и всё, что пишем в журнал) */
 export interface GuestRequestInfo {
@@ -82,6 +83,7 @@ export class ShareLinksGuestService {
     private readonly verify: VerifyService,
     private readonly i18n: I18nService,
     private readonly analytics: AnalyticsService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Шаг 1: жива ли ссылка, нужен ли пароль и предстоит ли подтверждение номера */
@@ -186,7 +188,21 @@ export class ShareLinksGuestService {
           update: { name: dto.guestName as string, lastVerifiedAt: new Date() },
         });
       }
+      // Новый подтверждённый гость ЭТОЙ ссылки — факт журнала безопасности (кто из внешних
+      // видел данные); повторные открытия — только журнал визитов ссылки
+      const firstVisit = g ? (await tx.shareLinkVisit.count({ where: { linkId: link.id, guestId: g.id } })) === 0 : false;
       const claimed = await this.claimOpen(tx, link, info, g?.id ?? null);
+      if (g && firstVisit) {
+        await this.audit.record(tx, {
+          key: 'sharing.link.guest_verified',
+          actor: { kind: 'guest', id: g.id },
+          subjectUserId: link.createdById,
+          workspaceId: link.workspaceId,
+          target: { type: link.refType, id: link.refId, label: link.refTitle },
+          ref: { type: 'share_link', id: link.id },
+          details: { resource: link.refType, guestId: g.id },
+        });
+      }
       return { open: claimed, guest: g };
     });
 
@@ -211,7 +227,7 @@ export class ShareLinksGuestService {
       sessionExpiresAt: session.expiresAt.toISOString(),
       linkExpiresAt: link.expiresAt ? link.expiresAt.toISOString() : null,
       refType: link.refType,
-      guest: guest ? { name: guest.name, phoneMasked: maskPhone(guest.phone) } : null,
+      guest: guest ? { name: guest.name, phoneMasked: maskPhone(guest.phone) ?? '' } : null,
       view: personalView,
     };
   }
@@ -359,7 +375,7 @@ export class ShareLinksGuestService {
       sessionExpiresAt: new Date(verdict.payload.x).toISOString(),
       linkExpiresAt: link.expiresAt ? link.expiresAt.toISOString() : null,
       refType: link.refType,
-      guest: guest ? { name: guest.name, phoneMasked: maskPhone(guest.phone) } : null,
+      guest: guest ? { name: guest.name, phoneMasked: maskPhone(guest.phone) ?? '' } : null,
       view,
     };
   }
@@ -442,12 +458,29 @@ export class ShareLinksGuestService {
       });
     }
 
-    await this.db.shareLink.update({
-      where: { id: link.id },
-      data: {
-        pwdFailedAttempts: 0,
-        pwdLockedUntil: new Date(Date.now() + SHARE_LINK_LIMITS.passwordLockMinutes * 60_000),
-      },
+    // Блок — один на залп: ставит его тот, кто застал счёт на пороге (переход по условию),
+    // параллельные неудачи получают уже стоящий блок. Событие журнала и уведомление автору
+    // ссылки («сменить пароль или закрыть ссылку») — в транзакции перехода.
+    await this.db.$transaction(async (tx) => {
+      const locked = await tx.shareLink.updateMany({
+        where: { id: link.id, pwdFailedAttempts: { gte: SHARE_LINK_LIMITS.passwordMaxAttempts } },
+        data: {
+          pwdFailedAttempts: 0,
+          pwdLockedUntil: new Date(Date.now() + SHARE_LINK_LIMITS.passwordLockMinutes * 60_000),
+        },
+      });
+      if (!locked.count) return;
+      await this.audit.record(tx, {
+        key: 'sharing.link.password_locked',
+        actor: { kind: 'anonymous' },
+        outcome: 'denied',
+        subjectUserId: link.createdById,
+        workspaceId: link.workspaceId,
+        target: { type: link.refType, id: link.refId, label: link.refTitle },
+        ref: { type: 'share_link', id: link.id },
+        details: { resource: link.refType, attempts: SHARE_LINK_LIMITS.passwordMaxAttempts, minutes: SHARE_LINK_LIMITS.passwordLockMinutes },
+        notify: { params: { target: link.refTitle ?? '' } },
+      });
     });
     deny(
       SHARE_LINK_ERROR_CODES.passwordLocked,

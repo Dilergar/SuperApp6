@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   NOTE_FOLDER_REF_TYPE,
   NOTE_REF_TYPE,
@@ -13,6 +14,7 @@ import {
   type NoteShareInput,
 } from '@superapp/shared';
 import { AudiencesService } from '../../core/audiences/audiences.service';
+import { AuditService } from '../../core/audit/audit.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest } from '../../shared/errors/api-error';
 import { fullName } from '../../shared/utils/user-name';
@@ -43,6 +45,7 @@ export class NotesShareService {
     private readonly contacts: ContactsService,
     private readonly notifications: NotificationsService,
     private readonly audiences: AudiencesService,
+    private readonly audit: AuditService,
   ) {}
 
   // ============================================================
@@ -116,14 +119,16 @@ export class NotesShareService {
   async shareNote(userId: string, noteId: string, input: NoteShareInput): Promise<NoteShareDto[]> {
     const { note, scope } = await this.notes.requireNote(userId, noteId, 'manager');
     await this.assertPrincipalAllowed(userId, scope, input);
-    const principal = await this.principalAudience(input.principalType, input.principalId);
+    const who = { type: input.principalType, id: input.principalId };
+    const [principal, previous] = await Promise.all([this.principalAudience(input.principalType, input.principalId), this.directRole(NOTE_REF_TYPE, noteId, who)]);
     await this.db.$transaction(async (tx) => {
-      await this.acl.grant(NOTE_REF_TYPE, noteId, input.role, { type: input.principalType, id: input.principalId }, tx);
+      await this.acl.grant(NOTE_REF_TYPE, noteId, input.role, who, tx);
       await this.notes.log(tx, scope, noteId, 'note.shared', {
         ...this.notes.logTitle(note),
         principalLabelAudience: principal,
         role: input.role,
       });
+      await this.auditGranted(tx, scope, NOTE_REF_TYPE, noteId, this.notes.displayTitle(note), who, input.role, previous);
     });
     await this.notifyRecipient(scope, userId, input, this.notes.logTitle(note, 'noteName'), noteUrl(scope.space, noteId));
     return this.listNoteShares(userId, noteId);
@@ -131,12 +136,14 @@ export class NotesShareService {
 
   async unshareNote(userId: string, noteId: string, principalType: string, principalId: string): Promise<NoteShareDto[]> {
     const { note, scope } = await this.notes.requireNote(userId, noteId, 'manager');
-    const principal = await this.principalAudience(principalType, principalId);
+    const who = { type: principalType, id: principalId };
+    const [principal, previous] = await Promise.all([this.principalAudience(principalType, principalId), this.directRole(NOTE_REF_TYPE, noteId, who)]);
     await this.db.$transaction(async (tx) => {
       for (const role of NOTE_ROLES) {
-        await this.acl.revoke(NOTE_REF_TYPE, noteId, role, { type: principalType, id: principalId }, tx);
+        await this.acl.revoke(NOTE_REF_TYPE, noteId, role, who, tx);
       }
       await this.notes.log(tx, scope, noteId, 'note.unshared', { ...this.notes.logTitle(note), principalLabelAudience: principal });
+      await this.auditRevoked(tx, scope, NOTE_REF_TYPE, noteId, this.notes.displayTitle(note), who, previous);
     });
     return this.listNoteShares(userId, noteId);
   }
@@ -145,9 +152,11 @@ export class NotesShareService {
     const scope = await this.scopeOfFolder(userId, folderId);
     const { folder } = await this.folders.requireFolder(scope, folderId, 'manager');
     await this.assertPrincipalAllowed(userId, scope, input);
-    const principal = await this.principalAudience(input.principalType, input.principalId);
+    const who = { type: input.principalType, id: input.principalId };
+    const [principal, previous] = await Promise.all([this.principalAudience(input.principalType, input.principalId), this.directRole(NOTE_FOLDER_REF_TYPE, folderId, who)]);
     await this.db.$transaction(async (tx) => {
-      await this.acl.grant(NOTE_FOLDER_REF_TYPE, folderId, input.role, { type: input.principalType, id: input.principalId }, tx);
+      await this.acl.grant(NOTE_FOLDER_REF_TYPE, folderId, input.role, who, tx);
+      await this.auditGranted(tx, scope, NOTE_FOLDER_REF_TYPE, folderId, folder.name, who, input.role, previous);
       // Открытая папка отдаёт доступ ко ВСЕМУ поддереву — это событие для хроники
       await this.folders.log(tx, scope, folderId, 'note.folder.shared', {
         targetName: folder.name,
@@ -163,11 +172,13 @@ export class NotesShareService {
   async unshareFolder(userId: string, folderId: string, principalType: string, principalId: string): Promise<NoteShareDto[]> {
     const scope = await this.scopeOfFolder(userId, folderId);
     const { folder } = await this.folders.requireFolder(scope, folderId, 'manager');
-    const principal = await this.principalAudience(principalType, principalId);
+    const who = { type: principalType, id: principalId };
+    const [principal, previous] = await Promise.all([this.principalAudience(principalType, principalId), this.directRole(NOTE_FOLDER_REF_TYPE, folderId, who)]);
     await this.db.$transaction(async (tx) => {
       for (const role of NOTE_ROLES) {
-        await this.acl.revoke(NOTE_FOLDER_REF_TYPE, folderId, role, { type: principalType, id: principalId }, tx);
+        await this.acl.revoke(NOTE_FOLDER_REF_TYPE, folderId, role, who, tx);
       }
+      await this.auditRevoked(tx, scope, NOTE_FOLDER_REF_TYPE, folderId, folder.name, who, previous);
       await this.folders.log(tx, scope, folderId, 'note.folder.unshared', { targetName: folder.name, principalLabelAudience: principal });
     });
     return this.listFolderShares(userId, folderId);
@@ -184,10 +195,67 @@ export class NotesShareService {
       } catch {
         continue; // упомянут человек вне окружения/организации — молча пропускаем
       }
-      await this.acl.grant(NOTE_REF_TYPE, noteId, 'viewer', { type: 'user', id: m.userId });
+      const who = { type: 'user', id: m.userId };
+      // Упомянутый заметку не видел — прямого гранта на ней у него нет
+      await this.db.$transaction(async (tx) => {
+        await this.acl.grant(NOTE_REF_TYPE, noteId, 'viewer', who, tx);
+        await this.auditGranted(tx, scope, NOTE_REF_TYPE, noteId, this.notes.displayTitle(note), who, 'viewer', null);
+      });
       await this.notifyRecipient(scope, userId, { principalType: 'user', principalId: m.userId, role: 'viewer' }, this.notes.logTitle(note, 'noteName'), noteUrl(scope.space, noteId));
     }
     return this.listNoteShares(userId, noteId);
+  }
+
+  // ============================================================
+  // Журнал безопасности: доступы к заметкам ОРГАНИЗАЦИИ (личные — только хроника)
+  // ============================================================
+
+  /** Роль, выданная принципалу прямо на заметке/папке (не унаследованная) — «было» для журнала */
+  private async directRole(refType: RefType, refId: string, who: { type: string; id: string }): Promise<NoteRole | null> {
+    const row = await this.db.relationTuple.findFirst({
+      where: { resourceType: refType, resourceId: refId, subjectType: who.type, subjectId: who.id, relation: { in: [...NOTE_ROLES] } },
+      select: { relation: true },
+    });
+    return (row?.relation as NoteRole | undefined) ?? null;
+  }
+
+  private async auditGranted(
+    tx: Prisma.TransactionClient,
+    scope: NoteScope,
+    refType: RefType,
+    refId: string,
+    label: string,
+    who: { type: string; id: string },
+    role: NoteRole,
+    previous: NoteRole | null,
+  ): Promise<void> {
+    if (scope.space.ownerType !== 'workspace' || previous === role) return;
+    await this.audit.record(tx, {
+      key: 'sharing.access.granted',
+      workspaceId: scope.space.ownerId,
+      subjectUserId: who.type === 'user' ? who.id : null,
+      target: { type: refType, id: refId, label },
+      details: { resource: refType === NOTE_REF_TYPE ? 'note' : 'note_folder', access: role, previousAccess: previous ?? 'none', principalType: who.type, principalId: who.id },
+    });
+  }
+
+  private async auditRevoked(
+    tx: Prisma.TransactionClient,
+    scope: NoteScope,
+    refType: RefType,
+    refId: string,
+    label: string,
+    who: { type: string; id: string },
+    previous: NoteRole | null,
+  ): Promise<void> {
+    if (scope.space.ownerType !== 'workspace' || !previous) return;
+    await this.audit.record(tx, {
+      key: 'sharing.access.revoked',
+      workspaceId: scope.space.ownerId,
+      subjectUserId: who.type === 'user' ? who.id : null,
+      target: { type: refType, id: refId, label },
+      details: { resource: refType === NOTE_REF_TYPE ? 'note' : 'note_folder', principalType: who.type, principalId: who.id },
+    });
   }
 
   /**

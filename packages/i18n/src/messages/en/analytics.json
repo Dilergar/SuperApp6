@@ -434,7 +434,8 @@
     "keys": "Keys and bots",
     "webhooks": "Webhooks",
     "consents": "Consents and documents",
-    "audit": "Security"
+    "audit": "Security",
+    "visibility": "Visibility rules"
   },
   "events": {
     "analytics": {
@@ -718,6 +719,32 @@
         "forgotten": {
           "title": "Device forgotten",
           "description": "A person removed a device from the trusted list and ended its sessions"
+        }
+      }
+    },
+    "visibility": {
+      "policy": {
+        "published": {
+          "title": "Visibility rules published",
+          "description": "An organization published a visibility policy version for a record type"
+        }
+      },
+      "reveal": {
+        "requested": {
+          "title": "Data reveal requested",
+          "description": "Someone asked to reveal masked fields of one record; outcome — ok or a refusal code"
+        }
+      },
+      "field": {
+        "hidden_seen": {
+          "title": "Hidden fields seen",
+          "description": "A viewer saw the “some data is hidden by rules” line on a card"
+        }
+      },
+      "personal": {
+        "changed": {
+          "title": "Personal visibility changed",
+          "description": "A person changed who sees fields of their card"
         }
       }
     }

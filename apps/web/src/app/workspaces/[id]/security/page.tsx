@@ -146,10 +146,14 @@ export default function WorkspaceSecurityPage() {
       )}
       <Card>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)' }}>
-          <div role="group" aria-label={t('ui.feed.filters')} style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap' }}>
+          <div role="group" aria-label={t('ui.feed.filters')} style={{ display: 'flex', gap: '0.375rem', flexWrap: 'wrap', alignItems: 'center' }}>
             {AUDIT_ORG_FILTERS.map((f) => (
               <Chip key={f} size="sm" selected={filter === f} onClick={() => setFilter(f)}>{t(`filters.org.${f}`)}</Chip>
             ))}
+            {/* Раскрытия защищённых полей — правила, по которым их можно раскрыть */}
+            {filter === 'reveals' && (
+              <Button variant="ghost" size="sm" icon="eye" href={`/workspaces/${id}/profile/visibility`}>{tc('guarded.partHiddenAdmin')}</Button>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
             <div style={{ minWidth: 220, flex: '1 1 220px', maxWidth: 360 }}>

@@ -102,7 +102,7 @@ export const CONSENT_VERSION_STATUSES = ['draft', 'published', 'superseded', 'wi
 export type ConsentVersionStatus = (typeof CONSENT_VERSION_STATUSES)[number];
 
 /** Причины отзыва (`ConsentAcceptance.revokedReason`). */
-export const CONSENT_REVOKE_REASONS = ['user_revoked', 'declined', 'account_deleted', 'superseded', 'integration_disconnected', 'workspace_purged'] as const;
+export const CONSENT_REVOKE_REASONS = ['user_revoked', 'declined', 'account_deleted', 'superseded', 'integration_disconnected', 'workspace_purged', 'not_me'] as const;
 export type ConsentRevokeReason = (typeof CONSENT_REVOKE_REASONS)[number];
 
 /** Возраст: регистрация с 16 (ГК ст. 22 — с оговоркой о согласии представителя), реальные деньги — с 18. */

@@ -38,6 +38,8 @@ export interface ChatterChangeLike {
   from: string | null;
   to: string | null;
   raw?: ChatterRaw | null;
+  /** Поле под правилами видимости (core/visibility): значение замаскировано или скрыто для зрителя */
+  concealed?: 'masked' | 'hidden';
 }
 
 export interface ChatterEntryLike {
@@ -80,6 +82,13 @@ export function chatterChangeDisplay(
   dash: string,
 ): { from: string; to: string } {
   if (!change) return { from: dash, to: dash };
+  // Поле под правилами видимости (core/visibility): скрытое — словом «Скрыто», маска — её символы
+  const concealed = change.concealed;
+  if (concealed === 'hidden') {
+    const hidden = t.has('common.guarded.hidden') ? t('common.guarded.hidden') : dash;
+    return { from: hidden, to: hidden };
+  }
+  if (concealed === 'masked') return { from: change.from ?? '•••', to: change.to ?? '•••' };
   return {
     from: change.raw ? renderRaw(change.raw.from, change.raw.kind, t, fmt, dash) : change.from ?? dash,
     to: change.raw ? renderRaw(change.raw.to, change.raw.kind, t, fmt, dash) : change.to ?? dash,

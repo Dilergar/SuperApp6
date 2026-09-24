@@ -137,7 +137,7 @@ export function useOtpFlow() {
               challengeId: saved.challengeId,
               // Маску берём из запомненного ответа сервера, а если её нет — считаем
               // сами: показывать сырой номер вместо маски на этом шаге некрасиво.
-              phoneMasked: saved.phoneMasked || (phone ? maskPhone(phone) : ''),
+              phoneMasked: saved.phoneMasked || (phone ? (maskPhone(phone) ?? '') : ''),
               resendLeft: details?.resendInSec ?? 60,
             });
             void fetchDevCode(saved.challengeId);
@@ -167,7 +167,7 @@ export function useOtpFlow() {
    */
   const startStepUp = useCallback(
     (
-      purpose: Extract<VerifyPurpose, 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete' | 'security_confirm'>,
+      purpose: Extract<VerifyPurpose, 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete' | 'security_confirm' | 'visibility_reveal' | 'visibility_manage'>,
       password: string,
       newPhone?: string,
     ) => runStart('/verify/step-up', newPhone ? { purpose, password, newPhone } : { purpose, password }),

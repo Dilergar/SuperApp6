@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { OCSF_ACTIVITY as A, OCSF_CLASS as C } from './ocsf';
-import { AUDIT_VIS, defineAuditEvents, detailCode, detailCount, detailDeviceClass, noDetails } from './types';
+import { AUDIT_VIS, defineAuditEvents, detailCode, detailCount, detailDeviceClass, detailId, noDetails } from './types';
 
 // ============================================================
 // Организации: состав, роли, владение, жизненный цикл, первый вход с устройства
@@ -57,6 +57,15 @@ export const ORG_AUDIT_EVENTS = defineAuditEvents({
     ocsf: { classUid: C.userAccessManagement, activityId: A.userAccessManagement.assignPrivileges },
     subjectFrom: 'target',
   },
+  /** Приглашение отозвано до принятия — цель: приглашение (адресата-аккаунта может ещё не быть) */
+  'org.member.invitation_cancelled': {
+    category: 'org',
+    severity: 'low',
+    visibility: AUDIT_VIS.workspace,
+    details: z.object({ role: role.optional() }).strict(),
+    vocab: 'privilege_permissions_changed',
+    ocsf: { classUid: C.groupManagement, activityId: A.groupManagement.removeUser },
+  },
   /** Цель — новый владелец; прежний владелец — в `related` */
   'org.ownership.transferred': {
     category: 'org',
@@ -66,6 +75,16 @@ export const ORG_AUDIT_EVENTS = defineAuditEvents({
     vocab: 'authz_admin',
     ocsf: { classUid: C.userAccessManagement, activityId: A.userAccessManagement.assignPrivileges },
     subjectFrom: 'target',
+  },
+  /** Организация создана — первый факт её журнала; субъект — создатель (он же владелец) */
+  'org.workspace.created': {
+    category: 'org',
+    severity: 'low',
+    visibility: AUDIT_VIS.both,
+    details: noDetails(),
+    vocab: 'sensitive_create',
+    ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.create },
+    subjectFrom: 'actor',
   },
   'org.workspace.archived': {
     category: 'org',
@@ -111,6 +130,46 @@ export const ORG_AUDIT_EVENTS = defineAuditEvents({
     visibility: AUDIT_VIS.workspace,
     details: z.object({ enabled: z.boolean(), categories: detailCount() }).strict(),
     vocab: 'sys_monitor_enabled',
+    ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.update },
+  },
+  /**
+   * Политика видимости организации опубликована (core/visibility): тип записи, версия, сколько
+   * пар «поле × адресат» стали виднее/скрытнее, ослаблены ли строгие поля, выдано ли
+   * делегирование раскрытия. Сами правила — в версии политики (дифф — «Версии»).
+   */
+  'org.visibility.policy_published': {
+    category: 'org',
+    severity: 'medium',
+    visibility: AUDIT_VIS.workspace,
+    details: z
+      .object({
+        recordType: detailCode(64),
+        version: detailCount(),
+        widened: detailCount(),
+        narrowed: detailCount(),
+        weakensRestricted: z.boolean(),
+        revealDelegated: z.boolean(),
+      })
+      .strict(),
+    vocab: 'authz_change',
+    ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.update },
+  },
+  /** «Проверить сотрудника»: админ посмотрел план чужого зрителя (только чтение, без токенов) */
+  'org.visibility.explain_viewed': {
+    category: 'org',
+    severity: 'low',
+    visibility: AUDIT_VIS.workspace,
+    details: z.object({ recordType: detailCode(64), viewer: detailId() }).strict(),
+    ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.read },
+    subjectFrom: 'target',
+  },
+  /** Настройки политики: push о раскрытии, «четыре глаза», делегирование */
+  'org.visibility.settings_changed': {
+    category: 'org',
+    severity: 'medium',
+    visibility: AUDIT_VIS.workspace,
+    details: z.object({ notifyOnReveal: z.boolean(), dualControl: z.boolean(), allowDelegation: z.boolean() }).strict(),
+    vocab: 'authz_change',
     ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.update },
   },
 });

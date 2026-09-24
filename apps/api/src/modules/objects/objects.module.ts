@@ -14,6 +14,7 @@ import { AssetsController } from './assets.controller';
 import { ObjectsJobs } from './objects.jobs';
 import { ObjectsCalendarProvider } from './objects-calendar.provider';
 import { ObjectsCardsProvider } from './objects-cards.provider';
+import { ObjectsVisibilityProvider } from './objects-visibility.provider';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { StaffModule } from '../staff/staff.module';
 import { DriveModule } from '../drive/drive.module';
@@ -46,6 +47,7 @@ import { ObjectsNotificationRefsProvider } from './objects-notification-refs.pro
     ObjectsNotesTargetProvider,
     ObjectsCalendarProvider,
     ObjectsCardsProvider,
+    ObjectsVisibilityProvider,
     // Порты-алиасы: чужие сервисы берут их через ModuleRef по строковому токену
     // (манифест shared/di-tokens.ts; смоук на бутстрапе валит старт, если пропали).
     { provide: DI_TOKENS.ObjectsPayrollPort, useExisting: StaffingService },

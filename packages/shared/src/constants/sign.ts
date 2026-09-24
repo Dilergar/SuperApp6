@@ -1,3 +1,4 @@
+import { maskIdLast4 } from '../visibility/masks';
 // ============================================================
 // Движок электронной подписи (core/sign, 15-й платформенный) — константы
 // ============================================================
@@ -289,10 +290,9 @@ export function signRequestHref(requestId: string, workspaceId?: string | null):
  * это раздача персональных данных всякому, кто получил файл.
  */
 export function maskIin(iin: string | null | undefined): string | null {
-  if (!iin) return null;
-  const s = iin.trim();
-  if (s.length < 6) return '•'.repeat(s.length);
-  return `${s.slice(0, 2)}${'•'.repeat(s.length - 6)}${s.slice(-4)}`;
+  // Единая маска ИИН платформы — последние четыре (`id_last4`, core/visibility). Прежняя
+  // «первые две + последние четыре» выдавала год рождения: первые шесть цифр ИИН — дата.
+  return maskIdLast4(iin);
 }
 
 /**

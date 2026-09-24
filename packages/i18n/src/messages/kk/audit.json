@@ -134,6 +134,16 @@
       "settings_changed": {
         "title": "Қауіпсіздік баптаулары өзгертілді",
         "body": "Белсенді емес сессиялар {sessionMaxIdleDays} күннен кейін аяқталады."
+      },
+      "integration": {
+        "connected": {
+          "title": "{provider, select, google_calendar {Google Күнтізбе} other {Сыртқы қызмет}} қосылды",
+          "body": ""
+        },
+        "disconnected": {
+          "title": "{provider, select, google_calendar {Google Күнтізбе} other {Сыртқы қызмет}} ажыратылды",
+          "body": "{reason, select, self {Баптауларда ажыратылды} not_me {«Бұл мен емеспін» шебері} account_deleted {Аккаунт жойылды} other {}}"
+        }
       }
     },
     "org": {
@@ -152,6 +162,10 @@
         },
         "left": {
           "title": "«{workspace}» ұйымынан шығу",
+          "body": ""
+        },
+        "invitation_cancelled": {
+          "title": "«{workspace}» ұйымына шақыру кері қайтарылды",
           "body": ""
         }
       },
@@ -179,6 +193,10 @@
         "purged": {
           "title": "«{workspace}» біржола жойылды",
           "body": ""
+        },
+        "created": {
+          "title": "«{workspace}» құрылды",
+          "body": ""
         }
       },
       "session": {
@@ -190,6 +208,20 @@
       "audit": {
         "stream_changed": {
           "title": "{enabled, select, true {Қауіпсіздік журналының ағыны қосылды} other {Қауіпсіздік журналының ағыны өшірілді}}",
+          "body": ""
+        }
+      },
+      "visibility": {
+        "policy_published": {
+          "title": "Көріну ережелері жарияланды: {recordTypeLabel}",
+          "body": "{version}-нұсқа: ашығырақ — {widened}, жабығырақ — {narrowed}"
+        },
+        "explain_viewed": {
+          "title": "{target} не көретіні тексерілді: {recordTypeLabel}",
+          "body": ""
+        },
+        "settings_changed": {
+          "title": "Көріну саясатының баптаулары өзгертілді",
           "body": ""
         }
       }
@@ -426,6 +458,14 @@
       "read": {
         "title": "Қолжетімділігі шектеулі дербес деректерді оқу",
         "body": "{count, plural, one {# жазба} other {# жазба}}"
+      },
+      "reveal": {
+        "title": "Қорғалған деректер ашылды",
+        "body": "{recordTypeLabel}: {fieldList}"
+      },
+      "reveal_denied": {
+        "title": "Деректерді ашудан бас тартылды",
+        "body": "{recordTypeLabel}: {fieldList}"
       }
     },
     "pd": {
@@ -454,7 +494,7 @@
     },
     "data": {
       "export": {
-        "title": "{source, select, hr_zip {Кадр құжаттарын жүктеу} documents_zip {Құжаттарды жүктеу} audit_org {Қауіпсіздік журналын жүктеу} audit_platform {Платформаның қауіпсіздік журналын жүктеуі} my_data {«Менің деректерім» жүктеу} analytics_report {Талдау есебін жүктеу} other {Деректерді жүктеу}}",
+        "title": "{source, select, hr_zip {Кадр құжаттарын жүктеу} audit_org {Қауіпсіздік журналын жүктеу} audit_platform {Платформаның қауіпсіздік журналын жүктеуі} my_data {«Менің деректерім» жүктеу} drive_guest_zip {Қалта жария сілтеме бойынша жүктелді} other {Деректерді жүктеу}}",
         "body": "{rows, plural, one {# жазба} other {# жазба}}"
       }
     },
@@ -502,6 +542,22 @@
       "session_context_changed": {
         "title": "Сессия контекстін өзгертті",
         "body": ""
+      },
+      "idor_probing": {
+        "title": "Бөгде нысандарды іріктеу",
+        "body": "{windowMin} минутта {events, plural, one {# бас тарту} other {# бас тарту}}"
+      },
+      "malware_burst": {
+        "title": "Жұқтырылған жүктеулер сериясы",
+        "body": "{windowMin} минутта {events, plural, one {# жұқтырылған файл} other {# жұқтырылған файл}}"
+      },
+      "mass_reveal": {
+        "title": "Деректерді жаппай ашу",
+        "body": "{windowMin} минутта {events} рет ашылды"
+      },
+      "pii_scrape": {
+        "title": "Деректерді жаппай жинауға ұқсайды",
+        "body": "{windowMin} минутта басқа адамдардың байланыс немесе жеке өрістері бар {events} жазбасы толық оқылды"
       }
     },
     "audit": {
@@ -536,12 +592,58 @@
       "settings": {
         "changed": {
           "title": "Қауіпсіздік журналының баптаулары өзгертілді",
-          "body": ""
+          "body": "{setting, select, digest_interval_min {Дайджест аралығы, мин} retention_years {Сақтау мерзімі, жыл} archive_enabled {Жабық айлар мұрағаты} trusted_country {Елдің сенімді тақырыбы} other {{setting}}}: {to}"
         }
       },
       "lockout_summary": {
         "title": "Бұғаттау кезіндегі кіру әрекеттері",
         "body": "{attempts, plural, one {# әрекет тойтарылды} other {# әрекет тойтарылды}}"
+      }
+    },
+    "sharing": {
+      "access": {
+        "granted": {
+          "title": "{previousAccess, select, none {«{target}» қолжетімділігі ашылды} other {«{target}» қолжетімділігі өзгертілді}}",
+          "body": "{principalType, select, user {Әріптес} workspace {Бүкіл команда} department {Бөлім} position {Лауазым} branch {Нысан} circle {Топ} other {Қатысушы}} {access, select, viewer {қарайды} editor {өңдейді} manager {қолжетімділікті басқарады} use {пайдаланады} other {қолжетімділік: {access}}}"
+        },
+        "revoked": {
+          "title": "«{target}» қолжетімділігі жабылды",
+          "body": "{principalType, select, user {Әріптес} workspace {Бүкіл команда} department {Бөлім} position {Лауазым} branch {Нысан} circle {Топ} other {Қатысушы}}"
+        }
+      },
+      "link": {
+        "created": {
+          "title": "«{target}» үшін жария сілтеме жасалды",
+          "body": "{passcode, select, true {Құпиясөзбен} other {Құпиясөзсіз}} · {identity, select, true {нөмірді растаумен} other {нөмірді растаусыз}} · {expires, select, true {әрекет ету мерзімімен} other {мерзімсіз}}"
+        },
+        "updated": {
+          "title": "«{target}» жария сілтемесі өзгертілді",
+          "body": ""
+        },
+        "revoked": {
+          "title": "«{target}» жария сілтемесі жабылды",
+          "body": "{reason, select, manual {Қолмен жабылды} mine_bulk {Автордың басқа сілтемелерімен бірге жабылды} workspace_bulk {Ұйым әкімшісі жапты} object_deleted {Сілтеме арқылы ашылған элемент жойылды} other {}}"
+        },
+        "password_locked": {
+          "title": "«{target}» жария сілтемесінің құпиясөзін таңдау",
+          "body": "Қатарынан {attempts, plural, one {# қате әрекет} other {# қате әрекет}}; сілтеме {minutes} минутқа бұғатталды"
+        },
+        "guest_verified": {
+          "title": "Нөмірі расталған жаңа қонақ «{target}» ашты",
+          "body": ""
+        }
+      }
+    },
+    "files": {
+      "malware_detected": {
+        "title": "«{target}» файлында вирус табылды",
+        "body": "Файл бұғатталды: {signature}"
+      }
+    },
+    "authz": {
+      "denied": {
+        "title": "Қолжетімділіктен бас тартылды: {reason}",
+        "body": "{attempts, plural, one {# әрекет} other {# әрекет}}"
       }
     }
   },
@@ -557,7 +659,10 @@
     "consents": "Келісімдер",
     "data": "Жүктеулер",
     "detect": "Анықтаулар",
-    "audit": "Журналдың өзі"
+    "audit": "Журналдың өзі",
+    "sharing": "Қолжетімділік және жария сілтемелер",
+    "files": "Файлдар",
+    "authz": "Қолжетімділіктен бас тарту"
   },
   "severities": {
     "info": "Ақпарат",
@@ -622,11 +727,10 @@
   },
   "exportSources": {
     "hr_zip": "Кадр құжаттары",
-    "documents_zip": "Құжаттар",
     "audit_org": "Қауіпсіздік журналы",
     "audit_platform": "Қауіпсіздік журналы (платформа)",
     "my_data": "Менің деректерім",
-    "analytics_report": "Талдау есебі"
+    "drive_guest_zip": "Жария сілтеме бойынша қалта"
   },
   "filters": {
     "person": {
@@ -636,7 +740,8 @@
       "credentials": "Құпиясөз және нөмір",
       "orgs": "Ұйымдар",
       "keys": "Кілттер және қосымшалар",
-      "data": "Менің деректерім"
+      "data": "Менің деректерім",
+      "reveals": "Деректерді ашу"
     },
     "org": {
       "all": "Барлығы",
@@ -644,7 +749,10 @@
       "devices": "Құрылғылар",
       "keys": "Кілттер және интеграциялар",
       "exports": "Жүктеулер",
-      "consents": "Келісімдер"
+      "consents": "Келісімдер",
+      "sharing": "Қолжетімділік",
+      "files": "Файлдар",
+      "reveals": "Деректерді ашу"
     }
   },
   "unknownWorkspace": "ұйым",
@@ -705,8 +813,10 @@
     "event": {
       "when": "Қашан",
       "who": "Кім",
+      "initiator": "бастамашы",
       "subject": "Кімнің аккаунты",
       "target": "Нысан",
+      "openObject": "Ашу",
       "device": "Құрылғы",
       "where": "Қай жерде",
       "approx": "{place} (шамамен)",

@@ -16,15 +16,13 @@ import {
   Menu,
   ModalShell,
   SegmentedControl,
-  Toggle,
   type MenuAction,
 } from '@/components/ui';
-import { ROLE_PRESET_KEYS } from '@superapp/shared';
+import { ROLE_PRESET_KEYS, guardedDisplay, isMasked, visibleOr, type Guarded } from '@superapp/shared';
 // Типы социального графа берём ИЗ ОБЩЕГО ПАКЕТА, а не объявляем свои: локальные
 // копии уже разъехались с сервером (в местной `Contact` не было `initiatedBy`),
 // и такое расхождение не ловится компилятором — оно просто тихо теряет поля.
 import type {
-  CardVisibility,
   Circle,
   Contact,
   ContactUserCard,
@@ -59,30 +57,32 @@ const Lottie = dynamic(() => import('lottie-react'), { ssr: false });
 // ============================================================
 
 /**
- * Вход «моей карточки» — СРЕЗ серверного профиля, а не ручная копия его полей:
- * переименование любого из них теперь ошибка компиляции, а не молчаливый undefined.
+ * Дата рождения так, как её видит зритель (core/visibility): целиком, без года (маска
+ * `--MM-DD`) или только год (маска `YYYY`). Скрыто — поля нет вовсе.
  */
-type ProfileData = Pick<
-  UserProfile,
-  | 'firstName' | 'lastName' | 'phone' | 'avatar' | 'dateOfBirth' | 'bio'
-  | 'city' | 'email' | 'maritalStatus' | 'socialLinks' | 'cardVisibility'
->;
+type Birthday =
+  | { kind: 'full'; iso: string }
+  | { kind: 'dayMonth'; iso: string }
+  | { kind: 'year'; year: string };
 
-// Normalized person passed to the renderer (after visibility masking).
+// Normalized person passed to the renderer — УЖЕ после решений сервера: маска приходит
+// символами (`+7 70* *** *5 67`, «Н.»), скрытое поле — отсутствием.
 interface CardPerson {
   firstName: string;
   lastName: string | null;
-  phone: string;
+  /** Номер или символы маски; `null` — номер скрыт */
+  phone: string | null;
   avatarInitial: string;
   avatar: string | null;
-  dateOfBirth: string | null;
+  birthday: Birthday | null;
   age: number | null;
   city: string | null;
   bio: string | null;
   maritalStatus: string | null;
   email: string | null;
   socialLinks: SocialLinks | null;
-  showOnlineStatus: boolean;
+  /** «Был в сети»: точно / только корзиной («недавно») / никак — решает сам человек */
+  presenceMode: 'exact' | 'bucket' | 'none';
   role: string | null;
   presenceLine?: string | null;
 }
@@ -125,10 +125,13 @@ interface CompactProps {
 
 interface FullProps {
   mode: 'full';
-  profile: ProfileData;
-  // When omitted, the card renders read-only — exactly what a viewer in
-  // the given segment actually sees (hidden fields are not rendered).
-  onToggleVisibility?: (field: keyof CardVisibility, value: boolean) => void;
+  /**
+   * Карточка ГЛАЗАМИ зрителя — ответ сервера (`GET /users/me/card-preview`) либо своя
+   * карточка целиком (`profileAsCard`). Карточка сама ничего не прячет: решает движок.
+   */
+  card: ContactUserCard;
+  /** Подпись под карточкой («так видит …») */
+  caption?: string;
   /** Skin to preview (Phase 2). Defaults to the free skin. */
   skin?: CardSkinRender;
   /** Initial size for the profile preview. */
@@ -169,11 +172,11 @@ export const PersonChip = memo(function PersonChip({
   const person: CardPerson = {
     firstName,
     lastName,
-    phone: '',
+    phone: null,
     avatarInitial: (firstName || '?').charAt(0).toUpperCase(),
     avatar,
-    dateOfBirth: null, age: null, city: null, bio, maritalStatus: null,
-    email: null, socialLinks: null, showOnlineStatus: false, role, presenceLine: null,
+    birthday: null, age: null, city: null, bio, maritalStatus: null,
+    email: null, socialLinks: null, presenceMode: 'none', role, presenceLine: null,
   };
   return (
     <CardShell size={size} skin={skin} rotation={0}>
@@ -395,7 +398,7 @@ function CardBody({ person, size, skin, onOpen }: {
   const tr = useTranslations('common');
   const cfg = SIZE_CONFIG[size];
   const t = skin.tokens;
-  const showDot = cfg.showPresence && person.showOnlineStatus;
+  const showDot = cfg.showPresence && person.presenceMode === 'exact';
 
   const nameText = displayName(person.firstName, person.lastName, cfg.fullLastName);
   const nameStyle: React.CSSProperties = {
@@ -459,8 +462,8 @@ function CardBody({ person, size, skin, onOpen }: {
       {cfg.showRarity && skin.id !== 'default' && <RarityChip rarity={skin.rarity} />}
       <Avatar initial={person.avatarInitial} avatar={person.avatar} size={cfg.avatar} skin={skin} showDot={showDot} />
       {nameEl}
-      {cfg.showPhone && (
-        <div style={{ color: t.metaColor, fontSize: cfg.metaSize, textAlign: 'center', marginTop: '-0.2rem' }}>
+      {cfg.showPhone && person.phone && (
+        <div className="tabular-nums" style={{ color: t.metaColor, fontSize: cfg.metaSize, textAlign: 'center', marginTop: '-0.2rem' }}>
           {person.phone}
         </div>
       )}
@@ -501,7 +504,12 @@ function CardFields({ person, metaSize, color, all }: {
   ].filter(Boolean) as string[];
   return (
     <>
-      {person.dateOfBirth && meta(formatDate(person.dateOfBirth, f))}
+      {person.birthday &&
+        meta(
+          person.birthday.kind === 'dayMonth'
+            ? tr('guarded.birthdayNoYear', { date: f.date(person.birthday.iso, 'dayMonthLong') })
+            : birthdayLabel(person.birthday, f),
+        )}
       {person.age !== null && meta(tr('person.ageValue', { n: person.age }))}
       {person.city && meta(person.city)}
       {person.bio && meta(person.bio, { fontStyle: 'italic', maxWidth: '200px' })}
@@ -1032,24 +1040,8 @@ export const StaffPersonCard = memo(function StaffPersonCard({
   const seed = userId.charCodeAt(0) + userId.charCodeAt(userId.length - 1);
   const rotation = -0.5 - (seed % 4) * 0.7;
 
-  const person: CardPerson = {
-    firstName: card.firstName,
-    lastName: card.lastName,
-    phone: card.phone,
-    avatarInitial: (card.firstName || '?').charAt(0).toUpperCase(),
-    avatar: card.avatar,
-    dateOfBirth: card.dateOfBirth,
-    age: card.age,
-    city: card.city,
-    bio: card.bio,
-    maritalStatus: card.maritalStatus,
-    email: card.email,
-    socialLinks: card.socialLinks,
-    showOnlineStatus: card.showOnlineStatus,
-    // Бейдж карты = Должность(и). Филиалы рендерятся ОТДЕЛЬНЫМИ чипами ниже.
-    role: positions.length ? positions.join(' / ') : null,
-    presenceLine: null,
-  };
+  // Бейдж карты = Должность(и). Филиалы рендерятся ОТДЕЛЬНЫМИ чипами ниже.
+  const person = cardToPerson(card, positions.length ? positions.join(' / ') : null);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
@@ -1106,19 +1098,13 @@ export const StaffPersonCard = memo(function StaffPersonCard({
 });
 
 // ============================================================
-// Full card (profile page) — size switcher + optional toggles
+// Full card (profile page) — size switcher + карточка глазами зрителя
 // ============================================================
 
-function FullCard({ profile, onToggleVisibility, skin, initialSize }: FullProps) {
-  const tr = useTranslations('circles');
-  const tcm = useTranslations('common');
-  const f = useFormatters();
+function FullCard({ card, caption, skin, initialSize }: FullProps) {
   const [size, setSize] = useState<CardSize>(initialSize || 'XL');
   const activeSkin = skin || DEFAULT_SKIN;
-  const vis = profile.cardVisibility;
-  const editable = !!onToggleVisibility;
-
-  const person = profileToPerson(profile);
+  const person = cardToPerson(card, null);
   const wide = size === 'XL' || size === 'L';
 
   return (
@@ -1129,25 +1115,9 @@ function FullCard({ profile, onToggleVisibility, skin, initialSize }: FullProps)
           <CardBody person={person} size={size} skin={activeSkin} />
         </CardShell>
       </div>
-
-      {/* Условие проверяет САМ обработчик (а не производный флаг): так TypeScript
-          сужает тип внутри блока, и семь `!` рядом с вызовами не нужны — раньше
-          «здесь точно не null» держалось на честном слове. */}
-      {onToggleVisibility && size === 'XL' && (
-        <div style={{ width: '100%', maxWidth: 420, display: 'flex', flexDirection: 'column', gap: 'var(--spacing-2)' }}>
-          {profile.city && <VisibilityRow label={tr('visField.city')} value={profile.city} visible={vis.city} onToggle={(v) => onToggleVisibility('city', v)} />}
-          {profile.bio && <VisibilityRow label={tr('visField.bio')} value={profile.bio} visible={vis.bio} onToggle={(v) => onToggleVisibility('bio', v)} />}
-          {profile.dateOfBirth && <VisibilityRow label={tr('visField.dateOfBirth')} value={formatDate(profile.dateOfBirth, f)} visible={vis.dateOfBirth} onToggle={(v) => onToggleVisibility('dateOfBirth', v)} />}
-          {profile.dateOfBirth && <VisibilityRow label={tr('visField.age')} value={tcm('person.ageValue', { n: calcAge(profile.dateOfBirth) })} visible={vis.age} onToggle={(v) => onToggleVisibility('age', v)} />}
-          <VisibilityRow label={tr('visField.onlineStatus')} value={tr('card.onlineValue')} visible={vis.onlineStatus} onToggle={(v) => onToggleVisibility('onlineStatus', v)} />
-          {profile.maritalStatus && <VisibilityRow label={tr('visField.maritalStatus')} value={maritalLabel(profile.maritalStatus, tcm)} visible={vis.maritalStatus} onToggle={(v) => onToggleVisibility('maritalStatus', v)} />}
-          {profile.email && <VisibilityRow label={tr('visField.email')} value={profile.email} visible={vis.email} onToggle={(v) => onToggleVisibility('email', v)} />}
-        </div>
+      {caption && (
+        <div className="label-sm" style={{ textAlign: 'center', opacity: 0.5 }}>{caption}</div>
       )}
-
-      <div className="label-sm" style={{ textAlign: 'center', opacity: 0.5 }}>
-        {editable ? tr('card.previewOthers') : tr('card.previewRole')}
-      </div>
     </div>
   );
 }
@@ -1168,84 +1138,80 @@ function SizeSwitcher({ size, onChange }: { size: CardSize; onChange: (s: CardSi
 }
 
 // ============================================================
-// Visibility toggle row (profile edit)
-// ============================================================
-
-function VisibilityRow({ label, value, visible, onToggle }: {
-  label: string; value: string; visible: boolean; onToggle: (v: boolean) => void;
-}) {
-  const tr = useTranslations('common');
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)',
-      padding: 'var(--spacing-2) var(--spacing-3)', borderRadius: 'var(--radius-sm)',
-      opacity: visible ? 1 : 0.3, transition: 'opacity 0.2s ease',
-    }}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div className="label-sm" style={{ fontSize: '0.7rem', marginBottom: '0.1rem' }}>{label}</div>
-        <div style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--on-surface)' }}>{value}</div>
-      </div>
-      {/* Тумблер кита: role="switch", aria-checked, фокус-кольцо и зелёный ON по
-          правилу системы. Своя копия была просто крашеным прямоугольником —
-          скринридер видел безымянную кнопку без состояния. */}
-      <Toggle
-        checked={visible}
-        onChange={onToggle}
-        aria-label={tr('person.visibleToOthers', { label })}
-        className="shrink-0"
-      />
-    </div>
-  );
-}
-
-// ============================================================
 // Normalizers + helpers
 // ============================================================
 
-// Присутствие сюда не приходит: размер L его не показывает, а XL запрашивает
-// сам (см. useSinglePresence) — грид больше не тянет батч на сотню человек ради
-// строки, которую видно только в развёрнутой карточке.
-function contactToPerson(contact: Contact): CardPerson {
-  const t = contact.them;
+/**
+ * ОДИН нормализатор карточки (Окружение, ростер, предпросмотр профиля): решения сервера —
+ * в вид для рендера. Маска → её символы, скрыто → поля нет. Присутствие сюда не приходит:
+ * размер L его не показывает, а XL запрашивает сам (см. useSinglePresence).
+ */
+function cardToPerson(card: ContactUserCard, role: string | null): CardPerson {
+  const text = (v: Guarded<string | null>) => {
+    const d = guardedDisplay(v);
+    return typeof d === 'string' && d ? d : null;
+  };
   return {
-    firstName: t.firstName,
-    lastName: t.lastName,
-    phone: t.phone,
-    avatarInitial: t.firstName.charAt(0).toUpperCase(),
-    avatar: t.avatar,
-    dateOfBirth: t.dateOfBirth,
-    age: t.age,
-    city: t.city,
-    bio: t.bio,
-    maritalStatus: t.maritalStatus,
-    email: t.email,
-    socialLinks: t.socialLinks,
-    showOnlineStatus: t.showOnlineStatus,
-    role: contact.myRole,
+    firstName: card.firstName,
+    lastName: text(card.lastName),
+    phone: text(card.phone),
+    avatarInitial: (card.firstName || '?').charAt(0).toUpperCase(),
+    avatar: visibleOr(card.avatar, null),
+    birthday: birthdayOf(card.dateOfBirth),
+    age: visibleOr(card.age, null),
+    city: text(card.city),
+    bio: text(card.bio),
+    maritalStatus: visibleOr(card.maritalStatus, null),
+    email: text(card.email),
+    socialLinks: visibleOr(card.socialLinks, null),
+    presenceMode: card.showOnlineStatus === true ? 'exact' : isMasked(card.showOnlineStatus) ? 'bucket' : 'none',
+    role,
     presenceLine: null,
   };
 }
 
-// Profile preview: mask fields by the resolved visibility, so the card
-// shows exactly what a viewer in the selected segment would see.
-function profileToPerson(profile: ProfileData): CardPerson {
-  const vis = profile.cardVisibility;
+function contactToPerson(contact: Contact): CardPerson {
+  return cardToPerson(contact.them, contact.myRole);
+}
+
+/** Маска даты: `--MM-DD` (год скрыт) или `YYYY` (скрыты день и месяц). */
+function birthdayOf(v: Guarded<string | null>): Birthday | null {
+  if (isMasked(v)) {
+    const d = v.display;
+    if (d && /^--\d{2}-\d{2}$/.test(d)) return { kind: 'dayMonth', iso: `2000${d.slice(1)}` };
+    if (d && /^\d{4}$/.test(d)) return { kind: 'year', year: d };
+    return null;
+  }
+  const iso = visibleOr(v, null);
+  return iso ? { kind: 'full', iso } : null;
+}
+
+/** Дата рождения целиком или только год; «без года» подписывает карточка (слово каталога). */
+function birthdayLabel(b: Birthday, f: Formatters): string {
+  if (b.kind === 'year') return b.year;
+  // Для «без года» — год-заглушка 2000 (високосный: 29 февраля валидно) только ради формата
+  return b.kind === 'full' ? formatDate(b.iso, f) : f.date(b.iso, 'dayMonthLong');
+}
+
+/**
+ * Своя карточка целиком (сам человек видит всё своё — ЗоПД ст. 24): витрина скинов и
+ * предпросмотр «как видит» до ответа сервера.
+ */
+export function profileAsCard(profile: UserProfile): ContactUserCard {
   return {
-    firstName: profile.firstName,
-    lastName: profile.lastName,
-    phone: profile.phone,
-    avatarInitial: profile.firstName.charAt(0).toUpperCase(),
-    avatar: profile.avatar,
-    dateOfBirth: vis.dateOfBirth ? profile.dateOfBirth : null,
-    age: vis.age && profile.dateOfBirth ? calcAge(profile.dateOfBirth) : null,
-    city: vis.city ? profile.city : null,
-    bio: vis.bio ? profile.bio : null,
-    maritalStatus: vis.maritalStatus ? profile.maritalStatus : null,
-    email: vis.email ? profile.email : null,
-    socialLinks: vis.socialLinks ? profile.socialLinks : null,
-    showOnlineStatus: vis.onlineStatus,
-    role: null,
-    presenceLine: null,
+    id: profile.id,
+    firstName: profile.firstName ?? '',
+    lastName: profile.lastName ?? null,
+    avatar: profile.avatar ?? null,
+    phone: profile.phone ?? '',
+    dateOfBirth: profile.dateOfBirth ?? null,
+    age: profile.dateOfBirth ? calcAge(profile.dateOfBirth) : null,
+    bio: profile.bio ?? null,
+    city: profile.city ?? null,
+    email: profile.email ?? null,
+    maritalStatus: profile.maritalStatus ?? null,
+    socialLinks: profile.socialLinks ?? null,
+    showOnlineStatus: true,
   };
 }
 

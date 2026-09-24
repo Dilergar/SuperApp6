@@ -13,6 +13,7 @@ import { MockEsutdDriver } from './hr-esutd.driver';
 import { HrJobs } from './hr.jobs';
 import { HrTemplateFieldsProvider } from './hr-template-fields.provider';
 import { HrRegistriesProvider } from './hr-registries.provider';
+import { HrVisibilityProvider } from './hr-visibility.provider';
 import { HrController, HrPersonalController } from './hr.controller';
 import { HrNotificationRefsProvider } from './hr-notification-refs.provider';
 
@@ -42,6 +43,7 @@ import { HrNotificationRefsProvider } from './hr-notification-refs.provider';
     HrJobs,
     HrTemplateFieldsProvider,
     HrRegistriesProvider,
+    HrVisibilityProvider,
     { provide: DI_TOKENS.HrService, useExisting: HrService },
   ],
   exports: [HrService, DI_TOKENS.HrService],

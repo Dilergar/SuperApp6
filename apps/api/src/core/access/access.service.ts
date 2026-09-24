@@ -21,6 +21,8 @@ const CACHE_TTL_SECONDS = 600;
 const EPOCH_KEY = 'acl:epoch'; // global fallback (types not in EPOCH_FANOUT)
 const typeEpochKey = (t: string) => `acl:epoch:${t}`;
 const objectEpochKey = (t: string, id: string) => `acl:epoch:${t}:${id}`;
+/** Типы, чьи рёбра определяют принципалов человека (`principalsOf`) — эпоха для кэшей «кто он». */
+const PRINCIPAL_EPOCH_TYPES = ['workspace', 'circle', 'department', 'position', 'branch'] as const;
 // Пообъектные эпох-ключи создаются INCR'ом навсегда — даём TTL сильно больше TTL
 // кэш-записей (600с): истёкший ключ читается как '0', но записи под старой эпохой
 // к тому моменту давно умерли.
@@ -207,6 +209,21 @@ export class AccessService {
     }
 
     return principals;
+  }
+
+  /**
+   * Эпоха ПРИНЦИПАЛОВ (core/visibility): глобальная + типы, чьи рёбра меняют «кто этот
+   * человек» — роли организаций, Группы, отделы, должности, объекты. Любая запись таких
+   * рёбер бампает эпоху своего типа (`EPOCH_FANOUT`), поэтому кэш, ключ которого несёт эту
+   * строку, протухает в момент отзыва, а не по TTL. Сбой Redis — случайная строка (кэш мимо).
+   */
+  async principalsEpoch(): Promise<string> {
+    try {
+      const vals = await this.redis.getClient().mget(EPOCH_KEY, ...PRINCIPAL_EPOCH_TYPES.map(typeEpochKey));
+      return vals.map((v) => v ?? '0').join('.');
+    } catch {
+      return `x${Date.now()}.${Math.random()}`;
+    }
   }
 
   /**

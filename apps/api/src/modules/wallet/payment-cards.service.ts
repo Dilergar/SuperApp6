@@ -167,32 +167,31 @@ export class PaymentCardsService implements OnModuleInit {
   }
 
   /**
-   * Основные карты СПИСКА людей — сервисный API для ростера «Сотрудники»
-   * (реквизитный блок manager+). Ключ — userId; расшифровка здесь, чтобы знание
-   * о шифровании не расползалось за пределы этого сервиса.
+   * Основные карты СПИСКА людей — сервисный API реквизитного блока ростера (тип `staff.member`
+   * движка видимости). Полный номер НЕ расшифровывается вовсе: продукту положены только
+   * последние четыре (PCI DSS 3.4.1, R11); IBAN — только если зрителю он вообще может быть
+   * виден (`opts.iban`, иначе нет расшифровки — нет и `pii.read`).
    */
-  async primaryCardsFor(
+  async primaryCardsLiteFor(
     userIds: string[],
-  ): Promise<Map<string, { pan: string; iban: string | null; holderName: string; expMonth: number; expYear: number }>> {
-    const out = new Map<string, { pan: string; iban: string | null; holderName: string; expMonth: number; expYear: number }>();
+    opts: { iban: boolean },
+  ): Promise<Map<string, { panLast4: string; iban: string | null; holderName: string; expMonth: number; expYear: number }>> {
+    const out = new Map<string, { panLast4: string; iban: string | null; holderName: string; expMonth: number; expYear: number }>();
     if (!userIds.length) return out;
     const rows = await this.db.userPaymentCard.findMany({
       where: { userId: { in: userIds }, isPrimary: true },
     });
     for (const r of rows) {
-      try {
-        out.set(r.userId, {
-          pan: await this.decrypt(r.userId, 'pan', r.panEncrypted),
-          iban: r.ibanEncrypted ? await this.decrypt(r.userId, 'iban', r.ibanEncrypted) : null,
-          holderName: r.holderName,
-          expMonth: r.expMonth,
-          expYear: r.expYear,
-        });
-      } catch (err) {
-        // Замороженный/уничтоженный KEK человека или битая строка — карта просто
-        // выпадает из выдачи, не роняя ростер.
-        this.logger.warn(`card ${r.id}: failed to decrypt (${err instanceof Error ? err.message : err})`);
+      let iban: string | null = null;
+      if (opts.iban && r.ibanEncrypted) {
+        try {
+          iban = await this.decrypt(r.userId, 'iban', r.ibanEncrypted);
+        } catch (err) {
+          // Замороженный/уничтоженный KEK человека или битая строка — счёт выпадает, карта остаётся
+          this.logger.warn(`card ${r.id}: failed to decrypt iban (${err instanceof Error ? err.message : err})`);
+        }
       }
+      out.set(r.userId, { panLast4: r.panLast4, iban, holderName: r.holderName, expMonth: r.expMonth, expYear: r.expYear });
     }
     return out;
   }
@@ -200,8 +199,8 @@ export class PaymentCardsService implements OnModuleInit {
   private async serialize(row: UserPaymentCard): Promise<UserPaymentCardDto> {
     return {
       id: row.id,
-      // Владельцу — полностью: с маской он не смог бы ни проверить опечатку, ни продиктовать.
-      pan: await this.decrypt(row.userId, 'pan', row.panEncrypted),
+      // Полного номера в продукте нет НИ У КОГО, включая владельца (PCI DSS 3.4.1, R11): опечатку
+      // ловит Luhn на вводе, диктовать номер незачем — выплату делает платформа
       panMasked: maskCardPan(row.panLast4),
       iban: row.ibanEncrypted ? await this.decrypt(row.userId, 'iban', row.ibanEncrypted) : null,
       holderName: row.holderName,

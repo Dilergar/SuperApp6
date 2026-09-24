@@ -32,6 +32,10 @@ ChatterRefRegistry.registerChatSink(refType)      // плашки контекс
 - **Имя актора — снимок ИЛИ `null`**: движок сам достанет имя из БД, а рендер подставит слово каталога («Кто-то») в языке зрителя. Заглушка, записанная словом (`fullName(u)` без строки пользователя → `Someone`), застыла бы английской у казахоязычного читателя.
 - **Адресат в payload кладётся СНИМКОМ** с суффиксом `Audience` (`principalLabelAudience` = `{kind, id, key, name}` из `AudiencesService.labelSnapshot`): «Отдел» — слово каталога, «Продажи» — имя справочника данными, и `resolveAudienceLabels` собирает подпись при чтении ([audiences_engine.md](audiences_engine.md)). Готовая фраза в payload запрещена механически — `lint:guard`, правило `i18n/no-viewer-text-in-payload`.
 
+## Маскирование при чтении (`core/visibility`)
+
+Хроника пишет «было → стало» сырыми значениями в транзакции мутации, а маскирует — при чтении, по плану ЗРИТЕЛЯ. Ссылка хроники объявляет `ChatterRefRegistry.register(refType, { canView, visibility: { recordType, fieldMap, refOf } })`: тип записи видимости, карта «поле хроники → поле реестра» и сборка ссылки на запись. Маскировщик регистрирует сам движок видимости (`registerMasker`, порт без импорта фичи): изменение поля, которое зритель видит не целиком, отдаётся с `concealed: 'masked' | 'hidden'` без значений, рендер пишет «Скрыто» словом каталога. `page(viewerId)` маскирует страницу пачкой. Новый тип с защищёнными полями и хроникой без строки `visibility` выдаст «было → стало» целиком — [visibility_engine.md](visibility_engine.md).
+
 ## Потребители (категории журнала)
 
 Задачи (14 typeKeys: жизненный цикл + диффы + состав) · Организации/Сотрудники (`staff.*`, все chatPost:false — HR-события не текут рядовым; оргструктура — `staff.head_set`/`branch_head_set`/`reports_to_set`/`position_moved`/`deputy_opened`/`deputy_closed`/`primary_changed`/`default_branch_changed`) · Документы (`org_document.*`) · Диск · Процессы (`process.published_with_warnings` — принятый риск с поимённым списком правил) · Подпись (идемпотентно по `payload.actId`) · Контрагенты · Кадры (`hr.*`, canView manager+|self через `hr_member`) · share-links (`share.link_*`).

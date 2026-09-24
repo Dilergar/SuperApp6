@@ -83,7 +83,6 @@ export const keysJournalKey = (wsId: string, subjectType?: string | null, subjec
 export const keysPolicyKey = (wsId: string) => ['workspaces', wsId, 'keys', 'policy'] as const;
 export const keysWorkspacePersonalKey = (wsId: string) => ['workspaces', wsId, 'keys', 'personal'] as const;
 export const keysPersonalKey = ['keys', 'personal'] as const;
-export const keysStepUpKey = ['keys', 'step-up'] as const;
 export const keysScopeMatrixKey = ['keys', 'scope-matrix'] as const;
 export const webhooksEndpointsKey = (wsId: string) => ['workspaces', wsId, 'webhooks', 'endpoints'] as const;
 export const webhooksDeliveriesKey = (wsId: string, endpointId: string) => ['workspaces', wsId, 'webhooks', 'endpoints', endpointId, 'deliveries'] as const;
@@ -104,6 +103,25 @@ export const orgSecurityOverviewKey = (wsId: string) => ['workspaces', wsId, 'se
 /** Журнал организации — ТОЛЬКО useInfiniteQuery */
 export const orgSecurityEventsKey = (wsId: string, q: Record<string, unknown>) => ['workspaces', wsId, 'security', 'events', q] as const;
 export const orgSecurityEventKey = (wsId: string, id: string) => ['workspaces', wsId, 'security', 'event', id] as const;
+
+// ---- core/visibility: личная видимость, план зрителя, политика организации ----
+// Сокет `visibility:changed` инвалидирует ключи владельца: `visibility` + `workspaces/<id>/visibility`
+export const visibilityRootKey = ['visibility'] as const;
+export const visibilityMeKey = ['visibility', 'me'] as const;
+export const visibilityTypesKey = ['visibility', 'types'] as const;
+/** План зрителя по типу в контексте (организация — часть ключа: план зависит от «шляпы») */
+export const visibilityPlanKey = (recordType: string, wsId: string | null) => ['visibility', 'plan', recordType, wsId ?? 'personal'] as const;
+export const visibilityPreviewKey = (as: string, id: string | null) => ['visibility', 'preview', as, id ?? '-'] as const;
+export const visibilityStepUpKey = (purpose: string) => ['verify', 'step-up', purpose] as const;
+export const wsVisibilityRootKey = (wsId: string) => ['workspaces', wsId, 'visibility'] as const;
+export const wsVisibilityOverviewKey = (wsId: string) => ['workspaces', wsId, 'visibility', 'overview'] as const;
+export const wsVisibilityPolicyKey = (wsId: string, recordType: string, status: 'published' | 'draft') => ['workspaces', wsId, 'visibility', 'policy', recordType, status] as const;
+export const wsVisibilityVersionsKey = (wsId: string, recordType: string) => ['workspaces', wsId, 'visibility', 'versions', recordType] as const;
+export const wsVisibilityDiffKey = (wsId: string, recordType: string) => ['workspaces', wsId, 'visibility', 'diff', recordType] as const;
+export const wsCardPreviewKey = (wsId: string, role: string) => ['workspaces', wsId, 'card-preview', role] as const;
+export const wsVisibilitySettingsKey = (wsId: string) => ['workspaces', wsId, 'visibility', 'settings'] as const;
+export const wsVisibilityExplainKey = (wsId: string, recordType: string, viewerId: string, subjectId: string | null) =>
+  ['workspaces', wsId, 'visibility', 'explain', recordType, viewerId, subjectId ?? '-'] as const;
 
 export const entitlementsRootKey = ['entitlements'] as const;
 export const entitlementsKey = (context: string) => ['entitlements', context] as const;

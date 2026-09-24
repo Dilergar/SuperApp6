@@ -16,13 +16,16 @@ import { apiPatch } from '@/lib/api';
 import { ROLE_PRESET_KEYS } from '@superapp/shared';
 import type {
   CalendarAccessLevel,
-  CardVisibility,
   Circle,
   InvitationStatus,
+  PersonalVisibilityFieldDto,
 } from '@superapp/shared';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { fetchMyVisibility, setCircleVisibility } from '@/lib/visibility-api';
+import { visibilityMeKey } from '@/lib/queries';
 import { PersonAvatar } from '../messenger/messenger-ui';
 import {
-  GROUP_COLORS, INVITATION_EXPIRY_WARN_DAYS, VIS_FIELDS, daysUntil, runAction, type VisField,
+  GROUP_COLORS, INVITATION_EXPIRY_WARN_DAYS, daysUntil, runAction,
 } from './circles-lib';
 
 /** Одна сетка карточек на грид и на его скелетон — иначе они разъезжаются. */
@@ -325,6 +328,21 @@ export function InvitationCard({
 /** Ступени доступа к календарю; слова — `circles.calAccess.<key>`. */
 const CAL_LEVEL_KEYS: CalendarAccessLevel[] = ['none', 'busy', 'detailed'];
 
+/**
+ * Видит ли Группа поле по ЛИЧНОЙ политике (`core/visibility`, та же правда, что в «Моей
+ * карточке и видимости»): «скрыть от Группы» сильнее аудиторий; иначе поле видно, если
+ * аудитория — «Все», «Моё окружение» или сама эта Группа.
+ */
+function groupSees(f: PersonalVisibilityFieldDto, circleId: string): boolean {
+  if (f.hiddenFromCircles.includes(circleId)) return false;
+  return f.audiences.some((a) => a.kind === 'everybody' || a.kind === 'circle_all' || (a.kind === 'circle' && a.id === circleId));
+}
+
+/**
+ * Быстрый способ «этой Группе показать/скрыть» — те же правила `circle:<id>` личной политики.
+ * Включить → правило «Группе видно»; выключить → если поле открыто шире (Все/Окружение) —
+ * «скрыть от Группы», иначе просто убрать правило Группы.
+ */
 export function GroupVisibilityEditor({
   group, onSaved,
 }: {
@@ -332,13 +350,14 @@ export function GroupVisibilityEditor({
   onSaved: (c: Circle) => void;
 }) {
   const t = useTranslations('circles');
-  const [vis, setVis] = useState<CardVisibility>(group.cardVisibility);
+  const tv = useTranslations('visibility');
+  const qc = useQueryClient();
+  const me = useQuery({ queryKey: visibilityMeKey, queryFn: fetchMyVisibility, staleTime: 30_000 });
+  // Оптимистичные правки поверх ПОДТВЕРЖДЁННОГО сервером состояния (кэш RQ). Отказ сервера
+  // снимает их — тумблер не врёт о приватности (человек уверен, что закрыл поле, а оно открыто).
+  const [pending, setPending] = useState<Record<string, boolean | null>>({});
   const [cal, setCal] = useState<CalendarAccessLevel>(group.calendarVisibility ?? 'none');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Последнее ПОДТВЕРЖДЁННОЕ сервером состояние — цель отката. Без него отказ
-  // сервера оставлял бы тумблер включённым, и интерфейс врал бы о приватности:
-  // человек уверен, что открыл поле группе, а на деле поле закрыто.
-  const savedVis = useRef<CardVisibility>(group.cardVisibility);
   const savedCal = useRef<CalendarAccessLevel>(group.calendarVisibility ?? 'none');
 
   // Снятие debounce-таймера при размонтировании: панель пересоздаётся при смене
@@ -356,18 +375,29 @@ export function GroupVisibilityEditor({
     if (!ok) setCal(prev);
   };
 
-  const toggle = (key: VisField, value: boolean) => {
-    const next = { ...vis, [key]: value };
-    setVis(next);
+  const fields = me.data?.fields ?? [];
+  const seen = (f: PersonalVisibilityFieldDto): boolean => {
+    const p = pending[f.fieldKey];
+    if (p === undefined) return groupSees(f, group.id);
+    if (p === true) return true;
+    if (p === false) return false;
+    // null = «как в карточке»: правила Группы нет — видно, если поле открыто Окружению/всем
+    return f.audiences.some((a) => a.kind === 'everybody' || a.kind === 'circle_all');
+  };
+
+  const toggle = (f: PersonalVisibilityFieldDto) => {
+    const wide = f.audiences.some((a) => a.kind === 'everybody' || a.kind === 'circle_all');
+    const next = { ...pending, [f.fieldKey]: seen(f) ? (wide ? false : null) : true };
+    setPending(next);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       void (async () => {
         const ok = await runAction(async () => {
-          const updated = await apiPatch<Circle>(`/circles/${group.id}`, { cardVisibility: next });
-          savedVis.current = next;
-          onSaved(updated);
+          const dto = await setCircleVisibility(group.id, next);
+          qc.setQueryData(visibilityMeKey, dto);
         }, t('groupVis.saved'));
-        if (!ok) setVis(savedVis.current);
+        setPending({});
+        if (!ok) void qc.invalidateQueries({ queryKey: visibilityMeKey });
       })();
     }, 600);
   };
@@ -380,25 +410,29 @@ export function GroupVisibilityEditor({
       </p>
       {/* Чипы-переключатели кита: выбранный = поле видно группе, невыбранный =
           скрыто. Состояние несут форма и иконка глаза, `aria-pressed` кит
-          выставляет сам — сокращений «вид./скр.» в подписи больше нет. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-        {VIS_FIELDS.map((field) => {
-          const on = vis[field];
-          const label = t(`visField.${field}`);
-          return (
-            <Chip
-              key={field}
-              tone="accent"
-              icon={on ? 'eye' : 'eyeOff'}
-              selected={on}
-              onClick={() => toggle(field, !on)}
-              title={on ? t('groupVis.fieldShown', { label }) : t('groupVis.fieldHidden', { label })}
-            >
-              {label}
-            </Chip>
-          );
-        })}
-      </div>
+          выставляет сам. */}
+      {me.isPending ? (
+        <Skeleton height={32} />
+      ) : (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
+          {fields.map((f) => {
+            const on = seen(f);
+            const label = tv(`types.user.card.fields.${f.fieldKey}.label`);
+            return (
+              <Chip
+                key={f.fieldKey}
+                tone="accent"
+                icon={on ? 'eye' : 'eyeOff'}
+                selected={on}
+                onClick={() => toggle(f)}
+                title={on ? t('groupVis.fieldShown', { label }) : t('groupVis.fieldHidden', { label })}
+              >
+                {label}
+              </Chip>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{ marginTop: 'var(--spacing-4)' }}>
         <div className="title-sm" style={{ fontSize: '0.9rem' }}>{t('groupVis.calendarTitle')}</div>

@@ -1,11 +1,4 @@
 {
-  "card": {
-    "defaultGroup": "Default (no group)",
-    "note": "This is how your card looks to «{name}». The data is changed on the «My details» tab, group visibility — on the «Circle» page.",
-    "previewAria": "Whose eyes to look at the card through",
-    "seenBy": "Seen by:",
-    "title": "My card"
-  },
   "cards": {
     "add": "Add a card",
     "addFailed": "Could not add the card",
@@ -31,16 +24,6 @@
   "delete": {
     "failed": "Could not delete the account",
     "title": "Delete the account?"
-  },
-  "field": {
-    "age": "Age",
-    "bio": "About you",
-    "city": "City",
-    "dateOfBirth": "Date of birth",
-    "email": "Email",
-    "maritalStatus": "Marital status",
-    "onlineStatus": "Online status",
-    "socialLinks": "Social links"
   },
   "form": {
     "address": "Home address",
@@ -106,7 +89,7 @@
   },
   "nav": {
     "appearance": "Appearance",
-    "card": "My card",
+    "card": "My card and visibility",
     "form": "My details",
     "links": "Outbound links",
     "logout": "Log out",
@@ -150,12 +133,6 @@
     "sending": "Sending…",
     "title": "Change the password"
   },
-  "requisite": {
-    "idDocument": "ID document",
-    "iin": "IIN",
-    "paymentCard": "Payout card",
-    "residentialAddress": "Home address"
-  },
   "roles": {
     "empty": "No active roles",
     "title": "My roles"
@@ -170,13 +147,6 @@
     "title": "Security"
   },
   "settings": {
-    "online": {
-      "contacts": "Contacts only",
-      "everyone": "Everyone",
-      "nobody": "Nobody"
-    },
-    "onlineStatus": "Online status is seen by",
-    "saveFailed": "Error",
     "saved": "Saved",
     "title": "Settings"
   },
@@ -236,22 +206,6 @@
     "title": "Plan and limits"
   },
   "title": "Profile",
-  "visibility": {
-    "companyText": "What colleagues in organizations see on your card in the «Employees» section. Name, surname, phone and position are always visible. Saved automatically.",
-    "companyTitle": "Visibility in Companies",
-    "confidential": "Confidential (hidden from colleagues by default):",
-    "defaultText": "What a person from your circle sees when you have not added them to any Group yet. Name, surname, phone and role are always visible. Saved automatically.",
-    "defaultTitle": "Default visibility",
-    "managersList": " IIN, date of birth, home address, ID document and the main card",
-    "managersTail": "— this is the data for contracts, employment and payouts. It cannot be turned off; ordinary colleagues do not see it until you turn the switches above on.",
-    "managersText": "Managers (Manager and above) of organizations where you work always see:",
-    "managersTitle": "For organization managers",
-    "off": "hidden",
-    "on": "shown",
-    "saveFailed": "Could not save visibility",
-    "savedCompany": "Visibility in Companies saved",
-    "savedDefault": "Default visibility saved"
-  },
   "wallet": {
     "balance": "Balance:",
     "burn": "Burn",

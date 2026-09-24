@@ -40,7 +40,10 @@ model User {
   emailBiAlt           String?   @unique @map("email_bi_alt")
   maritalStatus        String?   @map("marital_status")
   socialLinks          Json?     @map("social_links")
-  onlineStatusMode     String    @default("everyone") @map("online_status_mode")
+  // Находимость по номеру (core/visibility, ось отдельная от видимости полей — решение грилла №9):
+  // everybody | circle | nobody. Один страж на ВСЕ пути, принимающие номер
+  // (`VisibilityDiscoverabilityService.assertDiscoverable`); «не найден» неотличим от «скрыт».
+  discoverableBy       String    @default("everybody") @map("discoverable_by")
   // Момент подтверждения владения номером SMS-кодом (движок core/verify).
   // null = номер не подтверждён (в production такой аккаунт создать нельзя —
   // register требует verifyToken). Наружу в DTO уходит isVerified = !!phoneVerifiedAt.
@@ -84,9 +87,9 @@ model User {
   sessionMaxIdleDays   Int       @default(90) @map("session_max_idle_days")
 
   // ---- Реквизиты («Моя Анкета» → «Для договоров и трудоустройства») ----
-  // В личном окружении (Группы) НЕ показываются вовсе; коллегам — по тумблерам
-  // companyCardVisibility.extras (по умолчанию скрыты); управляющим организаций
-  // (manager+) — всегда, выключить нельзя (второй уровень «Видимости в Компаниях»).
+  // Служебные поля организации: кто их видит — правила видимости (core/visibility,
+  // `staff.member`; владельцу и админу — маска с раскрытием), сам человек — всегда.
+  // В личном окружении (Группы) НЕ показываются вовсе.
   iin                   String? // 12 цифр, контрольная сумма проверяется схемой
   iinEnc                String?   @map("iin_enc")
   iinBi                 String?   @map("iin_bi")
@@ -98,15 +101,6 @@ model User {
   idDocIssuedBy         String?   @map("id_doc_issued_by")
   idDocIssuedByEnc      String?   @map("id_doc_issued_by_enc")
   idDocIssuedAt         DateTime? @map("id_doc_issued_at") @db.Date
-
-  // Contact card visibility — per-field flags controlling what others see on your card
-  // Shape: { lastName: bool, dateOfBirth: bool, age: bool, onlineStatus: bool, maritalStatus: bool, extras: {...} }
-  // null means use defaults defined in shared/constants. Always-visible (regardless of this): firstName, lastName, phone, role.
-  cardVisibility        Json? @map("card_visibility")
-  // «Видимость в Компаниях» — что видят КОЛЛЕГИ по организации на карточке в ростере
-  // «Сотрудники» (та же форма флагов, что cardVisibility). null = те же дефолты.
-  // Всегда видны коллегам: имя, фамилия, телефон, должность.
-  companyCardVisibility Json? @map("company_card_visibility")
 
   // Card skins (cosmetic): the equipped default skin instance. Plain id; ownership
   // validated in service. «Премиум» (скин на каждую Группу) — ключ `skins.perGroup`
@@ -274,8 +268,8 @@ model Session {
 //
 // Labels (roles like "жена", "друг") live on ContactLink as labelAForB / labelBForA —
 // asymmetric so each side names the other how they want.
-// Always-visible card fields: firstName, lastName, phone, role (label). Rest is per-field
-// customizable via users.cardVisibility JSON on the card owner's side.
+// Что видит вторая сторона на карточке — ЛИЧНАЯ политика видимости владельца
+// (core/visibility, `user.card`: аудитории + исключения), а не флаги в строке.
 // ============================================================
 
 model ContactLink {
@@ -389,9 +383,6 @@ model Circle {
   icon                   String?
   color                  String?
   sortOrder              Int      @default(0) @map("sort_order")
-  // Per-group card visibility — what members of THIS group may see.
-  // null = use the owner's default (users.card_visibility).
-  cardVisibility         Json?    @map("card_visibility")
   // Per-group calendar access for THIS group's members (Phase 2): none | busy | detailed.
   calendarVisibility     String   @default("none") @map("calendar_visibility")
   // Per-group equipped card skin instance (premium). null = use owner's default skin.
@@ -929,9 +920,7 @@ model Workspace {
   website        String?
   contactEmail   String? @map("contact_email")
   contactPhone   String? @map("contact_phone")
-  // Default visibility of card fields to members (employees). null = defaults
-  // (see DEFAULT_WORKSPACE_CARD_VISIBILITY in @superapp/shared). Always-visible: name, logo.
-  cardVisibility Json?   @map("card_visibility")
+  // Кто видит анкету — правила видимости организации (core/visibility, `workspace.card`).
 
   // ЯЗЫК ДОКУМЕНТОВ организации: на нём печатаются бумаги (бланки, счета, акты)
   // и собираются печатные слова платформы внутри них. Умолчание — государственный
@@ -983,6 +972,7 @@ model Workspace {
   libraryInstalls      DocTemplateLibraryInstall[]
   bots                 Bot[]
   keyPolicy            WorkspaceKeyPolicy?
+  visibilitySettings   WorkspaceVisibilitySettings?
   webhookEndpoints     WebhookEndpoint[]
 
   @@index([ownerId])
@@ -997,7 +987,7 @@ model Workspace {
 // налоговые режимы). Ровно одно ГОЛОВНОЕ (isHead): его реквизиты отдаёт старая ручка
 // /requisites, оно подставляется по умолчанию всюду, где юрлицо не выбрано.
 // Не удаляется, а АРХИВИРУЕТСЯ: на неё ссылаются трудовые карточки и напечатанные
-// документы. Редактирует admin+, сотрудникам блок виден по флагу cardVisibility.requisites.
+// документы. Редактирует admin+; кто видит блок — правила видимости (`workspace.card`).
 //
 // ⚠️ Рукописные ограничения (не выражаются в Prisma; `db push` запрещён):
 //   CREATE UNIQUE INDEX "legal_entities_head_per_workspace_key"
@@ -5449,6 +5439,8 @@ model Bot {
   scopes            Json      @default("{}")
   /// CIDR-список; пустой = без ограничения (кроме ключей без срока — им список обязателен)
   ipAllowlist       Json      @default("[]") @map("ip_allowlist")
+  /// core/visibility R9: «Доступ к контактным данным» (класс `contact`); копируется в ключи бота
+  contactAccess     Boolean   @default(false) @map("contact_access")
   createdById       String    @map("created_by_id")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
@@ -5485,6 +5477,8 @@ model ApiKey {
   hashKid         String    @map("hash_kid")
   scopes          Json      @default("{}")
   ipAllowlist     Json      @default("[]") @map("ip_allowlist")
+  /// core/visibility R9: «Доступ к контактным данным»; у ключа бота — копия флага бота
+  contactAccess   Boolean   @default(false) @map("contact_access")
   expiresAt       DateTime? @map("expires_at")
   lastUsedAt      DateTime? @map("last_used_at")
   lastUsedIp      String?   @map("last_used_ip")
@@ -6017,4 +6011,92 @@ model SecurityAlert {
   @@index([status, openedAt])
   @@index([subjectUserId])
   @@map("security_alerts")
+}
+
+// ============================================================
+// core/visibility — правила видимости полей (27-й движок)
+// ============================================================
+
+/// Политика видимости владельца по типу записи. Party-паттерн: владелец — организация ИЛИ
+/// человек (`owner_type`), внешнего ключа нет → каскады пишет движок сам:
+/// `WorkspacesService.purgeWorkspace` и `UsersService` (анонимизация аккаунта) зовут
+/// `VisibilityPolicyService.purgeOwner`. Опубликованная версия неизменяема (правится только
+/// статус `archived`); черновик — одна строка на (владелец, тип), `draft_token` меняется на
+/// каждой правке (публикация сверяет его с диффом, который видел человек).
+/// Частичные уникумы (руками в миграции `core_visibility`):
+///   `visibility_policies_one_published` (owner_type, owner_id, record_type) WHERE status = 'published';
+///   `visibility_policies_one_draft`     (owner_type, owner_id, record_type) WHERE status = 'draft'.
+model VisibilityPolicy {
+  id            String    @id @default(uuid())
+  ownerType     String    @map("owner_type")
+  ownerId       String    @map("owner_id")
+  recordType    String    @map("record_type")
+  version       Int
+  /// draft | published | archived
+  status        String    @default("draft")
+  presetKey     String?   @map("preset_key")
+  draftToken    String?   @map("draft_token")
+  publishedAt   DateTime? @map("published_at")
+  publishedById String?   @map("published_by_id")
+  createdById   String?   @map("created_by_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  rules VisibilityRule[]
+
+  @@unique([ownerType, ownerId, recordType, version])
+  @@index([ownerType, ownerId, status])
+  @@map("visibility_policies")
+}
+
+/// Правило = строка (не JSON-документ): индекс, дифф, «почему», транзакционная правка (модель
+/// Twenty `fieldPermission` / Salesforce FieldPermissions). Цель — ровно одно из трёх: поле,
+/// группа полей, секция (CHECK в миграции). Адресат — две колонки (`audience_kind`,
+/// `audience_id`), а не jsonb: уборка исключений при разрыве связи и правил удалённой Группы
+/// идёт по индексу. Ключ поля — ключ реестра; поле ушло из реестра → рантайм игнорирует
+/// правило-сироту, страж `check:visibility` требует миграцию-уборку. Словарь `audience_kind` —
+/// CHECK в миграции = `VISIBILITY_AUDIENCE_KINDS` целиком (новый вид адресата в реестре без
+/// миграции-расширения CHECK валит `check:visibility`).
+model VisibilityRule {
+  id           String   @id @default(uuid())
+  policyId     String   @map("policy_id")
+  fieldKey     String?  @map("field_key")
+  groupKey     String?  @map("group_key")
+  sectionKey   String?  @map("section_key")
+  audienceKind String   @map("audience_kind")
+  audienceId   String?  @map("audience_id")
+  /// allow | deny
+  effect       String
+  /// hidden | masked | full
+  level        String
+  mask         String?
+  /// none | one | delegated
+  reveal       String   @default("none")
+  stage        String?
+  /// { inSearch?: bool, inPickers?: bool }
+  surfaces     Json?
+  priority     Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  policy VisibilityPolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+
+  @@index([policyId])
+  @@index([audienceKind, audienceId])
+  @@map("visibility_rules")
+}
+
+/// Настройки политики организации (R18): push о раскрытии, «четыре глаза» на ослабление
+/// строгих полей, делегирование раскрытия. 1:1 к организации (образец `WorkspaceKeyPolicy`),
+/// правит только владелец. Нет строки — умолчания (всё выключено).
+model WorkspaceVisibilitySettings {
+  workspaceId     String   @id @map("workspace_id")
+  notifyOnReveal  Boolean  @default(false) @map("notify_on_reveal")
+  dualControl     Boolean  @default(false) @map("dual_control")
+  allowDelegation Boolean  @default(false) @map("allow_delegation")
+  updatedById     String?  @map("updated_by_id")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("workspace_visibility_settings")
 }

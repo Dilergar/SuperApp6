@@ -19,7 +19,7 @@ import {
   workspacesArchivedKey,
   workspacesIncomingInvitationsKey,
 } from '@/lib/queries';
-import { daysUntilPurge, WORKSPACE_ARCHIVE_WARN_DAYS } from '@superapp/shared';
+import { daysUntilPurge, visibleOr, WORKSPACE_ARCHIVE_WARN_DAYS } from '@superapp/shared';
 import type { Workspace, WorkspaceInvitation } from '@superapp/shared';
 import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
 import { useEntitlementDenied } from '@/lib/hooks/useEntitlements';
@@ -284,7 +284,7 @@ export function WorkspacesPanel() {
                   <div>
                     <div className="title-md">{ws.name}</div>
                     <div className="label-md" style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                      {t('panel.archivedLine', { n: ws.membersCount })}
+                      {t('panel.archivedLine', { n: visibleOr(ws.membersCount, 0) })}
                     </div>
                     {ws.purgeAt &&
                       (() => {

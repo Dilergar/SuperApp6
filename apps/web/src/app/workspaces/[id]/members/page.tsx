@@ -38,6 +38,7 @@ import { MemberRequisitesBlock, MembersHeader, splitName, useLegacyMembersTabRed
  */
 export default function WorkspaceStaffPage() {
   const t = useTranslations('staff');
+  const tv = useTranslations('visibility');
   const router = useRouter();
   const { id: workspaceId } = useParams<{ id: string }>();
   useLegacyMembersTabRedirect(workspaceId);
@@ -72,11 +73,19 @@ export default function WorkspaceStaffPage() {
       // Матовая, а не призрачная: кнопка стоит на ФОНЕ СТРАНИЦЫ, а призрачная
       // там остаётся без подложки и выпадает из системы (правило из календаря).
       actions={
-        myRole && myRole !== 'owner' ? (
-          <Button variant="matte" tone="danger" icon="signOut" onClick={() => setLeaving(true)}>
-            {t('people.leave')}
-          </Button>
-        ) : undefined
+        <>
+          {/* Кто что видит в карточках сотрудников — правила организации (core/visibility) */}
+          {(myRole === 'owner' || myRole === 'admin') && (
+            <Button variant="outline" icon="eye" href={`/workspaces/${workspaceId}/profile/visibility`}>
+              {tv('org.entry.rosterButton')}
+            </Button>
+          )}
+          {myRole && myRole !== 'owner' ? (
+            <Button variant="matte" tone="danger" icon="signOut" onClick={() => setLeaving(true)}>
+              {t('people.leave')}
+            </Button>
+          ) : null}
+        </>
       }
     >
       <PeopleSection
@@ -510,7 +519,13 @@ function MemberModal({
               )}
             </div>
 
-            {requisites && <MemberRequisitesBlock req={requisites} />}
+            {requisites && (
+              <MemberRequisitesBlock
+                req={requisites}
+                userId={member.userId}
+                rulesHref={myRole === 'owner' || myRole === 'admin' ? `/workspaces/${workspaceId}/profile/visibility` : undefined}
+              />
+            )}
 
             <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
               <Button variant="matte" size="sm" icon="file" onClick={onSendDocument}>{t('member.draftDocument')}</Button>

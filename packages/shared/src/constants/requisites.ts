@@ -47,23 +47,8 @@ export const ORG_FORMS_WITH_LEGAL_WRAP = [
 export const TAX_REGIMES = ['general', 'simplified', 'retail', 'patent', 'snr_kh', 'astana_hub', 'other'] as const;
 export type TaxRegime = (typeof TAX_REGIMES)[number];
 
-/**
- * Ключи РЕКВИЗИТНЫХ полей человека в мешке `extras` карты «Видимость в
- * Компаниях» (companyCardVisibility). Мешок и был заведён под такие расширения:
- * отсутствующий ключ = выключено, то есть требуемое умолчание «конфиденциальное
- * коллегам скрыто» получается без миграций карт.
- *
- * ВАЖНО: эти тумблеры действуют только на КОЛЛЕГ. Управляющим (manager+) блок
- * реквизитов виден ВСЕГДА и не выключается — это данные для договоров и
- * трудоустройства (второй, нередактируемый уровень «Видимости в Компаниях»).
- * В ЛИЧНОМ окружении (Группы) реквизиты не показываются вовсе.
- */
-export const REQUISITE_VISIBILITY_EXTRAS = {
-  iin: 'iin',
-  residentialAddress: 'residentialAddress',
-  idDocument: 'idDocument',
-  paymentCard: 'paymentCard',
-} as const;
+// Кто видит реквизиты человека (ИИН, адрес, удостоверение, карта) — решает организация
+// правилами видимости (core/visibility, тип `staff.member`); тумблеров у человека больше нет.
 
 // Подписи реквизитов живут в каталоге `@superapp/i18n` (`profile.requisite.*`):
 // строка в реестре — это один язык навсегда, а карточку читают на трёх.

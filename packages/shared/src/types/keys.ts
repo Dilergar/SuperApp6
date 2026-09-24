@@ -91,6 +91,8 @@ export interface BotDto {
   purpose: string;
   scopes: KeyScopes;
   ipAllowlist: string[];
+  /** R9: доступ к контактным данным (класс `contact` движка видимости) */
+  contactAccess: boolean;
   createdById: string;
   createdAt: string;
   archivedAt: string | null;
@@ -122,6 +124,8 @@ export interface ApiKeyDto {
   last4: string;
   scopes: KeyScopes;
   ipAllowlist: string[];
+  /** R9: доступ к контактным данным (класс `contact` движка видимости) */
+  contactAccess: boolean;
   expiresAt: string | null;
   lastUsedAt: string | null;
   /** Страна последнего обращения (ISO-код из гео-заголовка CDN); null без CDN */

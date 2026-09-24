@@ -46,6 +46,7 @@ import {
   type ProcessValidationIssue,
   type WorkspaceMember,
   type ProcessInstanceDto,
+  guardedDisplay,
 } from '@superapp/shared';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { EntityOption } from '@/lib/entities';
@@ -141,7 +142,7 @@ export default function ProcessEditorPage() {
           id: m.userId,
           title: m.userName,
           firstName: m.card?.firstName ?? fn,
-          lastName: m.card?.lastName ?? (rest.join(' ') || null),
+          lastName: (m.card ? guardedDisplay(m.card.lastName) : null) ?? (rest.join(' ') || null),
           role: m.assignments?.[0]?.positionName ?? null,
         } as EntityOption;
       }),

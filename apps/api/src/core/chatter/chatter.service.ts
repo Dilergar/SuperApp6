@@ -416,7 +416,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     const ok = await resolver.canView(viewerId, refId);
     if (!ok) throw forbidden('chatter.forbidden');
 
-    return this.page({ refType, refId }, q.cursor, q.limit);
+    return this.page({ refType, refId }, q.cursor, q.limit, viewerId);
   }
 
   /**
@@ -437,7 +437,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
 
     const where: Prisma.ChatterEntryWhereInput = { workspaceId };
     if (q.category) where.typeKey = { in: chatterTypeKeysOf(q.category) };
-    return this.page(where, q.cursor, q.limit);
+    return this.page(where, q.cursor, q.limit, viewerId);
   }
 
   // ============================================================
@@ -448,6 +448,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     where: Prisma.ChatterEntryWhereInput,
     cursor?: string,
     limit?: number,
+    viewerId?: string,
   ): Promise<ChatterPageDto> {
     const take = Math.min(limit ?? CHATTER_LIMITS.pageSize, CHATTER_LIMITS.maxPageSize);
     const rows = await this.db.chatterEntry.findMany({
@@ -457,8 +458,9 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     });
     const hasMore = rows.length > take;
     const page = hasMore ? rows.slice(0, take) : rows;
+    const masked = await this.maskForViewer(viewerId ?? null, page);
     return {
-      items: page.map((r) => this.toDto(r)),
+      items: page.map((r, i) => this.toDto(r, masked[i])),
       nextCursor: hasMore && page.length > 0 ? page[page.length - 1].id.toString() : null,
       actors: await this.loadActors(page),
     };
@@ -505,8 +507,32 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
    * факт читается по-казахски у одного человека и по-английски у другого, а
    * накопленная история переводится задним числом вместе с каталогом.
    */
-  private toDto(row: ChatterEntry): ChatterEntryDto {
-    const stored = (row.changes as unknown as ChatterChange[] | null) ?? null;
+  /**
+   * «Было → стало» полей под правилами видимости — глазами зрителя (core/visibility): маска или
+   * «скрыто». Строки без спеки refType и без таких полей не трогаются. Нет маскировщика или
+   * зрителя — поля со спекой скрываются целиком (fail-closed).
+   */
+  private async maskForViewer(viewerId: string | null, rows: ChatterEntry[]): Promise<Array<ChatterChange[] | null | undefined>> {
+    const masker = this.registry.getMasker();
+    return Promise.all(
+      rows.map(async (r) => {
+        const changes = (r.changes as unknown as ChatterChange[] | null) ?? null;
+        const spec = this.registry.get(r.refType)?.visibility;
+        if (!changes || !spec || !changes.some((c) => spec.fieldMap[c.field])) return undefined;
+        if (!masker || !viewerId) {
+          return changes.map((c) => (spec.fieldMap[c.field] ? { ...c, from: null, to: null, raw: undefined, concealed: 'hidden' as const } : c));
+        }
+        try {
+          return (await masker.mask(viewerId, spec, { refId: r.refId, workspaceId: r.workspaceId }, changes as never)) as ChatterChange[];
+        } catch {
+          return changes.map((c) => (spec.fieldMap[c.field] ? { ...c, from: null, to: null, raw: undefined, concealed: 'hidden' as const } : c));
+        }
+      }),
+    );
+  }
+
+  private toDto(row: ChatterEntry, maskedChanges?: ChatterChange[] | null): ChatterEntryDto {
+    const stored = maskedChanges !== undefined ? maskedChanges : ((row.changes as unknown as ChatterChange[] | null) ?? null);
     const payload = (row.payload as Record<string, unknown> | null) ?? null;
     const locale = this.i18n.locale;
     const t = this.i18n.forLocale(locale);

@@ -18,6 +18,7 @@ import type {
   PlatformWorkspaceHitDto,
   PlatformUserSecurityPanelDto,
   PlatformWorkspaceSecurityPanelDto,
+  PlatformWorkspaceVisibilityPanelDto,
 } from '@superapp/shared';
 import { Alert, BentoGrid, Button, Card, CardHeader, Chip, LoadingBlock, Menu, PageHeader, type MenuAction } from '@/components/ui';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
@@ -28,6 +29,7 @@ import { AuditRows } from './AuditRows';
 import { SubjectEntitlements } from './SubjectEntitlements';
 import { ActivityPanel } from './analytics/ActivityPanel';
 import { UserSecurityPanel, WorkspaceSecurityPanel } from './SecurityPanel';
+import { WorkspaceVisibilityPanel } from './VisibilityPanel';
 
 // ============================================================
 // Карточка 360: шапка + чипы состояния + меню «Действия» из команд реестра (без права —
@@ -236,6 +238,7 @@ function PanelBody({
   if (panelKey.endsWith('.entitlements')) return <SubjectEntitlements detail={data as EntitlementSubjectDetailDto} />;
   if (panelKey === 'user.security') return <UserSecurityPanel data={data as PlatformUserSecurityPanelDto} userId={entityId} />;
   if (panelKey === 'workspace.security') return <WorkspaceSecurityPanel data={data as PlatformWorkspaceSecurityPanelDto} workspaceId={entityId} />;
+  if (panelKey === 'workspace.visibility') return <WorkspaceVisibilityPanel data={data as PlatformWorkspaceVisibilityPanelDto} />;
   if (panelKey.endsWith('.audit')) return <AuditRows page={data as PlatformAuditPageDto} compact />;
   if (panelKey.endsWith('.analytics')) {
     return <ActivityPanel data={data as AnalyticsActivityPanelDto} onOpenPlans={panelOpener(panelKey.replace(/\.analytics$/, '.entitlements'))} />;

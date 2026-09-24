@@ -21,7 +21,6 @@ import type {
   KeyRegistryQuery,
   KeyScopeMatrixDto,
   KeysPendingDto,
-  KeysStepUpStatusDto,
   WebhookDeliveryPage,
   WebhookEndpointCreateInput,
   WebhookEndpointCreatedDto,
@@ -68,9 +67,7 @@ export const rotatePersonalKey = (keyId: string, input: ApiKeyRotateInput) => ap
 export const revokePersonalKey = (keyId: string, input: ApiKeyRevokeInput) => apiPost<ApiKeyDto>(`/keys/personal/${keyId}/revoke`, input);
 
 // ---- Step-up и справочники ----
-export const fetchKeysStepUp = () => apiGet<KeysStepUpStatusDto>('/keys/step-up');
-export const confirmKeysStepUp = (verifyToken: string) => apiPost<KeysStepUpStatusDto>('/keys/step-up/confirm', { verifyToken });
-export const endKeysStepUp = () => apiPost<KeysStepUpStatusDto>('/keys/step-up/end', {});
+// Окно step-up ключей — общий `useStepUp('keys_manage')` (`/verify/step-up/*`)
 export const fetchScopeMatrix = () => apiGet<KeyScopeMatrixDto>('/keys/scope-matrix');
 
 // ---- Вебхуки (core/webhooks) ----

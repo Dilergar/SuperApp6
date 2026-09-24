@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { OCSF_ACTIVITY as A, OCSF_CLASS as C } from './ocsf';
-import { AUDIT_VIS, defineAuditEvents, detailCode, detailCount, detailIso } from './types';
+import { AUDIT_SETTINGS, AUDIT_VIS, defineAuditEvents, detailCode, detailCount, detailIso } from './types';
 
 // ============================================================
 // Журнал о самом себе: кто смотрел журнал, дайджесты целостности, архив партиций,
@@ -54,15 +54,25 @@ export const META_AUDIT_EVENTS = defineAuditEvents({
     details: z.object({ partition: detailCode(48) }).strict(),
     ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.delete },
   },
-  /** Смена настроек журнала (интервал дайджестов, архив, ретеншн) — CRITICAL + четыре глаза */
+  /**
+   * Настройка журнала разошлась со значением прошлого запуска (интервал дайджестов, срок
+   * хранения, архив, доверенный гео-заголовок) — сверка на буте; первый запуск пишет исходное
+   * значение (`reason_code: baseline`). Правда о прошлом значении — сам журнал. Значения —
+   * числа и признаки (строки в `from`/`to` рендер принял бы за роль организации).
+   */
   'audit.settings.changed': {
     category: 'audit',
     severity: 'critical',
     visibility: AUDIT_VIS.platform,
-    details: z.object({ setting: detailCode(48) }).strict(),
+    details: z
+      .object({
+        setting: z.enum(AUDIT_SETTINGS),
+        from: z.union([detailCount(), z.boolean()]).nullable(),
+        to: z.union([detailCount(), z.boolean()]),
+      })
+      .strict(),
     vocab: 'sys_monitor_disabled',
     ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.update },
-    status: 'planned',
   },
   /** Итог блокировки входа: сколько попыток отбито, пока аккаунт был заблокирован (построчно не пишутся) */
   'audit.lockout_summary': {

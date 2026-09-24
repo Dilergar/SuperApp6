@@ -133,13 +133,27 @@ async function main() {
     const asStaff = await call('GET', `/workspaces/${wsId}/requisites`, t2);
     check('сотрудник видит реквизиты по умолчанию', asStaff.ok && asStaff.json.data?.bin === bin, `status ${asStaff.status}`);
 
-    // Владелец выключает флаг «Реквизиты» → сотруднику data: null, владельцу — как было
-    await call('PATCH', `/workspaces/${wsId}`, t1, { cardVisibility: { requisites: false } });
+    // Владелец скрывает блок реквизитов от стажёров и сотрудников — ПРАВИЛОМ политики организации
+    // (core/visibility, `workspace.card.requisites`): черновик → дифф → публикация
+    const polBase = `/workspaces/${wsId}/visibility/policies/workspace.card`;
+    const hideRules = ['trainee', 'staff'].map((role) => ({ fieldKey: 'requisites', audience: { kind: 'role', id: role }, effect: 'deny', level: 'hidden' }));
+    const draft = await call('PUT', `${polBase}/draft`, t1, { rules: hideRules });
+    check('черновик политики сохранён', draft.ok, `status ${draft.status} ${draft.json?.details?.code}`);
+    const diff = await call('GET', `${polBase}/diff`, t1);
+    check('дифф: блок сужен для ролей', (diff.json?.data?.narrowed ?? []).some((d) => d.fieldKey === 'requisites'), JSON.stringify(diff.json?.data?.narrowed ?? null));
+    const pub = await call('POST', `${polBase}/publish`, t1, { draftToken: diff.json?.data?.draftToken });
+    check('политика опубликована', pub.ok, `status ${pub.status} ${pub.json?.details?.code}`);
     const hidden = await call('GET', `/workspaces/${wsId}/requisites`, t2);
-    check('флаг видимости скрывает блок от сотрудника', hidden.ok && hidden.json.data === null, JSON.stringify(hidden.json?.data));
+    check('правило видимости скрывает блок от сотрудника', hidden.ok && hidden.json.data === null, JSON.stringify(hidden.json?.data));
     const stillOwner = await call('GET', `/workspaces/${wsId}/requisites`, t1);
-    check('владелец видит при любом флаге', stillOwner.ok && stillOwner.json.data?.bin === bin);
-    await call('PATCH', `/workspaces/${wsId}`, t1, { cardVisibility: { requisites: true } });
+    check('владелец видит при любом правиле', stillOwner.ok && stillOwner.json.data?.bin === bin);
+    // Вернуть умолчания: пустой черновик → публикация
+    await call('PUT', `${polBase}/draft`, t1, { rules: [] });
+    const diffBack = await call('GET', `${polBase}/diff`, t1);
+    const back = await call('POST', `${polBase}/publish`, t1, { draftToken: diffBack.json?.data?.draftToken });
+    check('умолчания возвращены публикацией', back.ok, `status ${back.status} ${back.json?.details?.code}`);
+    const shownAgain = await call('GET', `/workspaces/${wsId}/requisites`, t2);
+    check('сотрудник снова видит реквизиты', shownAgain.ok && shownAgain.json.data?.bin === bin);
 
     // Стажёр править не может
     const staffEdit = await call('PATCH', `/workspaces/${wsId}/requisites`, t2, { kbe: '19' });
@@ -162,15 +176,18 @@ async function main() {
       iban: iban2, bankName: 'Halyk Bank', bik: 'HSBKKZKX',
     });
     const accs = acc2.json?.data?.bankAccounts ?? [];
-    check('второй счёт НЕ основной', accs.length === 2 && accs.find((a) => a.iban === iban2)?.isPrimary === false);
+    // IBAN — строгое поле `workspace.card` (ИП = ПДн): даже владельцу маска последних четырёх
+    const isAcc = (a, iban) => a?.iban?.$v === 'masked' && String(a.iban.display ?? '').endsWith(iban.slice(-4));
+    check('IBAN счёта отдаётся маской', accs.every((a) => a.iban?.$v === 'masked'), JSON.stringify(accs.map((a) => a.iban)));
+    check('второй счёт НЕ основной', accs.length === 2 && accs.find((a) => isAcc(a, iban2))?.isPrimary === false);
 
-    const a2id = accs.find((a) => a.iban === iban2)?.id;
+    const a2id = accs.find((a) => isAcc(a, iban2))?.id;
     const swap = await call('PATCH', `/workspaces/${wsId}/requisites/accounts/${a2id}`, t1, { isPrimary: true });
     const afterSwap = swap.json?.data?.bankAccounts ?? [];
     check(
       'основной ровно один после переключения',
-      afterSwap.filter((a) => a.isPrimary).length === 1 && afterSwap.find((a) => a.iban === iban2)?.isPrimary === true,
-      JSON.stringify(afterSwap.map((a) => [a.iban.slice(-4), a.isPrimary])),
+      afterSwap.filter((a) => a.isPrimary).length === 1 && afterSwap.find((a) => a.id === a2id)?.isPrimary === true,
+      JSON.stringify(afterSwap.map((a) => [a.id.slice(0, 4), a.isPrimary])),
     );
 
     const del2 = await call('DELETE', `/workspaces/${wsId}/requisites/accounts/${a2id}`, t1);
@@ -209,7 +226,8 @@ async function main() {
     });
     check('карта добавлена и стала основной', c1.ok && c1.json.data.isPrimary === true, `status ${c1.status}`);
     if (c1.ok) cleanup.cardIds.push(c1.json.data.id);
-    check('владельцу номер отдаётся полностью', c1.json?.data?.pan === VISA_TEST_PAN, c1.json?.data?.panMasked);
+    // Полного номера карты в продукте нет ни у кого, даже у владельца (R11, PCI DSS 3.4.1)
+    check('владельцу номер — только маской последних четырёх', !('pan' in (c1.json?.data ?? {})) && /1111$/.test(c1.json?.data?.panMasked ?? ''), c1.json?.data?.panMasked);
 
     const c2 = await call('POST', '/wallet/cards', t2, {
       pan: '5500005555555559', holderName: 'SUITE TWO', expMonth: 6, expYear: 2030,
@@ -218,7 +236,8 @@ async function main() {
     if (c2.ok) cleanup.cardIds.push(c2.json.data.id);
 
     // ============================================================
-    // 6. Карточка сотрудника: manager+ видит реквизиты всегда, коллега — по тумблерам.
+    // 6. Карточка сотрудника — служебные поля `staff.member` (core/visibility): владельцу и
+    //    админу — МАСКА с раскрытием по одной записи, остальным — скрыто, самому — полностью.
     // Комплект отдаёт ручка ОДНОГО сотрудника: в СПИСКЕ реквизитов и карт нет
     // намеренно (расшифровка каждой карты не должна уезжать в браузер на ростер).
     // ============================================================
@@ -227,25 +246,26 @@ async function main() {
     check('в СПИСКЕ реквизитов и карт нет (сетка лиц)', !!listRow && !listRow.requisites, JSON.stringify(listRow?.requisites ?? null));
     const u2card = await call('GET', `/workspaces/${wsId}/members/${u2}`, t1);
     const u2row = u2card.json?.data ?? null;
-    check('управляющий видит ИИН сотрудника (нередактируемый уровень)', u2row?.requisites?.iin === iin2, JSON.stringify(u2row?.requisites ?? null));
-    check('управляющий видит основную карту полностью', u2row?.requisites?.paymentCard?.pan === VISA_TEST_PAN, u2row?.requisites?.paymentCard?.pan);
-    check('управляющему приехал и IBAN карт-счёта', u2row?.requisites?.paymentCard?.iban === cardIban);
-    check('и удостоверение с датой', u2row?.requisites?.idDocNumber === '045678901' && u2row?.requisites?.idDocIssuedAt === '2020-05-15');
+    const rq = u2row?.requisites ?? {};
+    check('владелец видит ИИН сотрудника маской с раскрытием', rq.iin?.$v === 'masked' && rq.iin.reveal === 'one' && rq.iin.display?.endsWith(iin2.slice(-4)), JSON.stringify(rq.iin ?? null));
+    check('номер карты — только последние четыре, без раскрытия (секрет)', rq.paymentCard?.pan?.$v === 'masked' && rq.paymentCard.pan.reveal === 'none' && /1111$/.test(rq.paymentCard.pan.display ?? ''), JSON.stringify(rq.paymentCard?.pan ?? null));
+    check('IBAN карт-счёта — маской с раскрытием', rq.paymentCard?.iban?.$v === 'masked' && rq.paymentCard.iban.display?.endsWith(cardIban.slice(-4)));
+    check('удостоверение — маской, дата — годом', rq.idDocNumber?.display?.endsWith('8901') && rq.idDocIssuedAt?.display === '2020');
+    check('полных значений реквизитов в ответе нет', !JSON.stringify(u2card.json).includes(iin2) && !JSON.stringify(u2card.json).includes(VISA_TEST_PAN));
+    // Раскрытие ОДНОЙ записи: без окна SMS-подтверждения — 403 с кодом (step-up)
+    const rev = await call('POST', '/visibility/reveal', t1, { recordType: 'staff.member', recordId: u2, fields: ['iin'] }, { 'X-Workspace-Id': wsId });
+    check('раскрытие без окна подтверждения → 403 step_up_required', rev.status === 403 && /step_up_required/.test(rev.json?.details?.code ?? ''), `status ${rev.status} ${JSON.stringify(rev.json).slice(0, 300)}`);
+    // Самому — полностью (ЗоПД ст. 24)
+    const selfCard = await call('GET', `/workspaces/${wsId}/members/${u2}`, t2);
+    check('сам видит свои реквизиты полностью', selfCard.json?.data?.requisites?.iin === iin2, JSON.stringify(selfCard.json?.data?.requisites?.iin ?? null));
 
-    // Коллега (u2 — стажёр) смотрит на владельца u1: у того реквизиты не заполнены и
-    // тумблеры выключены → блока нет вовсе.
+    // Коллега-стажёр смотрит на владельца: служебные поля скрыты правилами (личных тумблеров
+    // у реквизитов больше нет — решает организация), в ответе — только счётчик скрытого
+    await call('PATCH', '/users/me', t1, { iin: makeIinOrBin() });
     const u1card = await call('GET', `/workspaces/${wsId}/members/${u1}`, t2);
     const u1row = u1card.json?.data ?? null;
-    check('рядовому реквизиты коллег не видны (тумблеры выключены)', !u1row?.requisites?.iin && !u1row?.requisites?.paymentCard, JSON.stringify(u1row?.requisites ?? null));
-
-    // u2 включает коллегам ТОЛЬКО ИИН → u1 (manager+) и так видел; проверяем именно
-    // рядового зрителя: наймём третьего? Дешевле проверить обратное — u2 видит своего
-    // же коллегу-владельца ПОСЛЕ того, как тот включит тумблер.
-    await call('PATCH', '/users/me', t1, { iin: makeIinOrBin(), companyCardVisibility: { extras: { iin: true } } });
-    const u1card2 = await call('GET', `/workspaces/${wsId}/members/${u1}`, t2);
-    const u1row2 = u1card2.json?.data ?? null;
-    check('тумблер «ИИН коллегам» открывает поле рядовому', !!u1row2?.requisites?.iin, JSON.stringify(u1row2?.requisites ?? null));
-    check('карта при этом рядовому НЕ видна (свой тумблер выключен)', !u1row2?.requisites?.paymentCard);
+    check('рядовому реквизиты коллег скрыты маркером', u1row?.requisites?.iin?.$v === 'hidden' && !u1row?.requisites?.paymentCard, JSON.stringify(u1row?.requisites ?? null));
+    check('тихая строка «часть скрыта» — счётчик', (u1row?.requisites?.hiddenCount ?? 0) > 0, `hiddenCount=${u1row?.requisites?.hiddenCount}`);
 
     // ============================================================
     // 7. Управление картами: смена основной, удаление с передачей роли
@@ -263,7 +283,7 @@ async function main() {
     await call('PATCH', '/users/me', t2, {
       iin: null, residentialAddress: null, idDocNumber: null, idDocIssuedBy: null, idDocIssuedAt: null,
     }).catch(() => {});
-    await call('PATCH', '/users/me', t1, { iin: null, companyCardVisibility: null }).catch(() => {});
+    await call('PATCH', '/users/me', t1, { iin: null }).catch(() => {});
     if (cleanup.wsId) await call('DELETE', `/workspaces/${cleanup.wsId}`, t1).catch(() => {});
   }
 

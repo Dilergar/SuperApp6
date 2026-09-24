@@ -10,9 +10,10 @@
 
 import { notFound } from 'next/navigation';
 import { useState } from 'react';
+import { HIDDEN, maskedMarker } from '@superapp/shared';
 import {
   Alert, AvatarStack, Badge, BarChart, BentoGrid, Button, Calendar, Card, CardHeader, Checkbox, Chip, CohortGrid,
-  ConfirmDialog, DatePicker, Divider, Dropzone, EmojiIcon, EmptyState, FunnelChart, GlyphField, GradientTickBar, Icon,
+  ConfirmDialog, DatePicker, Divider, Dropzone, EmojiIcon, EmptyState, FunnelChart, GlyphField, GradientTickBar, GuardedValue, Icon,
   IconButton, ICONS, Input, LineChart, Menu, Modal, PageHeader, Pagination, ScatterLabeled, SearchField, SegmentedControl,
   Select, Skeleton, Sparkline, Spinner, StackedBars, StatTile, StatusDot, Table, TableCell, TableGroupRow, TableHeader, TableRow, Tabs,
   Textarea, TickBar, Toggle, Tooltip,
@@ -221,6 +222,37 @@ export default function DevUiPage() {
             <Badge tone="neutral">99+</Badge>
             {TONES.map((t) => <StatusDot key={t} tone={t} title={t} />)}
           </Row>
+        </Card>
+
+        {/* ---------- Защищённое поле (core/visibility) ---------- */}
+        <Card span={4}>
+          <CardHeader title="Защищённое поле" subtitle="<GuardedValue>: значение / маска / скрыто. Маску считает только сервер" />
+          <div className="ui-stack" style={{ gap: 'var(--spacing-2)', fontSize: '0.875rem' }}>
+            <Row>
+              <span className="label-caps" style={{ minWidth: 110 }}>Видно</span>
+              <GuardedValue value="+7 705 123 45 67" />
+            </Row>
+            <Row>
+              <span className="label-caps" style={{ minWidth: 110 }}>Маска</span>
+              <GuardedValue value={maskedMarker('phone_partial', '+77051234567')} />
+            </Row>
+            <Row>
+              <span className="label-caps" style={{ minWidth: 110 }}>Маска + раскрытие</span>
+              <GuardedValue
+                value={maskedMarker('id_last4', '900101300123', 'one')}
+                maskAction={<IconButton icon="eye" size={28} iconSize={16} round={false} label="Показать" onClick={() => {}} />}
+              />
+            </Row>
+            <Row>
+              <span className="label-caps" style={{ minWidth: 110 }}>Скрыто</span>
+              <span className="label-sm" style={{ opacity: 0.6 }}>(не рисуется)</span>
+              <GuardedValue value={HIDDEN} />
+            </Row>
+            <Row>
+              <span className="label-caps" style={{ minWidth: 110 }}>Скрыто, чип</span>
+              <GuardedValue value={HIDDEN} placeholder />
+            </Row>
+          </div>
         </Card>
 
         {/* ---------- Прогресс ---------- */}

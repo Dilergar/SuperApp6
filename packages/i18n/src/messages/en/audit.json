@@ -134,6 +134,16 @@
       "settings_changed": {
         "title": "Security settings changed",
         "body": "Inactive sessions end after {sessionMaxIdleDays} days."
+      },
+      "integration": {
+        "connected": {
+          "title": "{provider, select, google_calendar {Google Calendar} other {An external app}} connected",
+          "body": ""
+        },
+        "disconnected": {
+          "title": "{provider, select, google_calendar {Google Calendar} other {An external app}} disconnected",
+          "body": "{reason, select, self {Disconnected in the settings} not_me {The “This wasn’t me” wizard} account_deleted {The account is deleted} other {}}"
+        }
       }
     },
     "org": {
@@ -152,6 +162,10 @@
         },
         "left": {
           "title": "Left “{workspace}”",
+          "body": ""
+        },
+        "invitation_cancelled": {
+          "title": "Invitation to “{workspace}” cancelled",
           "body": ""
         }
       },
@@ -179,6 +193,10 @@
         "purged": {
           "title": "“{workspace}” deleted permanently",
           "body": ""
+        },
+        "created": {
+          "title": "“{workspace}” created",
+          "body": ""
         }
       },
       "session": {
@@ -190,6 +208,20 @@
       "audit": {
         "stream_changed": {
           "title": "{enabled, select, true {Security log streaming turned on} other {Security log streaming turned off}}",
+          "body": ""
+        }
+      },
+      "visibility": {
+        "policy_published": {
+          "title": "Visibility rules published: {recordTypeLabel}",
+          "body": "Version {version}: {widened} more visible, {narrowed} more hidden"
+        },
+        "explain_viewed": {
+          "title": "Checked what {target} sees: {recordTypeLabel}",
+          "body": ""
+        },
+        "settings_changed": {
+          "title": "Visibility policy settings changed",
           "body": ""
         }
       }
@@ -426,6 +458,14 @@
       "read": {
         "title": "Sensitive personal data read",
         "body": "{count, plural, one {# record} other {# records}}"
+      },
+      "reveal": {
+        "title": "Protected data revealed",
+        "body": "{recordTypeLabel}: {fieldList}"
+      },
+      "reveal_denied": {
+        "title": "Data reveal refused",
+        "body": "{recordTypeLabel}: {fieldList}"
       }
     },
     "pd": {
@@ -454,7 +494,7 @@
     },
     "data": {
       "export": {
-        "title": "{source, select, hr_zip {HR documents exported} documents_zip {Documents exported} audit_org {Security log exported} audit_platform {Security log exported by the platform} my_data {“My data” exported} analytics_report {Analytics report exported} other {Data exported}}",
+        "title": "{source, select, hr_zip {HR documents exported} audit_org {Security log exported} audit_platform {Security log exported by the platform} my_data {“My data” exported} drive_guest_zip {Folder downloaded by a public link} other {Data exported}}",
         "body": "{rows, plural, one {# record} other {# records}}"
       }
     },
@@ -502,6 +542,22 @@
       "session_context_changed": {
         "title": "Session context changed",
         "body": ""
+      },
+      "idor_probing": {
+        "title": "Probing of other people’s objects",
+        "body": "{events, plural, one {# denial} other {# denials}} in {windowMin} min"
+      },
+      "malware_burst": {
+        "title": "Series of infected uploads",
+        "body": "{events, plural, one {# infected file} other {# infected files}} in {windowMin} min"
+      },
+      "mass_reveal": {
+        "title": "Mass data reveal",
+        "body": "{events} reveals in {windowMin} min"
+      },
+      "pii_scrape": {
+        "title": "Suspected data scraping",
+        "body": "{events} other people’s records with contacts or personal fields read in full in {windowMin} min"
       }
     },
     "audit": {
@@ -536,12 +592,58 @@
       "settings": {
         "changed": {
           "title": "Security log settings changed",
-          "body": ""
+          "body": "{setting, select, digest_interval_min {Digest interval, min} retention_years {Retention, years} archive_enabled {Archive of closed months} trusted_country {Trusted country header} other {{setting}}}: {to}"
         }
       },
       "lockout_summary": {
         "title": "Sign-in attempts during the block",
         "body": "{attempts, plural, one {# attempt was turned away} other {# attempts were turned away}}"
+      }
+    },
+    "sharing": {
+      "access": {
+        "granted": {
+          "title": "{previousAccess, select, none {Access to “{target}” opened} other {Access to “{target}” changed}}",
+          "body": "{principalType, select, user {A colleague} workspace {The whole team} department {A department} position {A position} branch {A site} circle {A group} other {A member}} {access, select, viewer {views} editor {edits} manager {manages access} use {uses} other {access: {access}}}"
+        },
+        "revoked": {
+          "title": "Access to “{target}” closed",
+          "body": "{principalType, select, user {A colleague} workspace {The whole team} department {A department} position {A position} branch {A site} circle {A group} other {A member}}"
+        }
+      },
+      "link": {
+        "created": {
+          "title": "Public link to “{target}” created",
+          "body": "{passcode, select, true {With a password} other {Without a password}} · {identity, select, true {phone confirmation} other {no phone confirmation}} · {expires, select, true {with an expiry date} other {no expiry}}"
+        },
+        "updated": {
+          "title": "Public link to “{target}” changed",
+          "body": ""
+        },
+        "revoked": {
+          "title": "Public link to “{target}” closed",
+          "body": "{reason, select, manual {Closed manually} mine_bulk {Closed together with the author’s other links} workspace_bulk {Closed by an organization admin} object_deleted {The shared item was deleted} other {}}"
+        },
+        "password_locked": {
+          "title": "Password guessing on the public link to “{target}”",
+          "body": "{attempts, plural, one {# wrong attempt} other {# wrong attempts}} in a row; the link is locked for {minutes} min"
+        },
+        "guest_verified": {
+          "title": "A new guest with a confirmed number opened “{target}”",
+          "body": ""
+        }
+      }
+    },
+    "files": {
+      "malware_detected": {
+        "title": "Virus found in “{target}”",
+        "body": "The file is blocked: {signature}"
+      }
+    },
+    "authz": {
+      "denied": {
+        "title": "Access denied: {reason}",
+        "body": "{attempts, plural, one {# attempt} other {# attempts}}"
       }
     }
   },
@@ -557,7 +659,10 @@
     "consents": "Consents",
     "data": "Exports",
     "detect": "Detections",
-    "audit": "The log itself"
+    "audit": "The log itself",
+    "sharing": "Access and public links",
+    "files": "Files",
+    "authz": "Access denials"
   },
   "severities": {
     "info": "Info",
@@ -622,11 +727,10 @@
   },
   "exportSources": {
     "hr_zip": "HR documents",
-    "documents_zip": "Documents",
     "audit_org": "Security log",
     "audit_platform": "Security log (platform)",
     "my_data": "My data",
-    "analytics_report": "Analytics report"
+    "drive_guest_zip": "Folder by a public link"
   },
   "filters": {
     "person": {
@@ -636,7 +740,8 @@
       "credentials": "Password and number",
       "orgs": "Organizations",
       "keys": "Keys and apps",
-      "data": "My data"
+      "data": "My data",
+      "reveals": "Reveals"
     },
     "org": {
       "all": "All",
@@ -644,7 +749,10 @@
       "devices": "Devices",
       "keys": "Keys and integrations",
       "exports": "Exports",
-      "consents": "Consents"
+      "consents": "Consents",
+      "sharing": "Access",
+      "files": "Files",
+      "reveals": "Reveals"
     }
   },
   "unknownWorkspace": "organization",
@@ -705,8 +813,10 @@
     "event": {
       "when": "When",
       "who": "Who",
+      "initiator": "initiated by",
       "subject": "Whose account",
       "target": "Object",
+      "openObject": "Open",
       "device": "Device",
       "where": "Where",
       "approx": "{place} (approximately)",

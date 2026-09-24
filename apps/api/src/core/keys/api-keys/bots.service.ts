@@ -118,10 +118,11 @@ export class BotsService {
           purpose: input.purpose,
           scopes: scopes as Prisma.InputJsonValue,
           ipAllowlist: (input.ipAllowlist ?? []) as Prisma.InputJsonValue,
+          contactAccess: input.contactAccess ?? false,
           createdById: actor.userId,
         },
       });
-      await this.audit.log(tx, { actorId: actor.userId, workspaceId, subjectType: 'bot', subjectId: bot.id, subjectName: bot.name, action: 'bot.created', ip: actor.ip ?? null, details: { rank: bot.rank, scopes: Object.keys(scopes), responsibleUserId: bot.responsibleUserId } });
+      await this.audit.log(tx, { actorId: actor.userId, workspaceId, subjectType: 'bot', subjectId: bot.id, subjectName: bot.name, action: 'bot.created', ip: actor.ip ?? null, details: { rank: bot.rank, scopes: Object.keys(scopes), responsibleUserId: bot.responsibleUserId, contactAccess: bot.contactAccess } });
       await this.analytics.track(tx, 'keys.bot.created', { rank: bot.rank, scopeCount: Object.keys(scopes).length, hasAllowlist: (input.ipAllowlist ?? []).length > 0 }, { userId: actor.userId, workspaceId });
       const minted = await this.keys.mintForBotTx(tx, bot, actor, { storedHint: input.storedHint, expiresInDays: input.expiresInDays, noExpiry: input.noExpiry }, role, policy);
       return { bot, key: minted.row, secret: minted.secret };
@@ -145,7 +146,9 @@ export class BotsService {
     const stable = (v: unknown): string => JSON.stringify(Array.isArray(v) ? [...v].sort() : Object.entries((v ?? {}) as Record<string, unknown>).sort());
     const scopesChanged = !!scopes && stable(scopes) !== stable(normalizeKeyScopes(row.scopes as Record<string, unknown>, true));
     const allowlistChanged = input.ipAllowlist !== undefined && stable(input.ipAllowlist) !== stable(Array.isArray(row.ipAllowlist) ? row.ipAllowlist : []);
-    if (rankChanged || scopesChanged || allowlistChanged) await this.stepUp.assert(actor.userId);
+    // Доступ к контактам клиентов (R9) — тоже сила ключей бота
+    const contactChanged = input.contactAccess !== undefined && input.contactAccess !== row.contactAccess;
+    if (rankChanged || scopesChanged || allowlistChanged || contactChanged) await this.stepUp.assert(actor.userId);
     if (input.ipAllowlist !== undefined && input.ipAllowlist.length === 0) {
       // IP-список нельзя снять, пока он — условие: политика организации либо живой бессрочный ключ
       const policy = await this.keys.policy(workspaceId);
@@ -164,9 +167,12 @@ export class BotsService {
           ...(input.responsibleUserId !== undefined ? { responsibleUserId: input.responsibleUserId } : {}),
           ...(scopes ? { scopes: scopes as Prisma.InputJsonValue } : {}),
           ...(input.ipAllowlist !== undefined ? { ipAllowlist: input.ipAllowlist as Prisma.InputJsonValue } : {}),
+          ...(contactChanged ? { contactAccess: input.contactAccess } : {}),
         },
       });
       if (input.name !== undefined) await tx.user.update({ where: { id: row.userId }, data: { firstName: input.name } });
+      // Флаг живёт на боте и копируется в его ключи (как скоупы)
+      if (contactChanged) await tx.apiKey.updateMany({ where: { botId: row.id, revokedAt: null }, data: { contactAccess: input.contactAccess } });
       // Скоупы живут на боте и копируются в его ключи (один источник — бот)
       if (scopes) await tx.apiKey.updateMany({ where: { botId: row.id, revokedAt: null }, data: { scopes: scopes as Prisma.InputJsonValue } });
       if (rankChanged) {
@@ -177,11 +183,11 @@ export class BotsService {
           update: { isActive: true, grantedBy: actor.userId },
         });
       }
-      await this.audit.log(tx, { actorId: actor.userId, workspaceId, subjectType: 'bot', subjectId: row.id, subjectName: u.name, action: 'bot.updated', ip: actor.ip ?? null, details: { fields: Object.keys(input) } });
+      await this.audit.log(tx, { actorId: actor.userId, workspaceId, subjectType: 'bot', subjectId: row.id, subjectName: u.name, action: 'bot.updated', ip: actor.ip ?? null, details: { fields: Object.keys(input), ...(contactChanged ? { contactAccess: input.contactAccess } : {}) } });
       return u;
     });
     if (rankChanged) await this.roles.invalidateUserCache(row.userId);
-    if (scopes || input.ipAllowlist !== undefined) await this.invalidateKeys(row.id);
+    if (scopes || input.ipAllowlist !== undefined || contactChanged) await this.invalidateKeys(row.id);
     void this.notifier.changed(workspaceId);
     return toBotDto(updated);
   }

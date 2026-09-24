@@ -209,8 +209,7 @@
       "single": "Single",
       "widowed": "Widowed"
     },
-    "peopleCount": "{n, plural, one {# person} other {# people}}",
-    "visibleToOthers": "{label}: visible to others"
+    "peopleCount": "{n, plural, one {# person} other {# people}}"
   },
   "presence": {
     "at": "{date} at {time}",
@@ -264,5 +263,19 @@
     "getCode": "Get a code",
     "back": "Back to the password",
     "codeTitle": "Enter the code from the SMS"
+  },
+  "guarded": {
+    "hidden": "Hidden",
+    "masked": "Partly hidden",
+    "show": "Show",
+    "partHidden": "Some data is hidden by the organization’s rules",
+    "partHiddenAdmin": "Open the visibility rules",
+    "presence": {
+      "recently": "last seen recently",
+      "week": "last seen within a week",
+      "month": "last seen within a month",
+      "long_ago": "last seen a long time ago"
+    },
+    "birthdayNoYear": "{date} (year hidden)"
   }
 }

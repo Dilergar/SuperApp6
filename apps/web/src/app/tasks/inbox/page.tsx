@@ -22,6 +22,7 @@ import { QuickAdd, useDueFormat } from '../tasks-ui';
 import { Alert, Button, Card, Icon, Input, PageHeader } from '@/components/ui';
 import { TaskListSection } from '../TaskListSection';
 import type { Contact, Task } from '@superapp/shared';
+import { guardedDisplay } from '@superapp/shared';
 
 export default function TasksInboxPage() {
   const t = useTranslations('tasks');
@@ -156,7 +157,7 @@ function InboxRow({ task, contacts, onChanged }: { task: Task; contacts: Contact
             <EntitySelector
               types={['user']}
               multi={false}
-              options={contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+              options={contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(), firstName: c.them.firstName, lastName: guardedDisplay(c.them.lastName), role: c.myRole }))}
               value={executorId ? [{ type: 'user', id: executorId }] : []}
               onChange={(p) => setExecutorId(p[0]?.id ?? null)}
               placeholder={t('inbox.assignPlaceholder')}

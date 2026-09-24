@@ -66,7 +66,9 @@ async function main() {
     // ===== #3 Lookup masking =====
     const lk = await call('GET', `/users/lookup?phone=${encodeURIComponent(P2)}`, t1);
     check('lookup: найден по номеру', lk.ok && !!lk.json.data, `status ${lk.status}`);
-    check('lookup: фамилия замаскирована до инициала', lk.json?.data?.lastName === expectedMask, `got "${lk.json?.data?.lastName}", full "${fullLast}"`);
+    // Маска — маркер движка видимости (Guarded): символы маски в `display`
+    const lkLast = lk.json?.data?.lastName;
+    check('lookup: фамилия замаскирована до инициала', lkLast?.$v === 'masked' && lkLast?.display === expectedMask, `got ${JSON.stringify(lkLast)}, full "${fullLast}"`);
     check('lookup: полная фамилия НЕ отдаётся', lk.json?.data?.lastName !== fullLast || fullLast.length <= 2);
     const lkNone = await call('GET', '/users/lookup?phone=%2B77009999999', t1);
     check('lookup: незарегистрированный номер → null', lkNone.ok && lkNone.json.data === null);

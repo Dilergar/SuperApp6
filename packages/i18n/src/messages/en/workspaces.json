@@ -79,7 +79,8 @@
       "processes": "Processes",
       "share": "Guest links",
       "staff": "Employees",
-      "tasks": "Tasks"
+      "tasks": "Tasks",
+      "visibility": "Visibility"
     },
     "description": "The chronicle of events: hiring and roles, positions, the movement of tasks — who, what and when",
     "empty": "Nothing here yet — hiring, role changes and the movement of the organization tasks will show up here",
@@ -203,7 +204,8 @@
       "security": "Security",
       "settings": "Settings",
       "stats": "Statistics",
-      "subscription": "Plan and limits"
+      "subscription": "Plan and limits",
+      "visibility": "Data visibility"
     },
     "sectionTitle": {
       "anketa": "Company details",
@@ -212,7 +214,8 @@
       "security": "Security",
       "settings": "Settings",
       "stats": "Statistics",
-      "subscription": "Plan and limits"
+      "subscription": "Plan and limits",
+      "visibility": "Data visibility"
     },
     "security": {
       "danger": {
@@ -241,17 +244,6 @@
       "aria": "Whose eyes to look at the card with",
       "member": "As the employees see it",
       "owner": "As you see it"
-    },
-    "visibility": {
-      "city": "City",
-      "contactEmail": "Email",
-      "contactPhone": "Phone",
-      "description": "Description",
-      "industry": "Industry",
-      "requisites": "Company details",
-      "subtitle": "What the employees see in the company card. The name and the logo are always visible",
-      "title": "Visibility for the employees",
-      "website": "Website"
     }
   },
   "requisites": {

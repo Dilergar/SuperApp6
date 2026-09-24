@@ -32,6 +32,8 @@ interface KeySnapshot {
   scopes: KeyScopes;
   ipAllowlist: string[];
   botAllowlist: string[];
+  /** R9: доступ к контактным данным (класс `contact` движка видимости) */
+  contactAccess: boolean;
   expiresAt: string | null;
   revokedAt: string | null;
   graceUntil: string | null;
@@ -112,6 +114,7 @@ export class ApiKeyAuthService {
       botId: snap.botId,
       keyWorkspaceId: snap.workspaceId,
       scopes: snap.scopes,
+      contactAccess: !!snap.contactAccess,
     };
   }
 
@@ -158,6 +161,7 @@ export class ApiKeyAuthService {
       scopes: scopesOf(row.scopes, row.kind === 'bot'),
       ipAllowlist: allowlistOf(row.ipAllowlist),
       botAllowlist: allowlistOf(row.bot?.ipAllowlist),
+      contactAccess: !!row.contactAccess,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       revokedAt: row.revokedAt?.toISOString() ?? null,
       graceUntil: row.graceUntil?.toISOString() ?? null,

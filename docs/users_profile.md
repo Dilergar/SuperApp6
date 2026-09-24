@@ -1,17 +1,17 @@
 # Профиль и аккаунт человека (core/users + auth)
 
-> Анкета, реквизиты человека, видимость, сессии и жизненный цикл аккаунта. Механика аутентификации (JWT/tokenEpoch/refresh) — [security.md](security.md); SMS-подтверждения — [verify_engine.md](verify_engine.md); видимость карточки по Группам — [contacts_circles.md](contacts_circles.md).
+> Анкета, реквизиты человека, видимость, сессии и жизненный цикл аккаунта. Механика аутентификации (JWT/tokenEpoch/refresh) — [security.md](security.md); SMS-подтверждения — [verify_engine.md](verify_engine.md); кто видит какие поля карточки — [visibility_engine.md](visibility_engine.md) (тип `user.card`) и [contacts_circles.md](contacts_circles.md).
 
 ## Анкета (`GET/PATCH /users/me`)
 
-- Поля: firstName / lastName / **middleName** (отчество — для договоров и трудоустройства, в карточках НЕ показывается) / dateOfBirth / bio / city / email / maritalStatus / socialLinks (`.strict()`) / onlineStatusMode / avatar (publicUrl движка файлов; веб — `AvatarUploadBlock`).
+- Поля: firstName / lastName / **middleName** (отчество — для договоров и трудоустройства, в карточках НЕ показывается) / dateOfBirth / bio / city / email / maritalStatus / socialLinks (`.strict()`) / avatar (publicUrl движка файлов; веб — `AvatarUploadBlock`).
 - **Дата рождения в анкете — ТРИ поля** (день / месяц НАЗВАНИЕМ `MONTH_NAMES_RU` / год).
-- `cardVisibility` — одиночная карта «видимость по умолчанию» (для зрителей вне Групп); PATCH **мержит** карту, не заменяет. `companyCardVisibility` — отдельный набор «Видимость в Компаниях» (что видят коллеги в ростере; реквизитные поля — в `extras`, по умолчанию выключены; manager+ видит нередактируемый комплект всегда — [workspaces.md](workspaces.md)).
+- **Кто что видит в карточке** — не поля анкеты, а личная политика `core/visibility` (`GET|PUT /visibility/me`, веб — раздел профиля «Карточка», `CardVisibilitySection`): аудитории поля (все / Окружение / Группа / коллеги), исключения «Всегда / Никогда», «Скрыть от Группы», предпросмотр «как видит чужой / коллега». «Был в сети» — поле `presence` той же политики (взаимность: скрыл своё — чужое видишь корзиной). Находимость по номеру — `PUT /visibility/me/discoverability` (`users.discoverable_by`: everybody | circle | nobody; `nobody` неотличим от «номер не зарегистрирован»).
 - `GET /users/me` отдаёт также roles, counts (contactsCount/circlesCount/workspacesCount — workspacesCount кэшируется 5 мин и сбрасывается при archive/restore), isVerified (computed из `phoneVerifiedAt`).
 
 ## Реквизиты человека (блок «Для договоров и трудоустройства»)
 
-`users.iin` (контрольная сумма — два прохода весов mod 11, `packages/shared/src/utils/requisites.ts`) / `residentialAddress` / `idDocNumber` / `idDocIssuedBy` / `idDocIssuedAt`. Потребители: core/templates (группа «Сотрудник»), КЭДО, core/sign (сверка ИИН сертификата). В личном Окружении реквизиты не показываются вовсе — это данные рабочего контекста; коллегам — только по тумблерам `companyCardVisibility.extras`.
+`users.iin` (контрольная сумма — два прохода весов mod 11, `packages/shared/src/utils/requisites.ts`) / `residentialAddress` / `idDocNumber` / `idDocIssuedBy` / `idDocIssuedAt`. Потребители: core/templates (группа «Сотрудник»), КЭДО, core/sign (сверка ИИН сертификата). В личном Окружении реквизиты не показываются вовсе — это данные рабочего контекста. В организации это служебные поля типа `staff.member`: кто их видит и в каком виде (маска последних четырёх, город вместо адреса, раскрытие одной записи под SMS), решает политика организации, а не человек; сам человек видит свои реквизиты всегда (ЗоПД ст. 24). Номер банковской карты в продукте — только последние четыре цифры, у всех, включая владельца организации.
 
 ## Сессии и устройства
 

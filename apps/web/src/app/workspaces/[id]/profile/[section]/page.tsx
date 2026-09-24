@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
@@ -9,44 +10,32 @@ import { CompanyCard } from '../../CompanyCard';
 import { RequisitesSection } from '../RequisitesSection';
 import { LegalEntitiesSection } from '../LegalEntitiesSection';
 import { WorkspaceNotificationPolicySection } from '../WorkspaceNotificationPolicySection';
+import { VisibilitySection } from '../VisibilitySection';
 import { EntitySelector } from '@/components/EntitySelector';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, ConfirmDialog, Divider, Input, LoadingBlock,
-  PageHeader, SegmentedControl, Select, StatTile, Textarea, Toggle,
+  GuardedValue, PageHeader, SegmentedControl, Select, StatTile, Textarea,
 } from '@/components/ui';
 import {
   LOCALE_DISPLAY_ORDER,
   LOCALE_NAMES,
   WORKSPACE_LIMITS,
-  resolveWorkspaceCardVisibility,
+  visibleOr,
   type Locale,
 } from '@superapp/shared';
+import { fetchWorkspaceCardPreview } from '@/lib/visibility-api';
+import { wsCardPreviewKey } from '@/lib/queries';
 import { REGION_PROFILE_KZ } from '@superapp/i18n/config';
 import { useFormatters } from '@/lib/format';
 import { PlanAndLimits } from '@/components/entitlements';
 import type {
   Workspace,
   WorkspaceMember,
-  WorkspaceCardVisibility,
 } from '@superapp/shared';
 
-const KNOWN = ['card', 'anketa', 'stats', 'subscription', 'settings', 'notifications', 'security'] as const;
+const KNOWN = ['card', 'anketa', 'stats', 'subscription', 'settings', 'notifications', 'visibility', 'security'] as const;
 type Section = (typeof KNOWN)[number];
-
-// Состав тумблеров видимости; подпись каждому даёт каталог
-// (`workspaces.profile.visibility.*`). Реквизиты по умолчанию видны: они
-// печатаются на каждом счёте, сотрудникам они нужны для работы с клиентами.
-// Owner/admin видят и правят всегда.
-const VIS_FIELDS: (keyof WorkspaceCardVisibility)[] = [
-  'description',
-  'industry',
-  'city',
-  'website',
-  'contactEmail',
-  'contactPhone',
-  'requisites',
-];
 
 const emptyForm = {
   name: '',
@@ -75,9 +64,7 @@ export default function WorkspaceSectionPage() {
   const [success, setSuccess] = useState('');
 
   const [form, setForm] = useState(emptyForm);
-  const [vis, setVis] = useState<WorkspaceCardVisibility>(resolveWorkspaceCardVisibility(null));
   const [saving, setSaving] = useState(false);
-  const visTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Card preview ("as members see") + security state
   const [asMember, setAsMember] = useState(false);
@@ -94,15 +81,15 @@ export default function WorkspaceSectionPage() {
       setForm({
         name: w.name,
         logo: w.logo ?? '',
-        description: w.description ?? '',
-        industry: w.industry ?? '',
-        city: w.city ?? '',
-        website: w.website ?? '',
-        contactEmail: w.contactEmail ?? '',
-        contactPhone: w.contactPhone ?? '',
+        // Анкету правит владелец/админ — ему поля видны полностью; маркер — пустое поле формы
+        description: visibleOr(w.description, null) ?? '',
+        industry: visibleOr(w.industry, null) ?? '',
+        city: visibleOr(w.city, null) ?? '',
+        website: visibleOr(w.website, null) ?? '',
+        contactEmail: visibleOr(w.contactEmail, null) ?? '',
+        contactPhone: visibleOr(w.contactPhone, null) ?? '',
         documentLanguage: w.documentLanguage,
       });
-      setVis(resolveWorkspaceCardVisibility(w.cardVisibility ?? null));
     } catch (e) {
       setError(apiErrorMessage(e));
     } finally {
@@ -121,7 +108,7 @@ export default function WorkspaceSectionPage() {
   // Redirect off manage-only sections once the role is known.
   useEffect(() => {
     if (!ws) return;
-    if ((section === 'anketa' || section === 'settings' || section === 'notifications' || section === 'subscription') && !canManage) {
+    if ((section === 'anketa' || section === 'settings' || section === 'notifications' || section === 'subscription' || section === 'visibility') && !canManage) {
       router.replace(`/workspaces/${id}/profile/card`);
     }
     if (section === 'security' && !isOwner) {
@@ -135,6 +122,14 @@ export default function WorkspaceSectionPage() {
       apiGet<WorkspaceMember[]>(`/workspaces/${id}/members`).then(setMembers).catch(() => {});
     }
   }, [ws, section, isOwner, id]);
+
+  // «Как видят сотрудники» — ответ СЕРВЕРА (синтетический зритель роли движка видимости)
+  const preview = useQuery({
+    queryKey: wsCardPreviewKey(id, 'staff'),
+    queryFn: () => fetchWorkspaceCardPreview(id, 'staff'),
+    enabled: !!ws && canManage && asMember && section === 'card',
+    staleTime: 30_000,
+  });
 
   if (!isReady || loading || !ws) return <LoadingBlock />;
   if (!KNOWN.includes(section as Section)) {
@@ -171,15 +166,6 @@ export default function WorkspaceSectionPage() {
     }
   };
 
-  const toggleVis = (key: keyof WorkspaceCardVisibility, value: boolean) => {
-    const next = { ...vis, [key]: value };
-    setVis(next);
-    if (visTimer.current) clearTimeout(visTimer.current);
-    visTimer.current = setTimeout(() => {
-      apiPatch(`/workspaces/${id}`, { cardVisibility: next }).catch(() => {});
-    }, 600);
-  };
-
   const doTransfer = async () => {
     if (!transferTo) return;
     setBusy(true);
@@ -205,19 +191,7 @@ export default function WorkspaceSectionPage() {
     }
   };
 
-  // "As members see" preview hides fields turned off in visibility.
-  const previewWs =
-    canManage && asMember
-      ? {
-          ...ws,
-          description: vis.description ? ws.description : null,
-          industry: vis.industry ? ws.industry : null,
-          city: vis.city ? ws.city : null,
-          website: vis.website ? ws.website : null,
-          contactEmail: vis.contactEmail ? ws.contactEmail : null,
-          contactPhone: vis.contactPhone ? ws.contactPhone : null,
-        }
-      : ws;
+  const previewWs = canManage && asMember ? preview.data ?? null : ws;
 
   return (
     <>
@@ -249,7 +223,7 @@ export default function WorkspaceSectionPage() {
       {/* ---------- Карточка ---------- */}
       {section === 'card' && (
         <>
-          <CompanyCard ws={previewWs} />
+          {previewWs ? <CompanyCard ws={previewWs} /> : <LoadingBlock />}
           {/* Реквизиты глазами сотрудника: сервер сам отвечает null, если блок скрыт
               настройкой видимости, — тогда карточка ничем не отличается от прежней. */}
           <div style={{ marginTop: 'var(--gap-grid)' }}>
@@ -312,32 +286,18 @@ export default function WorkspaceSectionPage() {
             </div>
           </Card>
 
-          <Card span={5}>
-            <CardHeader
-              title={t('profile.visibility.title')}
-              subtitle={t('profile.visibility.subtitle')}
-            />
-            <div className="ui-stack" style={{ gap: 'var(--spacing-3)' }}>
-              {VIS_FIELDS.map((key) => (
-                <Toggle
-                  key={key}
-                  checked={!!vis[key]}
-                  label={t(`profile.visibility.${key}`)}
-                  onChange={(v) => toggleVis(key, v)}
-                />
-              ))}
-            </div>
-          </Card>
-
           {/* Юрлица: список ТОО/ИП + реквизиты выбранного (admin+) */}
           <LegalEntitiesSection workspaceId={id} span={12} />
         </BentoGrid>
       )}
 
+      {/* ---------- Видимость данных (core/visibility) ---------- */}
+      {section === 'visibility' && canManage && <VisibilitySection workspaceId={id} ws={ws} />}
+
       {/* ---------- Статистика ---------- */}
       {section === 'stats' && (
         <BentoGrid>
-          <StatTile span={4} label={t('home.stat.members')} value={ws.membersCount} icon="staff" tone="accent" href={`/workspaces/${id}/members`} />
+          <StatTile span={4} label={t('home.stat.members')} value={<GuardedValue value={ws.membersCount} placeholder />} icon="staff" tone="accent" href={`/workspaces/${id}/members`} />
           <StatTile span={4} label={t('home.stat.tasks')} value={ws.tasksCount ?? 0} icon="tasks" tone={ws.tasksCount ? 'success' : 'neutral'} />
           <StatTile
             span={4}

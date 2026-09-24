@@ -25,7 +25,13 @@
     "workspacesMaxOwned": "Организаций во владении",
     "auditRetentionDays": "Окно журнала безопасности, дней",
     "auditExport": "Выгрузка журнала безопасности",
-    "auditStream": "Стрим событий безопасности в SIEM"
+    "auditStream": "Стрим событий безопасности в SIEM",
+    "visibilityOrgAudiences": "Адресаты оргструктуры в правилах видимости",
+    "visibilityRevealDelegation": "Делегирование раскрытия данных",
+    "visibilityExplain": "Проверка «что видит сотрудник»",
+    "visibilityPresets": "Пресеты правил видимости",
+    "visibilityMaxRules": "Правила видимости",
+    "visibilityRevealsPerDay": "Раскрытий данных в сутки"
   },
   "lock": {
     "quotaFull": "Место на Диске закончилось",
@@ -66,7 +72,8 @@
     "objects": "Объекты",
     "shop": "Магазин",
     "workspaces": "Организации",
-    "audit": "Журнал безопасности"
+    "audit": "Журнал безопасности",
+    "visibility": "Правила видимости"
   },
   "source": {
     "grant": "Подарок до {date}",

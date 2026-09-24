@@ -25,7 +25,13 @@
     "workspacesMaxOwned": "Сізге тиесілі ұйымдар",
     "auditRetentionDays": "Қауіпсіздік журналының терезесі, күн",
     "auditExport": "Қауіпсіздік журналын жүктеп алу",
-    "auditStream": "Қауіпсіздік оқиғаларын SIEM-ге ағынмен жіберу"
+    "auditStream": "Қауіпсіздік оқиғаларын SIEM-ге ағынмен жіберу",
+    "visibilityOrgAudiences": "Көріну ережелеріндегі ұйымдық құрылым аудиториялары",
+    "visibilityRevealDelegation": "Деректерді ашуды тапсыру",
+    "visibilityExplain": "Қызметкер не көретінін тексеру",
+    "visibilityPresets": "Көріну ережелерінің үлгілері",
+    "visibilityMaxRules": "Көріну ережелері",
+    "visibilityRevealsPerDay": "Тәулігіне деректерді ашу саны"
   },
   "lock": {
     "quotaFull": "Дискідегі орын толды",
@@ -66,7 +72,8 @@
     "objects": "Нысандар",
     "shop": "Дүкен",
     "workspaces": "Ұйымдар",
-    "audit": "Қауіпсіздік журналы"
+    "audit": "Қауіпсіздік журналы",
+    "visibility": "Көріну ережелері"
   },
   "source": {
     "grant": "Сыйлық {date} дейін",

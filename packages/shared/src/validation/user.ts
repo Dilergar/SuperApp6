@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { cardVisibilityObjectSchema } from './card-visibility';
 import { userRequisiteFieldsSchema } from './requisites';
 import { SUPPORTED_LOCALES } from '../constants/i18n';
 
@@ -23,18 +22,12 @@ export const updateProfileSchema = z.object({
     linkedin: z.string().max(200).optional(),
     whatsapp: z.string().max(20).optional(),
   }).strict().nullable().optional(),
-  onlineStatusMode: z.enum(['everyone', 'contacts', 'nobody']).optional(),
   locale: z.enum(SUPPORTED_LOCALES).optional(),
   timezone: z.string().max(50).optional(),
   // Реквизиты для договоров и трудоустройства (блок «Моей Анкеты»):
   // ИИН с контрольной суммой, адрес проживания, удостоверение личности.
   ...userRequisiteFieldsSchema,
-  // Owner's DEFAULT card visibility (single object) — applied to contacts
-  // in none of the owner's groups. Per-group visibility is set via circles.
-  cardVisibility: cardVisibilityObjectSchema.nullable().optional(),
-  // «Видимость в Компаниях» — что видят коллеги по организации на карточке
-  // в ростере «Сотрудники» (та же форма флагов; имя/фамилия/телефон/должность всегда).
-  companyCardVisibility: cardVisibilityObjectSchema.nullable().optional(),
+  // Видимость карточки и находимость — не поля анкеты: `/visibility/me` (core/visibility).
 });
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;

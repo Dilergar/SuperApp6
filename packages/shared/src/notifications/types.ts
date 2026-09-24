@@ -132,7 +132,9 @@ export type NotificationIcon =
   | 'plug'
   // core/audit
   | 'snowflake'
-  | 'download';
+  | 'download'
+  // core/visibility
+  | 'eye';
 
 export interface NotificationThrottle {
   /** Окно, секунд */
@@ -189,6 +191,8 @@ export const NOTIFICATION_SERVICES = {
   office: { contexts: 'workspace', order: 160 },
   /** Безопасность аккаунта (core/verify, core/users, core/audit); в организации — только «выгрузка журнала готова» */
   security: { contexts: 'both', order: 900 },
+  /** Правила видимости (core/visibility): раскрытия, публикация политики, пауза раскрытий */
+  visibility: { contexts: 'workspace', order: 902 },
   /** Согласия и документы платформы (core/consents): новые версии условий, квитанции, удаление аккаунта */
   consents: { contexts: 'both', order: 905 },
   /** Кабинет платформы (core/platform): security-alert владельцам, заявки four-eyes — только сотрудникам платформы */

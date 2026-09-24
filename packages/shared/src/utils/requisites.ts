@@ -1,3 +1,4 @@
+import { maskCardLast4 } from '../visibility/masks';
 // ============================================================
 // Контрольные проверки реквизитов (Казахстан).
 //
@@ -76,9 +77,9 @@ export function isValidCardPan(value: string): boolean {
   return sum % 10 === 0;
 }
 
-/** «•••• 1234» — маска карты для списков */
+/** «•••• 1234» — маска карты для списков (`card_last4` движка видимости) */
 export function maskCardPan(last4: string): string {
-  return `•••• ${last4}`;
+  return maskCardLast4(last4) ?? '';
 }
 
 /** Срок карты не в прошлом (месяц включительно) */

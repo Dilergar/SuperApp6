@@ -7,14 +7,15 @@ import { RedisService } from '../../shared/redis/redis.service';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { PersonalGraphRegistry } from './personal-graph.registry';
+import { USER_CARD_SELECT, UserCardService, type UserCardRow } from '../../core/users/user-card.service';
+import { VisibilityService } from '../../core/visibility/visibility.service';
+import { VisibilityDiscoverabilityService } from '../../core/visibility/visibility.discoverability.service';
 import {
   CONTACT_LIMITS,
   TEAM_WORKSPACE_ROLES,
-  resolveCardVisibility,
-  mergeVisibilities,
   maskLastName,
   maskPhone,
-  type CardVisibility,
+  visibleOr,
   type Contact,
   type ContactUserCard,
   type ContactBlockRecord,
@@ -31,10 +32,9 @@ import type { Prisma } from '@prisma/client';
  *   - Each side assigns exactly ONE role to the other (asymmetric:
  *     roleAForB = role A gave B, roleBForA = role B gave A). The role is
  *     shown on the card. There is no separate category/label concept.
- *   - Card visibility is configured PER GROUP (Circle) by the owner.
- *     When a viewer is in several of the owner's groups → UNION of those
- *     groups' visibility; in none → the owner's default
- *     (users.card_visibility).
+ *   - What the other side sees on the card is the owner's PERSONAL visibility
+ *     policy (core/visibility, type `user.card`: Everyone / Circle / Groups /
+ *     colleagues + always/never exceptions), projected by UserCardService.
  *
  * Rules encoded here (not in Prisma):
  *   - Canonical ordering userA < userB.
@@ -52,6 +52,9 @@ export class ContactsService {
     private accessProjection: AccessProjectionService,
     private workspaceContext: WorkspaceContextService,
     private graphHooks: PersonalGraphRegistry,
+    private userCards: UserCardService,
+    private visibility: VisibilityService,
+    private discoverability: VisibilityDiscoverabilityService,
   ) {}
 
   // ============================================================
@@ -98,7 +101,7 @@ export class ContactsService {
       hasMore && last ? encodeLinkCursor(last.confirmedAt, last.id) : null;
 
     return {
-      items: page.map((link) => this.mapLinkToContact(link, userId)),
+      items: await this.mapLinks(page, userId),
       nextCursor,
     };
   }
@@ -128,7 +131,7 @@ export class ContactsService {
       // но сам метод без take принимал бы список любой длины.
       take: CONTACT_LIMITS.maxMembersPerCircle,
     });
-    return links.map((link) => this.mapLinkToContact(link, userId));
+    return this.mapLinks(links, userId);
   }
 
   async getContact(userId: string, linkId: string): Promise<Contact> {
@@ -144,7 +147,7 @@ export class ContactsService {
     if (link.userAId !== userId && link.userBId !== userId) {
       throw forbidden('contacts.noAccess');
     }
-    return this.mapLinkToContact(link, userId);
+    return (await this.mapLinks([link], userId))[0]!;
   }
 
   /**
@@ -424,28 +427,25 @@ export class ContactsService {
       select: {
         userAId: true,
         userBId: true,
-        userA: { select: { id: true, firstName: true, lastName: true, avatar: true } },
-        userB: { select: { id: true, firstName: true, lastName: true, avatar: true } },
+        userA: { select: USER_CARD_SELECT },
+        userB: { select: USER_CARD_SELECT },
       },
       take: CONTACT_LIMITS.maxContactsScan,
     });
     const seen = new Set<string>();
-    const out: Array<{
-      id: string;
-      firstName: string;
-      lastName: string | null;
-      avatar: string | null;
-    }> = [];
+    const found: UserCardRow[] = [];
     for (const l of links) {
       const other = l.userAId === viewerId ? l.userB : l.userA;
       if (!other || seen.has(other.id)) continue;
       const name = formatName(other.firstName, other.lastName).toLowerCase();
       if (!name.includes(needle)) continue;
       seen.add(other.id);
-      out.push(other);
-      if (out.length >= limit) break;
+      found.push(other);
+      if (found.length >= limit) break;
     }
-    return out;
+    // Фото — по ЛИЧНЫМ правилам человека (поле `avatar` карточки), а не колонкой напрямую
+    const cards = await this.userCards.cards(this.visibility.viewer('search', { workspaceId: null }), found);
+    return found.map((u, i) => ({ id: u.id, firstName: u.firstName, lastName: u.lastName, avatar: visibleOr(cards[i]!.avatar, null) }));
   }
 
   /**
@@ -518,7 +518,7 @@ export class ContactsService {
         memberships: { select: this.membershipSelect() },
       },
     });
-    return this.mapLinkToContact(updated, userId);
+    return (await this.mapLinks([updated], userId))[0]!;
   }
 
   async deleteContact(userId: string, linkId: string) {
@@ -598,12 +598,19 @@ export class ContactsService {
       },
     });
 
+    // Находимость по номеру (core/visibility, решение грилла №9): получатель, который не
+    // разрешил отправителю находить себя, для отправителя НЕОТЛИЧИМ от незарегистрированного
+    // номера — те же проверки, те же коды, тот же ответ (без `toUserId`). Приглашение ему
+    // всё равно доставляется (принять или отклонить — его решение), если он не заблокировал
+    // отправителя. Иначе ответы ручки были бы оракулом «этот номер в SuperApp6».
+    const hidden = !!recipient && !recipient.deletedAt && !(await this.discoverability.isDiscoverable(recipient.id, fromUserId));
+
     // Аккаунт удалён или ждёт удаления — приглашать некого: строка сожгла бы
     // слот из 30/24ч и 24-часовой кулдаун на того, кто физически не ответит.
     if (recipient?.deletedAt) {
       throw notFound('contacts.userNotFound');
     }
-    if (recipient?.deletionScheduledAt) {
+    if (recipient?.deletionScheduledAt && !hidden) {
       throw conflict('contacts.accountDeleting');
     }
     // Страховка на случай, если нормализация номеров когда-нибудь разойдётся со
@@ -612,6 +619,9 @@ export class ContactsService {
       throw badRequest('contacts.selfInvite');
     }
 
+    // Скрытый получатель, заблокировавший отправителя (или ждущий удаления), — приглашение
+    // заводится «в никуда» (как на незарегистрированный номер): не доставляется и истекает
+    let silent = false;
     // If recipient exists, check blocks and existing link/invitation.
     if (recipient) {
       const block = await this.db.contactBlock.findFirst({
@@ -622,9 +632,10 @@ export class ContactsService {
           ],
         },
       });
-      if (block) {
+      if (block && !hidden) {
         throw forbidden('contacts.inviteForbidden');
       }
+      if (hidden && (block || recipient.deletionScheduledAt)) silent = true;
 
       const [a, b] = canonical(fromUserId, recipient.id);
       const existingLink = await this.db.contactLink.findUnique({
@@ -638,13 +649,15 @@ export class ContactsService {
         where: {
           status: 'pending',
           OR: [
-            { fromUserId, toUserId: recipient.id },
+            // Скрытому — тот же вопрос, что для незарегистрированного: «уже звал этот номер?»
+            hidden ? { fromUserId, toPhone: data.toPhone } : { fromUserId, toUserId: recipient.id },
+            // Встречное приглашение отправитель и так видит во входящих — это не оракул
             { fromUserId: recipient.id, toUserId: fromUserId },
           ],
         },
       });
       if (existingPending) {
-        throw conflict('contacts.inviteActive');
+        throw conflict(hidden && existingPending.fromUserId === fromUserId ? 'contacts.alreadyInvited' : 'contacts.inviteActive');
       }
     } else {
       // External invitation: still check for existing pending to same phone.
@@ -702,7 +715,7 @@ export class ContactsService {
       invitation = await this.db.contactInvitation.create({
         data: {
           fromUserId,
-          toUserId: recipient?.id ?? null,
+          toUserId: silent ? null : (recipient?.id ?? null),
           toPhone: data.toPhone,
           proposedRoleForRecipient: data.proposedRoleForRecipient ?? null,
           proposedRoleForSender: data.proposedRoleForSender ?? null,
@@ -725,15 +738,16 @@ export class ContactsService {
 
     // Адресат — зарегистрированный получатель (по номеру без аккаунта уведомлять некого;
     // активация при регистрации шлёт своё — см. activatePendingInvitations).
-    if (recipient?.id) {
+    if (recipient?.id && !silent) {
       await this.notifications.send(null, {
         type: 'contact.invitation.received',
         to: [{ userId: recipient.id }],
         payload: {
           invitationId: invitation.id,
           fromUserId,
-          fromName: formatName(sender.firstName, sender.lastName),
-          fromPhone: sender.phone,
+          // Связи ещё НЕТ: имя отправителя — с инициалом фамилии (правило пре-линк карточки);
+          // его номер в строку уведомления не кладётся (вечная запись у постороннего)
+          fromName: formatName(sender.firstName, maskLastName(sender.lastName)),
           proposedRoleForRecipient: invitation.proposedRoleForRecipient,
           message: invitation.message ?? '',
         },
@@ -745,7 +759,8 @@ export class ContactsService {
       });
     }
 
-    return invitation;
+    // Скрытому получателю `toUserId` наружу не едет (ответ не должен отличаться от «не зарегистрирован»)
+    return hidden ? { ...invitation, toUserId: null } : invitation;
   }
 
   async acceptInvitation(
@@ -1089,13 +1104,14 @@ export class ContactsService {
     const hasMore = invitations.length > limit;
     const page = hasMore ? invitations.slice(0, limit) : invitations;
     const last = page[page.length - 1];
+    // Связи ещё НЕТ — карточка отправителя глазами ПОСТОРОННЕГО по его же правилам
+    // (движок видимости: фамилия инициалом, номер скрыт, анкета — только открытое «Всем»).
+    // Раньше списки приглашений отдавали больше, чем lookup.
+    const fromCards = await this.userCards.cards(this.visibility.viewer('api', { workspaceId: null }), page.map((inv) => inv.fromUser));
     return {
-      items: page.map((inv) => ({
+      items: page.map((inv, i) => ({
         ...this.serializeInvitation(inv),
-        // Связи ещё НЕТ — отдаём пре-линк карточку (см. toPreLinkUserCard).
-        // Телефон маскируем: его я НЕ вводил, он пришёл вместе с чужим
-        // приглашением, и до подтверждения связи это чужая персональная деталь.
-        from: this.toPreLinkUserCard(inv.fromUser, { maskPhoneNumber: true }),
+        from: fromCards[i]!,
       })),
       nextCursor:
         hasMore && last ? encodeInvitationCursor(last.createdAt, last.id) : null,
@@ -1140,12 +1156,19 @@ export class ContactsService {
     const hasMore = invitations.length > limit;
     const page = hasMore ? invitations.slice(0, limit) : invitations;
     const last = page[page.length - 1];
+    // Находимость (core/visibility): получатель, не разрешивший находить себя по номеру,
+    // неотличим от «номер не зарегистрирован» — карточки нет, только `toPhone` (номер ввёл
+    // сам отправитель). Приглашение при этом доставлено: он может его принять.
+    const registered = page.map((inv) => inv.toUser).filter((u): u is UserCardRow => !!u);
+    const findable = await this.discoverability.filterDiscoverable(registered.map((u) => u.id), userId);
+    const visible = registered.filter((u) => findable.has(u.id));
+    const toCards = new Map((await this.userCards.cards(this.visibility.viewer('api', { workspaceId: null }), visible)).map((c) => [c.id, c]));
     return {
       items: page.map((inv) => ({
         ...this.serializeInvitation(inv),
+        ...(inv.toUser && !toCards.has(inv.toUser.id) ? { toUserId: null } : {}),
         autoAddToCircleIds: inv.autoAddToCircleIds ?? [],
-        // Номер получателя НЕ маскируем: его ввёл сам отправитель.
-        to: inv.toUser ? this.toPreLinkUserCard(inv.toUser) : null,
+        to: inv.toUser ? (toCards.get(inv.toUser.id) ?? null) : null,
         // Повтор возможен только по остывшему не-pending приглашению — считаем
         // это на сервере, чтобы кнопка в UI не гадала по статусу и дате.
         canResend:
@@ -1174,7 +1197,7 @@ export class ContactsService {
       },
       include: {
         fromUser: {
-          select: { id: true, firstName: true, lastName: true, phone: true },
+          select: { id: true, firstName: true, lastName: true },
         },
       },
     });
@@ -1192,8 +1215,7 @@ export class ContactsService {
         payload: {
           invitationId: inv.id,
           fromUserId: inv.fromUserId,
-          fromName: formatName(inv.fromUser.firstName, inv.fromUser.lastName),
-          fromPhone: inv.fromUser.phone,
+          fromName: formatName(inv.fromUser.firstName, maskLastName(inv.fromUser.lastName)),
           proposedRoleForRecipient: inv.proposedRoleForRecipient,
           message: inv.message ?? '',
         },
@@ -1330,7 +1352,7 @@ export class ContactsService {
         await this.notifications.send(null, {
           type: 'contact.invitation.expired',
           to: [{ userId: inv.fromUserId }],
-          payload: { invitationId: inv.id, toPhone: maskPhone(inv.toPhone) },
+          payload: { invitationId: inv.id, toPhone: maskPhone(inv.toPhone) ?? '' },
           actionUrl: '/circles',
           idempotencyKey: `ci:exp:${inv.id}`,
         });
@@ -1463,26 +1485,13 @@ export class ContactsService {
   }
 
   private userCardSelect() {
-    return {
-      id: true,
-      phone: true,
-      firstName: true,
-      lastName: true,
-      avatar: true,
-      dateOfBirth: true,
-      bio: true,
-      city: true,
-      email: true,
-      maritalStatus: true,
-      socialLinks: true,
-      cardVisibility: true, // owner's DEFAULT (ungrouped) visibility
-    } as const;
+    return USER_CARD_SELECT;
   }
 
   private membershipSelect() {
     return {
       circleId: true,
-      circle: { select: { ownerId: true, cardVisibility: true } },
+      circle: { select: { ownerId: true } },
     } as const;
   }
 
@@ -1496,39 +1505,12 @@ export class ContactsService {
   }
 
   /**
-   * Effective visibility for the card OWNER as seen by the VIEWER:
-   * union of the owner's groups that contain this link; if the viewer is
-   * in none of the owner's groups → the owner's default visibility.
+   * Связи → вид «я / он» ПАКЕТОМ. Карточка второй стороны — проекция движка видимости
+   * (`user.card`) глазами запрашивающего: её личная политика решает, что видно (решение
+   * грилла №1: ЛИЧНЫЕ поля решает только сам человек). Политики и связи — один раз на пачку.
    */
-  private resolveVisibilityForViewer(
-    ownerId: string,
-    ownerDefault: Prisma.JsonValue | null,
-    memberships: {
-      circle: { ownerId: string; cardVisibility: Prisma.JsonValue | null };
-    }[],
-  ): CardVisibility {
-    const ownerDefaultResolved = resolveCardVisibility(
-      ownerDefault as Partial<CardVisibility> | null,
-    );
-    const groupVis = memberships
-      .filter((m) => m.circle.ownerId === ownerId)
-      .map((m) =>
-        // Группа БЕЗ своей настройки (cardVisibility = null — состояние, в котором
-        // рождается КАЖДАЯ новая группа) наследует дефолт владельца. Раньше здесь
-        // резолвились ПЛАТФОРМЕННЫЕ дефолты, где город/био/возраст/соцсети открыты:
-        // человек, спрятавший эти поля в анкете, открывал их обратно самим фактом
-        // добавления контакта в свежую группу — union умеет только расширять.
-        m.circle.cardVisibility === null
-          ? ownerDefaultResolved
-          : resolveCardVisibility(
-              m.circle.cardVisibility as Partial<CardVisibility> | null,
-            ),
-      );
-    return groupVis.length > 0 ? mergeVisibilities(groupVis) : ownerDefaultResolved;
-  }
-
-  private mapLinkToContact(
-    link: {
+  private async mapLinks(
+    links: Array<{
       id: string;
       userAId: string;
       userBId: string;
@@ -1538,109 +1520,33 @@ export class ContactsService {
       confirmedAt: Date;
       userA: UserCardRow;
       userB: UserCardRow;
-      memberships: {
-        circleId: string;
-        circle: { ownerId: string; cardVisibility: Prisma.JsonValue | null };
-      }[];
-    },
+      memberships: { circleId: string; circle: { ownerId: string } }[];
+    }>,
     requestingUserId: string,
-  ): Contact {
-    const side = this.sideFor(requestingUserId, link);
-    if (!side) {
-      throw forbidden('contacts.noAccess');
-    }
-    const them = side === 'A' ? link.userB : link.userA;
-    const myRole = side === 'A' ? link.roleAForB : link.roleBForA;
-    const theirRole = side === 'A' ? link.roleBForA : link.roleAForB;
-
-    // Groups OF MINE that contain this contact (for UI chips).
-    const myCircleIds = link.memberships
-      .filter((m) => m.circle.ownerId === requestingUserId)
-      .map((m) => m.circleId);
-
-    // Visibility = how the OWNER (them) exposes their card to me, based on
-    // which of THEM's groups I'm in (union), else them's default.
-    const visibility = this.resolveVisibilityForViewer(
-      them.id,
-      them.cardVisibility,
-      link.memberships,
+  ): Promise<Contact[]> {
+    const sides = links.map((link) => {
+      const side = this.sideFor(requestingUserId, link);
+      if (!side) throw forbidden('contacts.noAccess');
+      return side;
+    });
+    // Окружение — личный контекст: «шляпа» организации карточку не расширяет
+    const cards = await this.userCards.cards(
+      this.visibility.viewer('api', { workspaceId: null }),
+      links.map((link, i) => (sides[i] === 'A' ? link.userB : link.userA)),
     );
-
-    return {
-      linkId: link.id,
-      them: this.toContactUserCard(them, visibility),
-      myRole,
-      theirRole,
-      initiatedBy: link.initiatedBy,
-      confirmedAt: link.confirmedAt.toISOString(),
-      myCircleIds,
-    };
-  }
-
-  /**
-   * Карточка человека, с которым связи ещё НЕТ (pending-приглашение в обе стороны).
-   *
-   * Правило платформы задано в самом maskLastName: «показываем человеку, с которым
-   * связь ещё не подтверждена → только инициал». Ему подчиняются /users/lookup и
-   * listBlocks, а списки приглашений отдавали ПОЛНУЮ карточку по видимости «по
-   * умолчанию» — то есть больше, чем специально ужесточённый lookup: фамилию целиком,
-   * био, город, соцсети и возраст (в DEFAULT_CARD_VISIBILITY эти поля открыты).
-   * Получалось, что достаточно отправить приглашение на номер, прочитать свой же
-   * список исходящих и отменить его.
-   *
-   * Форма ответа не меняется (ContactUserCard) — веб читает отсюда только имя и факт
-   * регистрации, поэтому UI не затронут.
-   */
-  private toPreLinkUserCard(
-    row: UserCardRow,
-    opts: { maskPhoneNumber?: boolean } = {},
-  ): ContactUserCard {
-    return {
-      id: row.id,
-      phone: opts.maskPhoneNumber ? maskPhone(row.phone) : row.phone,
-      firstName: row.firstName,
-      lastName: maskLastName(row.lastName),
-      avatar: row.avatar,
-      dateOfBirth: null,
-      bio: null,
-      city: null,
-      email: null,
-      maritalStatus: null,
-      socialLinks: null,
-      age: null,
-      showOnlineStatus: false,
-    };
-  }
-
-  /**
-   * Build a ContactUserCard from a User row, applying an already-resolved
-   * visibility. Always-visible fields (firstName, lastName, phone) are
-   * never masked; optional fields are nulled out when hidden.
-   */
-  private toContactUserCard(
-    row: UserCardRow,
-    visibility: CardVisibility,
-  ): ContactUserCard {
-    return {
-      id: row.id,
-      phone: row.phone,
-      firstName: row.firstName,
-      lastName: row.lastName,
-      avatar: row.avatar,
-      dateOfBirth:
-        visibility.dateOfBirth && row.dateOfBirth
-          ? row.dateOfBirth.toISOString().slice(0, 10)
-          : null,
-      bio: visibility.bio ? (row.bio ?? null) : null,
-      city: visibility.city ? (row.city ?? null) : null,
-      email: visibility.email ? (row.email ?? null) : null,
-      maritalStatus: visibility.maritalStatus ? (row.maritalStatus ?? null) : null,
-      socialLinks: visibility.socialLinks && row.socialLinks
-        ? (row.socialLinks as { telegram?: string; instagram?: string })
-        : null,
-      age: visibility.age && row.dateOfBirth ? calcAge(row.dateOfBirth) : null,
-      showOnlineStatus: visibility.onlineStatus,
-    };
+    return links.map((link, i) => {
+      const side = sides[i]!;
+      return {
+        linkId: link.id,
+        them: cards[i]!,
+        myRole: side === 'A' ? link.roleAForB : link.roleBForA,
+        theirRole: side === 'A' ? link.roleBForA : link.roleAForB,
+        initiatedBy: link.initiatedBy,
+        confirmedAt: link.confirmedAt.toISOString(),
+        // Мои Группы, в которых этот человек (чипы UI)
+        myCircleIds: link.memberships.filter((m) => m.circle.ownerId === requestingUserId).map((m) => m.circleId),
+      };
+    });
   }
 
   private serializeInvitation(inv: {
@@ -1687,20 +1593,6 @@ export class ContactsService {
 // Helpers (private to module)
 // ------------------------------------------------------------
 
-type UserCardRow = {
-  id: string;
-  phone: string;
-  firstName: string;
-  lastName: string | null;
-  avatar: string | null;
-  dateOfBirth: Date | null;
-  bio: string | null;
-  city: string | null;
-  email: string | null;
-  maritalStatus: string | null;
-  socialLinks: Prisma.JsonValue | null;
-  cardVisibility: Prisma.JsonValue | null;
-};
 
 /** Canonical ordering: smaller UUID first. Enforced at the service layer. */
 function canonical(a: string, b: string): [string, string] {
@@ -1755,10 +1647,3 @@ function formatName(first: string, last: string | null): string {
   return last ? `${first} ${last}` : first;
 }
 
-function calcAge(dob: Date): number {
-  const now = new Date();
-  let age = now.getFullYear() - dob.getFullYear();
-  const m = now.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < dob.getDate())) age--;
-  return age;
-}

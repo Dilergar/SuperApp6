@@ -41,6 +41,7 @@ import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useNotificationCounts } from '@/lib/hooks/useNotificationCounts';
 import { useNotesLayer } from '@/lib/stores/notes-layer';
 import { useApprovalsCount } from '@/lib/hooks/useApprovalsCount';
+import { useVisibilityInvalidation } from '@/lib/hooks/useVisibility';
 import { LazyNamespace } from '@/i18n/LazyNamespace';
 // Стопка — динамическим импортом по той же причине, что и барабан кита: она
 // тянет Modal и клиент движка, а шелл сидит в корневом графе каждой страницы.
@@ -65,6 +66,8 @@ export function AppShell({ defaultCollapsed = false, children }: { defaultCollap
   const router = useRouter();
   const profile = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  // Правила видимости (core/visibility): политика сменилась → её RQ-ключи сбрасываются
+  useVisibilityInvalidation();
 
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   // Рабочий стол (Заметки) входит со свёрнутым меню: это переопределение НА ВИЗИТ поверх

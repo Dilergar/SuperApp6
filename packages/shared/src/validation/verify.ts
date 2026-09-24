@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { passwordSchema, kzMobilePhoneSchema } from './auth';
-import { VERIFY_PURPOSES, VERIFY_LIMITS } from '../constants/verify';
+import { VERIFY_PURPOSES, VERIFY_LIMITS, STEP_UP_WINDOW_PURPOSES } from '../constants/verify';
 import { consentSelectionSchema } from './consents';
 
 // ============================================================
@@ -32,7 +32,7 @@ export const verifyStartSchema = z.object({
  */
 export const verifyStepUpSchema = z
   .object({
-    purpose: z.enum(['password_change', 'phone_change_old', 'phone_change_new', 'keys_manage', 'account_delete', 'security_confirm']),
+    purpose: z.enum(['password_change', 'phone_change_old', 'phone_change_new', 'keys_manage', 'account_delete', 'security_confirm', 'visibility_reveal', 'visibility_manage']),
     password: z.string().min(1, 'validation.verify.passwordRequired'),
     newPhone: kzMobilePhoneSchema.optional(),
   })
@@ -97,3 +97,15 @@ export type VerifyCheckInput = z.infer<typeof verifyCheckSchema>;
 export type PasswordResetCompleteInput = z.infer<typeof passwordResetCompleteSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export type ChangePhoneInput = z.infer<typeof changePhoneSchema>;
+
+/** POST /verify/step-up/confirm — гашение пропуска цели с окном → окно (core/verify/step-up.service). */
+export const stepUpConfirmSchema = z
+  .object({
+    purpose: z.enum(STEP_UP_WINDOW_PURPOSES),
+    verifyToken: verifyTokenSchema,
+  })
+  .strict();
+export type StepUpConfirmInput = z.infer<typeof stepUpConfirmSchema>;
+
+/** GET /verify/step-up/status?purpose= */
+export const stepUpStatusQuerySchema = z.object({ purpose: z.enum(STEP_UP_WINDOW_PURPOSES) }).strict();

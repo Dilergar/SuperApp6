@@ -270,6 +270,9 @@
       "reward_changed": "{actorName} изменил(а) награду: {from} → {to}",
       "submitted": "{actorName} сдал(а) работу на проверку",
       "title_changed": "{actorName} переименовал(а) задачу: «{from}» → «{to}»"
+    },
+    "visibility_policy": {
+      "published": "{actorName} опубликовал(а) правила видимости «{typeLabel}», версия {version}"
     }
   }
 }

@@ -28,6 +28,9 @@ import { CONSENTS_AUDIT_EVENTS } from './consents';
 import { DATA_AUDIT_EVENTS } from './data';
 import { DETECT_AUDIT_EVENTS } from './detect';
 import { META_AUDIT_EVENTS } from './meta';
+import { SHARING_AUDIT_EVENTS } from './sharing';
+import { FILES_AUDIT_EVENTS } from './files';
+import { AUTHZ_AUDIT_EVENTS } from './authz';
 
 export * from './types';
 export * from './ocsf';
@@ -45,6 +48,9 @@ const REGISTRY_RAW = {
   ...DATA_AUDIT_EVENTS,
   ...DETECT_AUDIT_EVENTS,
   ...META_AUDIT_EVENTS,
+  ...SHARING_AUDIT_EVENTS,
+  ...FILES_AUDIT_EVENTS,
+  ...AUTHZ_AUDIT_EVENTS,
 } as const satisfies Record<string, AuditEventDef>;
 
 /** Union ключей — выводится из реестра. Ключ вне реестра в `audit.record()` — ошибка компиляции. */
@@ -78,12 +84,12 @@ export const AUDIT_WINDOW_EXEMPT_KEYS = AUDIT_EVENT_KEYS.filter((k) => AUDIT_REG
 
 // ---- Фильтры зрителей (чипы ленты): группа = набор ключей, сервер строит `event_key = ANY(…)` ----
 
-/** Чипы ленты человека: «Все · Входы · Устройства · Пароль и номер · Организации · Ключи и приложения · Мои данные». */
-export const AUDIT_PERSON_FILTERS = ['all', 'logins', 'devices', 'credentials', 'orgs', 'keys', 'data'] as const;
+/** Чипы ленты человека: «Все · Входы · Устройства · Пароль и номер · Организации · Ключи и приложения · Мои данные · Раскрытия». */
+export const AUDIT_PERSON_FILTERS = ['all', 'logins', 'devices', 'credentials', 'orgs', 'keys', 'data', 'reveals'] as const;
 export type AuditPersonFilter = (typeof AUDIT_PERSON_FILTERS)[number];
 
-/** Чипы журнала организации: «Все · Люди и роли · Устройства · Ключи и интеграции · Выгрузки · Согласия». */
-export const AUDIT_ORG_FILTERS = ['all', 'people', 'devices', 'keys', 'exports', 'consents'] as const;
+/** Чипы журнала организации: «Все · Люди и роли · Устройства · Доступы · Ключи и интеграции · Выгрузки · Файлы · Согласия · Раскрытия». */
+export const AUDIT_ORG_FILTERS = ['all', 'people', 'devices', 'sharing', 'keys', 'exports', 'files', 'consents', 'reveals'] as const;
 export type AuditOrgFilter = (typeof AUDIT_ORG_FILTERS)[number];
 
 const byPrefix = (...prefixes: string[]) => AUDIT_EVENT_KEYS.filter((k) => prefixes.some((p) => k === p || k.startsWith(`${p}.`)));
@@ -102,9 +108,12 @@ export function auditPersonFilterKeys(filter: AuditPersonFilter): AuditEventKey[
     case 'orgs':
       return byPrefix('org');
     case 'keys':
-      return byPrefix('keys');
+      return byPrefix('keys', 'account.integration');
     case 'data':
-      return byPrefix('pd', 'consents', 'data');
+      return byPrefix('pd', 'consents', 'data', 'sharing', 'files');
+    case 'reveals':
+      // Кто раскрывал МОИ защищённые поля (core/visibility)
+      return byPrefix('pii.reveal', 'pii.reveal_denied');
   }
 }
 
@@ -117,12 +126,19 @@ export function auditOrgFilterKeys(filter: AuditOrgFilter): AuditEventKey[] | nu
       return byPrefix('org.member', 'org.role', 'org.ownership', 'org.workspace');
     case 'devices':
       return byPrefix('org.session');
+    case 'sharing':
+      return byPrefix('sharing');
     case 'keys':
       return [...byPrefix('keys'), ...byPrefix('org.audit')];
     case 'exports':
       return byPrefix('data', 'pii', 'detect.mass_export');
+    case 'files':
+      return byPrefix('files');
     case 'consents':
       return byPrefix('consents', 'pd');
+    case 'reveals':
+      // Раскрытия защищённых полей, тревоги и правила видимости (core/visibility)
+      return [...byPrefix('pii.reveal', 'pii.reveal_denied', 'detect.mass_reveal', 'detect.pii_scrape'), ...byPrefix('org.visibility')];
   }
 }
 
@@ -144,6 +160,9 @@ export function auditRegistryProblems(): string[] {
       problems.push(`${key}: platform staff actions are never shown to people or organizations`);
     }
     if (def.windowExempt && def.category !== 'pd' && def.category !== 'consents') problems.push(`${key}: windowExempt is only for pd and consents`);
+    if (def.category === 'authz' && (def.visibility.subject || def.visibility.workspace)) {
+      problems.push(`${key}: access denials are platform-only — showing them would reveal that a foreign object exists`);
+    }
     if (def.disputable && !def.visibility.subject) problems.push(`${key}: a disputable event must be visible to its subject`);
     if (def.details._def.unknownKeys !== 'strict') problems.push(`${key}: details schema must be .strict()`);
     if (def.vocab !== undefined && !isAuditVocab(def.vocab)) problems.push(`${key}: unknown OWASP vocabulary "${def.vocab}"`);

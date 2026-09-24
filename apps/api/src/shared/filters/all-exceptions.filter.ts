@@ -15,6 +15,7 @@ import { I18nService } from '../i18n/i18n.service';
 import { ApiError } from '../errors/api-error';
 import { redactSecrets } from '../utils/redact';
 import type { RequestWithContext } from '../context/request-context';
+import { emitAccessDenied } from './access-denied.signal';
 
 /**
  * The ONE error envelope for the whole API (arch-review block 7): every failure —
@@ -51,8 +52,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // `details.requestId` — на КАЖДОМ отказе: человек пересказывает поддержке один код, а
     // поддержка находит по нему события журнала безопасности (core/audit) и строки логов.
     const requestId = http.getRequest<RequestWithContext>()?.ctx?.requestId ?? null;
-    const send = (status: number, body: Omit<ApiErrorEnvelope, 'errors'> & { errors?: unknown[] }) =>
+    const send = (status: number, body: Omit<ApiErrorEnvelope, 'errors'> & { errors?: unknown[] }) => {
       res.status(status).json(requestId ? { ...body, details: { ...(body.details ?? { code: statusCode(status) }), requestId } } : body);
+      // Отказ доступа — сигнал журналу безопасности (свёртка 403 и детекция перебора чужих id)
+      if (status === HttpStatus.FORBIDDEN || status === HttpStatus.NOT_FOUND) {
+        const code = typeof body.details?.code === 'string' ? body.details.code : null;
+        emitAccessDenied({ req: http.getRequest<Request>(), status, code });
+      }
+    };
     const t = (key: string, params?: Record<string, string | number | boolean>) =>
       this.i18n.translateFor(locale, key, params);
 

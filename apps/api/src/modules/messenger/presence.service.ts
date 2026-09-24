@@ -6,8 +6,9 @@ import { EventBusService } from '../../shared/events/event-bus.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
-import { PRESENCE } from '@superapp/shared';
+import { PRESENCE, isGuardMarker, type PresenceBucket } from '@superapp/shared';
 import type { PresenceInfo, ContextualStatus } from '@superapp/shared';
+import { VisibilityService } from '../../core/visibility/visibility.service';
 import type { CalendarService } from '../calendar/calendar.service';
 
 /** Cached current-event snapshot for a target (shared across viewers). */
@@ -19,9 +20,9 @@ type CtxSnapshot = { title: string; endTime: string } | null;
  * "Online" is a live socket connection, tracked in Redis (multi-instance safe; the gateway
  * uses @socket.io/redis-adapter). Key `presence:<userId>` holds a connection COUNT with a
  * short TTL refreshed by the client heartbeat; `presence:<userId>:lastSeen` records the last
- * disconnect. Privacy honors User.onlineStatusMode + CardVisibility.onlineStatus and requires
- * the viewer to reach the target — личное окружение ИЛИ со-членство в организации (no public
- * presence); a viewer whose OWN mode is 'nobody' sees no one online (reciprocity). Фан-аут
+ * disconnect. Кто видит «был в сети» — поле `presence` карточки человека (core/visibility,
+ * `user.card`, R12): точно / корзиной («недавно», «на этой неделе»…) / никак — по ЕГО личным
+ * правилам, со взаимностью (скрыл своё — чужое видишь только корзиной). Фан-аут
  * изменений (fanOutPresenceChange) остаётся ЛИЧНЫМ графом: рассылка на всю организацию —
  * другой порядок величины трафика. Contextual status inherits the viewer's calendar
  * access level (busy<detailed) via CalendarService (resolved lazily via ModuleRef to avoid the
@@ -45,6 +46,7 @@ export class PresenceService {
     private readonly contacts: ContactsService,
     private readonly moduleRef: ModuleRef,
     private readonly i18n: I18nService,
+    private readonly visibility: VisibilityService,
   ) {}
 
   // ============================================================
@@ -145,55 +147,21 @@ export class PresenceService {
   }
 
   /**
-   * Per-viewer presence for a set of targets, honoring privacy:
-   *   - viewer's OWN mode 'nobody' → sees no one online/contextual (reciprocity).
-   *   - target mode 'nobody' OR CardVisibility.onlineStatus=false → always offline/no contextual.
-   *   - else target must be reachable by the viewer: личное окружение (ContactLink) ИЛИ
-   *     коллега по организации (командные роли, «рабочий пропуск»).
-   * Contextual status (only when online) inherits the viewer's calendar access level.
+   * Присутствие целей глазами зрителя. Решение — движок видимости (поле `presence` карточки):
+   *   - `full` — точно: онлайн, время ухода, контекстный статус (уровень календаря зрителя);
+   *   - маска `time_bucket` — только корзина «был в сети» (`lastSeenBucket`), онлайна нет;
+   *   - скрыто — ничего.
+   * Все сигналы присутствия — одно поле (Careless Whisper: порознь они складываются обратно).
    */
   async statusFor(viewerId: string, targetIds: string[]): Promise<PresenceInfo[]> {
     const targets = [...new Set(targetIds)].filter((id) => !!id && id !== viewerId);
     if (targets.length === 0) return [];
 
-    // Reciprocity: a viewer who hides their own status sees no one.
-    const viewer = await this.db.user.findUnique({
-      where: { id: viewerId },
-      select: { onlineStatusMode: true },
-    });
-    const viewerHidden = viewer?.onlineStatusMode === 'nobody';
-
-    // Кому вообще МОЖНО показывать присутствие (публичного присутствия нет):
-    // личное окружение + коллеги по организации. Без второго слагаемого сотрудник,
-    // достижимый «рабочим пропуском» (переписка по работе разрешена), в чате всегда
-    // висел «оффлайн» — присутствие отставало от собственного гейта мессенджера.
-    // Считаем ТОЛЬКО по запрошенным целям: фан-аут по сокету остаётся на личном графе,
-    // иначе каждый чих рассылался бы всей организации.
-    const [contactIds, coworkerIds] = await Promise.all([
-      this.contacts.getContactUserIds(viewerId),
-      this.contacts.filterCoworkers(viewerId, targets),
-    ]);
-    const visibleIds = new Set([...contactIds, ...coworkerIds]);
-
-    // Batch-load target privacy fields.
-    const rows = await this.db.user.findMany({
-      where: { id: { in: targets } },
-      select: { id: true, onlineStatusMode: true, cardVisibility: true },
-    });
-    const byId = new Map(rows.map((r) => [r.id, r]));
-
     // Один MGET на весь батч вместо 1–2 последовательных GET на цель (100 контактов
     // = 100–200 round-trip'ов к Redis ≈ 50–150мс латентности — перф-ревью 2026-07-18).
     let presenceVals: (string | null)[] = [];
     try {
-      presenceVals = targets.length
-        ? await this.redis
-            .getClient()
-            .mget([
-              ...targets.map((id) => this.key(id)),
-              ...targets.map((id) => this.lastSeenKey(id)),
-            ])
-        : [];
+      presenceVals = await this.redis.getClient().mget([...targets.map((id) => this.key(id)), ...targets.map((id) => this.lastSeenKey(id))]);
     } catch {
       presenceVals = new Array(targets.length * 2).fill(null);
     }
@@ -205,37 +173,40 @@ export class PresenceService {
       lastSeenById.set(id, presenceVals[targets.length + i] ?? null);
     });
 
+    // Живые люди (удалённые и боты присутствия не имеют)
+    const alive = new Set(
+      (await this.db.user.findMany({ where: { id: { in: targets }, deletedAt: null, kind: 'person' }, select: { id: true } })).map((u) => u.id),
+    );
+    const live = targets.filter((id) => alive.has(id));
+    const now = new Date().toISOString();
+    const shaped = await this.visibility.shape(
+      this.visibility.viewerFor(viewerId, null, 'api'),
+      'user.card',
+      live.map((id) => ({
+        ref: { recordId: id, subjectId: id, workspaceId: null },
+        // Онлайн сейчас — корзина «недавно»; иначе — момент ухода
+        values: { presence: onlineById.get(id) ? now : (lastSeenById.get(id) ?? null) },
+      })),
+    );
+    const byId = new Map(live.map((id, i) => [id, shaped[i]!.presence]));
+
     const out: PresenceInfo[] = [];
     for (const targetId of targets) {
-      const t = byId.get(targetId);
-      const hiddenInfo: PresenceInfo = {
-        userId: targetId,
-        online: false,
-        lastSeen: null,
-        contextual: null,
-      };
-
-      if (!t) {
+      const hiddenInfo: PresenceInfo = { userId: targetId, online: false, lastSeen: null, lastSeenBucket: null, contextual: null };
+      const v = byId.get(targetId);
+      if (v === undefined || (isGuardMarker(v) && v.$v === 'hidden')) {
         out.push(hiddenInfo);
         continue;
       }
-
-      // Target privacy gates.
-      const onlineFlag = this.onlineStatusFlag(t.cardVisibility);
-      if (t.onlineStatusMode === 'nobody' || !onlineFlag) {
-        out.push(hiddenInfo);
+      if (isGuardMarker(v)) {
+        // Маска: только корзина «был в сети» (display — код корзины)
+        out.push({ ...hiddenInfo, lastSeenBucket: (v.$v === 'masked' ? (v.display as PresenceBucket | null) : null) ?? null });
         continue;
       }
-      // Reciprocity + «зритель вообще вправе видеть эту цель» (окружение ∥ коллеги).
-      if (viewerHidden || !visibleIds.has(targetId)) {
-        out.push(hiddenInfo);
-        continue;
-      }
-
       const online = onlineById.get(targetId) ?? false;
       const lastSeen = online ? null : (lastSeenById.get(targetId) ?? null);
       const contextual = online ? await this.contextualFor(viewerId, targetId) : null;
-      out.push({ userId: targetId, online, lastSeen, contextual });
+      out.push({ userId: targetId, online, lastSeen, lastSeenBucket: null, contextual });
     }
     return out;
   }
@@ -315,15 +286,6 @@ export class PresenceService {
   // ============================================================
   // Helpers
   // ============================================================
-
-  /** Read the onlineStatus flag from the stored card_visibility JSON (default true). */
-  private onlineStatusFlag(cardVisibility: unknown): boolean {
-    if (cardVisibility && typeof cardVisibility === 'object') {
-      const v = (cardVisibility as Record<string, unknown>).onlineStatus;
-      if (typeof v === 'boolean') return v;
-    }
-    return true; // default visibility shows online status
-  }
 
   /** 24h HH:MM in server-local time (kept simple; tz tailoring is a future refinement). */
   private formatHHMM(d: Date): string {

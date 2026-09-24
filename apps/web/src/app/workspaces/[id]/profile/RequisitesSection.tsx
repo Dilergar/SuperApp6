@@ -32,7 +32,9 @@ import {
   type SignBasisInput,
   type WorkspaceMember,
   type WorkspaceRequisitesDto,
+  guardedDisplay,
 } from '@superapp/shared';
+import { RevealScope, RevealableValue } from '@/components/visibility/RevealButton';
 import { Button, Card, CardHeader, Chip, Divider, Input, Select, Toggle, useConfirm } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/lib/api';
@@ -65,10 +67,15 @@ export function RequisitesSection({
   if (isPending) return null;
   if (!data && mode === 'view') return null;
 
-  return mode === 'edit' ? (
-    <RequisitesEditor workspaceId={workspaceId} initial={data ?? null} span={span} />
-  ) : (
-    <RequisitesView data={data as WorkspaceRequisitesDto} span={span} />
+  // IBAN — строгое поле: маска последних четырёх; раскрытие — кнопкой у ОДНОГО счёта
+  return (
+    <RevealScope>
+      {mode === 'edit' ? (
+        <RequisitesEditor workspaceId={workspaceId} initial={data ?? null} span={span} />
+      ) : (
+        <RequisitesView data={data as WorkspaceRequisitesDto} span={span} />
+      )}
+    </RevealScope>
   );
 }
 
@@ -134,7 +141,9 @@ function RequisitesView({ data, span }: { data: WorkspaceRequisitesDto; span: nu
           <div className="ui-stack" style={{ gap: 'var(--spacing-2)' }}>
             {data.bankAccounts.map((a) => (
               <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap', fontSize: '0.85rem' }}>
-                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>{a.iban}</span>
+                <span style={{ fontFamily: 'var(--font-display)', fontWeight: 600 }}>
+                  <RevealableValue value={a.iban} recordType="workspace.card" recordId={a.id} field="iban" />
+                </span>
                 <span style={{ color: 'var(--on-surface-variant)' }}>
                   {a.bankName} · {t('requisites.accounts.bikShort', { bik: a.bik })}
                 </span>
@@ -448,7 +457,9 @@ export function RequisitesEditor({
         {accounts.map((a) => (
           <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: '0.9rem' }}>{a.iban}</div>
+              <div style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: '0.9rem' }}>
+                <RevealableValue value={a.iban} recordType="workspace.card" recordId={a.id} field="iban" />
+              </div>
               <div className="label-sm" style={{ opacity: 0.7 }}>
                 {a.bankName} · {t('requisites.accounts.bikShort', { bik: a.bik })}
               </div>
@@ -468,7 +479,7 @@ export function RequisitesEditor({
                 confirm(
                   {
                     title: t('requisites.accounts.deleteTitle'),
-                    message: t('requisites.accounts.deleteMessage', { iban: a.iban, bank: a.bankName }),
+                    message: t('requisites.accounts.deleteMessage', { iban: guardedDisplay(a.iban) ?? '', bank: a.bankName }),
                     confirmLabel: tc('actions.delete'),
                     danger: true,
                   },

@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { RATE_TYPES, type StaffingRowDto } from '@superapp/shared';
+import { RATE_TYPES, visibleOr, type StaffingRowDto } from '@superapp/shared';
 import { Button, DatePicker, Input, Modal, Select } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
 
@@ -57,8 +57,10 @@ export function AssignPanel({
   const [user, setUser] = useState<{ type: 'user'; id: string }[]>([]);
   const [startsOn, setStartsOn] = useState<string | undefined>(todayIn(timeZone));
   const [rateShare, setRateShare] = useState('1');
-  const [rateType, setRateType] = useState(row.plannedRate?.rateType ?? 'monthly');
-  const [amount, setAmount] = useState(tiynToTenge(row.plannedRate?.amount));
+  // Плановая ставка — подсказка, только если зритель видит её полностью
+  const planned = row.plannedRate !== undefined ? visibleOr(row.plannedRate, null) : null;
+  const [rateType, setRateType] = useState(planned?.rateType ?? 'monthly');
+  const [amount, setAmount] = useState(tiynToTenge(planned?.amount));
 
   const save = useMutation({
     mutationFn: async () => {
@@ -118,7 +120,7 @@ export function AssignPanel({
             inputMode="decimal"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            hint={row.plannedRate ? t('staffing.rateFromPlanned') : undefined}
+            hint={planned ? t('staffing.rateFromPlanned') : undefined}
           />
         </div>
         <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>

@@ -6,6 +6,7 @@ import type { Contact } from '@superapp/shared';
 import { contactsKey, fetchAllContacts } from '@/lib/queries';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { Principal } from '@/lib/entities';
+import { guardedDisplay } from '@superapp/shared';
 
 // ============================================================
 // Thin adapter over the shared EntitySelector, kept for the existing
@@ -60,9 +61,9 @@ export function ContactPicker({
     .map((c) => ({
       type: 'user',
       id: c.them.id,
-      title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(),
+      title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(),
       firstName: c.them.firstName,
-      lastName: c.them.lastName,
+      lastName: guardedDisplay(c.them.lastName),
       role: c.myRole,
     }));
 

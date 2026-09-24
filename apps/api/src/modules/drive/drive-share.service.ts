@@ -18,6 +18,7 @@ import { NotificationsService } from '../../core/notifications/notifications.ser
 import { DriveAccessService, principalRelation } from './drive-access.service';
 import { DriveService } from './drive.service';
 import { AudiencesService } from '../../core/audiences/audiences.service';
+import { AuditService } from '../../core/audit/audit.service';
 
 /**
  * Шеринг узлов Диска.
@@ -40,6 +41,7 @@ export class DriveShareService implements OnModuleInit {
     private readonly chatter: ChatterService,
     private readonly chatterRegistry: ChatterRefRegistry,
     private readonly audiences: AudiencesService,
+    private readonly audit: AuditService,
   ) {}
 
   onModuleInit(): void {
@@ -119,28 +121,40 @@ export class DriveShareService implements OnModuleInit {
     const { node } = await this.drive.requireNode(userId, nodeId, 'manager');
     const space = await this.drive.loadSpace(node.spaceId);
     await this.assertPrincipalAllowed(userId, space, input);
-
-    // Одна роль на принципала: смена роли не должна оставлять старую строку —
-    // иначе «понизил до просмотра» не понижало бы ничего.
-    for (const role of DRIVE_ROLES) {
-      if (role !== input.role) {
-        await this.acl.revokeNode(nodeId, role, { type: input.principalType, id: input.principalId });
+    const workspaceId = space.ownerType === 'workspace' ? space.ownerId : null;
+    const who = { type: input.principalType, id: input.principalId };
+    const [principal, actorName, previous] = await Promise.all([
+      this.principalAudience(input.principalType, input.principalId),
+      this.actorName(userId),
+      this.directRole(nodeId, who),
+    ]);
+    // Одна роль на принципала: смена роли не должна оставлять старую строку — иначе
+    // «понизил до просмотра» не понижало бы ничего. Грант, хроника и событие журнала
+    // безопасности (данные организации) — одной транзакцией.
+    await this.db.$transaction(async (tx) => {
+      for (const role of DRIVE_ROLES) {
+        if (role !== input.role) await this.acl.revokeNode(nodeId, role, who, tx);
       }
-    }
-    await this.acl.grantNode(nodeId, input.role, { type: input.principalType, id: input.principalId });
-
-    const principal = await this.principalAudience(input.principalType, input.principalId);
-    await this.chatter
-      .log(null, {
+      await this.acl.grantNode(nodeId, input.role, who, tx);
+      await this.chatter.log(tx, {
         refType: DRIVE_NODE_REF_TYPE,
         refId: nodeId,
-        workspaceId: space.ownerType === 'workspace' ? space.ownerId : null,
+        workspaceId,
         actorId: userId,
-        actorName: await this.actorName(userId),
+        actorName,
         typeKey: 'drive.shared',
         payload: { targetName: node.name, principalLabelAudience: principal, role: input.role },
-      })
-      .catch(() => undefined);
+      });
+      if (workspaceId && previous !== input.role) {
+        await this.audit.record(tx, {
+          key: 'sharing.access.granted',
+          workspaceId,
+          subjectUserId: input.principalType === 'user' ? input.principalId : null,
+          target: { type: DRIVE_NODE_REF_TYPE, id: nodeId, label: node.name },
+          details: { resource: 'drive_node', access: input.role, previousAccess: previous ?? 'none', principalType: input.principalType, principalId: input.principalId },
+        });
+      }
+    });
 
     await this.notifyRecipients(userId, node.id, node.name, input);
     return this.listShares(userId, nodeId);
@@ -149,24 +163,45 @@ export class DriveShareService implements OnModuleInit {
   async unshare(userId: string, nodeId: string, principalType: string, principalId: string): Promise<DriveShareDto[]> {
     const { node } = await this.drive.requireNode(userId, nodeId, 'manager');
     const space = await this.drive.loadSpace(node.spaceId);
-    for (const role of DRIVE_ROLES) {
-      await this.acl.revokeNode(nodeId, role, { type: principalType, id: principalId });
-    }
-    await this.chatter
-      .log(null, {
+    const workspaceId = space.ownerType === 'workspace' ? space.ownerId : null;
+    const who = { type: principalType, id: principalId };
+    const [principal, actorName, previous] = await Promise.all([
+      this.principalAudience(principalType, principalId),
+      this.actorName(userId),
+      this.directRole(nodeId, who),
+    ]);
+    await this.db.$transaction(async (tx) => {
+      for (const role of DRIVE_ROLES) await this.acl.revokeNode(nodeId, role, who, tx);
+      await this.chatter.log(tx, {
         refType: DRIVE_NODE_REF_TYPE,
         refId: nodeId,
-        workspaceId: space.ownerType === 'workspace' ? space.ownerId : null,
+        workspaceId,
         actorId: userId,
-        actorName: await this.actorName(userId),
+        actorName,
         typeKey: 'drive.unshared',
-        payload: {
-          targetName: node.name,
-          principalLabelAudience: await this.principalAudience(principalType, principalId),
-        },
-      })
-      .catch(() => undefined);
+        payload: { targetName: node.name, principalLabelAudience: principal },
+      });
+      // Событие — только если доступ БЫЛ: снятие несуществующего гранта ничего не сузило
+      if (workspaceId && previous) {
+        await this.audit.record(tx, {
+          key: 'sharing.access.revoked',
+          workspaceId,
+          subjectUserId: principalType === 'user' ? principalId : null,
+          target: { type: DRIVE_NODE_REF_TYPE, id: nodeId, label: node.name },
+          details: { resource: 'drive_node', principalType, principalId },
+        });
+      }
+    });
     return this.listShares(userId, nodeId);
+  }
+
+  /** Роль, выданная принципалу ПРЯМО на узле (не унаследованная) — «было» для журнала. */
+  private async directRole(nodeId: string, who: { type: string; id: string }): Promise<DriveRole | null> {
+    const row = await this.db.relationTuple.findFirst({
+      where: { resourceType: DRIVE_NODE_REF_TYPE, resourceId: nodeId, subjectType: who.type, subjectId: who.id, relation: { in: [...DRIVE_ROLES] } },
+      select: { relation: true },
+    });
+    return (row?.relation as DriveRole | undefined) ?? null;
   }
 
   /**

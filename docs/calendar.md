@@ -23,7 +23,7 @@
 
 ## Google-синхра (GoogleCalendarModule)
 
-OAuth 2.0 + Calendar API (модель Bitrix24/Salesforce, не «чистый CalDAV»). `GoogleConnection` (токены, выбранный календарь, syncToken, канал вебхука). Инкрементальная синхра (events.list + syncToken, 410→полный ресинк); вебхуки channels.watch (прод) + поллинг/кнопка (фолбэк); свои события двусторонне, задачи односторонне; конфликты last-write-wins; удаления зеркалятся; участники не выгружаются. Маппинг `googleEventId` идемпотентен (гасит эхо). Без `GOOGLE_*` модуль инертен. Лимит: пер-экземплярные исключения повторов — на уровне master+EXDATE. ⚠️ Live OAuth не тестирован (нужны креды) — [roadmap.md](roadmap.md).
+OAuth 2.0 + Calendar API (модель Bitrix24/Salesforce, не «чистый CalDAV»). `GoogleConnection` (токены, выбранный календарь, syncToken, канал вебхука). Инкрементальная синхра (events.list + syncToken, 410→полный ресинк); вебхуки channels.watch (прод) + поллинг/кнопка (фолбэк); свои события двусторонне, задачи односторонне; конфликты last-write-wins; удаления зеркалятся; участники не выгружаются. Маппинг `googleEventId` идемпотентен (гасит эхо). Без `GOOGLE_*` модуль инертен. Подключение и отключение — журнал безопасности `account.integration.connected|disconnected` на всех путях (колбэк OAuth, кнопка, отзыв согласия хуком, «Это не я», удаление аккаунта). Лимит: пер-экземплярные исключения повторов — на уровне master+EXDATE. ⚠️ Live OAuth не тестирован (нужны креды) — [roadmap.md](roadmap.md).
 
 ## API (кратко)
 

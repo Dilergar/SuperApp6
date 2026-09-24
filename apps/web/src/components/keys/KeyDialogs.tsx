@@ -20,7 +20,7 @@ import {
   type KeyScopes,
 } from '@superapp/shared';
 
-import { Button, Checkbox, Field, Input, Modal, Select, Textarea } from '@/components/ui';
+import { Button, Checkbox, Field, Input, Modal, Select, Textarea, Toggle } from '@/components/ui';
 import { KeyRevealOnce } from './KeyRevealOnce';
 import { ScopeMatrix } from './ScopeMatrix';
 
@@ -91,6 +91,17 @@ export function AllowlistField({ value, onChange, required }: { value: string[];
   );
 }
 
+// ---- Доступ к контактным данным (core/visibility, R9) ----
+/**
+ * Без флага интеграция видит поля не выше «внутренних»: телефон и e-mail клиентов, контакты
+ * контрагентов — только с ним. Конфиденциальное (оклад, ИИН, карта) ключу не открывается никогда.
+ * Смена флага — сила ключа: сервер требует сильное подтверждение.
+ */
+export function ContactAccessField({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  const t = useTranslations('keys');
+  return <Toggle checked={value} onChange={onChange} label={t('contactAccess.label')} description={t('contactAccess.hint')} />;
+}
+
 // ---- Личный ключ (собственные данные или данные организации) ----
 export function PersonalKeyDialog({
   open,
@@ -118,11 +129,12 @@ export function PersonalKeyDialog({
   const [days, setDays] = useState(Math.min(KEYS_LIMITS.patDefaultDays, maxDays));
   const [allowlist, setAllowlist] = useState<string[]>([]);
   const [storedHint, setStoredHint] = useState('');
+  const [contactAccess, setContactAccess] = useState(false);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<ApiKeyCreatedDto | null>(null);
 
   const reset = () => {
-    setName(''); setPurpose(''); setScopes({}); setDays(Math.min(KEYS_LIMITS.patDefaultDays, maxDays)); setAllowlist([]); setStoredHint(''); setCreated(null);
+    setName(''); setPurpose(''); setScopes({}); setDays(Math.min(KEYS_LIMITS.patDefaultDays, maxDays)); setAllowlist([]); setStoredHint(''); setContactAccess(false); setCreated(null);
   };
   const close = () => { if (busy) return; reset(); onClose(); };
 
@@ -130,7 +142,16 @@ export function PersonalKeyDialog({
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await onCreate({ name: name.trim(), purpose: purpose.trim(), scopes, ipAllowlist: allowlist, expiresInDays: days, ...(storedHint.trim() ? { storedHint: storedHint.trim() } : {}) });
+      const res = await onCreate({
+        name: name.trim(),
+        purpose: purpose.trim(),
+        scopes,
+        ipAllowlist: allowlist,
+        expiresInDays: days,
+        // Контакты клиентов — только у ключа данных организации
+        contactAccess: !!forWorkspace && contactAccess,
+        ...(storedHint.trim() ? { storedHint: storedHint.trim() } : {}),
+      });
       if (res) {
         setCreated(res);
         onCreated?.(res.key);
@@ -158,6 +179,7 @@ export function PersonalKeyDialog({
           </Field>
           <ExpiryFields days={days} noExpiry={false} onDays={setDays} onNoExpiry={() => undefined} allowNoExpiry={false} maxDays={maxDays} />
           <AllowlistField value={allowlist} onChange={setAllowlist} required={requireAllowlist} />
+          {forWorkspace && <ContactAccessField value={contactAccess} onChange={setContactAccess} />}
           <Input label={t('key.storedHint')} hint={t('key.storedHintHint')} value={storedHint} onChange={(e) => setStoredHint(e.target.value)} maxLength={KEYS_LIMITS.storedHintMaxLength} />
           <div style={{ display: 'flex', gap: 'var(--spacing-3)', justifyContent: 'flex-end' }}>
             <Button type="button" variant="ghost" onClick={close} disabled={busy}>{common('actions.cancel')}</Button>

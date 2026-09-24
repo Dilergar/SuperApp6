@@ -107,19 +107,20 @@ async function main() {
 
   try {
     // ============================================================
-    // КРАСНЫЙ 1 — приватность: пустая видимость группы = дефолт владельца
+    // КРАСНЫЙ 1 — приватность: пустая видимость группы = правила владельца карточки
     // ============================================================
-    // Поля должны быть ЗАПОЛНЕНЫ, иначе «скрыто» и «пусто» неразличимы: карточка
-    // отдаёт null и в том, и в другом случае, и тест ничего бы не доказывал.
+    // Поля ЗАПОЛНЕНЫ: движок видимости (core/visibility) отличает «скрыто» (маркер
+    // `{ $v: 'hidden' }`) от «пусто» (`null`) — тест доказывает именно скрытие.
     await call('PATCH', '/users/me', t2, { city: 'Алматы', bio: 'Тест ревью' });
-    // u2 прячет в анкете город и био.
-    await call('PATCH', '/users/me', t2, { cardVisibility: { city: false, bio: false, age: false } });
+    // u2 прячет город и био от всех («Никто» в «Моей карточке и видимости»)
+    await call('PUT', '/visibility/me', t2, { fields: [{ fieldKey: 'city', audiences: [] }, { fieldKey: 'bio', audiences: [] }] });
+    const hid = (v) => v?.$v === 'hidden';
     const beforeGroup = await call('GET', '/contacts', t1);
     const seen0 = beforeGroup.json?.data?.items?.find((c) => c.them.id === u.u2);
-    check('видимость: до групп скрытые поля закрыты', seen0 && seen0.them.city === null && seen0.them.bio === null,
-      `city=${seen0?.them?.city} bio=${seen0?.them?.bio}`);
+    check('видимость: до групп скрытые поля закрыты', seen0 && hid(seen0.them.city) && hid(seen0.them.bio),
+      `city=${JSON.stringify(seen0?.them?.city)} bio=${JSON.stringify(seen0?.them?.bio)}`);
 
-    // u2 создаёт СВЕЖУЮ группу (cardVisibility = null) и кладёт туда u1.
+    // u2 создаёт СВЕЖУЮ группу (правил на неё нет) и кладёт туда u1.
     const grpFresh = await call('POST', '/circles', t2, { name: 'Ревью: свежая' });
     created.circleIds.push(grpFresh.json?.data?.id);
     const link12For2 = (await call('GET', '/contacts', t2)).json.data.items.find((c) => c.them.id === u.u1);
@@ -127,25 +128,27 @@ async function main() {
 
     const afterGroup = await call('GET', '/contacts', t1);
     const seen1 = afterGroup.json?.data?.items?.find((c) => c.them.id === u.u2);
-    check('КРАСНЫЙ 1: свежая группа НЕ раскрывает скрытые поля', seen1 && seen1.them.city === null && seen1.them.bio === null,
-      `city=${seen1?.them?.city} bio=${seen1?.them?.bio}`);
+    check('КРАСНЫЙ 1: свежая группа НЕ раскрывает скрытые поля', seen1 && hid(seen1.them.city) && hid(seen1.them.bio),
+      `city=${JSON.stringify(seen1?.them?.city)} bio=${JSON.stringify(seen1?.them?.bio)}`);
 
-    // Явная настройка группы по-прежнему ОТКРЫВАЕТ поле (union работает).
-    await call('PATCH', `/circles/${grpFresh.json.data.id}`, t2, { cardVisibility: { city: true } });
+    // Редактор Группы («этой Группе показать») ОТКРЫВАЕТ поле — правило `circle:<id>`
+    const openGrp = await call('PUT', `/visibility/me/circles/${grpFresh.json.data.id}`, t2, { fields: { city: true } });
+    check('редактор Группы принят', openGrp.ok, `status ${openGrp.status} ${openGrp.code}`);
     const afterOpen = await call('GET', '/contacts', t1);
     const seen2 = afterOpen.json?.data?.items?.find((c) => c.them.id === u.u2);
-    check('видимость: явная настройка группы открывает поле', seen2 && seen2.them.city !== null, `city=${seen2?.them?.city}`);
-    check('видимость: непрописанное поле остаётся закрытым', seen2 && seen2.them.bio === null, `bio=${seen2?.them?.bio}`);
+    check('видимость: явная настройка группы открывает поле', seen2 && seen2.them.city === 'Алматы', `city=${JSON.stringify(seen2?.them?.city)}`);
+    check('видимость: непрописанное поле остаётся закрытым', seen2 && hid(seen2.them.bio), `bio=${JSON.stringify(seen2?.them?.bio)}`);
 
     // ============================================================
-    // ЖЁЛТЫЙ — PATCH /users/me мержит карту, а не затирает
+    // ЖЁЛТЫЙ — правка одного поля не трогает остальные
     // ============================================================
-    await call('PATCH', '/users/me', t2, { cardVisibility: { city: false, bio: false, email: false } });
-    await call('PATCH', '/users/me', t2, { cardVisibility: { city: true } }); // частичный патч
-    const me2 = await call('GET', '/users/me', t2);
-    check('ЖЁЛТЫЙ: частичный PATCH видимости не воскрешает скрытое',
-      me2.json?.data?.cardVisibility?.bio === false && me2.json?.data?.cardVisibility?.city === true,
-      `bio=${me2.json?.data?.cardVisibility?.bio} city=${me2.json?.data?.cardVisibility?.city}`);
+    await call('PUT', '/visibility/me', t2, { fields: [{ fieldKey: 'city', audiences: [], hiddenFromCircles: [] }, { fieldKey: 'bio', audiences: [] }, { fieldKey: 'email', audiences: [] }] });
+    await call('PUT', '/visibility/me', t2, { fields: [{ fieldKey: 'city', audiences: [{ kind: 'circle_all', id: null }] }] }); // одно поле
+    const me2 = await call('GET', '/visibility/me', t2);
+    const f2 = (k) => (me2.json?.data?.fields ?? []).find((f) => f.fieldKey === k);
+    check('ЖЁЛТЫЙ: частичная правка видимости не воскрешает скрытое',
+      f2('bio')?.configured === true && f2('bio')?.audiences?.length === 0 && f2('city')?.audiences?.some((a) => a.kind === 'circle_all'),
+      `bio=${JSON.stringify(f2('bio'))} city=${JSON.stringify(f2('city'))}`);
 
     // ============================================================
     // КРАСНЫЙ 7 — удаление группы снимает рёбра, где группа = СУБЪЕКТ
@@ -232,7 +235,14 @@ async function main() {
     const incoming = await call('GET', '/contacts/invitations/incoming', t3);
     check('ЖЁЛТЫЙ: входящие отдают курсор', 'nextCursor' in (incoming.json?.data ?? {}), `keys=${Object.keys(incoming.json?.data ?? {})}`);
     const fromCard = incoming.json?.data?.items?.find((i) => i.fromUserId === u.u1)?.from;
-    check('ЖЁЛТЫЙ: телефон отправителя маскируется до связи', !!fromCard && fromCard.phone.includes('*'), `phone=${fromCard?.phone}`);
+    // До связи номер отправителя — по ЕГО правилам: постороннему скрыт целиком; коллеге по
+    // общей организации — как решил человек (по умолчанию коллегам виден)
+    const shared = await prisma.userRole.findFirst({
+      where: { userId: u.u3, context: 'workspace', isActive: true, tenantId: { in: (await prisma.userRole.findMany({ where: { userId: u.u1, context: 'workspace', isActive: true }, select: { tenantId: true } })).map((r) => r.tenantId).filter(Boolean) } },
+      select: { id: true },
+    });
+    check('ЖЁЛТЫЙ: телефон отправителя до связи — по его правилам', !!fromCard && (shared ? fromCard.phone === P1 : fromCard.phone?.$v === 'hidden'),
+      `phone=${JSON.stringify(fromCard?.phone)} colleagues=${!!shared}`);
 
     // ============================================================
     // ЖЁЛТЫЙ — история исходящих + canResend
@@ -425,10 +435,8 @@ async function main() {
       update: {},
       create: { ...p12, roleAForB: 'Друг', roleBForA: 'Друг', initiatedBy: u.u1 },
     }).catch(() => {});
-    await prisma.user.update({
-      where: { id: u.u2 },
-      data: { cardVisibility: null, city: null, bio: null },
-    }).catch(() => {});
+    await prisma.user.update({ where: { id: u.u2 }, data: { city: null, bio: null } }).catch(() => {});
+    await call('POST', '/visibility/me/reset', t2, { fieldKeys: ['city', 'bio', 'email'] }).catch(() => {});
     await prisma.$disconnect();
   }
 

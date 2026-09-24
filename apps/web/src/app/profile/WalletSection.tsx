@@ -455,13 +455,17 @@ function PaymentCardsBlock() {
         <div key={c.id} className="card" style={{ padding: 'var(--spacing-4)', maxWidth: '460px', marginBottom: 'var(--spacing-3)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-3)', flexWrap: 'wrap' }}>
             <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, letterSpacing: '0.05em' }}>
-              {revealed === c.id ? c.pan.replace(/(\d{4})(?=\d)/g, '$1 ') : c.panMasked}
+              {c.panMasked}
             </span>
             {c.isPrimary && <Chip tone="success">{t('cards.primary')}</Chip>}
             <span style={{ flex: 1 }} />
-            <Button size="sm" variant="ghost" onClick={() => setRevealed((r) => (r === c.id ? null : c.id))}>
-              {revealed === c.id ? t('cards.hide') : t('cards.show')}
-            </Button>
+            {/* Полного номера карты в продукте нет (PCI DSS 3.4.1) — «Показать» раскрывает только
+                свой IBAN счёта карты */}
+            {c.iban && (
+              <Button size="sm" variant="ghost" onClick={() => setRevealed((r) => (r === c.id ? null : c.id))}>
+                {revealed === c.id ? t('cards.hide') : t('cards.show')}
+              </Button>
+            )}
           </div>
           <div className="label-sm" style={{ marginTop: 'var(--spacing-2)', opacity: 0.75 }}>
             {c.holderName} · {t('cards.until')} {String(c.expMonth).padStart(2, '0')}/{String(c.expYear % 100).padStart(2, '0')}

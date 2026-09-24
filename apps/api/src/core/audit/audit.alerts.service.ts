@@ -37,7 +37,9 @@ export type AuditDetectKind =
   | 'mass_export'
   | 'dormant_login'
   | 'digest_mismatch'
-  | 'audit_degraded';
+  | 'audit_degraded'
+  | 'idor_probing'
+  | 'malware_burst';
 
 /** Ключ события детекции — явной картой: компилятор сверяет каждый с реестром, страж видит литерал. */
 const DETECT_EVENT_KEY: Record<AuditDetectKind, AuditEventKey> = {
@@ -50,6 +52,8 @@ const DETECT_EVENT_KEY: Record<AuditDetectKind, AuditEventKey> = {
   dormant_login: 'detect.dormant_login',
   digest_mismatch: 'detect.digest_mismatch',
   audit_degraded: 'detect.audit_degraded',
+  idor_probing: 'detect.idor_probing',
+  malware_burst: 'detect.malware_burst',
 };
 
 /** Сводка находки — детали события `detect.*` (коды и счётчики, без людей и адресов). */

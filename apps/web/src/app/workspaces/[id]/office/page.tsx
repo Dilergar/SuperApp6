@@ -32,6 +32,7 @@ import {
   type Workspace,
   type WorkspaceMember,
   type WorkspaceRole,
+  guardedDisplay,
 } from '@superapp/shared';
 
 /**
@@ -370,7 +371,7 @@ function InviteModal({
             id: m.userId,
             title: m.userName,
             firstName: m.card?.firstName ?? fn,
-            lastName: m.card?.lastName ?? (rest.join(' ') || null),
+            lastName: (m.card ? guardedDisplay(m.card.lastName) : null) ?? (rest.join(' ') || null),
           } as EntityOption;
         }),
     [membersQ.data, currentUserId],

@@ -5,10 +5,13 @@ import {
   counterpartyIdKey,
   type CounterpartyKind,
   type RichCardPayload,
+  guardedDisplay,
+  type Guarded,
 } from '@superapp/shared';
 import { RichCardRegistry } from '../../core/rich-cards/rich-cards.registry';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import type { RichCardDeps } from '../../core/rich-cards/rich-card.types';
+import { VisibilityService } from '../../core/visibility/visibility.service';
 
 /**
  * Rich card «Контрагент» (Принцип 3): карточку справочника можно переслать в чат
@@ -24,6 +27,7 @@ export class CounterpartiesRichCardsProvider implements OnModuleInit {
   constructor(
     private readonly registry: RichCardRegistry,
     private readonly i18n: I18nService,
+    private readonly visibility: VisibilityService,
   ) {}
 
   onModuleInit(): void {
@@ -63,6 +67,13 @@ export class CounterpartiesRichCardsProvider implements OnModuleInit {
         : row.orgForm;
     const kindLabel = t(`counterparties.kind.${kind}`);
     const contact = row.contacts[0] ?? null;
+    // Телефон — поле `counterparty` (core/visibility): карточка в чате рисуется глазами
+    // зрителя — маской или никак, если правила организации так решили
+    const shaped = await this.visibility.shapeOne(this.visibility.viewerFor(viewerId, row.workspaceId), 'counterparty', {
+      ref: { recordId: row.id, subjectId: null, workspaceId: row.workspaceId },
+      values: { phone: row.phone },
+    });
+    const phone = guardedDisplay(shaped.phone as Guarded<string | null>);
 
     return {
       kind: 'rich_card',
@@ -82,7 +93,7 @@ export class CounterpartiesRichCardsProvider implements OnModuleInit {
               },
             ]
           : []),
-        ...(row.phone ? [{ label: t('counterparties.card.phone'), value: row.phone }] : []),
+        ...(typeof phone === 'string' && phone ? [{ label: t('counterparties.card.phone'), value: phone }] : []),
       ],
       progress: null,
       status: row.archivedAt ? t('counterparties.card.archived') : (orgFormLabel ?? kindLabel),

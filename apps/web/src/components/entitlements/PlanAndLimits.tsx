@@ -35,6 +35,7 @@ const SERVICE_ICON: Record<EntitlementServiceKey, IconName> = {
   cardSkins: 'crown',
   notifications: 'bell',
   audit: 'shield',
+  visibility: 'eye',
 };
 
 /** Ключ каталога подписи → относительный (внутри неймспейса `entitlements`). */

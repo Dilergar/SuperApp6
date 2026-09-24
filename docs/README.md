@@ -19,6 +19,7 @@
 | Багфикс «странное поведение» | [platform_gotchas.md](platform_gotchas.md) + раздел «Ловушки» доменного дока |
 | Фоновая работа / джоб | [jobs_engine.md](jobs_engine.md) + доменный док |
 | Права / доступ / шеринг | [access_engine.md](access_engine.md) + [identity_roles.md](identity_roles.md) + доменный док |
+| Кто видит какие ПОЛЯ (маски, скрытое, раскрытие) | [visibility_engine.md](visibility_engine.md) + доменный док |
 | Контракт API↔клиенты | [contract_boundary.md](contract_boundary.md) + [testing_verify_suite.md](testing_verify_suite.md) |
 | Среда / env / docker | [dev_environment.md](dev_environment.md) + [environment_variables.md](environment_variables.md) |
 | Безопасность | [security.md](security.md) (+ [verify_engine.md](verify_engine.md), [sign_engine.md](sign_engine.md)) |
@@ -93,6 +94,7 @@
 | [webhooks_engine.md](webhooks_engine.md) | Исходящие вебхуки (`core/webhooks`, 23-й): реестр событий в shared, `emit(tx)`, Standard Webhooks (HMAC/Ed25519, ротация двумя подписями), доставка с ретраями и автоотключением, пинг и аудит битой подписью |
 | [idempotency_engine.md](idempotency_engine.md) | Идемпотентность повторов (`core/idempotency`, 25-й): ключ повтора на мутациях, отметка «эффект закоммичен» в бизнес-транзакции, снимок ответа под KEK владельца, «входящий ящик» ровно-одного-раза, производные ключи вниз по стеку, страж объявлений на буте |
 | [audit_engine.md](audit_engine.md) | Журнал аудита безопасности (`core/audit`, 26-й): единый поток событий с тремя зрителями (человек / организация / платформа), реестр в shared, запись в транзакции факта, append-only в БД (триггеры ENABLE ALWAYS + роль-владелец), защита входа, сессии-семейства, cooling, заморозка и «Это не я», журнал и экспорт организации, SIEM-стрим, дайджесты Меркла, архив, детекции |
+| [visibility_engine.md](visibility_engine.md) | Правила видимости полей (`core/visibility`, 27-й): реестр типов записей в shared, личное поле решает человек, служебное — организация матрицей, провод `Guarded<T>`, маски только на сервере, потолки класса поля и бота/ключа, раскрытие одной записи под SMS, «четыре глаза», находимость по номеру, семь чокпойнтов, страж ответа и канарейки |
 
 ## Сервисы (apps/api/src/modules/)
 

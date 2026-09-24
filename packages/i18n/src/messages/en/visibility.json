@@ -1,0 +1,531 @@
+{
+  "types": {
+    "user": {
+      "card": {
+        "title": "Person card",
+        "sections": {
+          "identity": {
+            "title": "Who I am"
+          },
+          "contacts": {
+            "title": "Contacts"
+          },
+          "profile": {
+            "title": "About me"
+          },
+          "presence": {
+            "title": "Online status"
+          }
+        },
+        "fields": {
+          "lastName": {
+            "label": "Last name"
+          },
+          "avatar": {
+            "label": "Photo"
+          },
+          "birthDayMonth": {
+            "label": "Birthday (day and month)"
+          },
+          "birthYear": {
+            "label": "Year of birth"
+          },
+          "age": {
+            "label": "Age"
+          },
+          "maritalStatus": {
+            "label": "Marital status"
+          },
+          "phone": {
+            "label": "Phone"
+          },
+          "email": {
+            "label": "Email"
+          },
+          "socialLinks": {
+            "label": "Social links"
+          },
+          "city": {
+            "label": "City"
+          },
+          "bio": {
+            "label": "About me"
+          },
+          "presence": {
+            "label": "Last seen"
+          }
+        }
+      }
+    },
+    "workspace": {
+      "card": {
+        "title": "Organization profile",
+        "sections": {
+          "profile": {
+            "title": "Profile"
+          },
+          "contacts": {
+            "title": "Contacts"
+          },
+          "requisites": {
+            "title": "Requisites"
+          }
+        },
+        "fields": {
+          "description": {
+            "label": "Description"
+          },
+          "industry": {
+            "label": "Industry"
+          },
+          "city": {
+            "label": "City"
+          },
+          "website": {
+            "label": "Website"
+          },
+          "membersCount": {
+            "label": "Number of employees"
+          },
+          "contactEmail": {
+            "label": "Contact email"
+          },
+          "contactPhone": {
+            "label": "Contact phone"
+          },
+          "requisites": {
+            "label": "Requisites (legal name, BIN, address, VAT, bank)"
+          },
+          "iban": {
+            "label": "Bank account (IBAN)"
+          }
+        }
+      }
+    },
+    "staff": {
+      "member": {
+        "title": "Employee",
+        "sections": {
+          "requisites": {
+            "title": "For contracts and employment"
+          },
+          "payment": {
+            "title": "Payout card"
+          }
+        },
+        "fields": {
+          "iin": {
+            "label": "IIN"
+          },
+          "residentialAddress": {
+            "label": "Residential address"
+          },
+          "idDocNumber": {
+            "label": "ID document number"
+          },
+          "idDocIssuedBy": {
+            "label": "ID issued by"
+          },
+          "idDocIssuedAt": {
+            "label": "ID issue date"
+          },
+          "paymentCardPan": {
+            "label": "Card number"
+          },
+          "paymentCardIban": {
+            "label": "Card account (IBAN)"
+          },
+          "paymentCardHolder": {
+            "label": "Cardholder"
+          },
+          "paymentCardExpiry": {
+            "label": "Card expiry"
+          }
+        }
+      }
+    },
+    "hr": {
+      "employment": {
+        "title": "Employment record",
+        "sections": {
+          "contract": {
+            "title": "Contract"
+          },
+          "pay": {
+            "title": "Pay"
+          }
+        },
+        "fields": {
+          "hiredAt": {
+            "label": "Hire date"
+          },
+          "firedAt": {
+            "label": "Dismissal date"
+          },
+          "contractNumber": {
+            "label": "Contract number"
+          },
+          "contractDate": {
+            "label": "Contract date"
+          },
+          "contractType": {
+            "label": "Contract type"
+          },
+          "contractEndAt": {
+            "label": "Contract end"
+          },
+          "probationUntil": {
+            "label": "Probation until"
+          },
+          "workRate": {
+            "label": "Work rate"
+          },
+          "workSchedule": {
+            "label": "Work schedule"
+          },
+          "personnelNumber": {
+            "label": "Personnel number"
+          },
+          "dismissalGround": {
+            "label": "Dismissal ground"
+          },
+          "salaryAmount": {
+            "label": "Salary"
+          }
+        }
+      }
+    },
+    "objects": {
+      "staffing": {
+        "title": "Staffing table",
+        "sections": {
+          "money": {
+            "title": "Money"
+          }
+        },
+        "fields": {
+          "officialSalary": {
+            "label": "Salary by contract"
+          },
+          "actualRate": {
+            "label": "Management rate"
+          },
+          "plannedRate": {
+            "label": "Planned rate"
+          },
+          "plannedCost": {
+            "label": "Planned cost"
+          },
+          "employment": {
+            "label": "Employment terms"
+          }
+        }
+      },
+      "shift": {
+        "title": "Shifts and attendance",
+        "sections": {
+          "plan": {
+            "title": "Plan"
+          },
+          "attendance": {
+            "title": "Attendance"
+          }
+        },
+        "fields": {
+          "shiftNote": {
+            "label": "Shift note"
+          },
+          "outcome": {
+            "label": "Attendance outcome"
+          },
+          "lateMin": {
+            "label": "Lateness"
+          },
+          "actualStartAt": {
+            "label": "Actual start"
+          },
+          "actualEndAt": {
+            "label": "Actual end"
+          },
+          "attendanceNote": {
+            "label": "Attendance note"
+          }
+        }
+      }
+    },
+    "counterparty": {
+      "title": "Counterparty",
+      "sections": {
+        "contacts": {
+          "title": "Contacts"
+        },
+        "bank": {
+          "title": "Bank accounts"
+        }
+      },
+      "fields": {
+        "phone": {
+          "label": "Phone"
+        },
+        "email": {
+          "label": "Email"
+        },
+        "contactPhone": {
+          "label": "Contact person phone"
+        },
+        "contactEmail": {
+          "label": "Contact person email"
+        },
+        "iban": {
+          "label": "IBAN"
+        }
+      }
+    }
+  },
+  "groups": {
+    "identity": "Identity",
+    "profile": "About",
+    "contacts": "Contacts",
+    "address": "Address",
+    "presence": "Online status",
+    "requisites": "Requisites",
+    "finance": "Money",
+    "employment": "Employment",
+    "schedule": "Schedule and attendance",
+    "business": "Profile",
+    "health": "Health"
+  },
+  "levels": {
+    "full": "Visible",
+    "masked": "Masked",
+    "hidden": "Hidden",
+    "deny": "Denied"
+  },
+  "classes": {
+    "public": "Public",
+    "internal": "Internal",
+    "contact": "Contact",
+    "personal": "Personal",
+    "confidential": "Confidential",
+    "restricted": "Restricted",
+    "secret": "Secret"
+  },
+  "masks": {
+    "hidden": "Hidden completely",
+    "phone_partial": "Partly: +7 70* *** *5 67",
+    "email_partial": "Partly: s•••@mail.kz",
+    "id_last4": "Last four digits",
+    "name_initials": "Initial only",
+    "date_year": "Year only",
+    "date_month_day": "Day and month only",
+    "time_bucket": "Approximately (recently, this week…)",
+    "money_bucket": "Range",
+    "address_city": "City only",
+    "geo_offset": "Approximate location",
+    "card_last4": "Last four digits",
+    "text_hidden": "Text hidden"
+  },
+  "audiences": {
+    "everybody": "Everyone",
+    "circle_all": "My circle",
+    "circle": "Group «{name}»",
+    "groups": "Groups…",
+    "colleagues": "Colleagues",
+    "colleaguesIn": "Colleagues in «{name}»",
+    "nobody": "Nobody",
+    "user": "Person",
+    "role": "Role",
+    "department": "Department",
+    "position": "Position",
+    "branch": "Site",
+    "manager_of": "Manager",
+    "branch_head_of": "Site manager",
+    "branch_payroll": "Sees site money",
+    "self": "Self",
+    "branch_scheduler": "Runs the site schedule"
+  },
+  "why": {
+    "floor": "Always visible to everyone who can open the record",
+    "self": "It is about you — you always see your own data",
+    "mandatory": "Must stay visible by law",
+    "rule": "Organization rule",
+    "deny": "Denied by an organization rule",
+    "default": "Platform default for this role",
+    "ceiling": "Platform ceiling for this kind of data",
+    "personal": "The person’s own setting",
+    "personal_exception": "The person’s exception for this viewer",
+    "personal_fallback": "The person hid this field — only a mask is shown",
+    "reciprocal": "You hide your own status from this person",
+    "bot_ceiling": "Integrations never see this data",
+    "purpose": "Not shown outside the organization",
+    "no_record": "No access to the record",
+    "error": "Could not be computed — hidden for safety"
+  },
+  "personal": {
+    "title": "My card and visibility",
+    "subtitle": "One place for who sees what about you. Changes save automatically.",
+    "previewAs": "Seen by:",
+    "previewAria": "Whose eyes to preview the card with",
+    "previewStranger": "A stranger",
+    "previewCircle": "My circle",
+    "previewGroup": "Group «{name}»",
+    "previewColleague": "Colleague in «{name}»",
+    "previewNote": "This is exactly what the server shows to such a viewer.",
+    "tableField": "Field",
+    "tableWho": "Who sees",
+    "exceptions": "Exceptions",
+    "exceptionsCount": "{n, plural, one {# exception} other {# exceptions}}",
+    "chooseGroups": "Choose groups",
+    "exceptionsTitle": "Exceptions for «{field}»",
+    "always": "Always show to",
+    "never": "Never show to",
+    "neverWins": "“Never” wins over “Always” and groups.",
+    "conflict": "A person cannot be in both lists",
+    "saved": "Saved",
+    "saveFailed": "Could not save — the previous setting is back",
+    "reset": "Reset to default",
+    "default": "Default",
+    "colleaguesHint": "Colleagues are people from organizations where you both work.",
+    "phoneHint": "Hidden from someone who knows you, the number turns into a mask — messages and calls in the app still work.",
+    "presenceHint": "If you hide your status from someone, you see theirs only approximately.",
+    "discoveryTitle": "How people find me",
+    "discoveryLabel": "Who can find me by phone number",
+    "discovery": {
+      "everybody": "Everyone",
+      "circle": "Only my circle",
+      "nobody": "Nobody"
+    },
+    "discoveryHint": "Anyone who already saved your number still knows it — hiding cannot undo what is already known.",
+    "requisitesNote": "Who sees your IIN, address and ID is decided by the organization. You always see your own, and every reveal appears in “My data”.",
+    "fixedHint": "Fixed by the platform"
+  },
+  "org": {
+    "title": "Data visibility",
+    "subtitle": "Who in the organization sees which fields and in what form.",
+    "emptyTitle": "Platform defaults apply",
+    "emptyBody": "Masks and defaults already protect your data. Start from a preset — it creates a draft you can edit before publishing.",
+    "startDefaults": "Start from defaults",
+    "presets": {
+      "retail": {
+        "title": "Retail",
+        "body": "Site managers see the facts and money of their sites; sellers see client contacts masked."
+      },
+      "office": {
+        "title": "Office",
+        "body": "Sales managers work with clients: contacts are fully visible."
+      },
+      "strict": {
+        "title": "Strict",
+        "body": "Salary only for the owner and admins; client contacts only for managers."
+      },
+      "title": "Start from a preset",
+      "apply": "Use this preset"
+    },
+    "recordType": "Record type",
+    "columns": {
+      "field": "Field",
+      "self": "Self",
+      "add": "Add department, position or site",
+      "stale": "outdated",
+      "remove": "Remove"
+    },
+    "expand": "Show fields",
+    "collapse": "Hide fields",
+    "override": "field exception",
+    "cell": {
+      "level": "Level",
+      "mask": "Mask",
+      "reveal": "Can reveal one record at a time",
+      "deny": "Deny (stronger than everything)",
+      "useDefault": "Use default",
+      "default": "Default: {level}",
+      "locked": {
+        "floor": "Visible to everyone who can open the record",
+        "mandatory": "Must stay visible by law",
+        "secret": "Nobody sees this in full",
+        "fixed": "Fixed by the platform",
+        "self": "Everyone always sees their own data",
+        "ceiling": "Restricted data: at most a mask; the full value only by revealing one record"
+      },
+      "apply": "Apply"
+    },
+    "draft": {
+      "chip": "Draft",
+      "publish": "Publish",
+      "discard": "Discard draft",
+      "discardConfirm": "Discard the draft? The published rules stay as they are.",
+      "saved": "Draft saved",
+      "saveFailed": "Could not save the draft",
+      "none": "Changes are saved to a draft — employees will not see them until you publish."
+    },
+    "publish": {
+      "title": "Publish the rules",
+      "widened": "{n, plural, one {# field becomes more visible} other {# fields become more visible}}",
+      "narrowed": "{n, plural, one {# field becomes more hidden} other {# fields become more hidden}}",
+      "people": "for {n, plural, one {# person} other {# people}}",
+      "noChanges": "No changes compared with the published version",
+      "weakensRestricted": "The draft loosens restricted fields (IIN, ID, address, IBAN) — confirm with your password and an SMS code.",
+      "mandatory": "The draft removes visibility the law requires: {fields}",
+      "confirm": "Publish",
+      "sendForApproval": "Send for approval",
+      "published": "Rules published",
+      "sentForApproval": "Sent to the second admin for approval",
+      "stepUpTitle": "Confirm changes to protected fields"
+    },
+    "versions": {
+      "title": "Versions",
+      "current": "Current",
+      "version": "Version {version}",
+      "rules": "{n, plural, one {# rule} other {# rules}}",
+      "restore": "Restore this version",
+      "restored": "A draft was created from version {version}",
+      "empty": "No published versions yet",
+      "restoreConfirm": "Create a draft from version {version}? The current rules stay until you publish it."
+    },
+    "explain": {
+      "title": "Check an employee",
+      "body": "See exactly which fields a person sees and why. Read-only.",
+      "viewer": "Employee",
+      "subject": "Whose record",
+      "run": "Check",
+      "colField": "Field",
+      "colLevel": "Level",
+      "colWhy": "Why",
+      "empty": "Pick an employee to see what they see"
+    },
+    "settings": {
+      "title": "Policy settings",
+      "notifyOnReveal": "Notify an employee when their data is revealed",
+      "dualControl": "Loosening restricted fields needs a second admin’s approval",
+      "allowDelegation": "Allow delegating reveal",
+      "saved": "Settings saved",
+      "ownerOnly": "Only the owner changes these settings",
+      "stepUpTitle": "Confirm the policy settings change"
+    },
+    "entry": {
+      "rosterButton": "Visibility rules",
+      "hiddenByRules": "hidden by rules"
+    },
+    "mobileAudience": "Audience",
+    "rulesUsed": "{used} of {limit} rules",
+    "tabs": {
+      "matrix": "Rules",
+      "versions": "Versions",
+      "explain": "Check an employee"
+    }
+  },
+  "reveal": {
+    "show": "Show",
+    "hide": "Hide",
+    "shownFor": "shown · {min} min",
+    "failed": "Could not reveal",
+    "stepUpTitle": "Confirm to reveal protected data"
+  },
+  "approval": {
+    "title": "Visibility rules: {type}"
+  },
+  "platform": {
+    "reveals30d": "Reveals in 30 days",
+    "detections30d": "Mass-reveal alerts"
+  }
+}

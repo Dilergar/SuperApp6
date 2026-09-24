@@ -24,7 +24,6 @@ export const CAPABILITIES = {
   'calendar.view_detailed': { resourceType: 'calendar', relation: 'detailed_viewer' },
   // card
   'card.view': { resourceType: 'card', relation: 'viewer' },
-  'card.view_full': { resourceType: 'card', relation: 'full_viewer' }, // B2B full employee card (else floor: Имя+Должность)
   // task
   'task.view': { resourceType: 'task', relation: 'viewer' },
   'task.comment': { resourceType: 'task', relation: 'viewer' },

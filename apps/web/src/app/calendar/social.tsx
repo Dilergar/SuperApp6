@@ -18,6 +18,7 @@ import {
   type SmartMatchSlot,
   type SmartMatchResponse,
 } from '@superapp/shared';
+import { guardedDisplay } from '@superapp/shared';
 
 // ============================================================
 // Доступ к моему календарю (персональный, поверх доступа по Группам)
@@ -86,7 +87,7 @@ export function SharePanel({ contacts, onClose }: { contacts: Contact[]; onClose
               <EntitySelector
                 types={['user']}
                 multi={false}
-                options={available.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole }))}
+                options={available.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(), firstName: c.them.firstName, lastName: guardedDisplay(c.them.lastName), role: c.myRole }))}
                 value={pickId ? [{ type: 'user', id: pickId }] : []}
                 onChange={(p) => setPickId(p[0]?.id ?? '')}
                 placeholder={t('share.pickPerson')}

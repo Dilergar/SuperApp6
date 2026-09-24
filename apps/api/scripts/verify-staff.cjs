@@ -90,21 +90,26 @@ async function main() {
       && new Set(m2.assignments.map((a) => a.branchName)).size === 2,
       JSON.stringify(m2?.assignments?.map((a) => a.branchName)));
 
-    // ===== «Видимость в Компаниях»: карточка коллеги маскируется флагами владельца =====
-    const visUp = await call('PATCH', '/users/me', t2, {
-      bio: 'staff-e2e bio',
-      city: 'Алматы',
-      companyCardVisibility: { bio: true, city: false },
+    // ===== Карточка коллеги — ЛИЧНЫЕ правила человека (core/visibility, user.card) =====
+    // «О себе» — коллегам; город — никому; телефон — по умолчанию (Окружение + коллеги)
+    const visData = await call('PATCH', '/users/me', t2, { bio: 'staff-e2e bio', city: 'Алматы' });
+    check('анкета сохранена', visData.ok, `status ${visData.status}`);
+    const visUp = await call('PUT', '/visibility/me', t2, {
+      fields: [
+        { fieldKey: 'bio', audiences: [{ kind: 'colleagues', id: null }] },
+        { fieldKey: 'city', audiences: [] },
+      ],
     });
-    check('PATCH companyCardVisibility принят', visUp.ok, `status ${visUp.status}`);
-    const meVis = await call('GET', '/users/me', t2);
-    check('GET /users/me отдаёт companyCardVisibility', meVis.json?.data?.companyCardVisibility?.bio === true
-      && meVis.json?.data?.companyCardVisibility?.city === false, JSON.stringify(meVis.json?.data?.companyCardVisibility));
+    check('правила карточки приняты (PUT /visibility/me)', visUp.ok, `status ${visUp.status} ${visUp.code}`);
+    const meVis = await call('GET', '/visibility/me', t2);
+    const rule = (k) => (meVis.json?.data?.fields ?? []).find((f) => f.fieldKey === k);
+    check('GET /visibility/me: «О себе» — коллегам, город — никому',
+      rule('bio')?.audiences?.some((a) => a.kind === 'colleagues') && rule('city')?.audiences?.length === 0, JSON.stringify({ bio: rule('bio'), city: rule('city') }));
     const roster1b = (await call('GET', `/workspaces/${wsId}/members`, t1)).json?.data ?? [];
     const m2c = roster1b.find((m) => m.userId === u2);
-    check('карточка коллеги: «О себе» видно (флаг on)', m2c?.card?.bio === 'staff-e2e bio', JSON.stringify(m2c?.card?.bio));
-    check('карточка коллеги: город скрыт (флаг off) → null, телефон всегда',
-      m2c?.card?.city === null && m2c?.card?.phone === P2, `city=${JSON.stringify(m2c?.card?.city)}`);
+    check('карточка коллеги: «О себе» видно (правило человека)', m2c?.card?.bio === 'staff-e2e bio', JSON.stringify(m2c?.card?.bio));
+    check('карточка коллеги: город скрыт маркером движка, телефон — по умолчанию коллегам',
+      m2c?.card?.city?.$v === 'hidden' && m2c?.card?.phone === P2, `city=${JSON.stringify(m2c?.card?.city)} phone=${JSON.stringify(m2c?.card?.phone)}`);
 
     // ===== Стажёр = метка (полные права в текущих сервисах), но не менеджер =====
     const tTask = await call('POST', '/tasks', t2, { title: 'staff-e2e от стажёра', executorId: u1 }, WS);
@@ -215,7 +220,8 @@ async function main() {
       await call('DELETE', `/workspaces/${cleanup.wsId}`, t1).catch(() => {});
     }
     // Вернуть фикстуру tester2 (анкета/видимость общие для всего сьюта).
-    await call('PATCH', '/users/me', t2, { bio: null, city: null, companyCardVisibility: null }).catch(() => {});
+    await call('PATCH', '/users/me', t2, { bio: null, city: null }).catch(() => {});
+    await call('POST', '/visibility/me/reset', t2, { fieldKeys: ['bio', 'city'] }).catch(() => {});
     await prisma.$disconnect();
   }
 

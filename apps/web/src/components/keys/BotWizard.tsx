@@ -22,7 +22,7 @@ import { EntitySelector } from '@/components/EntitySelector';
 import { Button, Field, GlyphField, Input, Modal, Select, TickBar } from '@/components/ui';
 import { KeyRevealOnce } from './KeyRevealOnce';
 import { ScopeMatrix } from './ScopeMatrix';
-import { AllowlistField, ExpiryFields } from './KeyDialogs';
+import { AllowlistField, ContactAccessField, ExpiryFields } from './KeyDialogs';
 
 import { toastApiError } from '@/lib/api-errors';
 type Step = 1 | 2 | 3;
@@ -52,6 +52,7 @@ export function BotWizard({
   const [responsible, setResponsible] = useState<Principal[]>([]);
   const [scopes, setScopes] = useState<KeyScopes>({});
   const [allowlist, setAllowlist] = useState<string[]>([]);
+  const [contactAccess, setContactAccess] = useState(false);
   const maxDays = policy ? policy.maxBotKeyDays : KEYS_LIMITS.botKeyDefaultDays;
   const [days, setDays] = useState(Math.min(KEYS_LIMITS.botKeyDefaultDays, maxDays ?? KEYS_LIMITS.botKeyDefaultDays));
   const [noExpiry, setNoExpiry] = useState(false);
@@ -60,7 +61,7 @@ export function BotWizard({
   const [created, setCreated] = useState<BotCreatedDto | null>(null);
 
   const reset = () => {
-    setStep(1); setName(''); setGlyph(null); setPurpose(''); setRank('member'); setResponsible([]); setScopes({}); setAllowlist([]);
+    setStep(1); setName(''); setGlyph(null); setPurpose(''); setRank('member'); setResponsible([]); setScopes({}); setAllowlist([]); setContactAccess(false);
     setDays(Math.min(KEYS_LIMITS.botKeyDefaultDays, maxDays ?? KEYS_LIMITS.botKeyDefaultDays)); setNoExpiry(false); setStoredHint(''); setCreated(null);
   };
   const close = () => { if (busy) return; reset(); onClose(); };
@@ -80,6 +81,7 @@ export function BotWizard({
         rank,
         scopes,
         ipAllowlist: allowlist,
+        contactAccess,
         ...(glyph ? { glyph } : {}),
         ...(responsible[0] ? { responsibleUserId: responsible[0].id } : {}),
         ...(storedHint.trim() ? { storedHint: storedHint.trim() } : {}),
@@ -144,6 +146,7 @@ export function BotWizard({
           </Field>
           <ExpiryFields days={days} noExpiry={noExpiry} onDays={setDays} onNoExpiry={setNoExpiry} allowNoExpiry={allowNoExpiry} maxDays={maxDays} />
           <AllowlistField value={allowlist} onChange={setAllowlist} required={requireAllowlist} />
+          <ContactAccessField value={contactAccess} onChange={setContactAccess} />
           <Input label={t('key.storedHint')} hint={t('key.storedHintHint')} value={storedHint} onChange={(e) => setStoredHint(e.target.value)} maxLength={KEYS_LIMITS.storedHintMaxLength} />
         </div>
       )}

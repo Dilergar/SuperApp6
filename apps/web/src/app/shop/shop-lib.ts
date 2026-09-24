@@ -4,7 +4,7 @@
 // ============================================================
 
 import { formatWalletAmount } from '@/lib/wallet-format';
-import { glyphToText, type ContributionLine, type Contact, type Listing, type ListingPriceDto } from '@superapp/shared';
+import { glyphToText, guardedDisplay, type ContributionLine, type Contact, type Listing, type ListingPriceDto } from '@superapp/shared';
 import type { Tone } from '@/components/ui';
 
 /**
@@ -23,7 +23,7 @@ export const fmtAmount = (amount: number, scale: number) => formatWalletAmount(a
 export const fmtPrices = (prices: Pick<ListingPriceDto, 'amount' | 'scale' | 'currencyIcon'>[]) =>
   prices.length ? prices.map((p) => `${fmtAmount(p.amount, p.scale)} ${glyphToText(p.currencyIcon)}`.trim()).join(' + ') : '—';
 
-export const personName = (c: Contact) => `${c.them.firstName} ${c.them.lastName ?? ''}`.trim();
+export const personName = (c: Contact) => `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim();
 
 /** Цель кампании + сколько собрано по каждой валюте. */
 export const progressLines = (prices: ListingPriceDto[], raised?: ContributionLine[]) => {

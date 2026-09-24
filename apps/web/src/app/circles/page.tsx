@@ -63,6 +63,7 @@ import {
 } from './circles-ui';
 import { AcceptInvitationModal, GroupEditModal } from './circles-modals';
 import { EntitlementGauge, EntitlementLock, useEntitlementGate } from '@/components/entitlements';
+import { guardedDisplay, visibleOr } from '@superapp/shared';
 
 type InvitationTab = 'active' | 'history';
 
@@ -585,8 +586,8 @@ export default function CirclesPage() {
               <Alert tone="accent" className="mb-6">
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
                   {/* Аватар уже приехал в этом же ответе — минус запрос движка скинов на каждый ввод номера. */}
-                  <PersonAvatar userId={invLookup.id} name={invLookup.firstName} avatar={invLookup.avatar} size="sm" />
-                  {invLookup.firstName} {invLookup.lastName || ''} · {invLookup.phone}
+                  <PersonAvatar userId={invLookup.id} name={invLookup.firstName} avatar={visibleOr(invLookup.avatar, null)} size="sm" />
+                  {invLookup.firstName} {guardedDisplay(invLookup.lastName) ?? ''} · {invLookup.phone}
                 </span>
               </Alert>
             )}

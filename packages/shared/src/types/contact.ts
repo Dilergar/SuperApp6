@@ -1,4 +1,5 @@
 import type { SocialLinks } from './user';
+import type { Guarded } from '../visibility/types';
 
 // ============================================================
 // Bilateral confirmed social graph (Окружение)
@@ -13,26 +14,31 @@ import type { SocialLinks } from './user';
 // role and is shown on the card. There is NO separate category /
 // "label" concept anymore.
 
+/**
+ * Карточка человека глазами ЗРИТЕЛЯ (тип `user.card` движка видимости, core/visibility):
+ * каждое поле — `Guarded<T>` (значение / маска / скрыто) по ЛИЧНОЙ политике самого человека
+ * (решает только он: Все · Окружение · Группы · коллеги · исключения). `null` — «пусто»,
+ * маркер — «есть, но не для вас». Имя видно всегда; фамилия посторонним — инициалом.
+ */
 export interface ContactUserCard {
   id: string;
-  phone: string;
   firstName: string;
-  lastName: string | null;
-  avatar: string | null;
-  dateOfBirth: string | null;
-  bio: string | null;
-  city: string | null;
-  email: string | null;
-  maritalStatus: string | null;
-  /** Та же форма, что в анкете (`User.socialLinks`): сервер принимает и хранит 4 сети,
-   *  и все 4 доезжают до карточки. Узкая копия `{telegram?, instagram?}` делала
-   *  LinkedIn и WhatsApp write-only данными — их писали и никогда не показывали. */
-  socialLinks: SocialLinks | null;
-  age: number | null; // calculated on backend, null if owner hides it
-  showOnlineStatus: boolean; // true if card owner allows online status visible
-  // Visibility is resolved per-request from the viewer's group(s) on the
-  // card owner's side (union); falls back to the owner's default. Hidden
-  // fields are returned as null.
+  lastName: Guarded<string | null>;
+  avatar: Guarded<string | null>;
+  /** Личный номер: связанному при «скрыто» — маска, постороннему — скрыт целиком */
+  phone: Guarded<string>;
+  /** Целиком `YYYY-MM-DD`; маска `--MM-DD` (год скрыт) или `YYYY` (день и месяц скрыты) */
+  dateOfBirth: Guarded<string | null>;
+  /** Производное года рождения: виден ровно тогда, когда виден год */
+  age: Guarded<number | null>;
+  bio: Guarded<string | null>;
+  city: Guarded<string | null>;
+  email: Guarded<string | null>;
+  maritalStatus: Guarded<string | null>;
+  /** Та же форма, что в анкете (`User.socialLinks`) — все 4 сети */
+  socialLinks: Guarded<SocialLinks | null>;
+  /** «Был в сети»: `true` — точно; маска `time_bucket` — только корзина; скрыто — никак */
+  showOnlineStatus: Guarded<boolean>;
 }
 
 export interface Contact {

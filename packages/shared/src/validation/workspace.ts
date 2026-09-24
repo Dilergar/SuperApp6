@@ -56,20 +56,6 @@ const websiteSchema = z.string().max(200).refine(noHtml, 'validation.workspace.b
 const contactEmailSchema = z.string().email().max(200);
 const contactPhoneSchema = z.string().max(20).refine(noHtml, 'validation.workspace.badCharacters');
 
-// Default-visibility flags (what members see). Partial: UI may send a subset.
-export const workspaceCardVisibilitySchema = z
-  .object({
-    description: z.boolean(),
-    industry: z.boolean(),
-    city: z.boolean(),
-    website: z.boolean(),
-    contactEmail: z.boolean(),
-    contactPhone: z.boolean(),
-    membersCount: z.boolean(),
-    requisites: z.boolean(),
-    extras: z.record(z.boolean()).optional(),
-  })
-  .partial();
 
 export const updateWorkspaceProfileSchema = z
   .object({
@@ -81,7 +67,6 @@ export const updateWorkspaceProfileSchema = z
     website: websiteSchema.nullable().optional(),
     contactEmail: contactEmailSchema.nullable().optional(),
     contactPhone: contactPhoneSchema.nullable().optional(),
-    cardVisibility: workspaceCardVisibilitySchema.optional(),
     /**
      * ЯЗЫК ДОКУМЕНТОВ организации — язык её бумаг (договоры, приказы, счета), а
      * не интерфейса. Умолчание для новых бланков; у отдельного бланка свой.

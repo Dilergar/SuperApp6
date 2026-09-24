@@ -373,7 +373,8 @@
     "userConsents": "Consents",
     "userIdempotency": "Disputed operations",
     "userSecurity": "Security",
-    "workspaceSecurity": "Security log"
+    "workspaceSecurity": "Security log",
+    "workspaceVisibility": "Visibility rules"
   },
   "picker": {
     "change": "change",
@@ -487,7 +488,9 @@
     "credentialStuffing": "credential stuffing: most sign-ins fail",
     "massExport": "mass export of data by one actor",
     "digestMismatch": "the security log integrity is broken",
-    "auditDegraded": "the security log loses records"
+    "auditDegraded": "the security log loses records",
+    "idorProbing": "probing of other people’s objects by one account",
+    "malwareBurst": "a series of infected uploads by one account"
   },
   "shell": {
     "logout": "Sign out",

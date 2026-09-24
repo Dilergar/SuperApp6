@@ -30,7 +30,7 @@
 - `FILES_LOCAL_ROOT` (дефолт `./storage`, относительно cwd процесса) — читают и core/docs, core/drive, files.controller
 - `S3_ENDPOINT` / `S3_REGION` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_BUCKET` — все пять обязательны при `s3` (dev: профиль s3 → SeaweedFS `http://localhost:8333`)
 - `S3_FORCE_PATH_STYLE` (`true|false`; дефолт true — path-style везде, кроме явного `false`) · `S3_PUBLIC_BASE_URL` (CDN-база для public-файлов; пусто → выдача через API)
-- `CLAMAV_HOST` / `CLAMAV_PORT` (дефолт 3310) — антивирус; пусто → скан выключен (scanStatus='none'). Dev: профиль scan → `localhost`
+- `CLAMAV_HOST` / `CLAMAV_PORT` (дефолт 3310) — антивирус; пусто → скан выключен (scanStatus='none'). **В production задать обязательно** (задача прод-минимума в [roadmap.md](roadmap.md)): без него заражённый файл выдаётся и журнал безопасности не пишет `files.malware_detected`. Dev: профиль scan → `localhost`
 
 ## Голос (core/voice)
 

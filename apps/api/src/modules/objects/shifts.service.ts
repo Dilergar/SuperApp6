@@ -16,6 +16,7 @@ import {
   type ShiftTemplateInput,
   type UpdateShiftInput,
   type UpdateShiftTemplateInput,
+  type AttendanceDto,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
@@ -26,6 +27,7 @@ import { NotificationsService } from '../../core/notifications/notifications.ser
 import { isAssignmentActiveOn } from '../../shared/utils/assignment-window';
 import { ObjectsService, type ObjectsScope, type BranchRow } from './objects.service';
 import { SHIFTS_GENERATE_JOB } from './objects.job-types';
+import { VisibilityService, markShaped } from '../../core/visibility/visibility.service';
 import {
   addDays,
   checkRest,
@@ -62,6 +64,7 @@ export class ShiftsService {
     private readonly notifications: NotificationsService,
     private readonly objects: ObjectsService,
     private readonly i18n: I18nService,
+    private readonly visibility: VisibilityService,
   ) {}
 
   // ============================================================
@@ -391,8 +394,7 @@ export class ShiftsService {
         avatar: userById.get(p.userId)?.avatar ?? null,
         positionNames: p.positionName ? p.positionName.split(', ') : [],
       })),
-      shifts: shifts.map((s) =>
-        this.serializeShift(s, {
+      shifts: await this.serializeShiftsFor(workspaceId, shifts, (s) => ({
           userName: s.userId
             ? [userById.get(s.userId)?.lastName, userById.get(s.userId)?.firstName].filter(Boolean).join(' ') || null
             : null,
@@ -400,8 +402,7 @@ export class ShiftsService {
           // Факт коллеги (исход, опоздание и заметка менеджера) — не для всей смены:
           // рядовой видит только СВОЙ.
           hideFact: !caps.attendanceMark && s.userId !== userId,
-        }),
-      ),
+        })),
       hasDrafts: shifts.some((s) => s.status === 'draft'),
     };
   }
@@ -487,7 +488,7 @@ export class ShiftsService {
       // EXCLUDE `shifts_user_no_overlap` — гонка: смену человеку поставили между
       // нашей проверкой и вставкой. Машинный код, а не сырой 23P01.
       .catch((e: unknown) => this.rethrowShiftOverlap(e));
-    return this.serializeShift(row, { userName: null, canTake: false });
+    return (await this.serializeShiftsFor(workspaceId, [row], () => ({ userName: null, canTake: false })))[0]!;
   }
 
   async update(
@@ -604,7 +605,7 @@ export class ShiftsService {
     if (updated.status === 'published' && updated.userId) {
       await this.notifyShift('shift.changed', updated, [updated.userId], userId);
     }
-    return this.serializeShift(updated, { userName: null, canTake: false });
+    return (await this.serializeShiftsFor(workspaceId, [updated], () => ({ userName: null, canTake: false })))[0]!;
   }
 
   async cancel(userId: string, workspaceId: string, shiftId: string): Promise<ShiftDto> {
@@ -625,7 +626,7 @@ export class ShiftsService {
       return updated;
     });
     if (row.userId) await this.notifyShift('shift.changed', row, [row.userId], userId);
-    return this.serializeShift(row, { userName: null, canTake: false });
+    return (await this.serializeShiftsFor(workspaceId, [row], () => ({ userName: null, canTake: false })))[0]!;
   }
 
   /** Опубликовать период: черновики становятся видны сотрудникам (дайджест). */
@@ -740,7 +741,7 @@ export class ShiftsService {
     // Планировщикам объекта — адресно.
     const schedulers = await this.schedulersOf(workspaceId, shift.branchId);
     if (schedulers.length) await this.notifyShift('shift.taken', row, schedulers, userId);
-    return this.serializeShift(row, { userName: null, canTake: false });
+    return (await this.serializeShiftsFor(workspaceId, [row], () => ({ userName: null, canTake: false })))[0]!;
   }
 
   // ============================================================
@@ -1019,6 +1020,58 @@ export class ShiftsService {
     };
   }
 
+  /**
+   * Смены глазами зрителя (core/visibility, `objects.shift`): заметка к смене и факт выхода —
+   * поля типа. Какие СМЕНЫ видны и чей факт вообще отдаётся (рядовому — только свой), решает
+   * сервис; движок — поля видимых строк.
+   */
+  async serializeShiftsFor<S extends Parameters<ShiftsService['serializeShift']>[0]>(
+    workspaceId: string,
+    rows: S[],
+    extraOf: (s: S) => { userName: string | null; canTake: boolean; hideFact?: boolean },
+  ): Promise<ShiftDto[]> {
+    if (!rows.length) return [];
+    const extras = rows.map(extraOf);
+    const raw = rows.map((s, i) => this.serializeShift(s, extras[i]!));
+    const shaped = await this.visibility.shape(
+      this.visibility.viewer('api', { workspaceId }),
+      'objects.shift',
+      raw.map((d) => ({
+        ref: { recordId: d.id, subjectId: d.userId, workspaceId, branchId: d.branchId },
+        values: {
+          shiftNote: d.note,
+          ...(d.attendance
+            ? {
+                outcome: d.attendance.outcome,
+                lateMin: d.attendance.lateMin,
+                actualStartAt: d.attendance.actualStartAt,
+                actualEndAt: d.attendance.actualEndAt,
+                attendanceNote: d.attendance.note,
+              }
+            : {}),
+        },
+      })),
+    );
+    return raw.map((d, i) => {
+      const v = shaped[i]!;
+      return markShaped({
+        ...d,
+        note: v.shiftNote as ShiftDto['note'],
+        attendance: d.attendance
+          ? markShaped({
+              ...d.attendance,
+              outcome: v.outcome as AttendanceDto['outcome'],
+              lateMin: v.lateMin as AttendanceDto['lateMin'],
+              actualStartAt: v.actualStartAt as AttendanceDto['actualStartAt'],
+              actualEndAt: v.actualEndAt as AttendanceDto['actualEndAt'],
+              note: v.attendanceNote as AttendanceDto['note'],
+            })
+          : null,
+      });
+    });
+  }
+
+  /** Сырая форма смены — ТОЛЬКО основа `serializeShiftsFor`. */
   serializeShift(
     s: {
       id: string;

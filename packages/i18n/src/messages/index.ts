@@ -37,6 +37,7 @@ import m_en_processes from './en/processes.json';
 import m_en_hr from './en/hr.json';
 import m_en_recorder from './en/recorder.json';
 import m_en_entitlements from './en/entitlements.json';
+import m_en_visibility from './en/visibility.json';
 import m_en_platform from './en/platform.json';
 import m_en_analytics from './en/analytics.json';
 import m_en_templates from './en/templates.json';
@@ -77,6 +78,7 @@ import m_kk_processes from './kk/processes.json';
 import m_kk_hr from './kk/hr.json';
 import m_kk_recorder from './kk/recorder.json';
 import m_kk_entitlements from './kk/entitlements.json';
+import m_kk_visibility from './kk/visibility.json';
 import m_kk_platform from './kk/platform.json';
 import m_kk_analytics from './kk/analytics.json';
 import m_kk_templates from './kk/templates.json';
@@ -117,6 +119,7 @@ import m_ru_processes from './ru/processes.json';
 import m_ru_hr from './ru/hr.json';
 import m_ru_recorder from './ru/recorder.json';
 import m_ru_entitlements from './ru/entitlements.json';
+import m_ru_visibility from './ru/visibility.json';
 import m_ru_platform from './ru/platform.json';
 import m_ru_analytics from './ru/analytics.json';
 import m_ru_templates from './ru/templates.json';
@@ -163,6 +166,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "hr": m_en_hr,
     "recorder": m_en_recorder,
     "entitlements": m_en_entitlements,
+    "visibility": m_en_visibility,
     "platform": m_en_platform,
     "analytics": m_en_analytics,
     "templates": m_en_templates,
@@ -205,6 +209,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "hr": m_kk_hr,
     "recorder": m_kk_recorder,
     "entitlements": m_kk_entitlements,
+    "visibility": m_kk_visibility,
     "platform": m_kk_platform,
     "analytics": m_kk_analytics,
     "templates": m_kk_templates,
@@ -247,6 +252,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "hr": m_ru_hr,
     "recorder": m_ru_recorder,
     "entitlements": m_ru_entitlements,
+    "visibility": m_ru_visibility,
     "platform": m_ru_platform,
     "analytics": m_ru_analytics,
     "templates": m_ru_templates,

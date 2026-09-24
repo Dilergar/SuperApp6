@@ -22,7 +22,7 @@ import type { AuditVocab } from './vocab';
  * исключение — семейство `auth.session.*` (категория `session`): сессии и устройства —
  * отдельная тема для человека и отдельный стрим для SIEM.
  */
-export const AUDIT_CATEGORIES = ['auth', 'session', 'account', 'org', 'keys', 'platform', 'pii', 'pd', 'consents', 'data', 'detect', 'audit'] as const;
+export const AUDIT_CATEGORIES = ['auth', 'session', 'account', 'org', 'keys', 'platform', 'pii', 'pd', 'consents', 'data', 'detect', 'audit', 'sharing', 'files', 'authz'] as const;
 export type AuditCategory = (typeof AUDIT_CATEGORIES)[number];
 export const AUDIT_CATEGORY_CODE: Record<AuditCategory, number> = {
   auth: 0,
@@ -37,6 +37,9 @@ export const AUDIT_CATEGORY_CODE: Record<AuditCategory, number> = {
   data: 9,
   detect: 10,
   audit: 11,
+  sharing: 12,
+  files: 13,
+  authz: 14,
 };
 
 /** Серьёзность (OCSF severity_id 1..5; smallint 0..4 в колонке). */
@@ -324,8 +327,12 @@ export type AuthFailReason = (typeof AUTH_FAIL_REASONS)[number];
 export const ACCOUNT_FREEZE_SOURCES = ['self', 'platform'] as const;
 export type AccountFreezeSource = (typeof ACCOUNT_FREEZE_SOURCES)[number];
 
-/** Источники выгрузок (`data.export{source}`) — каждая выгрузка = эксфильтрация, след обязателен. */
-export const AUDIT_EXPORT_SOURCES = ['hr_zip', 'documents_zip', 'audit_org', 'audit_platform', 'my_data', 'analytics_report'] as const;
+/**
+ * Источники выгрузок (`data.export{source}`) — каждая МАССОВАЯ выгрузка = эксфильтрация, след
+ * обязателен. Скачивание одного документа (в т.ч. ZIP пакета подписи) — доступ к содержимому,
+ * граница журнала: его ведёт журнал визитов/хроника объекта, не журнал безопасности.
+ */
+export const AUDIT_EXPORT_SOURCES = ['hr_zip', 'audit_org', 'audit_platform', 'my_data', 'drive_guest_zip'] as const;
 export type AuditExportSource = (typeof AUDIT_EXPORT_SOURCES)[number];
 
 /** Форматы выгрузки журнала организацией. */
@@ -339,3 +346,51 @@ export type AuditAlertStatus = (typeof AUDIT_ALERT_STATUSES)[number];
 /** Итог закрытия тревоги (`security_alerts.resolution`, слова — `audit.alertResolutions.<code>`). */
 export const AUDIT_ALERT_RESOLUTIONS = ['resolved', 'false_positive', 'accepted_risk', 'duplicate'] as const;
 export type AuditAlertResolution = (typeof AUDIT_ALERT_RESOLUTIONS)[number];
+
+/**
+ * Объекты ОРГАНИЗАЦИИ, доступ к которым человек открывает сам (`sharing.access.*`). Личный
+ * шеринг (мама ↔ сын) журналом не ведётся — это история объекта (хроника), как у гигантов.
+ */
+export const AUDIT_SHARE_RESOURCES = ['drive_node', 'note', 'note_folder', 'doc_template'] as const;
+export type AuditShareResource = (typeof AUDIT_SHARE_RESOURCES)[number];
+
+/** Почему публичная ссылка закрыта (`sharing.link.revoked{reason}`, слова — `audit.linkRevokeReasons.<code>`). */
+export const AUDIT_LINK_REVOKE_REASONS = ['manual', 'mine_bulk', 'workspace_bulk', 'object_deleted'] as const;
+export type AuditLinkRevokeReason = (typeof AUDIT_LINK_REVOKE_REASONS)[number];
+
+/** Настройки публичной ссылки, изменение которых пишется `sharing.link.updated{fields}`. */
+export const AUDIT_LINK_FIELDS = ['passcode', 'identity', 'expires', 'max_opens', 'download', 'notify', 'label', 'address'] as const;
+export type AuditLinkField = (typeof AUDIT_LINK_FIELDS)[number];
+
+/** Внешние интеграции аккаунта (`account.integration.*{provider}`, слова — `audit.providers.<code>`). */
+export const AUDIT_INTEGRATION_PROVIDERS = ['google_calendar'] as const;
+export type AuditIntegrationProvider = (typeof AUDIT_INTEGRATION_PROVIDERS)[number];
+/** Почему интеграция отключена: сам человек (кнопка или отзыв согласия), мастер «Это не я», удаление аккаунта. */
+export const AUDIT_INTEGRATION_REASONS = ['self', 'not_me', 'account_deleted'] as const;
+export type AuditIntegrationReason = (typeof AUDIT_INTEGRATION_REASONS)[number];
+
+/** Настройки самого журнала (`audit.settings.changed{setting}`): расхождение со значением прошлого запуска. */
+export const AUDIT_SETTINGS = ['digest_interval_min', 'retention_years', 'archive_enabled', 'trusted_country'] as const;
+export type AuditSetting = (typeof AUDIT_SETTINGS)[number];
+
+/**
+ * 403 с этими кодами — СОСТОЯНИЕ, а не попытка открыть чужое: свежая сессия до подтверждения,
+ * шлюз согласий, заморозка, блокировка. Свёртка `authz.denied` и детекция перебора их не считают.
+ * Префикс с точкой в конце — весь семейный код (`consents.` = любой отказ шлюза согласий).
+ */
+export const AUDIT_AUTHZ_IGNORED_CODES = [
+  'auth.cooling_period',
+  'auth.frozen',
+  'auth.locked',
+  'consents.',
+  'idempotency.',
+  'platform.step_up_required',
+  'keys.step_up_required',
+  'keys.bot.frozen',
+] as const;
+
+/** Отказ с этим кодом — не попытка доступа к чужому (см. `AUDIT_AUTHZ_IGNORED_CODES`). */
+export function isAuditAuthzIgnored(code: string | null | undefined): boolean {
+  if (!code) return false;
+  return AUDIT_AUTHZ_IGNORED_CODES.some((c) => (c.endsWith('.') ? code.startsWith(c) : code === c));
+}

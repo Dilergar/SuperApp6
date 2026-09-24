@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnApplicationBootstrap, Res } from '@nestjs/common';
-import { METHOD_METADATA, PATH_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
+import { METHOD_METADATA, PATH_METADATA, RESPONSE_PASSTHROUGH_METADATA, ROUTE_ARGS_METADATA } from '@nestjs/common/constants';
 import { RequestMethod } from '@nestjs/common';
 import { DiscoveryService, HttpAdapterHost, MetadataScanner, Reflector } from '@nestjs/core';
 import { IDEMPOTENCY_SKIP_REASON_VALUES, IDEMPOTENCY_SKIP_REASONS } from '@superapp/shared';
@@ -234,10 +234,14 @@ export class IdempotencyRoutesAudit implements OnApplicationBootstrap {
       | Record<string, { index: number; data?: unknown }>
       | undefined;
     if (!args) return false;
+    // Nest кладёт `{ passthrough: true }` НЕ в аргументы маршрута, а отдельной метаданной метода
+    // (`RESPONSE_PASSTHROUGH_METADATA` на классе и имени метода) — читать её, иначе любая
+    // ручка с `@Res({ passthrough: true })` ложно считалась бы «пишущей ответ сама»
+    const passthrough = Reflect.getMetadata(RESPONSE_PASSTHROUGH_METADATA, metatype, method) === true;
     for (const [key, value] of Object.entries(args)) {
       if (!key.startsWith(`${RESPONSE_PARAMTYPE}:`)) continue;
-      const passthrough = (value?.data as { passthrough?: boolean } | undefined)?.passthrough === true;
-      if (!passthrough) return true;
+      const legacy = (value?.data as { passthrough?: boolean } | undefined)?.passthrough === true;
+      if (!passthrough && !legacy) return true;
     }
     return false;
   }

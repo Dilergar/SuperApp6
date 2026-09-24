@@ -9,6 +9,7 @@ import {
   HttpCode,
   HttpStatus,
   NotFoundException,
+  Query,
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
@@ -30,6 +31,7 @@ import {
   workspaceRequisitesSchema,
   createBankAccountSchema,
   updateBankAccountSchema,
+  workspaceCardPreviewQuerySchema,
 } from '@superapp/shared';
 import { z } from 'zod';
 import { isDevEnv } from '../../shared/config/env.validation';
@@ -156,6 +158,16 @@ export class WorkspacesController {
   @ApiOperation({ summary: 'The organization (with my role)' })
   async get(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
     const data = await this.workspaces.getWorkspace(user.sub, id);
+    return { success: true, data };
+  }
+
+  @Get(':id/card-preview')
+  // Предпросмотр политики видимости — экран владельца/админа, не операция интеграции
+  @NoApiKeys()
+  @ApiOperation({ summary: 'The organization profile as a role sees it (owner/admin; the visibility engine decides)' })
+  async cardPreview(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Query() q: unknown) {
+    const { role } = workspaceCardPreviewQuerySchema.parse(q ?? {});
+    const data = await this.workspaces.cardPreview(user.sub, id, role);
     return { success: true, data };
   }
 

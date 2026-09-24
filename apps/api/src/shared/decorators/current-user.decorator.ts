@@ -45,6 +45,8 @@ export interface JwtPayload {
   keyWorkspaceId?: string | null;
   /** Скоупы ключа — гард сверяет с сервисом маршрута; фактическое право = скоуп ∩ права носителя */
   scopes?: KeyScopes;
+  /** R9: ключ/бот с доступом к контактным данным (класс `contact` движка видимости) */
+  contactAccess?: boolean;
   /**
    * Эпоха согласий человека (core/consents). В ТОКЕНЕ ЕЁ НЕТ: поле выставляет сервер в
    * `SessionValidatorService.assertAlive` из кэша «аккаунт жив» и всегда переписывает.

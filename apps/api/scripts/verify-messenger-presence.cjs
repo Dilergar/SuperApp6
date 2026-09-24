@@ -36,6 +36,12 @@ function waitFor(sock, ev, pred, ms = 6000) {
   return new Promise((res) => { const to = setTimeout(() => res(null), ms); sock.on(ev, (p) => { if (!pred || pred(p)) { clearTimeout(to); res(p); } }); });
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/** «Был в сети» в личной политике: всем / никому (исключения не трогаем). */
+async function setPresence(token, mode) {
+  const audiences = mode === 'everybody' ? [{ kind: 'everybody', id: null }] : [];
+  const r = await http('PUT', '/visibility/me', { token, body: { fields: [{ fieldKey: 'presence', audiences }] } });
+  if (r.status !== 200) throw new Error(`PUT /visibility/me presence=${mode}: ${r.status} ${JSON.stringify(r.json?.details ?? r.json)}`);
+}
 async function presenceOf(token, ids) { const r = await http('GET', `/messenger/presence?userIds=${ids.join(',')}`, { token }); return (r.json?.data?.items) || []; }
 
 let pass = 0, fail = 0;
@@ -47,9 +53,9 @@ async function main() {
   // Deterministic Окружение link t1↔t2.
   const [a, b] = t1.id < t2.id ? [t1.id, t2.id] : [t2.id, t1.id];
   await prisma.contactLink.upsert({ where: { userAId_userBId: { userAId: a, userBId: b } }, update: {}, create: { userAId: a, userBId: b, roleAForB: 'Друг', roleBForA: 'Друг', initiatedBy: t1.id } });
-  // Ensure both are visible by default (mode 'everyone', card flag on).
-  await prisma.user.update({ where: { id: t1.id }, data: { onlineStatusMode: 'everyone' } });
-  await prisma.user.update({ where: { id: t2.id }, data: { onlineStatusMode: 'everyone' } });
+  // «Был в сети» — поле `presence` личной политики (core/visibility). Оба — «всем» на время прогона.
+  await setPresence(t1.token, 'everybody');
+  await setPresence(t2.token, 'everybody');
   console.log('logged in t1, t2 + linked');
 
   console.log('\n-- offline baseline --');
@@ -113,20 +119,29 @@ async function main() {
   check('detailed contextual shows the title', ctxDet && ctxDet.label.includes(evTitle), JSON.stringify(ctxDet));
   await http('DELETE', `/calendar/shares/${t1.id}`, { token: t2.token });
 
-  console.log('\n-- privacy: t2 sets nobody → hidden from t1 --');
-  await prisma.user.update({ where: { id: t2.id }, data: { onlineStatusMode: 'nobody' } });
+  console.log('\n-- privacy: t2 hides presence from everyone → hidden from t1 --');
+  await setPresence(t2.token, 'nobody');
   await sleep(150);
   p = await presenceOf(t1.token, [t2.id]);
-  check('mode=nobody → t2 offline for t1', p[0] && p[0].online === false, JSON.stringify(p[0]));
-  check('mode=nobody → no contextual', p[0] && p[0].contextual === null);
-  await prisma.user.update({ where: { id: t2.id }, data: { onlineStatusMode: 'everyone' } });
+  // «Никому» (модель Telegram): точного присутствия нет, знакомому остаётся корзина «был недавно»
+  check('presence «никому» → t2 not online, no exact lastSeen for t1', p[0] && p[0].online === false && p[0].lastSeen === null, JSON.stringify(p[0]));
+  check('presence «никому» → contact sees only the bucket', p[0] && typeof p[0].lastSeenBucket === 'string', JSON.stringify(p[0]));
+  check('presence «никому» → no contextual', p[0] && p[0].contextual === null);
+  // «Никогда» конкретному человеку — скрыто целиком, даже корзина
+  const nv = await http('PUT', '/visibility/me', { token: t2.token, body: { fields: [{ fieldKey: 'presence', audiences: [], never: [t1.id] }] } });
+  check('exception «never» accepted', nv.status === 200, String(nv.status));
+  await sleep(150);
+  p = await presenceOf(t1.token, [t2.id]);
+  check('presence «never» for t1 → nothing at all (no bucket)', p[0] && p[0].online === false && p[0].lastSeen === null && p[0].lastSeenBucket === null, JSON.stringify(p[0]));
+  await setPresence(t2.token, 'everybody');
 
-  console.log('\n-- reciprocity: viewer t1=nobody → sees no one online --');
-  await prisma.user.update({ where: { id: t1.id }, data: { onlineStatusMode: 'nobody' } });
+  console.log('\n-- reciprocity: viewer t1 hides own presence → sees others only as a bucket --');
+  await setPresence(t1.token, 'nobody');
   await sleep(150);
   p = await presenceOf(t1.token, [t2.id]);
-  check('viewer nobody → t2 appears offline (reciprocity)', p[0] && p[0].online === false, JSON.stringify(p[0]));
-  await prisma.user.update({ where: { id: t1.id }, data: { onlineStatusMode: 'everyone' } });
+  check('viewer hides own → t2 not online (reciprocity)', p[0] && p[0].online === false && p[0].contextual === null, JSON.stringify(p[0]));
+  check('viewer hides own → only the «был в сети» bucket', p[0] && p[0].lastSeen === null && typeof p[0].lastSeenBucket === 'string', JSON.stringify(p[0]));
+  await setPresence(t1.token, 'everybody');
 
   console.log('\n-- disconnect → offline + lastSeen --');
   s2.close();
@@ -136,6 +151,9 @@ async function main() {
   check('t2 has lastSeen set', p[0] && typeof p[0].lastSeen === 'string', JSON.stringify(p[0]?.lastSeen));
 
   s1.close();
+  // Вернуть умолчание платформы («был в сети» — Окружению и коллегам)
+  await http('POST', '/visibility/me/reset', { token: t1.token, body: { fieldKeys: ['presence'] } });
+  await http('POST', '/visibility/me/reset', { token: t2.token, body: { fieldKeys: ['presence'] } });
   // cleanup the test event
   try { if (ev.json?.data?.id) await http('DELETE', `/calendar/events/${ev.json.data.id}`, { token: t2.token }); } catch {}
   await prisma.$disconnect();

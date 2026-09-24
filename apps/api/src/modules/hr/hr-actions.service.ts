@@ -44,6 +44,7 @@ import {
   hrMemberRefId,
 } from './hr.constants';
 import { fullName } from '../../shared/utils/user-name';
+import { VisibilityService } from '../../core/visibility/visibility.service';
 
 const WS_CONTEXT = 'workspace';
 
@@ -120,6 +121,7 @@ export class HrActionsService {
     private readonly audiences: AudiencesService,
     private readonly legal: LegalEntitiesService,
     private readonly keysCascades: KeysCascadesService,
+    private readonly visibility: VisibilityService,
   ) {}
 
   // ---------- Гейты (копия лестницы — прецедент documents/processes) ----------
@@ -202,8 +204,34 @@ export class HrActionsService {
     // друг друга, и только сервис знает, что для какого вида несущее.
     if (kind === 'leave' && !dto.effectiveTo) throw badRequest('hr.leaveEndRequired');
     if (kind === 'dismissal' && !params.ground) throw badRequest('hr.groundRequired');
+    // «Снять и членство» — то же право, что у кнопки ростера. Проверка при СОЗДАНИИ приказа:
+    // применение снимает членство от имени автора, и галочка без права молча не сработала бы
+    if (kind === 'dismissal' && params.alsoRemoveMembership) {
+      await this.workspaces.assertCanRemoveMember(actorId, workspaceId, dto.userId);
+    }
     if (kind === 'transfer' && !params.legalPositionId) throw badRequest('hr.positionRequired');
     if (kind === 'salary_change' && params.salaryAmount === undefined) throw badRequest('hr.salaryRequired');
+    // Оклад и основание в приказе — поля трудовой карточки (`hr.employment`): нельзя задать
+    // то, чего не видишь (W) — Менеджер без права на оклад не проведёт и «изменение оклада»
+    if (params.salaryAmount !== undefined || params.ground !== undefined) {
+      const live = await this.db.employment.findFirst({
+        where: { workspaceId, userId: dto.userId, status: { not: 'terminated' } },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, status: true, legalBranchId: true },
+      });
+      await this.visibility.assertWritable(
+        this.visibility.viewer('api', { workspaceId }),
+        'hr.employment',
+        {
+          recordId: live?.id ?? dto.userId,
+          subjectId: dto.userId,
+          workspaceId,
+          stage: live?.status ?? 'draft',
+          branchId: params.legalBranchId ?? live?.legalBranchId ?? null,
+        },
+        { salaryAmount: params.salaryAmount, dismissalGround: params.ground },
+      );
+    }
 
     /**
      * Дубль незакрытого действия. Два приказа применятся ОБА, и разбираться с
@@ -579,9 +607,10 @@ export class HrActionsService {
     }
     if (post.removeMembership) {
       // Каскад системного увольнения не должен откатить юридический факт — при
-      // ошибке кадровик снимает членство обычной кнопкой ростера.
+      // ошибке кадровик снимает членство обычной кнопкой ростера (снятие атомарно,
+      // повтор проходит). В журнале исполнитель — система, инициатор — автор действия.
       await this.workspaces
-        .removeMember(action.createdById, action.workspaceId, action.userId)
+        .removeMember(action.createdById, action.workspaceId, action.userId, { hrActionId: action.id })
         .catch((e) => this.logger.warn(`removeMember after dismissal of ${action.userId}: ${(e as Error).message}`));
     }
     await this.notifyOutcome(action, 'hr.action.applied', {});
@@ -1029,6 +1058,11 @@ export class HrActionsService {
 
   async createBatch(actorId: string, workspaceId: string, dto: CreateHrBatchInput): Promise<HrActionBatchDto> {
     const actorRole = await this.requireManager(actorId, workspaceId);
+    // Пачка увольнений со снятием членства — только владельцу/админу: иначе каждое действие
+    // пачки упало бы на том же праве (адресные отказы — владелец в аудитории — ловит createAction)
+    if (dto.kind === 'dismissal' && dto.params?.alsoRemoveMembership && actorRole !== 'owner' && actorRole !== 'admin') {
+      throw forbidden('workspace.manageForbidden');
+    }
     await this.assertApplyRoute(workspaceId, dto.templateId);
     const userIds = await this.resolveAudience(workspaceId, dto.audience, actorRole, actorId);
     if (userIds.length === 0) throw badRequest('hr.audienceEmpty');

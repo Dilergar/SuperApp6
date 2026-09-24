@@ -114,19 +114,21 @@ export const PLAN_SEED_POLICY: Record<PlanKey, PlanSeedPolicy | null> = {
   family: { multipliers: { '*': 2 }, absolute: {}, features: ['skins.perGroup'] },
   // Журнал безопасности (core/audit): окно просмотра организацией — абсолютом (не множителем),
   // выгрузка — с basic, стрим в SIEM — со standard
+  // Правила видимости (core/visibility): потолок правил — абсолютом 200 / 1000 / 5000,
+  // адресаты оргструктуры, делегирование, объяснение и пресеты — со standard
   business_basic: {
     multipliers: { 'files.storageBytes': 1, '*': 1 },
-    absolute: { 'workspace.seats': 5, 'audit.retentionDays': 180 },
+    absolute: { 'workspace.seats': 5, 'audit.retentionDays': 180, 'visibility.maxRules': 200 },
     features: ['audit.export'],
   },
   business_standard: {
     multipliers: { 'files.storageBytes': 5, '*': 2 },
-    absolute: { 'workspace.seats': 50, 'audit.retentionDays': 365 },
-    features: ['audit.export', 'audit.stream'],
+    absolute: { 'workspace.seats': 50, 'audit.retentionDays': 365, 'visibility.maxRules': 1000 },
+    features: ['audit.export', 'audit.stream', 'visibility.orgAudiences', 'visibility.revealDelegation', 'visibility.explain', 'visibility.presets'],
   },
   business_pro: {
     multipliers: { 'files.storageBytes': 10, '*': 4 },
-    absolute: { 'workspace.seats': 250, 'audit.retentionDays': 1095 },
-    features: ['audit.export', 'audit.stream'],
+    absolute: { 'workspace.seats': 250, 'audit.retentionDays': 1095, 'visibility.maxRules': 5000 },
+    features: ['audit.export', 'audit.stream', 'visibility.orgAudiences', 'visibility.revealDelegation', 'visibility.explain', 'visibility.presets'],
   },
 };

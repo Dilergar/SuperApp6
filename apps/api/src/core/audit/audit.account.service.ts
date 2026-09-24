@@ -12,6 +12,7 @@ import type { JwtPayload } from '../../shared/decorators/current-user.decorator'
 import { AnalyticsService } from '../analytics/analytics.service';
 import { KeysCascadesService } from '../keys/api-keys/keys.cascades.service';
 import { VerifyService } from '../verify/verify.service';
+import { StepUpService } from '../verify/step-up.service';
 import { SmsOutboundService } from '../verify/sms-outbound.service';
 import { ConsentsService } from '../consents/consents.service';
 import { AUDIT_REDIS } from './audit.constants';
@@ -50,6 +51,7 @@ export class AuditAccountService {
     private readonly cascades: KeysCascadesService,
     private readonly consents: ConsentsService,
     private readonly analytics: AnalyticsService,
+    private readonly stepUp: StepUpService,
   ) {}
 
   /**
@@ -69,6 +71,9 @@ export class AuditAccountService {
     await this.redis.del(authAliveKey(userId)).catch(() => undefined);
     await this.redis.delPattern(`user:${userId}:*`).catch(() => undefined);
     await this.sessions.markFamiliesRevoked(families);
+    // Окна «сильного подтверждения» (ключи, раскрытие строгих полей) — вместе с сессиями: после
+    // «выйти везде», смены пароля или «Это не я» раскрыть ИИН без нового SMS нельзя
+    await this.stepUp.end(userId);
     this.events.emit('auth.sessions.revoked', { userId }, 'audit');
   }
 
@@ -197,7 +202,10 @@ export class AuditAccountService {
         data: { forgottenAt: new Date(), trustedAt: null },
       });
       const keysRevoked = await this.cascades.revokePersonalKeys(tx, user.sub, 'not_me');
-      const google = await this.consents.revoke(tx, { subject: { type: 'user', id: user.sub }, documentKey: 'integration_google', actorUserId: user.sub, reason: 'integration_disconnected', system: true });
+      // НЕ служебный отзыв: у служебного хуки не бегут (им пользуется кнопка «Отключить», которая
+      // сама удаляет подключение) — и мастер отзывал бы согласие, оставляя токены Google живыми.
+      // Хук владельца данных удаляет подключение здесь же, токен у Google гасится после коммита.
+      const google = await this.consents.revoke(tx, { subject: { type: 'user', id: user.sub }, documentKey: 'integration_google', actorUserId: user.sub, reason: 'not_me' });
       const result: NotMeResultDto = { sessionsRevoked: revoked.count, devicesForgotten: forgotten.count, keysRevoked, googleDisconnected: google.revoked > 0 };
       await this.audit.record(tx, { key: 'account.not_me_started', ref, details: result });
       return { result, families: revoked.families, googleAfter: google.afterCommit };

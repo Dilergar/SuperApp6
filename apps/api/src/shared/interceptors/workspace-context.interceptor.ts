@@ -197,7 +197,7 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
       // ложились бы в журнал «анонимом» — расследование не видело бы, кто нажал кнопку.
       ctx.actor = { kind: 'platform_staff', id: staff.userId, sessionId: staff.sessionId, familyId: null, keyId: null, roles: staff.roles };
     } else if (u?.sub && u.aud !== 'platform') {
-      ctx.actor = { kind: u.kind === 'bot' ? 'bot' : 'user', id: u.sub, sessionId: u.sid ?? null, familyId: u.fam ?? null, keyId: u.keyId ?? null };
+      ctx.actor = { kind: u.kind === 'bot' ? 'bot' : 'user', id: u.sub, sessionId: u.sid ?? null, familyId: u.fam ?? null, keyId: u.keyId ?? null, contactAccess: !!u.contactAccess };
     }
     if (req.user?.keyId) ctx.client = 'api_key';
     else if (/^\/api(?:\/v1)?\/platform(?:[/?]|$)/.test(req.originalUrl ?? req.url ?? '')) ctx.client = 'console';

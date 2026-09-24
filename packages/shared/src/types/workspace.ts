@@ -1,3 +1,4 @@
+import type { Guarded } from '../visibility/types';
 // ============================================================
 // Workspaces (B2B organizations)
 // ============================================================
@@ -24,39 +25,18 @@ export type WorkspaceInvitationStatus =
   | 'cancelled'
   | 'expired';
 
-// Default visibility of the company card's OPTIONAL fields to members (employees).
-// Always-visible regardless: name, logo. Owner/admin always see everything (for editing).
-export interface WorkspaceCardVisibility {
-  description: boolean;
-  industry: boolean;
-  city: boolean;
-  website: boolean;
-  contactEmail: boolean;
-  contactPhone: boolean;
-  membersCount: boolean;
-  /**
-   * Реквизиты организации (БИН, банк, юрадрес) сотрудникам. По умолчанию ВИДНЫ:
-   * они печатаются на каждом счёте и нужны сотрудникам для работы с клиентами.
-   * Owner/admin видят и правят всегда.
-   */
-  requisites: boolean;
-  extras?: Record<string, boolean>;
-}
-
 export interface Workspace {
   id: string;
   name: string;
   logo: string | null;
-  // Company profile (Анкета). For non-manager viewers, fields hidden by cardVisibility
-  // are returned as null. owner/admin always get the real values.
-  description: string | null;
-  industry: string | null;
-  city: string | null;
-  website: string | null;
-  contactEmail: string | null;
-  contactPhone: string | null;
-  /** Default field-visibility to members. Present ONLY for owner/admin (editing). */
-  cardVisibility?: WorkspaceCardVisibility;
+  // Анкета организации (core/visibility, тип `workspace.card`): кто что видит — правила
+  // видимости организации; маркер «скрыто» вместо значения, а не null.
+  description: Guarded<string | null>;
+  industry: Guarded<string | null>;
+  city: Guarded<string | null>;
+  website: Guarded<string | null>;
+  contactEmail: Guarded<string | null>;
+  contactPhone: Guarded<string | null>;
   /**
    * Язык БУМАГ организации: на нём печатаются договоры, приказы и счета.
    * Умолчание для новых бланков (у бланка язык можно переопределить). Не язык
@@ -64,7 +44,7 @@ export interface Workspace {
    */
   documentLanguage: Locale;
   ownerId: string;
-  membersCount: number;
+  membersCount: Guarded<number>;
   /** Active (non-cancelled) task count — present in the single-workspace view. */
   tasksCount?: number;
   isActive: boolean;
@@ -107,20 +87,26 @@ export interface WorkspaceMember {
 
 /** Реквизитный блок сотрудника в ростере (что видит работодатель) */
 export interface MemberRequisites {
-  iin: string | null;
-  dateOfBirth: string | null; // ISO date
-  residentialAddress: string | null;
-  idDocNumber: string | null;
-  idDocIssuedBy: string | null;
-  idDocIssuedAt: string | null; // ISO date
-  /** Основная карта для выплат (номер полностью — ради этого блок и существует) */
+  // Служебные поля организации (core/visibility, тип `staff.member`): владельцу и админу —
+  // маска с раскрытием по одной записи, остальным скрыто, самому — полностью.
+  iin: Guarded<string | null>;
+  residentialAddress: Guarded<string | null>;
+  idDocNumber: Guarded<string | null>;
+  idDocIssuedBy: Guarded<string | null>;
+  idDocIssuedAt: Guarded<string | null>; // ISO date
+  /**
+   * Основная карта для выплат. Полного номера в продукте нет НИ У КОГО (PCI DSS 3.4.1): `pan`
+   * — маска последних четырёх; полный номер знает только путь выплат кошелька.
+   */
   paymentCard: {
-    pan: string;
-    iban: string | null;
-    holderName: string;
-    expMonth: number;
-    expYear: number;
+    pan: Guarded<string>;
+    iban: Guarded<string | null>;
+    holderName: Guarded<string>;
+    /** `YYYY-MM-01` (месяц и год срока); маска — только год */
+    expiry: Guarded<string>;
   } | null;
+  /** Сколько полей скрыто правилами от этого зрителя (тихая строка «часть данных скрыта») */
+  hiddenCount: number;
 }
 
 // ============================================================
@@ -129,7 +115,8 @@ export interface MemberRequisites {
 
 export interface WorkspaceBankAccountDto {
   id: string;
-  iban: string;
+  /** Строгое поле `workspace.card`: маска последних четырёх, раскрытие по одной записи */
+  iban: Guarded<string>;
   bankName: string;
   bik: string;
   isPrimary: boolean;

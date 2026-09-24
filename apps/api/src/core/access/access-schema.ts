@@ -74,16 +74,14 @@ export const ACCESS_SCHEMA: Record<string, ResourceTypeConfig> = {
   },
 
   // ---- Person/employee card (field-level visibility is a thin layer ON TOP) ----
-  // B2C: card access = ContactLink (connection) + per-Group field flags — NOT the engine.
-  // B2B (Phase 4 foundation): an employee's card shows a minimal FLOOR (Имя+Должность) to all
-  // colleagues (field-layer default in company context); `full_viewer` is GRANTED to specific org
-  // audiences (department/branch/position/role) to upgrade them to the full card. Grant-based —
-  // "not granted" = minimal only. The future «Сотрудники» service writes those grants.
+  // Карточка человека: ребро `card` — только B2C-доступ владельца/зрителя. ПОЛЯ карточки
+  // (кто видит телефон, ДР, реквизиты сотрудника) — не права на запись, а правила движка
+  // видимости (core/visibility, типы `user.card` и `staff.member`): бывший B2B-грант
+  // `full_viewer` снят — «полная карточка» теперь решается планом полей, а не ребром.
   card: {
     relations: {
       owner: THIS,
       viewer: union(THIS, computed('owner')),
-      full_viewer: union(THIS, computed('owner')),
     },
   },
 
@@ -327,13 +325,13 @@ export const EPOCH_FANOUT: Record<string, string[]> = {
   // 'document' — гранты документа Группе живые: вышел из Группы ⇒ доступ к документу
   // обязан пропасть на следующем check(), а не дожить в кэше.
   circle: ['circle', 'showcase', 'wishlist', 'calendar', 'card', 'finbook', 'document'],
-  // Staff-оси («Сотрудники»): membership-рёбра могут нести гранты на карточки
-  // (card.full_viewer), витрины B2B и календарь — будущие аудитории Ленты/отпусков.
+  // Staff-оси («Сотрудники»): membership-рёбра несут гранты на витрины B2B и календарь —
+  // будущие аудитории Ленты/отпусков (поля карточек — движок видимости, не рёбра).
   // Отношения `head`/`manager` оргструктуры новых строк НЕ требуют: фанаут считается
   // по ТИПУ ресурса, а не по отношению — опасно только отсутствие ключа типа.
-  department: ['department', 'card', 'showcase', 'calendar'],
-  position: ['position', 'card', 'showcase', 'calendar'],
-  branch: ['branch', 'card', 'showcase', 'calendar'],
+  department: ['department', 'showcase', 'calendar'],
+  position: ['position', 'showcase', 'calendar'],
+  branch: ['branch', 'showcase', 'calendar'],
   // ---- Диск: ПУСТОЙ фанаут, и это не забывчивость ----
   // Диск не пользуется кэшируемым check() движка вообще: его выборки идут через
   // grantSetFor + собственный предикат в SQL, который всегда читает живые tuples.

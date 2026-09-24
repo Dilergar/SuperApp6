@@ -2,6 +2,10 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { DatabaseService } from '../../shared/database/database.service';
+import { USER_CARD_SELECT, UserCardService } from '../../core/users/user-card.service';
+import { VisibilityService, markShaped, type VisibilityViewer } from '../../core/visibility/visibility.service';
+import { VisibilityPolicyService } from '../../core/visibility/visibility.policy.service';
+import { VisibilityDiscoverabilityService } from '../../core/visibility/visibility.discoverability.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { DEFAULT_DOCUMENT_LANGUAGE } from '../../shared/i18n/document-words';
 import { coerceLocale, type Locale } from '@superapp/i18n';
@@ -43,10 +47,10 @@ import {
   WORKSPACE_ROLE_RANK,
   WORKSPACE_HIRE_ROLE,
   REQUISITE_LIMITS,
-  REQUISITE_VISIBILITY_EXTRAS,
   composeSignBasis,
   signBasisColumnsOf,
   signBasisPartsOf,
+  visibleOr,
   type MemberRequisites,
   type WorkspaceRequisitesDto,
   type WorkspaceRequisitesInput,
@@ -56,12 +60,8 @@ import {
   type Workspace,
   type WorkspaceMember,
   type WorkspaceInvitation,
-  type ContactUserCard,
-} from '@superapp/shared';
-import {
-  resolveWorkspaceCardVisibility,
-  resolveCardVisibility,
-  type WorkspaceCardVisibility,
+  isHidden,
+  maskLastName,
 } from '@superapp/shared';
 import { Prisma } from '@prisma/client';
 
@@ -123,6 +123,10 @@ export class WorkspacesService implements OnModuleInit {
     private docs: DocsService,
     private shareLinks: ShareLinksService,
     private purgeHooks: WorkspacePurgeRegistry,
+    private readonly userCards: UserCardService,
+    private readonly visibility: VisibilityService,
+    private readonly visibilityPolicies: VisibilityPolicyService,
+    private readonly discoverability: VisibilityDiscoverabilityService,
   ) {}
 
   /**
@@ -224,6 +228,8 @@ export class WorkspacesService implements OnModuleInit {
       await tx.staffBranch.create({
         data: { workspaceId: w.id, name: data.name, isDefault: true },
       });
+      // Первый факт журнала организации: кто и когда её создал
+      await this.audit.record(tx, { key: 'org.workspace.created', workspaceId: w.id, target: { type: 'workspace', id: w.id }, details: {} });
       // Головное юрлицо — сторона будущих договоров и владелец счетов. Заводится
       // вместе с организацией: «реквизиты организации» = его реквизиты.
       await tx.legalEntity.create({
@@ -287,9 +293,7 @@ export class WorkspacesService implements OnModuleInit {
       orderBy: { createdAt: 'asc' },
     });
 
-    return workspaces.map((w) =>
-      this.serializeWorkspace(w, w._count.members, roleByWs.get(w.id)),
-    );
+    return this.serializeWorkspaces(workspaces.map((w) => ({ ws: w, membersCount: w._count.members, myRole: roleByWs.get(w.id) })));
   }
 
   async getWorkspace(userId: string, workspaceId: string): Promise<Workspace> {
@@ -300,6 +304,21 @@ export class WorkspacesService implements OnModuleInit {
     });
     if (!ws) throw notFound('workspace.notFound');
     return this.serializeWorkspace(ws, ws._count.members, myRole, ws._count.tasks);
+  }
+
+  /**
+   * Анкета глазами РОЛИ (предпросмотр «как видит сотрудник»): тот же `workspace.card`, но
+   * зритель — синтетическая роль движка видимости, а не эмуляция на клиенте. Только
+   * владелец/админ: предпросмотр раскрывает, КАК настроена политика.
+   */
+  async cardPreview(userId: string, workspaceId: string, role: WorkspaceRole): Promise<Workspace> {
+    await this.assertCanManage(userId, workspaceId);
+    const ws = await this.db.workspace.findUnique({
+      where: { id: workspaceId },
+      include: { _count: { select: { members: true, tasks: true } } },
+    });
+    if (!ws) throw notFound('workspace.notFound');
+    return (await this.serializeWorkspaces([{ ws, membersCount: ws._count.members, myRole: role, tasksCount: ws._count.tasks }], this.visibility.roleViewer(workspaceId, role)))[0]!;
   }
 
   async updateWorkspace(
@@ -314,7 +333,6 @@ export class WorkspacesService implements OnModuleInit {
       website?: string | null;
       contactEmail?: string | null;
       contactPhone?: string | null;
-      cardVisibility?: Partial<WorkspaceCardVisibility>;
       /** Язык БУМАГ организации (умолчание для новых бланков) */
       documentLanguage?: Locale;
     },
@@ -337,14 +355,6 @@ export class WorkspacesService implements OnModuleInit {
         ...(data.contactEmail !== undefined ? { contactEmail: data.contactEmail } : {}),
         ...(data.contactPhone !== undefined ? { contactPhone: data.contactPhone } : {}),
         ...(data.documentLanguage !== undefined ? { documentLanguage: data.documentLanguage } : {}),
-        // Store the FULL resolved visibility map (merged over defaults) for predictable reads.
-        ...(data.cardVisibility !== undefined
-          ? {
-              cardVisibility: resolveWorkspaceCardVisibility(
-                data.cardVisibility,
-              ) as unknown as Prisma.InputJsonValue,
-            }
-          : {}),
       },
       include: { _count: { select: { members: true, tasks: true } } },
     });
@@ -361,19 +371,20 @@ export class WorkspacesService implements OnModuleInit {
   // ============================================================
 
   /**
-   * Реквизиты + банковские счета. Owner/admin видят всегда (они и правят);
-   * сотрудникам блок открыт флагом `cardVisibility.requisites` (по умолчанию да —
-   * реквизиты печатаются на каждом счёте). Скрыт → data: null, веб просто не рисует
-   * блок. Подрядчик отрезан гейтом команды.
+   * Реквизиты + банковские счета. Кто видит блок — правила видимости организации
+   * (core/visibility, `workspace.card`, поле `requisites`; по умолчанию — вся команда:
+   * реквизиты печатаются на каждом счёте). Скрыт → data: null, веб не рисует блок. IBAN —
+   * строгое поле: маска последних четырёх, раскрытие по одной записи. Подрядчик отрезан
+   * гейтом команды.
    */
   async getRequisites(userId: string, workspaceId: string): Promise<WorkspaceRequisitesDto | null> {
-    const role = await this.assertTeamMember(userId, workspaceId);
-    const ws = await this.getWorkspaceOrThrow(workspaceId);
-    const canSeeAll = role === 'owner' || role === 'admin';
-    const vis = resolveWorkspaceCardVisibility(
-      ws.cardVisibility as Partial<WorkspaceCardVisibility> | null,
-    );
-    if (!canSeeAll && !vis.requisites) return null;
+    await this.assertTeamMember(userId, workspaceId);
+    await this.getWorkspaceOrThrow(workspaceId);
+    const shaped = await this.visibility.shapeOne(this.visibility.viewer('api'), 'workspace.card', {
+      ref: { recordId: workspaceId, subjectId: null, workspaceId },
+      values: { requisites: true },
+    });
+    if (shaped.requisites !== true) return null;
     return this.serializeRequisites(workspaceId);
   }
 
@@ -531,6 +542,7 @@ export class WorkspacesService implements OnModuleInit {
         orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
       }),
     ]);
+    const shapedAccounts = await this.legal.shapeBankAccounts(workspaceId, accounts);
     // Директор мог быть уволен после записи — имя всё равно показываем (реквизиты
     // не рвутся увольнением; актуальность подписанта сверяется на выдаче документа).
     const director = req?.directorUserId
@@ -561,13 +573,7 @@ export class WorkspacesService implements OnModuleInit {
           )
         : null,
       signBasisParts: req ? signBasisPartsOf(req) : null,
-      bankAccounts: accounts.map((a) => ({
-        id: a.id,
-        iban: a.iban,
-        bankName: a.bankName,
-        bik: a.bik,
-        isPrimary: a.isPrimary,
-      })),
+      bankAccounts: shapedAccounts,
     };
   }
 
@@ -621,9 +627,7 @@ export class WorkspacesService implements OnModuleInit {
       include: { _count: { select: { members: true } } },
       orderBy: { archivedAt: 'desc' },
     });
-    return workspaces.map((w) =>
-      this.serializeWorkspace(w, w._count.members, 'owner'),
-    );
+    return this.serializeWorkspaces(workspaces.map((w) => ({ ws: w, membersCount: w._count.members, myRole: 'owner' as const })));
   }
 
   /**
@@ -713,6 +717,8 @@ export class WorkspacesService implements OnModuleInit {
       await this.entitlements.forgetSubject(tx, { type: 'workspace', id: workspaceId });
       // Аналитика: роллапы с измерением организации — сразу, сырьё — джобом
       await this.analytics.forgetWorkspace(tx, workspaceId);
+      // Правила видимости организации (полиморфный владелец, без FK) — иначе пережили бы её (R1)
+      await this.visibilityPolicies.purgeOwner(tx, 'workspace', workspaceId);
       // Согласия организации (условия для организаций, соглашение об обработке ПДн) прекращаются
       // вместе с ней; сами записи приёмки остаются — это доказательство, а не данные организации
       consentsAfterPurge = (await this.consents.revokeAllForSubject(tx, { type: 'workspace', id: workspaceId }, 'workspace_purged', null)).afterCommit;
@@ -939,6 +945,8 @@ export class WorkspacesService implements OnModuleInit {
       this.userName(toUserId),
     ]);
     await this.db.$transaction(async (tx) => {
+      // Владелец без членства — организация без хозяина: снятие, закоммиченное раньше, побеждает
+      if (!(await this.lockMemberRowTx(tx, workspaceId, toUserId))) throw badRequest('workspace.newOwnerNotMember');
       await tx.workspace.update({
         where: { id: workspaceId },
         data: { ownerId: toUserId },
@@ -981,39 +989,12 @@ export class WorkspacesService implements OnModuleInit {
 
   async listMembers(userId: string, workspaceId: string): Promise<WorkspaceMember[]> {
     // Ростер закрыт от Подрядчика (Коллаб-модель: он не видит команду).
-    const viewerRole = await this.assertTeamMember(userId, workspaceId);
-    // Управляющим (manager+) реквизитный блок сотрудника виден ВСЕГДА — это второй,
-    // нередактируемый уровень «Видимости в Компаниях»: данные для договоров,
-    // трудоустройства и выплат. Тумблеры сотрудника действуют только на коллег.
-    const managerView = ROLE_RANK[viewerRole] >= ROLE_RANK.manager;
+    await this.assertTeamMember(userId, workspaceId);
 
     const [members, roleRows, assignmentsByUser] = await Promise.all([
       this.db.workspaceMember.findMany({
         where: { workspaceId },
-        include: {
-          user: {
-            select: {
-              id: true,
-              phone: true,
-              firstName: true,
-              lastName: true,
-              avatar: true,
-              dateOfBirth: true,
-              bio: true,
-              city: true,
-              email: true,
-              maritalStatus: true,
-              socialLinks: true,
-              onlineStatusMode: true,
-              companyCardVisibility: true,
-              iin: true,
-              residentialAddress: true,
-              idDocNumber: true,
-              idDocIssuedBy: true,
-              idDocIssuedAt: true,
-            },
-          },
-        },
+        include: { user: { select: USER_CARD_SELECT } },
         orderBy: { joinedAt: 'asc' },
       }),
       this.db.userRole.findMany({
@@ -1031,58 +1012,42 @@ export class WorkspacesService implements OnModuleInit {
       if (!cur || ROLE_RANK[role] > ROLE_RANK[cur]) roleByUser.set(r.userId, role);
     }
 
-    // Реквизитов и карт в СПИСКЕ нет намеренно: ростер рисует сетку карточек, а
-    // расшифровка основной карты каждого сотрудника (полный PAN + IBAN) уезжала в
-    // браузер на каждый заход — тысяча номеров ради сетки лиц. Комплект для
-    // договоров и выплат отдаёт `getMember` по ОДНОМУ человеку, когда его открыли.
-    void managerView;
-    return members.map((m) => ({
+    // Карточки — ЛИЧНЫЕ правила каждого человека глазами коллеги (core/visibility, `user.card`):
+    // одна проекция с Окружением, политики и связи — один раз на весь ростер. Реквизитов и карт
+    // в СПИСКЕ нет намеренно: комплект для договоров отдаёт `getMember` по ОДНОМУ человеку.
+    const viewer = this.memberViewer(workspaceId);
+    const cards = await this.userCards.cards(viewer, members.map((m) => m.user));
+    return members.map((m, i) => ({
       id: m.id,
       workspaceId,
       userId: m.userId,
       userName: this.fullName(m.user),
-      userAvatar: m.user.avatar,
+      // Фото — решение ЧЕЛОВЕКА (личное поле user.card), организация его не раскрывает
+      userAvatar: visibleOr(cards[i]!.avatar, null),
       role: roleByUser.get(m.userId) ?? 'staff',
       assignments: assignmentsByUser.get(m.userId) ?? [],
-      card: this.companyCard(m.user),
+      card: cards[i]!,
       joinedAt: m.joinedAt.toISOString(),
     }));
   }
 
+  /** Зритель ростера: «шляпа» — эта организация (служебные правила — её, личные — самих людей). */
+  private memberViewer(workspaceId: string): VisibilityViewer {
+    return this.visibility.viewer('api', { workspaceId });
+  }
+
   /**
-   * ОДИН сотрудник с реквизитным блоком (договоры, трудоустройство, выплаты).
-   * Отдельная ручка, потому что здесь и только здесь расшифровывается основная
-   * карта: список этого делать не должен (см. listMembers).
+   * ОДИН сотрудник с реквизитным блоком (договоры, трудоустройство, выплаты). Кто что
+   * видит — правила организации (core/visibility, `staff.member`: ИИН, адрес, удостоверение,
+   * карта — владельцу и админу МАСКОЙ с раскрытием по одной записи, остальным скрыто, самому —
+   * полностью). Скрытые поля из БД НЕ читаются вовсе (`readableFields`: нет расшифровки — нет
+   * `pii.read`); полный номер карты не расшифровывается никогда — только последние четыре.
    */
   async getMember(userId: string, workspaceId: string, targetUserId: string): Promise<WorkspaceMember> {
-    const viewerRole = await this.assertTeamMember(userId, workspaceId);
-    const managerView = ROLE_RANK[viewerRole] >= ROLE_RANK.manager;
+    await this.assertTeamMember(userId, workspaceId);
     const row = await this.db.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-      include: {
-        user: {
-          select: {
-            id: true,
-            phone: true,
-            firstName: true,
-            lastName: true,
-            avatar: true,
-            dateOfBirth: true,
-            bio: true,
-            city: true,
-            email: true,
-            maritalStatus: true,
-            socialLinks: true,
-            onlineStatusMode: true,
-            companyCardVisibility: true,
-            iin: true,
-            residentialAddress: true,
-            idDocNumber: true,
-            idDocIssuedBy: true,
-            idDocIssuedAt: true,
-          },
-        },
-      },
+      include: { user: { select: USER_CARD_SELECT } },
     });
     if (!row) throw notFound('staff.notInWorkspace');
     const roleRow = await this.db.userRole.findFirst({
@@ -1090,113 +1055,82 @@ export class WorkspacesService implements OnModuleInit {
       select: { role: true },
       orderBy: { grantedAt: 'desc' },
     });
-    const vis = resolveCardVisibility(
-      row.user.companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
-    );
-    const needCard = managerView || !!vis.extras?.[REQUISITE_VISIBILITY_EXTRAS.paymentCard];
-    const primaryCard = needCard ? (await this.paymentCards.primaryCardsFor([targetUserId])).get(targetUserId) ?? null : null;
-    const assignments = (await this.staff.getAssignmentsByUser(workspaceId)).get(targetUserId) ?? [];
-    return {
+    const viewer = this.memberViewer(workspaceId);
+    const [card, requisites, assignments] = await Promise.all([
+      this.userCards.card(viewer, row.user),
+      this.memberRequisites(viewer, workspaceId, targetUserId),
+      this.staff.getAssignmentsByUser(workspaceId).then((m) => m.get(targetUserId) ?? []),
+    ]);
+    return markShaped({
       id: row.id,
       workspaceId,
       userId: row.userId,
       userName: this.fullName(row.user),
-      userAvatar: row.user.avatar,
+      userAvatar: visibleOr(card.avatar, null),
       role: (roleRow?.role as WorkspaceRole) ?? 'staff',
       assignments,
-      card: this.companyCard(row.user),
-      ...this.memberRequisites(row.user, managerView, primaryCard),
+      card,
+      requisites,
       joinedAt: row.joinedAt.toISOString(),
-    };
+    });
   }
 
-  /**
-   * Реквизитный блок сотрудника в ростере. Управляющему — полный и всегда;
-   * коллеге — только поля, включённые владельцем карточки в extras «Видимости в
-   * Компаниях» (по умолчанию все выключены). Ничего не включено → блока нет.
-   */
-  private memberRequisites(
-    u: {
-      dateOfBirth: Date | null;
-      iin: string | null;
-      residentialAddress: string | null;
-      idDocNumber: string | null;
-      idDocIssuedBy: string | null;
-      idDocIssuedAt: Date | null;
-      companyCardVisibility: Prisma.JsonValue | null;
-    },
-    managerView: boolean,
-    primaryCard: { pan: string; iban: string | null; holderName: string; expMonth: number; expYear: number } | null,
-  ): { requisites?: MemberRequisites } {
-    const vis = resolveCardVisibility(
-      u.companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
-    );
-    const extra = (key: string) => managerView || !!vis.extras?.[key];
-    const showIin = extra(REQUISITE_VISIBILITY_EXTRAS.iin);
-    const showAddress = extra(REQUISITE_VISIBILITY_EXTRAS.residentialAddress);
-    const showIdDoc = extra(REQUISITE_VISIBILITY_EXTRAS.idDocument);
-    const showCard = extra(REQUISITE_VISIBILITY_EXTRAS.paymentCard);
-    if (!showIin && !showAddress && !showIdDoc && !showCard && !managerView) return {};
-
-    return {
-      requisites: {
-        iin: showIin ? u.iin : null,
-        // Управляющему ДР видна всегда (комплект трудоустройства); коллегам ею
-        // управляет обычный тумблер dateOfBirth карточки — здесь не дублируем.
-        dateOfBirth: managerView && u.dateOfBirth ? u.dateOfBirth.toISOString().slice(0, 10) : null,
-        residentialAddress: showAddress ? u.residentialAddress : null,
-        idDocNumber: showIdDoc ? u.idDocNumber : null,
-        idDocIssuedBy: showIdDoc ? u.idDocIssuedBy : null,
-        idDocIssuedAt: showIdDoc && u.idDocIssuedAt ? u.idDocIssuedAt.toISOString().slice(0, 10) : null,
-        paymentCard: showCard && primaryCard ? primaryCard : null,
+  /** Реквизитный блок сотрудника по плану зрителя (`staff.member`). */
+  private async memberRequisites(viewer: VisibilityViewer, workspaceId: string, targetUserId: string): Promise<MemberRequisites> {
+    const readable = await this.visibility.readableFields(viewer, 'staff.member', workspaceId);
+    const want = (k: string) => readable.has(k);
+    const needUser = ['iin', 'residentialAddress', 'idDocNumber', 'idDocIssuedBy', 'idDocIssuedAt'].some(want);
+    const needCard = ['paymentCardPan', 'paymentCardIban', 'paymentCardHolder', 'paymentCardExpiry'].some(want);
+    const [u, card] = await Promise.all([
+      needUser
+        ? this.db.user.findUnique({
+            where: { id: targetUserId },
+            select: {
+              iin: want('iin'),
+              residentialAddress: want('residentialAddress'),
+              idDocNumber: want('idDocNumber'),
+              idDocIssuedBy: want('idDocIssuedBy'),
+              idDocIssuedAt: want('idDocIssuedAt'),
+            },
+          })
+        : Promise.resolve(null),
+      needCard ? this.paymentCards.primaryCardsLiteFor([targetUserId], { iban: want('paymentCardIban') }).then((m) => m.get(targetUserId) ?? null) : Promise.resolve(null),
+    ]);
+    const s = await this.visibility.shapeOne(viewer, 'staff.member', {
+      ref: { recordId: targetUserId, subjectId: targetUserId, workspaceId },
+      values: {
+        iin: u?.iin ?? null,
+        residentialAddress: u?.residentialAddress ?? null,
+        idDocNumber: u?.idDocNumber ?? null,
+        idDocIssuedBy: u?.idDocIssuedBy ?? null,
+        idDocIssuedAt: u?.idDocIssuedAt ? u.idDocIssuedAt.toISOString().slice(0, 10) : null,
+        ...(card
+          ? {
+              paymentCardPan: card.panLast4,
+              paymentCardIban: card.iban,
+              paymentCardHolder: card.holderName,
+              paymentCardExpiry: `${card.expYear < 100 ? 2000 + card.expYear : card.expYear}-${String(card.expMonth).padStart(2, '0')}-01`,
+            }
+          : {}),
       },
-    };
-  }
-
-  /**
-   * Карточка сотрудника для коллег: поля профиля, маскированные ЕГО
-   * «Видимостью в Компаниях» (та же механика, что карточка в b2c-Окружении).
-   * Всегда видны: имя, фамилия, телефон; должности идут в assignments.
-   */
-  private companyCard(u: {
-    id: string;
-    phone: string;
-    firstName: string;
-    lastName: string | null;
-    avatar: string | null;
-    dateOfBirth: Date | null;
-    bio: string | null;
-    city: string | null;
-    email: string | null;
-    maritalStatus: string | null;
-    socialLinks: Prisma.JsonValue | null;
-    onlineStatusMode: string;
-    companyCardVisibility: Prisma.JsonValue | null;
-  }) {
-    const vis = resolveCardVisibility(
-      u.companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
-    );
-    const age =
-      vis.age && u.dateOfBirth
-        ? Math.floor((Date.now() - u.dateOfBirth.getTime()) / (365.25 * 24 * 3600 * 1000))
-        : null;
-    return {
-      id: u.id,
-      phone: u.phone,
-      firstName: u.firstName,
-      lastName: u.lastName,
-      avatar: u.avatar,
-      dateOfBirth: vis.dateOfBirth && u.dateOfBirth ? u.dateOfBirth.toISOString().slice(0, 10) : null,
-      bio: vis.bio ? u.bio : null,
-      city: vis.city ? u.city : null,
-      email: vis.email ? u.email : null,
-      maritalStatus: vis.maritalStatus ? u.maritalStatus : null,
-      socialLinks: vis.socialLinks
-        ? (u.socialLinks as { telegram?: string; instagram?: string } | null)
+    });
+    const hiddenCount = Object.values(s).filter((v) => isHidden(v)).length;
+    return markShaped({
+      iin: s.iin as MemberRequisites['iin'],
+      residentialAddress: s.residentialAddress as MemberRequisites['residentialAddress'],
+      idDocNumber: s.idDocNumber as MemberRequisites['idDocNumber'],
+      idDocIssuedBy: s.idDocIssuedBy as MemberRequisites['idDocIssuedBy'],
+      idDocIssuedAt: s.idDocIssuedAt as MemberRequisites['idDocIssuedAt'],
+      paymentCard: card
+        ? markShaped({
+            pan: s.paymentCardPan as NonNullable<MemberRequisites['paymentCard']>['pan'],
+            iban: s.paymentCardIban as NonNullable<MemberRequisites['paymentCard']>['iban'],
+            holderName: s.paymentCardHolder as NonNullable<MemberRequisites['paymentCard']>['holderName'],
+            expiry: s.paymentCardExpiry as NonNullable<MemberRequisites['paymentCard']>['expiry'],
+          })
         : null,
-      age,
-      showOnlineStatus: vis.onlineStatus && u.onlineStatusMode !== 'nobody',
-    };
+      hiddenCount,
+    });
   }
 
   /**
@@ -1239,6 +1173,7 @@ export class WorkspacesService implements OnModuleInit {
       // Смена роли, её хроника, событие журнала безопасности и уведомление — ОДНОЙ транзакцией:
       // раньше хроника и уведомление шли после эффекта без транзакции и могли потеряться
       const afterKeys = await this.db.$transaction(async (tx) => {
+        if (!(await this.lockMemberRowTx(tx, workspaceId, targetUserId))) throw notFound('staff.notInWorkspace');
         await this.setSoleWorkspaceRoleTx(tx, targetUserId, workspaceId, data.role, userId);
         // Понижение с admin: личные ключи человека для данных организации гаснут, его боты —
         // на решение владельца (право иметь ключи организации — только owner/admin)
@@ -1309,17 +1244,38 @@ export class WorkspacesService implements OnModuleInit {
   }
 
   /** Fire a member (owner/admin). Owner cannot be removed — transfer first. */
-  async removeMember(userId: string, workspaceId: string, targetUserId: string): Promise<void> {
-    const actorRole = await this.assertCanManage(userId, workspaceId);
+  /**
+   * Право актора снять человека с членства — ОДНО правило для кнопки ростера и для галочки
+   * «снять и членство» в увольнении КЭДО (там проверяется при создании приказа: галочка,
+   * которую применение потом отвергнет, обещала бы то, чего не случится). Владелец/админ;
+   * владельца снять нельзя; админа — только владелец. Живой трудовой договор сюда не входит:
+   * это гейт самого снятия (увольнение закрывает договор раньше, чем снимает членство).
+   */
+  async assertCanRemoveMember(
+    actorId: string,
+    workspaceId: string,
+    targetUserId: string,
+  ): Promise<{ ws: { name: string; ownerId: string }; targetRole: WorkspaceRole | null }> {
+    const actorRole = await this.assertCanManage(actorId, workspaceId);
     const ws = await this.getWorkspaceOrThrow(workspaceId);
     if (targetUserId === ws.ownerId) {
       throw badRequest('workspace.ownerNotRemovable');
     }
     const targetRole = await this.getMyRole(targetUserId, workspaceId);
-    if (!targetRole) throw notFound('staff.notInWorkspace');
+    // Член без ролей (осиротевшая строка) снимается тем же путём: иначе его не убрать ничем
+    if (!targetRole && !(await this.hasMemberRow(workspaceId, targetUserId))) throw notFound('staff.notInWorkspace');
     if (targetRole === 'admin' && actorRole !== 'owner') {
       throw forbidden('workspace.adminRemoveOwnerOnly');
     }
+    return { ws, targetRole };
+  }
+
+  /**
+   * `opts.hrActionId` — членство снимает применение кадрового действия «Увольнение» (КЭДО):
+   * исполнитель в журнале — система, инициатор (`userId`, автор действия) — `onBehalfOf`.
+   */
+  async removeMember(userId: string, workspaceId: string, targetUserId: string, opts: { hrActionId?: string } = {}): Promise<void> {
+    const { ws, targetRole } = await this.assertCanRemoveMember(userId, workspaceId, targetUserId);
     // Исключение из организации ≠ увольнение по ТК: договор живёт в КЭДО и после
     // ухода продолжал тикать сроками (ЕСУТД, испытательный, конец договора) по
     // человеку, которого в организации уже нет. Живой договор закрывается кадровым
@@ -1332,24 +1288,16 @@ export class WorkspacesService implements OnModuleInit {
       });
     }
 
-    await this.revokeAllWorkspaceRoles(targetUserId, workspaceId);
-    // Каскад: личные ключи человека в организации гаснут, его боты замораживаются до решения владельца.
-    await this.keysCascades.onMemberLeft(null, workspaceId, targetUserId, 'removed', userId);
-    // Каскад: назначения должностей + их рёбра в движке доступа (+ хроника снятия).
-    await this.staff.removeAllAssignmentsForUser(workspaceId, targetUserId, userId);
-    // Каскад: участия во встречах офиса (доступ к чатам встреч).
-    await this.purgeOfficeParticipations(workspaceId, targetUserId);
-    // Каскад: снять с активных шагов «Ждут решения» (иначе шаг «нужен каждый»
-    // виснет навсегда — решать уволенному запрещает гейт). Общий метод с leaveWorkspace.
-    await this.approvals.releaseUserFromWorkspaceSteps(targetUserId, workspaceId);
-    // Событие наружу — в транзакции удаления членства и только если строка реально ушла
-    await this.db.$transaction(async (tx) => {
-      const gone = await tx.workspaceMember.deleteMany({ where: { workspaceId, userId: targetUserId } });
-      if (gone.count) {
-        await this.webhooks.emit(tx, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId: targetUserId, reason: 'removed', workspaceId } });
-        await this.audit.record(tx, { key: 'org.member.removed', workspaceId, target: { type: 'user', id: targetUserId }, details: { role: targetRole } });
-      }
+    await this.releaseMemberFootprint(workspaceId, targetUserId, userId);
+    const cut = await this.cutMembership(workspaceId, targetUserId, {
+      exit: 'removed',
+      keysReason: opts.hrActionId ? 'dismissed' : 'removed',
+      actorId: userId,
+      role: targetRole,
+      hrActionId: opts.hrActionId,
     });
+    // Строку уже снял параллельный вызов — хроника и уведомление принадлежат ему
+    if (!cut) return;
 
     await this.chatter.log(null, {
       refType: 'workspace',
@@ -1381,19 +1329,9 @@ export class WorkspacesService implements OnModuleInit {
     if (userId === ws.ownerId) {
       throw badRequest('workspace.ownerCannotLeave');
     }
-    await this.revokeAllWorkspaceRoles(userId, workspaceId);
-    await this.keysCascades.onMemberLeft(null, workspaceId, userId, 'left', userId);
-    await this.staff.removeAllAssignmentsForUser(workspaceId, userId, userId);
-    await this.purgeOfficeParticipations(workspaceId, userId);
-    // Тот же каскад, что при увольнении: вышедший не должен подвешивать шаги «нужен каждый».
-    await this.approvals.releaseUserFromWorkspaceSteps(userId, workspaceId);
-    await this.db.$transaction(async (tx) => {
-      const gone = await tx.workspaceMember.deleteMany({ where: { workspaceId, userId } });
-      if (gone.count) {
-        await this.webhooks.emit(tx, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId, reason: 'left', workspaceId } });
-        await this.audit.record(tx, { key: 'org.member.left', workspaceId, target: { type: 'user', id: userId }, details: { role: myRole } });
-      }
-    });
+    await this.releaseMemberFootprint(workspaceId, userId, userId);
+    const cut = await this.cutMembership(workspaceId, userId, { exit: 'left', keysReason: 'left', actorId: userId, role: myRole });
+    if (!cut) return;
 
     await this.chatter.log(null, {
       refType: 'workspace',
@@ -1433,11 +1371,17 @@ export class WorkspacesService implements OnModuleInit {
 
     const target = await this.db.user.findUnique({
       where: { phone: data.phone },
-      select: { id: true, deletedAt: true },
+      select: { id: true, deletedAt: true, firstName: true, lastName: true },
     });
     if (target && target.id === userId) {
       throw badRequest('workspace.cannotInviteSelf');
     }
+    // Находимость по номеру (core/visibility): человек, не разрешивший нанимающему находить
+    // себя, для организации неотличим от незарегистрированного номера — ни `toUserId` в ответе,
+    // ни имени в журнале. Приглашение ему доставляется (принять — его решение). Поток номеров
+    // от одной организации ограничен отдельно от личного потолка.
+    await this.discoverability.throttleWorkspaceLookup(workspaceId);
+    const hidden = !!target && !target.deletedAt && !(await this.discoverability.isDiscoverable(target.id, userId));
     if (target) {
       const existing = await this.db.workspaceMember.findUnique({
         where: { workspaceId_userId: { workspaceId, userId: target.id } },
@@ -1504,7 +1448,7 @@ export class WorkspacesService implements OnModuleInit {
       await this.audit.record(tx, {
         key: 'org.member.invited',
         workspaceId,
-        ...(created.toUserId ? { target: { type: 'user', id: created.toUserId } } : { target: { type: 'workspace_invitation', id: created.id } }),
+        ...(created.toUserId && !hidden ? { target: { type: 'user', id: created.toUserId } } : { target: { type: 'workspace_invitation', id: created.id } }),
         details: { role: WORKSPACE_HIRE_ROLE },
       });
       return created;
@@ -1545,11 +1489,12 @@ export class WorkspacesService implements OnModuleInit {
       actorName: fullNameOrNull(inviter),
       typeKey: 'staff.invited',
       payload: {
-        targetUserId: target?.id ?? null,
-        targetName: target ? await this.userName(target.id) : data.phone,
+        targetUserId: target && !hidden ? target.id : null,
+        // Ещё НЕ коллега: имя с инициалом фамилии (пре-линк правило), скрытый — только номер
+        targetName: target && !hidden ? [target.firstName, maskLastName(target.lastName)].filter(Boolean).join(' ') : data.phone,
       },
     });
-    return (await this.serializeInvitations([{ ...inv, workspace: ws, inviter }]))[0];
+    return (await this.serializeInvitations([{ ...inv, workspace: ws, inviter }], hidden ? new Set([inv.toUserId!]) : undefined))[0];
   }
 
   async listOutgoingInvitations(userId: string, workspaceId: string): Promise<WorkspaceInvitation[]> {
@@ -1563,7 +1508,10 @@ export class WorkspacesService implements OnModuleInit {
       },
       orderBy: { createdAt: 'desc' },
     });
-    return this.serializeInvitations(invs);
+    // Приглашённые, не разрешившие нанимающему находить себя, — без `toUserId` (как незарегистрированные)
+    const toIds = invs.map((i) => i.toUserId).filter((x): x is string => !!x);
+    const findable = await this.discoverability.filterDiscoverable(toIds, userId);
+    return this.serializeInvitations(invs, new Set(toIds.filter((id) => !findable.has(id))));
   }
 
   async cancelInvitation(userId: string, workspaceId: string, invitationId: string): Promise<void> {
@@ -1577,9 +1525,21 @@ export class WorkspacesService implements OnModuleInit {
     if (inv.status !== 'pending') {
       throw badRequest('workspace.invitationHandled');
     }
-    await this.db.workspaceInvitation.update({
-      where: { id: invitationId },
-      data: { status: 'cancelled', respondedAt: new Date() },
+    // Переход по условию: отмена наперегонки с принятием не должна перезаписать уже
+    // принятое приглашение; событие журнала — в той же транзакции
+    await this.db.$transaction(async (tx) => {
+      const moved = await tx.workspaceInvitation.updateMany({
+        where: { id: invitationId, status: 'pending' },
+        data: { status: 'cancelled', respondedAt: new Date() },
+      });
+      if (!moved.count) throw badRequest('workspace.invitationHandled');
+      await this.audit.record(tx, {
+        key: 'org.member.invitation_cancelled',
+        workspaceId,
+        subjectUserId: inv.toUserId ?? null,
+        target: { type: 'workspace_invitation', id: inv.id },
+        details: { role: inv.role },
+      });
     });
   }
 
@@ -1717,9 +1677,7 @@ export class WorkspacesService implements OnModuleInit {
       where: { id: inv.workspaceId },
       include: { _count: { select: { members: true } } },
     });
-    return ws
-      ? this.serializeWorkspace(ws, ws._count.members, WORKSPACE_HIRE_ROLE)
-      : null;
+    return ws ? this.serializeWorkspace(ws, ws._count.members, WORKSPACE_HIRE_ROLE) : null;
   }
 
   async rejectInvitation(userId: string, invitationId: string): Promise<void> {
@@ -1909,83 +1867,143 @@ export class WorkspacesService implements OnModuleInit {
     });
   }
 
-  private async revokeAllWorkspaceRoles(userId: string, workspaceId: string) {
-    const current = await this.roles.getRolesInContext(userId, WS_CONTEXT, workspaceId);
-    for (const r of current) {
-      await this.roles.revokeRole(userId, r.role, WS_CONTEXT, workspaceId);
-    }
+  /**
+   * Уборка следов человека в организации перед снятием доступа (увольнение и выход): должности
+   * (+ рёбра доступа и хроника снятия), участия во встречах офиса (доступ к чатам встреч),
+   * шаги «Ждут решения» (иначе шаг «нужен каждый» виснет навсегда — решать бывшему члену
+   * запрещает гейт). Каждый шаг идемпотентен и идёт ДО `cutMembership`: сбой любого оставляет
+   * человека членом с ролями, и повтор проходит путь заново.
+   */
+  private async releaseMemberFootprint(workspaceId: string, userId: string, actorId: string): Promise<void> {
+    await this.staff.removeAllAssignmentsForUser(workspaceId, userId, actorId);
+    await this.purgeOfficeParticipations(workspaceId, userId);
+    await this.approvals.releaseUserFromWorkspaceSteps(userId, workspaceId);
   }
 
-  private serializeWorkspace(
-    ws: {
-      id: string;
-      name: string;
-      logo: string | null;
-      description: string | null;
-      industry: string | null;
-      city: string | null;
-      website: string | null;
-      contactEmail: string | null;
-      contactPhone: string | null;
-      documentLanguage: string;
-      cardVisibility: Prisma.JsonValue | null;
-      ownerId: string;
-      isActive: boolean;
-      archivedAt?: Date | null;
-      createdAt: Date;
-      updatedAt: Date;
-    },
-    membersCount: number,
-    myRole?: WorkspaceRole,
-    tasksCount?: number,
-  ) {
-    // owner/admin see everything (for editing); other members see only the fields
-    // the org's card visibility marks visible. name/logo are always visible.
-    const canSeeAll = myRole === 'owner' || myRole === 'admin';
-    const vis = resolveWorkspaceCardVisibility(
-      ws.cardVisibility as Partial<WorkspaceCardVisibility> | null,
-    );
-    const show = (
-      field:
-        | 'description'
-        | 'industry'
-        | 'city'
-        | 'website'
-        | 'contactEmail'
-        | 'contactPhone',
-      value: string | null,
-    ) => (canSeeAll || vis[field] ? value : null);
+  /**
+   * Снятие доступа к организации — ОДНОЙ транзакцией: строка членства (клейм: параллельный
+   * вызов получит 0), все роли организации, личные ключи API и боты человека (каскад core/keys),
+   * событие наружу и журнал безопасности. Роли не снимаются отдельно до транзакции: сбой между
+   * ними оставил бы человека без ролей, но членом и без следа в журнале, а повтор упёрся бы
+   * в «не член». Кэш ролей и снимок оргструктуры — после коммита (транзакционная запись их
+   * не сбрасывает). `false` — строку уже снял параллельный вызов.
+   */
+  private async cutMembership(
+    workspaceId: string,
+    userId: string,
+    p: { exit: 'removed' | 'left'; keysReason: 'removed' | 'left' | 'dismissed'; actorId: string; role: WorkspaceRole | null; hrActionId?: string },
+  ): Promise<boolean> {
+    const afterKeys = await this.db.$transaction(async (tx) => {
+      const gone = await tx.workspaceMember.deleteMany({ where: { workspaceId, userId } });
+      if (!gone.count) return null;
+      await tx.userRole.updateMany({ where: { userId, context: WS_CONTEXT, tenantId: workspaceId, isActive: true }, data: { isActive: false } });
+      // Личные ключи человека в организации гаснут, его боты замораживаются до решения владельца
+      const after = await this.keysCascades.onMemberLeft(tx, workspaceId, userId, p.keysReason, p.actorId);
+      await this.webhooks.emit(tx, { workspaceId, eventKey: 'workspaces.member.left', payload: { userId, reason: p.exit, workspaceId } });
+      const details = p.role ? { role: p.role } : {};
+      const target = { type: 'user', id: userId };
+      if (p.exit === 'left') {
+        await this.audit.record(tx, { key: 'org.member.left', workspaceId, target, details });
+      } else if (p.hrActionId) {
+        // Увольнение КЭДО применяет система (джоб или чужой запрос, дошедший маршрутом до
+        // применения): исполнитель — система, инициатор — автор кадрового действия
+        await this.audit.record(tx, {
+          key: 'org.member.removed',
+          workspaceId,
+          target,
+          details,
+          actor: { kind: 'system', onBehalfOfId: p.actorId },
+          ref: { type: 'hr_action', id: p.hrActionId },
+        });
+      } else {
+        await this.audit.record(tx, { key: 'org.member.removed', workspaceId, target, details });
+      }
+      return after;
+    });
+    if (!afterKeys) return false;
+    await this.roles.invalidateUserCache(userId);
+    await afterKeys();
+    await this.staff.invalidateOrgGraph(workspaceId);
+    return true;
+  }
 
-    return {
-      id: ws.id,
-      name: ws.name,
-      logo: ws.logo,
-      description: show('description', ws.description),
-      industry: show('industry', ws.industry),
-      city: show('city', ws.city),
-      website: show('website', ws.website),
-      contactEmail: show('contactEmail', ws.contactEmail),
-      contactPhone: show('contactPhone', ws.contactPhone),
-      // Только управляющим — карта видимости на правку.
-      ...(canSeeAll ? { cardVisibility: vis } : {}),
-      // Язык бумаг видят все: по нему клиент понимает, на каком языке будет документ
-      documentLanguage: coerceLocale(ws.documentLanguage, DEFAULT_DOCUMENT_LANGUAGE),
-      ownerId: ws.ownerId,
-      membersCount,
-      ...(tasksCount !== undefined ? { tasksCount } : {}),
-      isActive: ws.isActive,
-      // Дату полного удаления считает сервер: срок ретеншна — одна константа, клиенту
-      // остаётся показать её и обратный отсчёт.
-      ...(ws.archivedAt
-        ? {
-            archivedAt: ws.archivedAt.toISOString(),
-            purgeAt: workspacePurgeAt(ws.archivedAt).toISOString(),
-          }
-        : {}),
-      ...(myRole ? { myRole } : {}),
-      createdAt: ws.createdAt.toISOString(),
-      updatedAt: ws.updatedAt.toISOString(),
-    };
+  private async hasMemberRow(workspaceId: string, userId: string): Promise<boolean> {
+    return !!(await this.db.workspaceMember.findUnique({ where: { workspaceId_userId: { workspaceId, userId } }, select: { id: true } }));
+  }
+
+  /**
+   * Замок строки членства в транзакции выдачи роли. Роль без членства — осиротевший доступ:
+   * смена роли, стартовавшая до коммита снятия, иначе дождалась бы его и включила роль
+   * человеку, которого в организации уже нет. Замок сериализует её со снятием, а после
+   * снятия строки нет — отказ.
+   */
+  private async lockMemberRowTx(tx: Prisma.TransactionClient, workspaceId: string, userId: string): Promise<boolean> {
+    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM workspace_members WHERE workspace_id = ${workspaceId} AND user_id = ${userId} FOR UPDATE`;
+    return rows.length > 0;
+  }
+
+  /** Одна организация глазами текущего зрителя (анкета — `workspace.card` движка видимости). */
+  private async serializeWorkspace(ws: SerializableWorkspace, membersCount: number, myRole?: WorkspaceRole, tasksCount?: number): Promise<Workspace> {
+    return (await this.serializeWorkspaces([{ ws, membersCount, myRole, tasksCount }]))[0]!;
+  }
+
+  /**
+   * Организации глазами текущего зрителя. Анкета (описание, отрасль, город, сайт, контакты,
+   * число сотрудников) — правила видимости организации (core/visibility, `workspace.card`,
+   * R10: бывший самодельный слой `cardVisibility` и «владелец/админ видят всё»). Имя и лого —
+   * пол. Пачка многих организаций — одна проекция (политики по организациям — из кэша).
+   */
+  private async serializeWorkspaces(
+    items: Array<{ ws: SerializableWorkspace; membersCount: number; myRole?: WorkspaceRole; tasksCount?: number }>,
+    viewer: VisibilityViewer = this.visibility.viewer('api'),
+  ): Promise<Workspace[]> {
+    const shaped = await this.visibility.shape(
+      viewer,
+      'workspace.card',
+      items.map(({ ws, membersCount }) => ({
+        ref: { recordId: ws.id, subjectId: null, workspaceId: ws.id },
+        values: {
+          description: ws.description,
+          industry: ws.industry,
+          city: ws.city,
+          website: ws.website,
+          contactEmail: ws.contactEmail,
+          contactPhone: ws.contactPhone,
+          membersCount,
+        },
+      })),
+    );
+    return items.map(({ ws, myRole, tasksCount }, i) => {
+      const v = shaped[i]!;
+      return markShaped({
+        id: ws.id,
+        name: ws.name,
+        logo: ws.logo,
+        description: v.description as Workspace['description'],
+        industry: v.industry as Workspace['industry'],
+        city: v.city as Workspace['city'],
+        website: v.website as Workspace['website'],
+        contactEmail: v.contactEmail as Workspace['contactEmail'],
+        contactPhone: v.contactPhone as Workspace['contactPhone'],
+        // Язык бумаг видят все: по нему клиент понимает, на каком языке будет документ
+        documentLanguage: coerceLocale(ws.documentLanguage, DEFAULT_DOCUMENT_LANGUAGE),
+        ownerId: ws.ownerId,
+        membersCount: v.membersCount as Workspace['membersCount'],
+        ...(tasksCount !== undefined ? { tasksCount } : {}),
+        isActive: ws.isActive,
+        // Дату полного удаления считает сервер: срок ретеншна — одна константа, клиенту
+        // остаётся показать её и обратный отсчёт.
+        ...(ws.archivedAt
+          ? {
+              archivedAt: ws.archivedAt.toISOString(),
+              purgeAt: workspacePurgeAt(ws.archivedAt).toISOString(),
+            }
+          : {}),
+        ...(myRole ? { myRole } : {}),
+        createdAt: ws.createdAt.toISOString(),
+        updatedAt: ws.updatedAt.toISOString(),
+      });
+    });
   }
 
   /**
@@ -2010,6 +2028,8 @@ export class WorkspacesService implements OnModuleInit {
       workspace?: { name: string; logo?: string | null } | null;
       inviter?: UserNameRow | null;
     }>,
+    /** Адресаты, которых зритель не находит по номеру: их `toUserId` наружу не едет */
+    hideToUserIds?: ReadonlySet<string>,
   ) {
     const allBranchIds = [...new Set(invs.flatMap((i) => i.branchIds))];
     const branchNameById = new Map<string, string>();
@@ -2027,7 +2047,7 @@ export class WorkspacesService implements OnModuleInit {
       workspaceLogo: inv.workspace?.logo ?? null,
       invitedBy: inv.invitedBy,
       invitedByName: inv.inviter ? this.fullName(inv.inviter) : '',
-      toUserId: inv.toUserId,
+      toUserId: inv.toUserId && hideToUserIds?.has(inv.toUserId) ? null : inv.toUserId,
       toPhone: inv.toPhone,
       role: inv.role as WorkspaceRole,
       positionId: inv.positionId,
@@ -2041,3 +2061,22 @@ export class WorkspacesService implements OnModuleInit {
     }));
   }
 }
+
+/** Колонки организации, из которых собирается `Workspace` (анкету проецирует движок видимости). */
+type SerializableWorkspace = {
+  id: string;
+  name: string;
+  logo: string | null;
+  description: string | null;
+  industry: string | null;
+  city: string | null;
+  website: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  documentLanguage: string;
+  ownerId: string;
+  isActive: boolean;
+  archivedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};

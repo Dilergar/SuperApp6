@@ -15,10 +15,12 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiGet } from '@/lib/api';
 import { workspaceKey, workspaceMembersKey, workspaceStaffKey, orgRootKey } from '@/lib/queries';
 import { invalidateEntities } from '@/lib/entities';
-import { Alert, Chip, Field, Icon, IconButton, PageHeader } from '@/components/ui';
+import { Alert, Button, Chip, Field, Icon, IconButton, PageHeader } from '@/components/ui';
 import { useFormatters } from '@/lib/format';
 import { useTranslations } from 'next-intl';
-import type { StaffDirectory, Workspace, WorkspaceMember } from '@superapp/shared';
+import { isHidden, isVisible, type Guarded, type StaffDirectory, type Workspace, type WorkspaceMember } from '@superapp/shared';
+import { RevealScope, RevealableValue } from '@/components/visibility/RevealButton';
+import { analytics } from '@/lib/analytics';
 
 /**
  * Имя ступени пропуска на языке зрителя. Реестр `WORKSPACE_ROLES` несёт ПРАВА,
@@ -151,7 +153,7 @@ export function MembersHeader({
         breadcrumb={ws.name}
         title={title}
         description={description}
-        chip={<Chip tone="accent" icon="people">{t('peopleCount', { n: ws.membersCount })}</Chip>}
+        chip={isVisible(ws.membersCount) ? <Chip tone="accent" icon="people">{t('peopleCount', { n: ws.membersCount })}</Chip> : undefined}
         actions={actions}
       />
       {error && (
@@ -247,53 +249,76 @@ export function ChipPickerBlock({
 }
 
 /**
- * Реквизитный блок сотрудника (договоры, трудоустройство, выплаты). Один компонент
- * на два места — модалка ростера и вкладка «Реквизиты» профиля (второй раз не
- * переписывать: данные приезжают с ростером ТОЛЬКО управляющим либо по флагам
- * «Видимости в Компаниях» самого человека).
+ * Реквизитный блок сотрудника (договоры, трудоустройство, выплаты) — служебные поля
+ * организации (core/visibility, `staff.member`). Один компонент на два места — модалка
+ * ростера и страница сотрудника (обе — карточка ОДНОЙ записи, поэтому у маски есть
+ * «Показать»; в списках и на сетке кнопки нет). Скрытое правилами не рисуется вовсе —
+ * под блоком одна тихая строка «часть данных скрыта».
  */
-export function MemberRequisitesBlock({ req, title }: { req: NonNullable<WorkspaceMember['requisites']>; title?: string }) {
+export function MemberRequisitesBlock({
+  req,
+  userId,
+  title,
+  rulesHref,
+}: {
+  req: NonNullable<WorkspaceMember['requisites']>;
+  /** Субъект — запись `staff.member` для раскрытия */
+  userId: string;
+  title?: string;
+  /** Владельцу/админу — ссылка на матрицу правил видимости под строкой «часть скрыта» */
+  rulesHref?: string;
+}) {
   const t = useTranslations('staff');
+  const tv = useTranslations('visibility');
+  const tc = useTranslations('common');
   const f = useFormatters();
-  const rows: Array<{ label: string; value: string | null }> = [
-    { label: t('requisites.iin'), value: req.iin },
-    {
-      label: t('requisites.dateOfBirth'),
-      value: req.dateOfBirth ? f.date(req.dateOfBirth, 'long') : null,
-    },
-    { label: t('requisites.address'), value: req.residentialAddress },
-    {
-      label: t('requisites.idDoc'),
-      value: req.idDocNumber
-        ? [
-            t('requisites.idDocNumber', { number: req.idDocNumber }),
-            req.idDocIssuedBy,
-            req.idDocIssuedAt ? t('requisites.idDocIssuedAt', { date: f.date(req.idDocIssuedAt) }) : null,
-          ]
-            .filter(Boolean)
-            .join(', ')
-        : null,
-    },
-    {
-      label: t('requisites.paymentCard'),
-      value: req.paymentCard
-        ? `${req.paymentCard.pan.replace(/(\d{4})(?=\d)/g, '$1 ')} · ${req.paymentCard.holderName}${req.paymentCard.iban ? ` · ${req.paymentCard.iban}` : ''}`
-        : null,
-    },
-  ].filter((r) => !!r.value);
-  if (!rows.length) return null;
+  const label = (k: string) => tv(`types.staff.member.fields.${k}.label`);
+  const card = req.paymentCard;
+  // Adoption правил: зритель увидел «часть данных скрыта» — одно событие на карточку человека
+  // (число скрытых полей, без id и значений)
+  useEffect(() => {
+    if (req.hiddenCount > 0) analytics.track('visibility.field.hidden_seen', { recordType: 'staff.member', hidden: req.hiddenCount });
+  }, [userId, req.hiddenCount]);
+  const rows: Array<{ key: string; value: Guarded<string | null>; render?: (v: string) => ReactNode }> = [
+    { key: 'iin', value: req.iin },
+    { key: 'residentialAddress', value: req.residentialAddress },
+    { key: 'idDocNumber', value: req.idDocNumber },
+    { key: 'idDocIssuedBy', value: req.idDocIssuedBy },
+    { key: 'idDocIssuedAt', value: req.idDocIssuedAt, render: (v: string) => f.date(v) },
+    ...(card
+      ? [
+          { key: 'paymentCardPan', value: card.pan as Guarded<string | null> },
+          { key: 'paymentCardHolder', value: card.holderName as Guarded<string | null> },
+          { key: 'paymentCardIban', value: card.iban },
+          { key: 'paymentCardExpiry', value: card.expiry as Guarded<string | null>, render: (v: string) => f.date(v, 'monthYear') },
+        ]
+      : []),
+  ].filter((r) => r.value !== null && r.value !== '' && !isHidden(r.value));
+  if (!rows.length && !req.hiddenCount) return null;
   return (
-    <div>
-      <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>{title ?? t('requisites.title')}</div>
-      <div className="ui-stack" style={{ gap: '0.25rem' }}>
-        {rows.map((r) => (
-          <div key={r.label} style={{ display: 'flex', gap: 'var(--spacing-3)', fontSize: '0.85rem', lineHeight: 1.6, flexWrap: 'wrap' }}>
-            <span style={{ color: 'var(--on-surface-variant)', minWidth: 140 }}>{r.label}</span>
-            <span style={{ fontWeight: 500 }}>{r.value}</span>
-          </div>
-        ))}
+    <RevealScope>
+      <div>
+        <div className="label-caps" style={{ marginBottom: 'var(--spacing-2)' }}>{title ?? t('requisites.title')}</div>
+        <div className="ui-stack" style={{ gap: '0.25rem' }}>
+          {rows.map((r) => (
+            <div key={r.key} style={{ display: 'flex', gap: 'var(--spacing-3)', fontSize: '0.85rem', lineHeight: 1.6, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ color: 'var(--on-surface-variant)', minWidth: 140 }}>{label(r.key)}</span>
+              <span style={{ fontWeight: 500 }}>
+                <RevealableValue value={r.value} recordType="staff.member" recordId={userId} field={r.key} render={(v: string | null) => (v && r.render ? r.render(v) : v)} />
+              </span>
+            </div>
+          ))}
+        </div>
+        {req.hiddenCount > 0 && (
+          <p className="label-sm" style={{ margin: 'var(--spacing-2) 0 0', opacity: 0.6, display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
+            {tc('guarded.partHidden')}
+            {rulesHref && (
+              <Button variant="ghost" size="sm" icon="eye" href={rulesHref}>{tc('guarded.partHiddenAdmin')}</Button>
+            )}
+          </p>
+        )}
+        <p className="label-sm" style={{ margin: 'var(--spacing-2) 0 0', opacity: 0.6 }}>{t('requisites.note')}</p>
       </div>
-      <p className="label-sm" style={{ margin: 'var(--spacing-2) 0 0', opacity: 0.6 }}>{t('requisites.note')}</p>
-    </div>
+    </RevealScope>
   );
 }

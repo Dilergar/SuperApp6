@@ -32,6 +32,10 @@ export const AUDIT_DETECT = {
   dormantDays: 180,
   /** Потерянных записей журнала (best-effort/батч) за минуту — деградация */
   degradedPerMinute: 20,
+  /** Перебор чужих объектов: столько РАЗНЫХ объектов с отказом (403/404) одним актором за окно */
+  idorProbing: { distinct: 30, windowSec: 10 * 60 },
+  /** Серия заражённых загрузок одного человека */
+  malwareBurst: { threshold: 3, windowSec: 60 * 60 },
 } as const;
 
 const minuteOf = (ms: number) => Math.floor(ms / 60_000);
@@ -81,6 +85,8 @@ export class AuditDetections implements OnModuleInit {
         return this.volume(e, typeof e.details.rows === 'number' ? e.details.rows : 0);
       case 'pii.read':
         return this.volume(e, typeof e.details.count === 'number' ? e.details.count : 0);
+      case 'files.malware_detected':
+        return this.malware(e);
       default:
         return;
     }
@@ -171,6 +177,50 @@ export class AuditDetections implements OnModuleInit {
       subjectUserId: userId,
       evidence: [e.id].filter((id) => id !== '0'),
       finding: { events: n, accounts: 1, windowMin: AUDIT_DETECT.otpFatigue.windowSec / 60 },
+    });
+  }
+
+  /**
+   * Серия заражённых загрузок одного человека (вердикт выносит джоб сканера — актор события
+   * система, поэтому счёт по субъекту: тому, кто загрузил). Заражённый файл уже заблокирован;
+   * серия — признак захваченного аккаунта, раздающего вредонос через Диск и чаты.
+   */
+  private async malware(e: AuditObservedEvent): Promise<void> {
+    if (!e.subjectUserId) return;
+    const n = await this.bump('malware', e.subjectUserId, AUDIT_DETECT.malwareBurst.windowSec);
+    if (n !== AUDIT_DETECT.malwareBurst.threshold) return;
+    await this.raise({
+      kind: 'malware_burst',
+      severity: 'high',
+      dedupeKey: `user:${e.subjectUserId}`,
+      subjectUserId: e.subjectUserId,
+      workspaceId: e.workspaceId,
+      evidence: [e.id].filter((id) => id !== '0'),
+      finding: { events: n, accounts: 1, windowMin: AUDIT_DETECT.malwareBurst.windowSec / 60 },
+      platformEvent: 'malwareBurst',
+    });
+  }
+
+  /**
+   * Отказ доступа к конкретному объекту (403/404 на маршруте с id) — зовёт `AuditAuthz` на
+   * КАЖДЫЙ отказ (строки журнала свёрнуты, счёт — нет). Множество разных объектов актора за
+   * окно одним MULTI (без срока оно копило бы объекты вечно); порог пересечён этим объектом —
+   * одна тревога на окно.
+   */
+  async accessDenied(actorId: string, resourceKey: string, workspaceId: string | null): Promise<void> {
+    const k = AUDIT_REDIS.detect('idor', actorId);
+    const res = await this.redis.getClient().multi().sadd(k, resourceKey.slice(0, 300)).expire(k, AUDIT_DETECT.idorProbing.windowSec, 'NX').scard(k).exec();
+    const added = Number(res?.[0]?.[1] ?? 0);
+    const objects = Number(res?.[2]?.[1] ?? 0);
+    if (!added || objects !== AUDIT_DETECT.idorProbing.distinct) return;
+    await this.raise({
+      kind: 'idor_probing',
+      severity: 'high',
+      dedupeKey: `actor:${actorId}`,
+      subjectUserId: actorId,
+      workspaceId,
+      finding: { events: objects, accounts: 1, windowMin: AUDIT_DETECT.idorProbing.windowSec / 60 },
+      platformEvent: 'idorProbing',
     });
   }
 

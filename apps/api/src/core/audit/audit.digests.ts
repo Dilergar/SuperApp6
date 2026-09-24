@@ -70,10 +70,20 @@ export function merkleRoot(leaves: Iterable<Buffer>): Buffer {
  *  1 — `to_jsonb(e)` без шифротекстов: НОВАЯ колонка журнала (даже пустая) меняла текст строки
  *      и роняла проверку всех прошлых дайджестов и сброс архивов;
  *  2 — то же через `jsonb_strip_nulls`: пустая новая колонка лист не меняет. Правило схемы:
- *      новая колонка `security_events` — только с NULL по умолчанию (docs/audit_engine.md).
+ *      новая колонка `security_events` — только с NULL по умолчанию (docs/audit_engine.md);
+ *  3 — формула v2 и ЧИСЛОВОЙ порядок листьев `(xact, id)`. В v1–v2 запрос выбирал
+ *      `xact::text AS xact, id::text AS id` и сортировал `ORDER BY xact, id` — Postgres берёт
+ *      одноимённую ВЫХОДНУЮ колонку, то есть текст: на переходе 999 999 → 1 000 000 порядок
+ *      расходился с числовым (независимая проверка корня падала), а курсор страницы сравнивал
+ *      числа — окно больше страницы теряло строки. Дайджесты v1–v2 проверяются своим порядком:
+ *      их подписанный корень посчитан по нему.
  * Формулы — константы кода (никакого ввода): `Prisma.raw` безопасен.
  */
-export const AUDIT_LEAF_VERSION = 2;
+export const AUDIT_LEAF_VERSION = 3;
+/** Строка страницы листьев: курсор (xact, id) текстом, момент события, хеш листа */
+type LeafRow = { xact: string; id: string; at: Date; h: Buffer };
+/** Версии, чей корень посчитан в ТЕКСТОВОМ порядке листьев (наследие, только для проверки) */
+export const auditLegacyTextOrder = (version: number): boolean => version <= 2;
 export function auditLeafSql(version: number): Prisma.Sql {
   return version === 1
     ? Prisma.raw(`sha256(convert_to((to_jsonb(e) - 'ip_enc' - 'ua_raw_enc')::text, 'UTF8'))`)
@@ -141,12 +151,7 @@ export class AuditDigestService {
     let lastAt: Date | null = null;
     let cursor: { xact: string; id: string } | null = null;
     for (;;) {
-      const after: Prisma.Sql = cursor ? Prisma.sql`AND (xact, id) > (${cursor.xact}::xid8, ${cursor.id}::bigint)` : Prisma.empty;
-      const rows = await this.db.$queryRaw<Array<{ xact: string; id: string; at: Date; h: Buffer }>>`
-        SELECT xact::text AS xact, id::text AS id, occurred_at AS at, ${leaf} AS h
-        FROM security_events e
-        WHERE xact >= ${from.toString()}::xid8 AND xact < ${to.toString()}::xid8 ${after}
-        ORDER BY xact, id LIMIT ${LEAF_BATCH}`;
+      const rows: LeafRow[] = auditLegacyTextOrder(version) ? await this.legacyTextPage(leaf, from, to, cursor) : await this.numericPage(leaf, from, to, cursor);
       for (const r of rows) {
         merkle.push(Buffer.from(r.h));
         if (!firstAt || r.at < firstAt) firstAt = r.at;
@@ -157,6 +162,30 @@ export class AuditDigestService {
       cursor = { xact: tail.xact, id: tail.id };
     }
     return { count: merkle.count, root: merkle.root(), firstAt, lastAt };
+  }
+
+  /** Страница листьев v3: числовой порядок `(xact, id)` — колонки таблицы, не выходные псевдонимы */
+  private async numericPage(leaf: Prisma.Sql, from: bigint, to: bigint, cursor: { xact: string; id: string } | null): Promise<LeafRow[]> {
+    const after: Prisma.Sql = cursor ? Prisma.sql`AND (e.xact, e.id) > (${cursor.xact}::xid8, ${cursor.id}::bigint)` : Prisma.empty;
+    const rows = await this.db.$queryRaw<Array<{ x: string; i: string; at: Date; h: Buffer }>>`
+      SELECT e.xact::text AS x, e.id::text AS i, e.occurred_at AS at, ${leaf} AS h
+      FROM security_events e
+      WHERE e.xact >= ${from.toString()}::xid8 AND e.xact < ${to.toString()}::xid8 ${after}
+      ORDER BY e.xact, e.id LIMIT ${LEAF_BATCH}`;
+    return rows.map((r) => ({ xact: r.x, id: r.i, at: r.at, h: r.h }));
+  }
+
+  /**
+   * Страница листьев v1–v2 ровно тем запросом, которым их корень был подписан (текстовый
+   * порядок выходных колонок) — только для проверки прошлых дайджестов; новые пишутся v3.
+   */
+  private legacyTextPage(leaf: Prisma.Sql, from: bigint, to: bigint, cursor: { xact: string; id: string } | null): Promise<LeafRow[]> {
+    const after: Prisma.Sql = cursor ? Prisma.sql`AND (xact, id) > (${cursor.xact}::xid8, ${cursor.id}::bigint)` : Prisma.empty;
+    return this.db.$queryRaw<LeafRow[]>`
+      SELECT xact::text AS xact, id::text AS id, occurred_at AS at, ${leaf} AS h
+      FROM security_events e
+      WHERE xact >= ${from.toString()}::xid8 AND xact < ${to.toString()}::xid8 ${after}
+      ORDER BY xact, id LIMIT ${LEAF_BATCH}`;
   }
 
   /** Хеш дайджеста для цепочки: следующий подписывает его как `prev`. */

@@ -10,7 +10,6 @@ import {
   circlesKey, fetchCircles,
 } from '@/lib/queries';
 import {
-  resolveCardVisibility,
   type CardSkinCatalogItem,
   type CardSkinInstanceDto,
   type CardSkinWallet,
@@ -19,7 +18,7 @@ import {
   type Circle,
   type UserProfile,
 } from '@superapp/shared';
-import { PersonCard } from '../circles/PersonCard';
+import { PersonCard, profileAsCard } from '../circles/PersonCard';
 import { GroupChip } from '../circles/EntityChip';
 import { DEFAULT_SKIN, RARITY_META } from '../circles/card-skin';
 import { invalidatePersonSkins } from '@/lib/person-skins';
@@ -192,19 +191,7 @@ export function SkinsSection({ profile }: SkinsSectionProps) {
             mode="full"
             initialSize="L"
             skin={previewSkin}
-            profile={{
-              firstName: profile.firstName ?? common('labels.dash'),
-              lastName: profile.lastName ?? null,
-              phone: profile.phone ?? '',
-              avatar: null,
-              dateOfBirth: profile.dateOfBirth ?? null,
-              bio: profile.bio ?? null,
-              city: profile.city ?? null,
-              email: profile.email ?? null,
-              maritalStatus: profile.maritalStatus ?? null,
-              socialLinks: profile.socialLinks ?? null,
-              cardVisibility: resolveCardVisibility(profile.cardVisibility),
-            }}
+            card={profileAsCard(profile)}
           />
         </div>
       )}

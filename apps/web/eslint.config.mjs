@@ -69,6 +69,19 @@ export default [
           message:
             'Отказ API показывает toastApiError(err) из @/lib/api-errors: он ветвится по details.code (уже выполнено — тон успеха, попытка в полёте — спокойный тост, ключ занят — сброс ключа). toastError(apiErrorMessage(e)) не знает ни одного из этих смыслов.',
         },
+        // ПРАВИЛА ВИДИМОСТИ (core/visibility): маску и маркер «скрыто» делает ТОЛЬКО сервер.
+        // Клиент, собравший `{ $v: 'masked' }` или свою маску номера, рисует то, чего сервер
+        // не решал: вторая маска одного значения складывается с первой в оригинал.
+        {
+          selector: "Property[key.name='$v'], Property[key.value='$v']",
+          message:
+            'Маркер видимости (`$v`) строит только сервер (core/visibility). Клиент читает его: isVisible/isMasked/isHidden из @superapp/shared и <GuardedValue> из кита.',
+        },
+        {
+          selector: 'FunctionDeclaration[id.name=/^mask[A-Z]/], VariableDeclarator[id.name=/^mask[A-Z]/]',
+          message:
+            'Маски — только из @superapp/shared (visibility/masks.ts): одна маска на вид данных на всех поверхностях. Своя маска рядом с серверной выдаёт оригинал по сочетанию.',
+        },
       ],
       'no-restricted-globals': [
         'error',

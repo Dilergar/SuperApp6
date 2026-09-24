@@ -6,10 +6,9 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { ContactsService } from '../contacts/contacts.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
+import { VisibilityPolicyService } from '../../core/visibility/visibility.policy.service';
 import {
   CONTACT_LIMITS,
-  resolveCardVisibility,
-  type CardVisibility,
   type Circle,
   type CircleWithMembers,
 } from '@superapp/shared';
@@ -22,9 +21,9 @@ import { Prisma } from '@prisma/client';
  * that reference the owner's ContactLinks (manual membership). The same
  * ContactLink can sit in Groups of both sides independently.
  *
- * Each Group carries its own card visibility — what its members may see
- * of the owner's card. Resolution (union across the viewer's groups, or
- * the owner's default when ungrouped) lives in ContactsService.
+ * What the Group's members see on the owner's card is NOT a field of the Group:
+ * it is the `circle:<id>` audience of the owner's personal visibility policy
+ * (core/visibility). Deleting the Group removes those rules in the same tx.
  *
  * All operations enforce ownerId.
  */
@@ -37,6 +36,7 @@ export class CirclesService implements OnModuleInit {
     private accessProjection: AccessProjectionService,
     private entitlements: EntitlementsService,
     private usageProviders: UsageProviderRegistry,
+    private visibilityPolicies: VisibilityPolicyService,
   ) {}
 
   /** Расход ключа `contacts.maxCircles` — живые Группы владельца (провайдер движка тарифов). */
@@ -131,60 +131,24 @@ export class CirclesService implements OnModuleInit {
       icon?: string | null;
       color?: string | null;
       sortOrder?: number;
-      cardVisibility?: Partial<CardVisibility> | null;
       calendarVisibility?: 'none' | 'busy' | 'detailed';
     },
   ) {
     await this.assertOwned(ownerId, circleId);
 
-    const { cardVisibility, ...rest } = data;
+    const rest = data;
 
     const { updated, prevCalendarVisibility } = await this.db.$transaction(
       async (tx) => {
-        // Строка блокируется на время «прочитал → слил → записал»: карта видимости
-        // мержится НАД текущей, и два параллельных частичных PATCH без блокировки
-        // теряли одно из переключений (классический read-modify-write).
-        const locked = await tx.$queryRaw<
-          Array<{ card_visibility: unknown; calendar_visibility: string }>
-        >(
-          Prisma.sql`SELECT card_visibility, calendar_visibility FROM circles WHERE id = ${circleId} FOR UPDATE`,
+        // Строка блокируется на время «прочитал → записал»: предыдущий уровень календаря
+        // нужен проекции прав, и два параллельных PATCH не должны его перепутать.
+        const locked = await tx.$queryRaw<Array<{ calendar_visibility: string }>>(
+          Prisma.sql`SELECT calendar_visibility FROM circles WHERE id = ${circleId} FOR UPDATE`,
         );
         if (locked.length === 0) throw notFound('contacts.circleNotFound');
         const current = locked[0];
 
         const updateData: Prisma.CircleUpdateInput = { ...rest };
-        if (cardVisibility !== undefined) {
-          if (cardVisibility === null) {
-            // Сброс в «наследовать дефолт владельца» (ContactsService резолвит
-            // null именно так — это НЕ платформенные дефолты).
-            updateData.cardVisibility = Prisma.JsonNull;
-          } else {
-            // Store the FULL resolved map (merged over current) so union and
-            // reads are predictable.
-            //
-            // База для ПЕРВОЙ настройки группы — дефолт ВЛАДЕЛЬЦА, а не
-            // платформенный: группа рождается с null, и мерж поверх платформенных
-            // дефолтов (где био/возраст/соцсети открыты) означал, что первый же
-            // тумблер в редакторе открывал заодно всё, что человек прятал в анкете.
-            // Это та же ошибка, что была на чтении, только со стороны записи.
-            let baseSource = current.card_visibility;
-            if (baseSource === null) {
-              const owner = await tx.user.findUnique({
-                where: { id: ownerId },
-                select: { cardVisibility: true },
-              });
-              baseSource = owner?.cardVisibility ?? null;
-            }
-            const base = resolveCardVisibility(
-              baseSource as Partial<CardVisibility> | null,
-            );
-            updateData.cardVisibility = resolveCardVisibility({
-              ...base,
-              ...cardVisibility,
-              extras: { ...(base.extras ?? {}), ...(cardVisibility.extras ?? {}) },
-            }) as unknown as Prisma.InputJsonValue;
-          }
-        }
 
         const row = await tx.circle.update({
           where: { id: circleId },
@@ -219,7 +183,10 @@ export class CirclesService implements OnModuleInit {
       // ContactLinks — contacts themselves are preserved.
       await tx.circle.delete({ where: { id: circleId } });
       await this.accessProjection.circleDeleted(circleId, tx);
+      // Правила видимости «этой Группе показать» (`circle:<id>`) — той же транзакцией (R2)
+      await this.visibilityPolicies.onCircleDeleted(tx, ownerId, circleId);
     });
+    await this.visibilityPolicies.afterCircleDeleted(ownerId);
     await this.redis.invalidateUserProfile(ownerId);
   }
 
@@ -337,7 +304,6 @@ export class CirclesService implements OnModuleInit {
       icon: string | null;
       color: string | null;
       sortOrder: number;
-      cardVisibility: Prisma.JsonValue | null;
       calendarVisibility: string;
       createdAt: Date;
       updatedAt: Date;
@@ -352,9 +318,6 @@ export class CirclesService implements OnModuleInit {
       color: circle.color,
       sortOrder: circle.sortOrder,
       membersCount,
-      cardVisibility: resolveCardVisibility(
-        circle.cardVisibility as Partial<CardVisibility> | null,
-      ),
       calendarVisibility: (circle.calendarVisibility as 'none' | 'busy' | 'detailed') ?? 'none',
       createdAt: circle.createdAt.toISOString(),
       updatedAt: circle.updatedAt.toISOString(),

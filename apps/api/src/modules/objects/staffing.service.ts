@@ -31,6 +31,7 @@ import {
 import { ObjectsService } from './objects.service';
 import { ObjectsJobs } from './objects.jobs';
 import { addDays, utcToLocalDate } from './shift-time';
+import { VisibilityService, markShaped, type ShapeInput } from '../../core/visibility/visibility.service';
 
 type Tx = Prisma.TransactionClient;
 
@@ -64,9 +65,11 @@ function periodBounds(period: string): { from: string; to: string } {
  * Штатное расписание объекта: план ставок и людей.
  *
  * Штатная ЕДИНИЦА (должность × объект) существует и вакантной — на этом держится
- * план затрат. Назначение датировано, ставки версионируются. Денежные поля
- * ОТСУТСТВУЮТ в ответе без права `branch.payroll.view` — сервер их не отдаёт
- * (сужение полей, а не «null и спрячем на клиенте»).
+ * план затрат. Назначение датировано, ставки версионируются. Деньги строк — поля типа
+ * `objects.staffing` движка видимости (core/visibility): владелец/админ, руководитель объекта,
+ * держатель гранта «видит деньги», руководитель человека и сам человек (своя ставка); прочим —
+ * маркер «скрыто». Итог плана затрат — агрегат: только при ПОЛНОМ праве на деньги объекта.
+ * Поля, которых зритель не увидит ни в одной строке, из БД не читаются вовсе.
  */
 @Injectable()
 export class StaffingService {
@@ -78,6 +81,7 @@ export class StaffingService {
     private readonly hr: HrService,
     private readonly jobs: ObjectsJobs,
     private readonly i18n: I18nService,
+    private readonly visibility: VisibilityService,
   ) {}
 
   // ============================================================
@@ -113,8 +117,12 @@ export class StaffingService {
 
     const assignmentIds = assignments.map((a) => a.id);
     const unitIds = units.map((u) => u.id);
+    const viewer = this.visibility.viewer('api', { workspaceId });
+    const readable = await this.visibility.readableFields(viewer, 'objects.staffing', workspaceId);
+    const needRates = readable.has('plannedRate') || readable.has('actualRate') || readable.has('plannedCost');
+    const needEmployment = readable.has('officialSalary') || readable.has('employment');
     const [rates, employments, shiftStats] = await Promise.all([
-      caps.payrollView
+      needRates
         ? this.db.staffRate.findMany({
             where: {
               workspaceId,
@@ -126,7 +134,7 @@ export class StaffingService {
             orderBy: { effectiveFrom: 'desc' },
           })
         : Promise.resolve([]),
-      caps.payrollView
+      needEmployment
         ? this.hr.employmentSnapshotsFor(workspaceId, [...new Set(assignments.map((a) => a.userId))])
         : Promise.resolve(new Map()),
       this.shiftStats(workspaceId, branchId, from, to),
@@ -159,6 +167,8 @@ export class StaffingService {
     const historyByUnit = groupByUnit(history);
 
     const rows: StaffingRowDto[] = [];
+    // Сырые деньги строки — на вход проекции (одна на таблицу), наружу только решения движка
+    const money: ShapeInput[] = [];
     let plannedCost = 0n;
     for (const u of units) {
       const people = byUnit.get(u.id) ?? [];
@@ -197,20 +207,28 @@ export class StaffingService {
           shifts,
         };
         if (!a && vacantSince) row.vacantSince = vacantSince;
-        if (caps.payrollView) {
-          row.plannedRate = plannedRate ? this.serializeRate(plannedRate) : null;
-          row.actualRate = actual ? this.serializeRate(actual) : null;
-          row.officialSalary =
-            emp?.salaryAmount != null ? { amount: String(emp.salaryAmount), currency: emp.salaryCurrency } : null;
-          row.employment = emp
-            ? {
-                status: emp.status as 'draft' | 'active' | 'terminated',
-                contractType: emp.contractType,
-                workRate: emp.workRate,
-                legalEntityName: emp.legalEntityName,
-              }
-            : undefined;
-        }
+        money.push({
+          ref: { recordId: a?.id ?? u.id, subjectId: a?.userId ?? null, workspaceId, branchId },
+          values: {
+            ...(needRates
+              ? { plannedRate: plannedRate ? this.serializeRate(plannedRate) : null, actualRate: actual ? this.serializeRate(actual) : null }
+              : {}),
+            ...(needEmployment
+              ? {
+                  officialSalary:
+                    emp?.salaryAmount != null ? { amount: String(emp.salaryAmount), currency: emp.salaryCurrency } : null,
+                  employment: emp
+                    ? {
+                        status: emp.status as 'draft' | 'active' | 'terminated',
+                        contractType: emp.contractType,
+                        workRate: emp.workRate,
+                        legalEntityName: emp.legalEntityName,
+                      }
+                    : null,
+                }
+              : {}),
+          },
+        });
         return row;
       };
 
@@ -220,19 +238,40 @@ export class StaffingService {
       const since = this.vacantSince(u, branch.timeZone, historyByUnit.get(u.id) ?? [], to, vacancies);
       for (let i = 0; i < vacancies; i += 1) rows.push(makeRow(null, since[i]));
 
-      if (caps.payrollView) {
+      if (needRates) {
         plannedCost += this.rowsCost(u, plannedRate, rateByAssignment, people, to);
       }
     }
+
+    // Деньги строк — глазами зрителя (Guarded: значение / маска / скрыто)
+    const shaped = await this.visibility.shape(viewer, 'objects.staffing', money);
+    rows.forEach((row, i) => {
+      const v = shaped[i]!;
+      if ('plannedRate' in v) row.plannedRate = v.plannedRate as StaffingRowDto['plannedRate'];
+      if ('actualRate' in v) row.actualRate = v.actualRate as StaffingRowDto['actualRate'];
+      if ('officialSalary' in v) row.officialSalary = v.officialSalary as StaffingRowDto['officialSalary'];
+      if ('employment' in v) row.employment = v.employment as StaffingRowDto['employment'];
+      markShaped(row);
+    });
+    // Итог — агрегат по деньгам ВСЕХ строк: только при полном праве на деньги объекта
+    // (строки без субъекта — решение по объекту: руководитель, «видит деньги», владелец/админ)
+    const [agg] = needRates
+      ? await this.visibility.shape(viewer, 'objects.staffing', [
+          { ref: { recordId: branchId, subjectId: null, workspaceId, branchId }, values: { plannedCost: String(plannedCost) } },
+        ])
+      : [null];
+    const moneyFull = !!agg && typeof agg.plannedCost === 'string';
 
     const table: StaffingTableDto = {
       period,
       branchId,
       branchName: branch.name,
-      caps,
+      // `payrollView` таблицы = зритель видит деньги объекта целиком (колонки и итоги);
+      // руководитель человека без него видит деньги только своих строк
+      caps: { ...caps, payrollView: moneyFull },
       rows,
     };
-    if (caps.payrollView) {
+    if (moneyFull) {
       table.totals = {
         plannedCost: String(plannedCost),
         currency: 'KZT',
@@ -567,6 +606,7 @@ export class StaffingService {
     const { caps } = await this.objects.getOrThrow(userId, workspaceId, a.branchId);
     this.objects.assertManage(caps);
     if (!caps.payrollView) throw forbidden('objects.rateNeedsPayroll');
+    await this.assertMoneyWritable(workspaceId, { recordId: a.id, subjectId: a.userId, branchId: a.branchId }, 'actualRate');
     // Уникум «одна версия на дату» отдаёт P2002 — без обёртки клиент получал
     // сырой текст Prisma и был вынужден ветвиться по строке.
     return this.db
@@ -599,6 +639,7 @@ export class StaffingService {
     const { caps } = await this.objects.getOrThrow(userId, workspaceId, unit.branchId);
     this.objects.assertManage(caps);
     if (!caps.payrollView) throw forbidden('objects.rateNeedsPayroll');
+    await this.assertMoneyWritable(workspaceId, { recordId: unitId, subjectId: null, branchId: unit.branchId }, 'plannedRate');
     return this.db
       .$transaction(async (tx) => {
       const row = await this.writeRate(tx, workspaceId, userId, { staffingPositionId: unitId }, dto);
@@ -621,13 +662,27 @@ export class StaffingService {
     assignmentId: string,
   ): Promise<StaffRateDto[]> {
     const a = await this.assignmentOrThrow(workspaceId, assignmentId);
-    const { caps } = await this.objects.getOrThrow(userId, workspaceId, a.branchId);
-    if (!caps.payrollView) return [];
+    await this.objects.getOrThrow(userId, workspaceId, a.branchId);
+    // История ставок человека — то же поле `actualRate`: видно тому, кто видит его ставку
+    // (руководитель объекта, «видит деньги», руководитель человека, сам)
+    const [probe] = await this.visibility.shape(this.visibility.viewer('api', { workspaceId }), 'objects.staffing', [
+      { ref: { recordId: a.id, subjectId: a.userId, workspaceId, branchId: a.branchId }, values: { actualRate: '__probe__' } },
+    ]);
+    if (probe!.actualRate !== '__probe__') return [];
     const rows = await this.db.staffRate.findMany({
       where: { assignmentId },
       orderBy: { effectiveFrom: 'desc' },
     });
     return rows.map((r) => this.serializeRate(r));
+  }
+
+  /** Нельзя записать деньги, которых не видишь (W): правила организации сильнее гранта объекта. */
+  private async assertMoneyWritable(
+    workspaceId: string,
+    ref: { recordId: string; subjectId: string | null; branchId: string },
+    field: 'actualRate' | 'plannedRate',
+  ): Promise<void> {
+    await this.visibility.assertWritable(this.visibility.viewer('api', { workspaceId }), 'objects.staffing', { ...ref, workspaceId }, { [field]: 1 });
   }
 
   // ============================================================

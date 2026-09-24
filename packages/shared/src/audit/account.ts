@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { OCSF_ACTIVITY as A, OCSF_CLASS as C } from './ocsf';
-import { ACCOUNT_FREEZE_SOURCES, AUDIT_VIS, defineAuditEvents, detailCount, detailDeviceClass, noDetails } from './types';
+import { ACCOUNT_FREEZE_SOURCES, AUDIT_INTEGRATION_PROVIDERS, AUDIT_INTEGRATION_REASONS, AUDIT_VIS, defineAuditEvents, detailCount, detailDeviceClass, noDetails } from './types';
 
 // ============================================================
 // Аккаунт человека: жизненный цикл, заморозка, «Это не я», устройства, настройки
@@ -116,6 +116,28 @@ export const ACCOUNT_AUDIT_EVENTS = defineAuditEvents({
     vocab: 'authz_fail',
     ocsf: { classUid: C.accountChange, activityId: A.accountChange.other },
     subjectFrom: 'actor',
+  },
+  /**
+   * Внешнее приложение получило доступ к данным аккаунта (OAuth-интеграция: Google Календарь).
+   * Передача данных наружу — отдельным учётом `pd.cross_border`; здесь — выданный доступ.
+   */
+  'account.integration.connected': {
+    category: 'account',
+    severity: 'medium',
+    visibility: AUDIT_VIS.subject,
+    details: z.object({ provider: z.enum(AUDIT_INTEGRATION_PROVIDERS) }).strict(),
+    vocab: 'authn_token_created',
+    ocsf: { classUid: C.accountChange, activityId: A.accountChange.attachPolicy },
+    subjectFrom: 'actor',
+  },
+  /** Доступ приложения закрыт — любым путём: сам человек, «Это не я», удаление аккаунта, отзыв у провайдера */
+  'account.integration.disconnected': {
+    category: 'account',
+    severity: 'low',
+    visibility: AUDIT_VIS.subject,
+    details: z.object({ provider: z.enum(AUDIT_INTEGRATION_PROVIDERS), reason: z.enum(AUDIT_INTEGRATION_REASONS) }).strict(),
+    vocab: 'authn_token_revoked',
+    ocsf: { classUid: C.accountChange, activityId: A.accountChange.detachPolicy },
   },
   'account.settings_changed': {
     category: 'account',

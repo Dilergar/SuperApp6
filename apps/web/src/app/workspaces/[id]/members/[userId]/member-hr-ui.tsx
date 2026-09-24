@@ -22,12 +22,15 @@ import {
   type HrActionKind,
   type HrMemberCardDto,
   type UpsertEmploymentInput,
+  type Workspace,
+  isHidden,
+  isVisible,
 } from '@superapp/shared';
 import { formatMoney } from '@superapp/i18n/format';
 import { apiGet } from '@/lib/api';
 import { dmyOrDash } from '@/lib/dates';
 import { cancelHrAction, createHrAction, upsertEmployment } from '@/lib/hr-api';
-import { hrMemberKey, hrRootKey } from '@/lib/queries';
+import { hrMemberKey, hrRootKey, workspaceKey } from '@/lib/queries';
 
 import {
   Alert,
@@ -38,6 +41,7 @@ import {
   Chip,
   DatePicker,
   EmptyState,
+  GuardedValue,
   Input,
   Modal,
   SegmentedControl,
@@ -171,8 +175,11 @@ export function EmploymentCard({
           />
           <Row label={t('esutd.field.hiredAt')} value={fmtDate(e.hiredAt)} />
           {e.firedAt && <Row label={t('esutd.field.firedAt')} value={fmtDate(e.firedAt)} />}
-          {e.dismissalGround && (
-            <Row label={t('esutd.field.dismissalGround')} value={t(`ground.${e.dismissalGround}`)} />
+          {e.dismissalGround !== null && !isHidden(e.dismissalGround) && (
+            <Row
+              label={t('esutd.field.dismissalGround')}
+              value={<GuardedValue value={e.dismissalGround} render={(g) => t(`ground.${g}`)} />}
+            />
           )}
           <Row
             label={t('employment.contract')}
@@ -200,7 +207,12 @@ export function EmploymentCard({
           {e.probationUntil && <Row label={t('employment.probationUntil')} value={fmtDate(e.probationUntil)} />}
           <Row label={t('employment.legalPosition')} value={e.legalPositionName ?? tc('labels.dash')} />
           <Row label={t('employment.legalBranch')} value={e.legalBranchName ?? tc('labels.dash')} />
-          <Row label={t('employment.salary')} value={fmtMoney(e.salaryAmount, tc('labels.dash'))} />
+          {!isHidden(e.salaryAmount) && (
+            <Row
+              label={t('employment.salary')}
+              value={<GuardedValue value={e.salaryAmount} render={(v) => fmtMoney(v, tc('labels.dash'))} empty={tc('labels.dash')} />}
+            />
+          )}
           <Row label={t('employment.workRate')} value={e.workRate ?? 1} />
           <Row label={t('employment.workSchedule')} value={e.workSchedule ?? tc('labels.dash')} />
           <Row label={t('employment.personnelNumber')} value={e.personnelNumber ?? tc('labels.dash')} />
@@ -253,7 +265,11 @@ function EmploymentEditModal({
     e?.legalPositionId ? [{ type: 'position', id: e.legalPositionId }] : [],
   );
   const [branch, setBranch] = useState<Principal[]>(e?.legalBranchId ? [{ type: 'branch', id: e.legalBranchId }] : []);
-  const [salary, setSalary] = useState(e?.salaryAmount ? String(Math.round(Number(e.salaryAmount) / 100)) : '');
+  // Оклад правится, только если зритель видит его полностью: «нельзя править то, чего не
+  // видишь» (сервер отвечает 403 `visibility.field_forbidden`, поле в форме не предлагается)
+  const salaryEditable = !e || isVisible(e.salaryAmount);
+  const salaryNow = e && isVisible(e.salaryAmount) ? e.salaryAmount : null;
+  const [salary, setSalary] = useState(salaryNow ? String(Math.round(Number(salaryNow) / 100)) : '');
   const [workRate, setWorkRate] = useState(String(e?.workRate ?? 1));
   const [workSchedule, setWorkSchedule] = useState(e?.workSchedule ?? '');
   const [paperMode, setPaperMode] = useState(e?.paperMode ?? false);
@@ -278,7 +294,7 @@ function EmploymentEditModal({
         probationUntil: probationUntil ?? null,
         legalPositionId: position[0]?.id ?? null,
         legalBranchId: branch[0]?.id ?? null,
-        salaryAmount: salaryTiyn,
+        ...(salaryEditable ? { salaryAmount: salaryTiyn } : {}),
         workRate: rate,
         workSchedule: workSchedule.trim() || null,
         paperMode,
@@ -311,7 +327,9 @@ function EmploymentEditModal({
             <DatePicker label={t('employment.contractEnd')} value={isoToDate(contractEndAt)} onChange={(d) => setContractEndAt(dateToIso(d))} />
           )}
           <DatePicker label={t('employment.probationUntil')} value={isoToDate(probationUntil)} onChange={(d) => setProbationUntil(dateToIso(d))} />
-          <Input label={t('form.salaryMonthly')} value={salary} onChange={(ev) => setSalary(ev.target.value)} placeholder="250000" inputMode="numeric" />
+          {salaryEditable && (
+            <Input label={t('form.salaryMonthly')} value={salary} onChange={(ev) => setSalary(ev.target.value)} placeholder="250000" inputMode="numeric" />
+          )}
           <Input label={t('employment.workRate')} value={workRate} onChange={(ev) => setWorkRate(ev.target.value)} placeholder="1 / 0.5" inputMode="decimal" />
           <Input label={t('employment.workSchedule')} value={workSchedule} onChange={(ev) => setWorkSchedule(ev.target.value)} placeholder="5/2, 09:00–18:00" />
           <Input label={t('employment.personnelNumber')} value={personnelNumber} onChange={(ev) => setPersonnelNumber(ev.target.value)} placeholder="0042" />
@@ -545,6 +563,13 @@ export function HrActionModal({
   const [syncFact, setSyncFact] = useState(true);
   const [alsoRemove, setAlsoRemove] = useState(false);
   const [banConfirmed, setBanConfirmed] = useState(false);
+  // «Снять и членство» — право кнопки ростера: владелец/админ, владельца организации — никогда
+  // (админа кадровик-админ и не уволит — ранговый гейт КЭДО). Сервер проверяет то же при создании.
+  const wsQ = useQuery({
+    queryKey: workspaceKey(workspaceId),
+    queryFn: async () => await apiGet<Workspace>(`/workspaces/${workspaceId}`),
+  });
+  const canRemoveMembership = (wsQ.data?.myRole === 'owner' || wsQ.data?.myRole === 'admin') && wsQ.data?.ownerId !== userId;
   const [contractType, setContractType] = useState('indefinite');
   const [probationUntil, setProbationUntil] = useState<string | undefined>(undefined);
   // Онбординг-пакет приёма: null = дефолт (договор + согласие на ПД из библиотеки)
@@ -616,7 +641,7 @@ export function HrActionModal({
         ...(kind === 'hire' && effectivePackage.length ? { packageTemplateIds: effectivePackage } : {}),
         params: {
           ...(kind === 'dismissal'
-            ? { ground: ground as never, alsoRemoveMembership: alsoRemove, banExceptionConfirmed: banConfirmed || undefined }
+            ? { ground: ground as never, alsoRemoveMembership: canRemoveMembership && alsoRemove, banExceptionConfirmed: banConfirmed || undefined }
             : {}),
           ...(kind === 'transfer'
             ? { legalPositionId: position[0]?.id, legalBranchId: branch[0]?.id ?? null, syncFact }
@@ -698,7 +723,7 @@ export function HrActionModal({
             placeholder="250000"
             inputMode="numeric"
             hint={
-              employment?.salaryAmount
+              employment && isVisible(employment.salaryAmount) && employment.salaryAmount
                 ? t('form.salaryNow', { amount: fmtMoney(employment.salaryAmount, tc('labels.dash')) })
                 : undefined
             }
@@ -762,12 +787,14 @@ export function HrActionModal({
                 description={t('form.banExceptionHintSingle')}
               />
             )}
-            <Toggle
-              checked={alsoRemove}
-              onChange={setAlsoRemove}
-              label={t('form.alsoRemove')}
-              description={t('form.alsoRemoveHint')}
-            />
+            {canRemoveMembership && (
+              <Toggle
+                checked={alsoRemove}
+                onChange={setAlsoRemove}
+                label={t('form.alsoRemove')}
+                description={t('form.alsoRemoveHint')}
+              />
+            )}
           </>
         )}
 

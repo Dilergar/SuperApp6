@@ -8,6 +8,7 @@
 import { toastApiError } from '@/lib/api-errors';
 import { toast } from '@/lib/toast';
 import type { Circle, Contact } from '@superapp/shared';
+import { guardedDisplay, visibleOr } from '@superapp/shared';
 
 /**
  * Палитра цвета Группы. Это ДАННЫЕ (цвет выбирает человек), а не цвет системы,
@@ -126,7 +127,7 @@ export function filterContacts(list: Contact[], query: string): Contact[] {
     if (haystack.includes(q)) return true;
     // По номеру ищем только когда во вводе есть цифры: иначе пустая строка
     // цифр совпала бы с любым телефоном.
-    return qDigits.length > 0 && digits(c.them.phone).includes(qDigits);
+    return qDigits.length > 0 && digits(visibleOr(c.them.phone, '')).includes(qDigits);
   });
 }
 
@@ -150,6 +151,6 @@ export function sortContacts(
   return [...list].sort((a, b) => {
     const byFirst = compare(a.them.firstName, b.them.firstName);
     if (byFirst !== 0) return byFirst;
-    return compare(a.them.lastName ?? '', b.them.lastName ?? '');
+    return compare(guardedDisplay(a.them.lastName) ?? '', guardedDisplay(b.them.lastName) ?? '');
   });
 }

@@ -19,6 +19,7 @@ import {
   type Contact,
   type Circle,
 } from '@superapp/shared';
+import { guardedDisplay } from '@superapp/shared';
 
 /**
  * Интерфейсная иконка типа ресурса. В shared у типа лежит эмодзи, но здесь это
@@ -258,7 +259,7 @@ function ResourceForm({
             types={['user', 'circle']}
             multi
             options={[
-              ...contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole })),
+              ...contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(), firstName: c.them.firstName, lastName: guardedDisplay(c.them.lastName), role: c.myRole })),
               ...circles.map((g) => ({ type: 'circle', id: g.id, title: g.name, icon: g.icon, color: g.color, count: g.membersCount })),
             ]}
             value={[...userIds.map((id) => ({ type: 'user', id })), ...circleIds.map((id) => ({ type: 'circle', id }))]}

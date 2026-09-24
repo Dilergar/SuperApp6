@@ -226,7 +226,12 @@ export class DriveAccessService {
     );
   }
 
-  async revokeNode(nodeId: string, role: DriveRole, principal: { type: string; id: string; relation?: string }): Promise<void> {
+  async revokeNode(
+    nodeId: string,
+    role: DriveRole,
+    principal: { type: string; id: string; relation?: string },
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
     await this.access.revoke({
       resourceType: DRIVE_NODE_REF_TYPE,
       resourceId: nodeId,
@@ -234,7 +239,7 @@ export class DriveAccessService {
       subjectType: principal.type,
       subjectId: principal.id,
       subjectRelation: principal.relation ?? principalRelation(principal.type),
-    });
+    }, tx);
   }
 
   /** Все гранты на конкретных узлах (для панели «Доступ» и хроники) */

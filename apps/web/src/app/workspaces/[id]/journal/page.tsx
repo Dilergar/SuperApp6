@@ -43,6 +43,7 @@ const CATEGORY_ORDER: Record<ChatterCategory, number> = {
   processes: 7,
   objects: 8,
   notes: 9,
+  visibility: 10,
 };
 
 const CATEGORY_CHIPS: (ChatterCategory | null)[] = [

@@ -15,7 +15,7 @@ import { KeysSigningService } from '../keys/keys.signing.service';
 import { STORAGE_DRIVER, type StorageDriver } from '../files/storage/storage-driver';
 import { AUDIT_REDIS } from './audit.constants';
 import { AuditAlertsService } from './audit.alerts.service';
-import { AUDIT_LEAF_VERSION, MerkleBuilder, auditLeafSql } from './audit.digests';
+import { AUDIT_LEAF_VERSION, MerkleBuilder, auditLeafSql, auditLegacyTextOrder } from './audit.digests';
 import { AuditPartitions } from './audit.partitions';
 import { AuditService } from './audit.service';
 
@@ -102,9 +102,16 @@ export class AuditArchiveService {
     const leaf = auditLeafSql(leafVersion);
     let after = '0';
     for (;;) {
-      const rows = await this.db.$queryRaw<Array<{ id: string; j: string; h: Buffer }>>`
-        SELECT id::text AS id, to_jsonb(e)::text AS j, ${leaf} AS h
-        FROM ${table} e WHERE id > ${after}::bigint ORDER BY id LIMIT ${ARCHIVE_BATCH}`;
+      // v3 — числовой порядок `e.id` (голое `ORDER BY id` при `id::text AS id` сортирует ТЕКСТ,
+      // а курсор сравнивает числа — месяц больше страницы терял и дублировал строки); v1–v2 —
+      // тем запросом, которым подписан их манифест
+      const rows = auditLegacyTextOrder(leafVersion)
+        ? await this.db.$queryRaw<Array<{ id: string; j: string; h: Buffer }>>`
+            SELECT id::text AS id, to_jsonb(e)::text AS j, ${leaf} AS h
+            FROM ${table} e WHERE id > ${after}::bigint ORDER BY id LIMIT ${ARCHIVE_BATCH}`
+        : await this.db.$queryRaw<Array<{ id: string; j: string; h: Buffer }>>`
+            SELECT e.id::text AS id, to_jsonb(e)::text AS j, ${leaf} AS h
+            FROM ${table} e WHERE e.id > ${after}::bigint ORDER BY e.id LIMIT ${ARCHIVE_BATCH}`;
       for (const r of rows) yield { json: r.j, leaf: Buffer.from(r.h) };
       if (rows.length < ARCHIVE_BATCH) return;
       after = rows[rows.length - 1]!.id;
@@ -179,7 +186,11 @@ export class AuditArchiveService {
     const merkle = new MerkleBuilder();
     for await (const r of this.rowsOf(partition, arch.leafVersion)) merkle.push(r.leaf);
     const { manifest, signedOk } = await this.signedManifest(arch);
-    if (!manifest || !signedOk || merkle.count !== arch.rows || manifest.merkleRoot !== merkle.root().toString('hex')) {
+    // Независимый счёт строк — не тем же запросом, что строил архив: обход с ошибкой порядка
+    // (архивы v1–v2) сходится сам с собой, пропуская строки, а сброс уничтожил бы их навсегда
+    const table = Prisma.raw(`"${partition}"`);
+    const [{ n }] = await this.db.$queryRaw<Array<{ n: bigint }>>`SELECT count(*)::bigint AS n FROM ${table}`;
+    if (!manifest || !signedOk || merkle.count !== arch.rows || Number(n) !== arch.rows || manifest.merkleRoot !== merkle.root().toString('hex')) {
       this.logger.error(`audit archive of ${partition} no longer matches the partition — the drop is refused`);
       await this.degraded();
       return false;

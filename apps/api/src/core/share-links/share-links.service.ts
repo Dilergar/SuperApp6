@@ -27,6 +27,8 @@ import { ChatterService } from '../chatter/chatter.service';
 import { badRequest, notFound } from '../../shared/errors/api-error';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { ShareLinksRegistry, type ShareRefContext } from './share-links.registry';
+import { AuditService } from '../audit/audit.service';
+import type { AuditLinkField, AuditLinkRevokeReason } from '@superapp/shared';
 
 const BCRYPT_ROUNDS = 12;
 
@@ -48,6 +50,7 @@ export class ShareLinksService {
     private readonly chatter: ChatterService,
     private readonly i18n: I18nService,
     private readonly pdActions: ConsentsActionsService,
+    private readonly audit: AuditService,
   ) {}
 
   // ============================================================
@@ -116,6 +119,19 @@ export class ShareLinksService {
       // Учёт действий с ПДн (Правила № 179/НҚ п. 9 пп. 5): ссылка наружу — распространение по
       // действию самого человека; значения не пишутся, только факт и тип объекта
       await this.pdActions.record(tx, { subjectId: userId, actionType: 'publication', basis: 'subject_action', fields: ['shared_content'], purpose: 'share_link_created', workspaceId: ctx.workspaceId ?? null, refType: dto.refType, refId: dto.refId });
+      // Журнал безопасности: дверь наружу открыта — чем закрыта и на сколько
+      await this.audit.record(tx, {
+        key: 'sharing.link.created',
+        ...this.linkAudit(created),
+        details: {
+          resource: created.refType,
+          passcode: !!created.passwordHash,
+          identity: created.requireIdentity,
+          expires: !!created.expiresAt,
+          ...(created.maxOpens !== null ? { maxOpens: created.maxOpens } : {}),
+          download: created.allowDownload,
+        },
+      });
       return created;
     });
 
@@ -215,7 +231,22 @@ export class ShareLinksService {
       data.pwdLockedUntil = null;
     }
 
-    const updated = await this.db.shareLink.update({ where: { id: link.id }, data });
+    // Какие настройки РЕАЛЬНО изменились — только коды полей, значения в журнал не идут
+    const fields: AuditLinkField[] = [];
+    if (dto.label !== undefined && (dto.label ?? null) !== (link.label ?? null)) fields.push('label');
+    if (dto.expiresAt !== undefined && (dto.expiresAt ? new Date(dto.expiresAt).getTime() : null) !== (link.expiresAt?.getTime() ?? null)) fields.push('expires');
+    if (dto.maxOpens !== undefined && dto.maxOpens !== link.maxOpens) fields.push('max_opens');
+    if (dto.allowDownload !== undefined && dto.allowDownload !== link.allowDownload) fields.push('download');
+    if (dto.notifyOnOpen !== undefined && dto.notifyOnOpen !== link.notifyOnOpen) fields.push('notify');
+    if (dto.requireIdentity !== undefined && dto.requireIdentity !== link.requireIdentity) fields.push('identity');
+    if (dto.password !== undefined) fields.push('passcode');
+    const updated = await this.db.$transaction(async (tx) => {
+      const row = await tx.shareLink.update({ where: { id: link.id }, data });
+      if (fields.length) {
+        await this.audit.record(tx, { key: 'sharing.link.updated', ...this.linkAudit(row), details: { resource: row.refType, fields } });
+      }
+      return row;
+    });
     return this.serialize(updated);
   }
 
@@ -388,10 +419,7 @@ export class ShareLinksService {
     });
     if (!targets.length) return 0;
 
-    const { count } = await this.db.shareLink.updateMany({
-      where: { id: { in: targets.map((t) => t.id) }, revokedAt: null },
-      data: { revokedAt: new Date(), revokedById: userId },
-    });
+    const count = await this.revokeRows(targets, userId, 'mine_bulk');
 
     // Массовый отзыв пишется в хронику ровно как одиночный: закрытие доступа наружу
     // не должно происходить тише, чем его открытие.
@@ -435,9 +463,13 @@ export class ShareLinksService {
     const ctx = await this.authorize(userId, link.refType, link.refId);
     if (link.revokedAt) return this.serialize(link);
 
-    const updated = await this.db.shareLink.update({
-      where: { id: link.id },
-      data: { revokedAt: new Date(), revokedById: userId },
+    const updated = await this.db.$transaction(async (tx) => {
+      const row = await tx.shareLink.update({
+        where: { id: link.id },
+        data: { revokedAt: new Date(), revokedById: userId },
+      });
+      await this.audit.record(tx, { key: 'sharing.link.revoked', ...this.linkAudit(row), details: { resource: row.refType, reason: 'manual' } });
+      return row;
     });
     await this.logChatter(userId, updated, 'share.link_revoked');
     return this.serialize(updated);
@@ -459,17 +491,21 @@ export class ShareLinksService {
     await this.authorize(userId, link.refType, link.refId);
     if (link.revokedAt) throw badRequest('shareLink.revokedCreateNew');
 
-    const updated = await this.db.shareLink.update({
-      where: { id: link.id },
-      data: {
-        token: randomBytes(SHARE_LINK_LIMITS.tokenBytes).toString('base64url'),
-        sessionEpoch: { increment: 1 },
-        tokenRotatedAt: new Date(),
-        // Блокировку подбора снимаем: она относилась к старому адресу, а новый получат
-        // другие люди — незачем встречать их чужой блокировкой.
-        pwdFailedAttempts: 0,
-        pwdLockedUntil: null,
-      },
+    const updated = await this.db.$transaction(async (tx) => {
+      const row = await tx.shareLink.update({
+        where: { id: link.id },
+        data: {
+          token: randomBytes(SHARE_LINK_LIMITS.tokenBytes).toString('base64url'),
+          sessionEpoch: { increment: 1 },
+          tokenRotatedAt: new Date(),
+          // Блокировку подбора снимаем: она относилась к старому адресу, а новый получат
+          // другие люди — незачем встречать их чужой блокировкой.
+          pwdFailedAttempts: 0,
+          pwdLockedUntil: null,
+        },
+      });
+      await this.audit.record(tx, { key: 'sharing.link.updated', ...this.linkAudit(row), details: { resource: row.refType, fields: ['address'] } });
+      return row;
     });
     // Смена адреса пишется в хронику наравне с выдачей и отзывом: у части получателей
     // доступ в этот момент пропадает, и молча такое происходить не должно.
@@ -556,10 +592,7 @@ export class ShareLinksService {
     });
     if (!targets.length) return 0;
 
-    const { count } = await this.db.shareLink.updateMany({
-      where: { id: { in: targets.map((t) => t.id) }, revokedAt: null },
-      data: { revokedAt: new Date(), revokedById: actorId },
-    });
+    const count = await this.revokeRows(targets, actorId, 'workspace_bulk');
     for (const link of targets) await this.logChatter(actorId, link, 'share.link_revoked');
     return count;
   }
@@ -589,11 +622,21 @@ export class ShareLinksService {
     refIds: string[],
   ): Promise<number> {
     if (!refIds.length) return 0;
-    const client = tx ?? this.db;
-    const { count } = await client.shareLink.updateMany({
-      where: { refType, refId: { in: refIds }, revokedAt: null },
-      data: { revokedAt: new Date() },
-    });
+    // Строки — до отзыва: по каждой закрытой ссылке — событие журнала (дверь наружу закрыта
+    // системой); в транзакции вызывающего, а без неё — своей
+    const run = async (client: Prisma.TransactionClient): Promise<number> => {
+      const targets = await client.shareLink.findMany({ where: { refType, refId: { in: refIds }, revokedAt: null } });
+      if (!targets.length) return 0;
+      const { count } = await client.shareLink.updateMany({
+        where: { id: { in: targets.map((t) => t.id) }, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      for (const link of targets) {
+        await this.audit.record(client, { key: 'sharing.link.revoked', ...this.linkAudit(link), actor: { kind: 'system' }, details: { resource: link.refType, reason: 'object_deleted' } });
+      }
+      return count;
+    };
+    const count = tx ? await run(tx) : await this.db.$transaction(run);
     if (count > 0) {
       this.logger.log(`System revoke of guest links: ${refType} × ${refIds.length} → ${count}`);
     }
@@ -615,6 +658,41 @@ export class ShareLinksService {
     const { count: guests } = await this.db.shareLinkGuest.deleteMany({ where: { ownerType: 'workspace', ownerId: workspaceId } });
     if (revoked || guests) this.logger.log(`Workspace ${workspaceId} forgotten: ${revoked} link(s) revoked, ${guests} guest(s) removed`);
     return { revoked, guests };
+  }
+
+  /**
+   * Отзыв пачки ссылок и события журнала по каждой — одной транзакцией. Строка на ссылку, а
+   * не сводка: организация ищет в журнале, КОГДА закрылась конкретная дверь наружу.
+   */
+  private async revokeRows(targets: ShareLink[], actorId: string, reason: AuditLinkRevokeReason): Promise<number> {
+    return this.db.$transaction(async (tx) => {
+      const { count } = await tx.shareLink.updateMany({
+        where: { id: { in: targets.map((t) => t.id) }, revokedAt: null },
+        data: { revokedAt: new Date(), revokedById: actorId },
+      });
+      for (const link of targets) {
+        await this.audit.record(tx, { key: 'sharing.link.revoked', ...this.linkAudit(link), details: { resource: link.refType, reason } });
+      }
+      return count;
+    });
+  }
+
+  /**
+   * Общие поля события ссылки: организация-владелец объекта (личная ссылка — только платформе),
+   * субъект — автор ссылки, цель — объект (снимок подписи), ссылка — `ref`.
+   */
+  private linkAudit(link: ShareLink): {
+    workspaceId: string | null;
+    subjectUserId: string | null;
+    target: { type: string; id: string; label: string | null };
+    ref: { type: string; id: string };
+  } {
+    return {
+      workspaceId: link.workspaceId,
+      subjectUserId: link.createdById,
+      target: { type: link.refType, id: link.refId, label: link.refTitle },
+      ref: { type: 'share_link', id: link.id },
+    };
   }
 
   /** Сколько действующих ссылок у объекта — для значка «доступно по ссылке» в интерфейсе */

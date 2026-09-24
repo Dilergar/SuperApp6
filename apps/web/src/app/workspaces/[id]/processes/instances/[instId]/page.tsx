@@ -22,6 +22,7 @@ import { useTranslations } from 'next-intl';
 import {
   type ProcessStepStatus,
   type WorkspaceMember,
+  guardedDisplay,
 } from '@superapp/shared';
 import { EntitySelector } from '@/components/EntitySelector';
 import type { EntityOption, Principal } from '@/lib/entities';
@@ -90,7 +91,7 @@ export default function ProcessInstancePage() {
   const memberOptions: EntityOption[] = useMemo(
     () => (membersQ.data ?? []).map((m) => {
       const [fn, ...rest] = (m.userName || '?').split(' ');
-      return { type: 'user', id: m.userId, title: m.userName, firstName: m.card?.firstName ?? fn, lastName: m.card?.lastName ?? (rest.join(' ') || null) } as EntityOption;
+      return { type: 'user', id: m.userId, title: m.userName, firstName: m.card?.firstName ?? fn, lastName: (m.card ? guardedDisplay(m.card.lastName) : null) ?? (rest.join(' ') || null) } as EntityOption;
     }),
     [membersQ.data],
   );

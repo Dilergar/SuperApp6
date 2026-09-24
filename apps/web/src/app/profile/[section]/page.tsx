@@ -1,7 +1,7 @@
 'use client';
 
 import { Button, Input, LoadingBlock, Select } from '@/components/ui';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useAuthStore } from '@/lib/stores/auth';
@@ -9,14 +9,8 @@ import { apiGet, apiPatch } from '@/lib/api';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useFormatters } from '@/lib/format';
 import { useLocale, useTranslations } from 'next-intl';
-import {
-  REQUISITE_VISIBILITY_EXTRAS,
-  isValidIinOrBin,
-  resolveCardVisibility,
-  type CardVisibility,
-  type Circle,
-} from '@superapp/shared';
-import { PersonCard } from '../../circles/PersonCard';
+import { isValidIinOrBin } from '@superapp/shared';
+import { CardVisibilitySection } from '../CardVisibilitySection';
 import { WalletSection } from '../WalletSection';
 import { SkinsSection } from '../SkinsSection';
 import { NotificationsSection } from '../NotificationsSection';
@@ -58,22 +52,13 @@ function monthOptionNames(locale: string): string[] {
   );
 }
 
-type VisField =
-  | 'city' | 'bio' | 'dateOfBirth' | 'age'
-  | 'maritalStatus' | 'email' | 'socialLinks' | 'onlineStatus';
-
-const FIELD_KEYS: VisField[] = [
-  'city', 'bio', 'dateOfBirth', 'age', 'maritalStatus', 'email', 'socialLinks', 'onlineStatus',
-];
-
-const DEFAULT_PREVIEW = '__default__';
-
 // ============================================================
 // Section content (chrome — nav + sidebar — lives in layout.tsx)
 // ============================================================
 
 export default function ProfileSectionPage() {
   const t = useTranslations('profile');
+  const tv = useTranslations('visibility');
   const common = useTranslations('common');
   const locale = useLocale();
   // Даты и числа — через форматтеры платформы (регион КЗ), а не toLocaleString('ru-RU').
@@ -85,7 +70,6 @@ export default function ProfileSectionPage() {
   const { isReady, user: profile } = useRequireAuth();
   const fetchProfile = useAuthStore((s) => s.fetchProfile);
 
-  const [groups, setGroups] = useState<Circle[]>([]);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -97,18 +81,6 @@ export default function ProfileSectionPage() {
     // Реквизиты «Для договоров и трудоустройства».
     middleName: '', iin: '', residentialAddress: '', idDocNumber: '', idDocIssuedBy: '', idDocIssuedAt: '',
   });
-
-  // Owner DEFAULT visibility (for contacts in no group). Seeded once.
-  const [vis, setVis] = useState<CardVisibility | null>(null);
-  const visSeeded = useRef(false);
-  const visTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // «Видимость в Компаниях» — что видят коллеги по организациям (ростер «Сотрудники»).
-  const [visCompany, setVisCompany] = useState<CardVisibility | null>(null);
-  const visCompanyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // "Моя карточка" — preview as a group (or default).
-  const [previewId, setPreviewId] = useState<string>(DEFAULT_PREVIEW);
 
   // My equipped default skin — for the «Моя карточка» preview.
   const [mySkin, setMySkin] = useState<CardSkinRender | null>(null);
@@ -140,21 +112,6 @@ export default function ProfileSectionPage() {
     }
   }, [profile]);
 
-  // Seed default visibility once (later refetch must not clobber edits).
-  useEffect(() => {
-    if (profile && !visSeeded.current) {
-      setVis(resolveCardVisibility(profile.cardVisibility ?? null));
-      setVisCompany(resolveCardVisibility(profile.companyCardVisibility ?? null));
-      visSeeded.current = true;
-    }
-  }, [profile]);
-
-  // Groups — for the per-group preview selector.
-  useEffect(() => {
-    if (!isReady) return;
-    apiGet<Circle[]>('/circles').then(setGroups).catch(() => {});
-  }, [isReady]);
-
   // My equipped default skin — resolve(self) returns my default (no self-group overrides).
   useEffect(() => {
     const id = profile?.id;
@@ -163,12 +120,6 @@ export default function ProfileSectionPage() {
       .then((map) => setMySkin(map[id] ?? null))
       .catch(() => {});
   }, [isReady, profile]);
-
-  // Clean up the debounced visibility-save timers on unmount.
-  useEffect(() => () => {
-    if (visTimer.current) clearTimeout(visTimer.current);
-    if (visCompanyTimer.current) clearTimeout(visCompanyTimer.current);
-  }, []);
 
   const clear = () => { setError(''); setSuccessMsg(''); };
 
@@ -239,75 +190,13 @@ export default function ProfileSectionPage() {
     }
   };
 
-  // Toggle one field in the DEFAULT visibility, debounce-persist.
-  const toggleVis = (field: VisField, value: boolean) => {
-    if (!vis) return;
-    clear();
-    const next: CardVisibility = { ...vis, [field]: value };
-    setVis(next);
-    if (visTimer.current) clearTimeout(visTimer.current);
-    visTimer.current = setTimeout(async () => {
-      try {
-        await apiPatch('/users/me', { cardVisibility: next });
-        setSuccessMsg(t('visibility.savedDefault'));
-      } catch {
-        setError(t('visibility.saveFailed'));
-      }
-    }, 600);
-  };
-
-  // Toggle one field in the COMPANY visibility (что видят коллеги), debounce-persist.
-  const toggleVisCompany = (field: VisField, value: boolean) => {
-    if (!visCompany) return;
-    clear();
-    const next: CardVisibility = { ...visCompany, [field]: value };
-    setVisCompany(next);
-    if (visCompanyTimer.current) clearTimeout(visCompanyTimer.current);
-    visCompanyTimer.current = setTimeout(async () => {
-      try {
-        await apiPatch('/users/me', { companyCardVisibility: next });
-        setSuccessMsg(t('visibility.savedCompany'));
-      } catch {
-        setError(t('visibility.saveFailed'));
-      }
-    }, 600);
-  };
-
-  // Реквизитные тумблеры коллегам живут в мешке extras той же карты (по умолчанию
-  // выключены). На управляющих (manager+) они не действуют — тем блок виден всегда.
-  const toggleVisCompanyExtra = (key: string, value: boolean) => {
-    if (!visCompany) return;
-    clear();
-    const next: CardVisibility = {
-      ...visCompany,
-      extras: { ...(visCompany.extras ?? {}), [key]: value },
-    };
-    setVisCompany(next);
-    if (visCompanyTimer.current) clearTimeout(visCompanyTimer.current);
-    visCompanyTimer.current = setTimeout(async () => {
-      try {
-        await apiPatch('/users/me', { companyCardVisibility: next });
-        setSuccessMsg(t('visibility.savedCompany'));
-      } catch {
-        setError(t('visibility.saveFailed'));
-      }
-    }, 600);
-  };
-
-
   if (!isReady || !profile) {
     return <p className="label-md" style={{ fontSize: '1rem' }}>{common('state.loading')}</p>;
   }
 
   const p = profile;
-  const previewGroup = groups.find((g) => g.id === previewId) ?? null;
-  const previewVis = previewGroup
-    ? resolveCardVisibility(previewGroup.cardVisibility)
-    : resolveCardVisibility(vis ?? p.cardVisibility ?? null);
-  const previewLabel = previewGroup ? previewGroup.name : t('card.defaultGroup');
   const monthNames = monthOptionNames(locale);
   const maritalOptions = MARITAL_VALUES.map((v) => ({ value: v as string, label: t(MARITAL_KEYS[v]) }));
-  const fieldMeta = FIELD_KEYS.map((key) => ({ key, label: t(`field.${key}`) }));
 
   return (
     <div>
@@ -315,7 +204,7 @@ export default function ProfileSectionPage() {
       {error && <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--primary)', fontSize: '0.875rem' }}>{error}</div>}
       {successMsg && <div className="alert-accent-inline" style={{ padding: 'var(--spacing-3) var(--spacing-4)', marginBottom: 'var(--spacing-4)', color: 'var(--secondary)', fontSize: '0.875rem' }}>{successMsg}</div>}
 
-      {/* === Моя Анкета: данные + видимость по умолчанию === */}
+      {/* === Моя Анкета: ТОЛЬКО данные (кто что видит — «Моя карточка и видимость») === */}
       {section === 'form' && (
         <div>
           <h2 className="title-lg" style={{ marginBottom: 'var(--spacing-2)' }}>{t('form.title')}</h2>
@@ -401,6 +290,10 @@ export default function ProfileSectionPage() {
               <p className="label-sm" style={{ margin: 0, opacity: 0.7, lineHeight: 1.5 }}>
                 {t('form.requisitesText')}
               </p>
+              {/* Служебные поля: их видимость — политика организации, не тумблер человека */}
+              <p className="label-sm" style={{ margin: 0, opacity: 0.7, lineHeight: 1.5 }}>
+                {tv('personal.requisitesNote')}
+              </p>
               <div className="grid md:grid-cols-2" style={{ gap: 'var(--spacing-4)' }}>
                 <Input
                   label={t('form.middleName')}
@@ -452,146 +345,11 @@ export default function ProfileSectionPage() {
             </div>
           </div>
 
-          {/* Default visibility (for people in no group) */}
-          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>{t('visibility.defaultTitle')}</h3>
-          <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7 }}>
-            {t('visibility.defaultText')}
-          </p>
-          {vis && (
-            <div className="card-elevated" style={{ padding: 'var(--spacing-4)' }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-                {fieldMeta.map((f) => {
-                  const on = vis[f.key];
-                  return (
-                    <button
-                      key={f.key}
-                      type="button"
-                      onClick={() => toggleVis(f.key, !on)}
-                      style={{
-                        padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)',
-                        border: 'none', cursor: 'pointer', fontWeight: 600,
-                        color: on ? 'var(--on-primary)' : 'var(--on-surface-variant)',
-                        background: on ? 'var(--secondary)' : 'var(--surface-container)',
-                        opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
-                      }}
-                    >
-                      {f.label}: {on ? t('visibility.on') : t('visibility.off')}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Видимость в Компаниях (что видят коллеги по организациям) */}
-          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>{t('visibility.companyTitle')}</h3>
-          <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7 }}>
-            {t('visibility.companyText')}
-          </p>
-          {visCompany && (
-            <div className="card-elevated" style={{ padding: 'var(--spacing-4)' }}>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-                {fieldMeta.map((f) => {
-                  const on = visCompany[f.key];
-                  return (
-                    <button
-                      key={f.key}
-                      type="button"
-                      onClick={() => toggleVisCompany(f.key, !on)}
-                      style={{
-                        padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)',
-                        border: 'none', cursor: 'pointer', fontWeight: 600,
-                        color: on ? 'var(--on-primary)' : 'var(--on-surface-variant)',
-                        background: on ? 'var(--secondary)' : 'var(--surface-container)',
-                        opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
-                      }}
-                    >
-                      {f.label}: {on ? t('visibility.on') : t('visibility.off')}
-                    </button>
-                  );
-                })}
-              </div>
-              {/* Конфиденциальные реквизиты коллегам — по умолчанию ВЫКЛЮЧЕНЫ */}
-              <p className="label-sm" style={{ margin: 'var(--spacing-4) 0 var(--spacing-2)', opacity: 0.7 }}>
-                {t('visibility.confidential')}
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--spacing-2)' }}>
-                {(Object.values(REQUISITE_VISIBILITY_EXTRAS) as string[]).map((key) => {
-                  const on = !!visCompany.extras?.[key];
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => toggleVisCompanyExtra(key, !on)}
-                      style={{
-                        padding: '0.3rem 0.7rem', fontSize: '0.78rem', borderRadius: 'var(--radius-sketch)',
-                        border: 'none', cursor: 'pointer', fontWeight: 600,
-                        color: on ? 'var(--on-primary)' : 'var(--on-surface-variant)',
-                        background: on ? 'var(--secondary)' : 'var(--surface-container)',
-                        opacity: on ? 1 : 0.6, transition: 'all 0.15s ease',
-                      }}
-                    >
-                      {t(`requisite.${key}`)}: {on ? t('visibility.on') : t('visibility.off')}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Второй уровень — управляющим; нередактируемый по решению продукта */}
-          <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-1)' }}>{t('visibility.managersTitle')}</h3>
-          <div className="alert-neutral-inline" style={{ padding: 'var(--spacing-4)', maxWidth: '560px' }}>
-            <p className="label-sm" style={{ margin: 0, lineHeight: 1.55 }}>
-              {t('visibility.managersText')}
-              <b>{t('visibility.managersList')}</b>{' '}
-              {t('visibility.managersTail')}
-            </p>
-          </div>
         </div>
       )}
 
-      {/* === Моя карточка: просмотр + «как видит Группа X» === */}
-      {section === 'card' && (
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--spacing-4)', flexWrap: 'wrap', marginBottom: 'var(--spacing-6)' }}>
-            <h2 className="title-lg">{t('card.title')}</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
-              <span className="label-sm">{t('card.seenBy')}</span>
-              <Select
-                aria-label={t('card.previewAria')}
-                value={previewId}
-                onChange={setPreviewId}
-                width={240}
-                options={[
-                  { value: DEFAULT_PREVIEW, label: t('card.defaultGroup') },
-                  ...groups.map((g) => ({ value: g.id, label: g.name })),
-                ]}
-              />
-            </div>
-          </div>
-          <p className="label-sm" style={{ marginBottom: 'var(--spacing-4)', opacity: 0.7 }}>
-            {t('card.note', { name: previewLabel })}
-          </p>
-          <PersonCard
-            mode="full"
-            skin={mySkin ?? undefined}
-            profile={{
-              firstName: p.firstName,
-              lastName: p.lastName ?? null,
-              phone: p.phone,
-              avatar: p.avatar ?? null,
-              dateOfBirth: p.dateOfBirth ?? null,
-              bio: p.bio ?? null,
-              city: p.city ?? null,
-              email: p.email ?? null,
-              maritalStatus: p.maritalStatus ?? null,
-              socialLinks: p.socialLinks ?? null,
-              cardVisibility: previewVis,
-            }}
-          />
-        </div>
-      )}
+      {/* === Моя карточка и видимость (core/visibility) === */}
+      {section === 'card' && <CardVisibilitySection skin={mySkin ?? undefined} />}
 
       {/* === Скины карточки === */}
       {section === 'skins' && <SkinsSection profile={profile} />}
@@ -673,18 +431,6 @@ export default function ProfileSectionPage() {
               defaultValue={p.timezone || 'Asia/Almaty'}
               hint={t('language.timezoneHint')}
               disabled
-            />
-            <Select
-              label={t('settings.onlineStatus')}
-              value={p.onlineStatusMode || 'everyone'}
-              onChange={async (v) => {
-                try { await apiPatch('/users/me', { onlineStatusMode: v }); await fetchProfile(); setSuccessMsg(t('settings.saved')); } catch { setError(t('settings.saveFailed')); }
-              }}
-              options={[
-                { value: 'everyone', label: t('settings.online.everyone') },
-                { value: 'contacts', label: t('settings.online.contacts') },
-                { value: 'nobody', label: t('settings.online.nobody') },
-              ]}
             />
           </div>
         </div>

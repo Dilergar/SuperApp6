@@ -270,6 +270,9 @@
       "reward_changed": "{actorName} сыйақыны өзгертті: {from} → {to}",
       "submitted": "{actorName} жұмысты тексеруге тапсырды",
       "title_changed": "{actorName} тапсырманың атын өзгертті: «{from}» → «{to}»"
+    },
+    "visibility_policy": {
+      "published": "{actorName} «{typeLabel}» көріну ережелерін жариялады, {version}-нұсқа"
     }
   }
 }

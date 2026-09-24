@@ -11,7 +11,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useMutation } from '@tanstack/react-query';
-import { ATTENDANCE_OUTCOMES, type ShiftDto } from '@superapp/shared';
+import { ATTENDANCE_OUTCOMES, visibleOr, type Hidden, type Masked, type ShiftDto } from '@superapp/shared';
 import { Button, Input, Modal, SegmentedControl, Textarea } from '@/components/ui';
 
 import { localToIso, timeIn } from '@/lib/objects-time';
@@ -54,17 +54,20 @@ export function AttendanceModal({
 }) {
   const t = useTranslations('objects');
   const tc = useTranslations('common');
-  const [outcome, setOutcome] = useState<string>(shift.attendance?.outcome ?? 'worked');
-  const [lateMin, setLateMin] = useState(String(shift.attendance?.lateMin ?? 0));
-  const [startAt, setStartAt] = useState(
-    shift.attendance?.actualStartAt
-      ? timeIn(shift.attendance.actualStartAt, timeZone)
-      : timeIn(shift.startsAt, timeZone),
-  );
-  const [endAt, setEndAt] = useState(
-    shift.attendance?.actualEndAt ? timeIn(shift.attendance.actualEndAt, timeZone) : timeIn(shift.endsAt, timeZone),
-  );
-  const [note, setNote] = useState(shift.attendance?.note ?? '');
+  // Отмечает факт тот, кто его видит (ведущий график); маркер движка — как «не отмечено»
+  const att = shift.attendance;
+  const seen = <T,>(v: T | Masked | Hidden | undefined): T | null => (v === undefined ? null : visibleOr(v, null));
+  const [outcome, setOutcome] = useState<string>(seen(att?.outcome) ?? 'worked');
+  const [lateMin, setLateMin] = useState(String(seen(att?.lateMin) ?? 0));
+  const [startAt, setStartAt] = useState(() => {
+    const at = seen(att?.actualStartAt);
+    return at ? timeIn(at, timeZone) : timeIn(shift.startsAt, timeZone);
+  });
+  const [endAt, setEndAt] = useState(() => {
+    const at = seen(att?.actualEndAt);
+    return at ? timeIn(at, timeZone) : timeIn(shift.endsAt, timeZone);
+  });
+  const [note, setNote] = useState<string>(seen(att?.note) ?? '');
 
   const startMin = minutesOf(startAt);
   const endMin = minutesOf(endAt);

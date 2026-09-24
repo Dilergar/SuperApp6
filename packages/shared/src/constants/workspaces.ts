@@ -1,4 +1,3 @@
-import type { WorkspaceCardVisibility } from '../types/workspace';
 
 // ============================================================
 // Workspace (B2B) limits — enforced in the service layer
@@ -55,29 +54,3 @@ export function daysUntilPurge(purgeAt: Date | string, now: Date = new Date()): 
 // Always-visible regardless: name, logo. Owner/admin always see all fields.
 // ============================================================
 
-export const DEFAULT_WORKSPACE_CARD_VISIBILITY: WorkspaceCardVisibility = {
-  description: true,
-  industry: true,
-  city: true,
-  website: true,
-  contactEmail: true,
-  contactPhone: false, // private by default
-  membersCount: false, // private by default
-  requisites: true, // реквизиты печатаются на каждом счёте — сотрудникам видны
-  extras: {},
-};
-
-// Merge a stored (possibly null/partial) visibility with defaults.
-export function resolveWorkspaceCardVisibility(
-  stored: Partial<WorkspaceCardVisibility> | null | undefined,
-): WorkspaceCardVisibility {
-  if (!stored) return { ...DEFAULT_WORKSPACE_CARD_VISIBILITY };
-  return {
-    ...DEFAULT_WORKSPACE_CARD_VISIBILITY,
-    ...stored,
-    extras: {
-      ...(DEFAULT_WORKSPACE_CARD_VISIBILITY.extras ?? {}),
-      ...(stored.extras ?? {}),
-    },
-  };
-}

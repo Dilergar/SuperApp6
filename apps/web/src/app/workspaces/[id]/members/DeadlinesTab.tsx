@@ -14,12 +14,15 @@ import {
   HR_ACTION_KINDS,
   HR_ACTION_ORDER_LIBRARY_KEY,
   HR_LIMITS,
+  guardedDisplay,
+  isGuardMarker,
   type CreateHrBatchInput,
   type DocTemplateDto,
   type EsutdSubmissionDto,
   type HrActionBatchDto,
   type HrActorLite,
   type HrDeadlineItemDto,
+  type Workspace,
 } from '@superapp/shared';
 import { apiGet } from '@/lib/api';
 import { dmy } from '@/lib/dates';
@@ -35,7 +38,7 @@ import {
   markEsutdSubmitted,
   saveHrBlob,
 } from '@/lib/hr-api';
-import { hrDeadlinesKey, hrEsutdKey, hrRootKey } from '@/lib/queries';
+import { hrDeadlinesKey, hrEsutdKey, hrRootKey, workspaceKey } from '@/lib/queries';
 import { toastApiError } from '@/lib/api-errors';
 import { useIdempotencyKey } from '@/lib/useIdempotencyKey';
 import { OutcomeUnknownAlert, SlowRequestNote, useOutcomeUnknown } from '@/components/idempotency/OutcomeUnknownAlert';
@@ -396,11 +399,14 @@ function EsutdPayloadModal({
     queryKey: [...hrEsutdKey(workspaceId), submission.id, 'payload'],
     queryFn: () => fetchEsutdPayload(workspaceId, submission.id),
   });
-  const text = useMemo(() => {
-    const p = payloadQ.data ?? {};
-    return Object.entries(p)
-      .map(([k, v]) => `${k}: ${v ?? '—'}`)
-      .join('\n');
+  // ИИН и основание увольнения — по правилам организации (core/visibility): маска копируется
+  // символами маски, полное значение — раскрытием в карточке сотрудника
+  const { text, partHidden } = useMemo(() => {
+    const entries = Object.entries(payloadQ.data ?? {});
+    return {
+      text: entries.map(([k, v]) => `${k}: ${String(guardedDisplay(v) ?? '—')}`).join('\n'),
+      partHidden: entries.some(([, v]) => isGuardMarker(v)),
+    };
   }, [payloadQ.data]);
   return (
     <Modal open onClose={onClose} title={t('esutd.payloadTitle')} subtitle={t('esutd.payloadSubtitle')} size="md">
@@ -420,6 +426,7 @@ function EsutdPayloadModal({
           >
             {text}
           </pre>
+          {partHidden && <p className="label-sm" style={{ margin: 0, opacity: 0.7 }}>{tc('guarded.partHidden')}</p>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--spacing-2)' }}>
             <Button
               variant="primary"
@@ -511,6 +518,12 @@ function MassActionModal({
   const [ground, setGround] = useState('');
   const [banConfirmed, setBanConfirmed] = useState(false);
   const [alsoRemove, setAlsoRemove] = useState(false);
+  // Пачка увольнений со снятием членства — только владельцу/админу (сервер отвергнет иначе)
+  const wsQ = useQuery({
+    queryKey: workspaceKey(workspaceId),
+    queryFn: async () => await apiGet<Workspace>(`/workspaces/${workspaceId}`),
+  });
+  const canRemoveMembership = wsQ.data?.myRole === 'owner' || wsQ.data?.myRole === 'admin';
   const [position, setPosition] = useState<Principal[]>([]);
   const [branch, setBranch] = useState<Principal[]>([]);
   const [syncFact, setSyncFact] = useState(true);
@@ -558,7 +571,7 @@ function MassActionModal({
           ...(kind === 'dismissal'
             ? {
                 ground: ground as never,
-                alsoRemoveMembership: alsoRemove,
+                alsoRemoveMembership: canRemoveMembership && alsoRemove,
                 banExceptionConfirmed: banConfirmed || undefined,
               }
             : {}),
@@ -666,12 +679,14 @@ function MassActionModal({
                 />
               </>
             )}
-            <Toggle
-              checked={alsoRemove}
-              onChange={setAlsoRemove}
-              label={t('form.alsoRemove')}
-              description={t('batch.alsoRemoveHint')}
-            />
+            {canRemoveMembership && (
+              <Toggle
+                checked={alsoRemove}
+                onChange={setAlsoRemove}
+                label={t('form.alsoRemove')}
+                description={t('batch.alsoRemoveHint')}
+              />
+            )}
           </>
         )}
 

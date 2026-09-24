@@ -90,8 +90,11 @@ export interface CurrencyHolder {
  */
 export interface UserPaymentCardDto {
   id: string;
-  pan: string;
-  panMasked: string; // «•••• 1234»
+  /**
+   * Номер карты — ТОЛЬКО маской последних четырёх («•••• 1234»), в том числе самому владельцу
+   * (PCI DSS 3.4.1, R11): полный номер знает лишь путь выплат кошелька
+   */
+  panMasked: string;
   iban: string | null;
   holderName: string;
   expMonth: number;

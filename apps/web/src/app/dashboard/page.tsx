@@ -45,6 +45,7 @@ import {
   BentoGrid, Button, Card, CardHeader, Chip, Divider, EmptyState,
   Icon, LoadingBlock, StatTile, TickBar,
 } from '@/components/ui';
+import { guardedDisplay, visibleOr } from '@superapp/shared';
 
 /** Личная Главная спрашивает движок решений только про личное (см. ApprovalScope) */
 const PERSONAL_SCOPE = { personal: true } as const;
@@ -272,8 +273,8 @@ export default function DashboardPage() {
                   size="M"
                   userId={i.from.id}
                   firstName={i.from.firstName}
-                  lastName={i.from.lastName}
-                  avatar={i.from.avatar}
+                  lastName={guardedDisplay(i.from.lastName)}
+                  avatar={visibleOr(i.from.avatar, null)}
                   role={i.proposedRoleForRecipient ?? undefined}
                 />
               ))}

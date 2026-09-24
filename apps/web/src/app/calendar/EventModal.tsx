@@ -31,6 +31,7 @@ import {
 import type { Formatters } from '@superapp/i18n/format';
 import { toInputValue, fromInputValue, startOfDay, endOfDay } from './calendar-lib';
 import { ShareCardModal } from '../messenger/ShareCardModal';
+import { guardedDisplay } from '@superapp/shared';
 
 export type ModalTarget =
   | { mode: 'create'; start: Date; allDay: boolean; participantUserIds?: string[] }
@@ -650,7 +651,7 @@ function ParticipantBlocks({
   const t = useTranslations('calendar');
   const pendingPeople = pendingIds.map((id) => {
     const c = contacts.find((x) => x.them.id === id);
-    return { userId: id, firstName: c?.them.firstName ?? '?', lastName: c?.them.lastName ?? null, rsvp: 'pending' as RsvpStatus };
+    return { userId: id, firstName: c?.them.firstName ?? '?', lastName: c ? guardedDisplay(c.them.lastName) : null, rsvp: 'pending' as RsvpStatus };
   });
   const all = [...participants, ...pendingPeople];
   if (all.length === 0) return <p className="label-sm" style={{ margin: 0 }}>{t('modal.nobodyYet')}</p>;
@@ -691,7 +692,7 @@ function InvitePicker({
   const t = useTranslations('calendar');
   const [sel, setSel] = useState<Principal[]>([]);
   const options = [
-    ...contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(), firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole })),
+    ...contacts.map((c) => ({ type: 'user', id: c.them.id, title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(), firstName: c.them.firstName, lastName: guardedDisplay(c.them.lastName), role: c.myRole })),
     ...circles.map((g) => ({ type: 'circle', id: g.id, title: g.name, icon: g.icon, color: g.color, count: g.membersCount })),
   ];
   const add = () => {

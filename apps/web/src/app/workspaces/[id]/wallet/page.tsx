@@ -14,6 +14,7 @@ import {
 } from '@/components/ui';
 import { PersonChip } from '../../../circles/PersonCard';
 import type { CompanyWalletDto, CurrencyHolder, WorkspaceMember } from '@superapp/shared';
+import { guardedDisplay } from '@superapp/shared';
 
 // Локального `type Member` здесь БОЛЬШЕ НЕТ. Он объявлял поля `name/firstName/lastName`,
 // которых на ручке `/workspaces/:id/members` НЕ СУЩЕСТВОВАЛО НИКОГДА (имя приезжает в
@@ -234,7 +235,7 @@ export default function CompanyWalletPage() {
                   title: memberName(m),
                   // Имя/фамилия — из карточки строки ростера (она уже приехала в ответе).
                   firstName: m.card?.firstName ?? memberName(m),
-                  lastName: m.card?.lastName ?? null,
+                  lastName: m.card ? guardedDisplay(m.card.lastName) : null,
                 }))}
                 value={payUser ? [{ type: 'user', id: payUser }] : []}
                 onChange={(next) => setPayUser(next[next.length - 1]?.id ?? '')}

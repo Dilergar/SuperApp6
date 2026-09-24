@@ -34,8 +34,13 @@ import {
   type CounterpartyKind,
   type Workspace,
   type WorkspaceRole,
+  isHidden,
+  isVisible,
+  visibleOr,
+  type Guarded,
 } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
+import { RevealScope, RevealableValue } from '@/components/visibility/RevealButton';
 import { apiGet } from '@/lib/api';
 import { dmy } from '@/lib/dates';
 
@@ -444,11 +449,13 @@ function CounterpartyCard({
       {/* ОДНА BentoGrid на весь состав карточки (паттерн карточки документа):
           секции — просто Card'ы в общем гриде, ритм держит его gap */}
       {tab === 'requisites' && (
-        <BentoGrid>
-          <RequisitesTab cp={cp} />
-          <ContactsTab workspaceId={workspaceId} cp={cp} isManager={isManager} onChanged={refresh} />
-          <AccountsTab workspaceId={workspaceId} cp={cp} isManager={isManager} onChanged={refresh} />
-        </BentoGrid>
+        <RevealScope>
+          <BentoGrid>
+            <RequisitesTab cp={cp} />
+            <ContactsTab workspaceId={workspaceId} cp={cp} isManager={isManager} onChanged={refresh} />
+            <AccountsTab workspaceId={workspaceId} cp={cp} isManager={isManager} onChanged={refresh} />
+          </BentoGrid>
+        </RevealScope>
       )}
       {tab === 'notes' && (
         <BentoGrid>
@@ -477,6 +484,27 @@ function CounterpartyCard({
         />
       )}
       {confirmUI}
+    </>
+  );
+}
+
+/** Поле контакта есть и не скрыто правилами (маску рисуем символами) */
+function shown<T>(v: Guarded<T | null>): boolean {
+  return v !== null && v !== '' && !isHidden(v);
+}
+
+/** «Должность · телефон · e-mail» из видимых частей; пусто — тире */
+function ContactLine({ parts }: { parts: React.ReactNode[] }) {
+  const list = parts.filter(Boolean);
+  if (!list.length) return <>—</>;
+  return (
+    <>
+      {list.map((p, i) => (
+        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--spacing-2)' }}>
+          {i > 0 && <span aria-hidden>·</span>}
+          {p}
+        </span>
+      ))}
     </>
   );
 }
@@ -528,8 +556,16 @@ function RequisitesTab({ cp }: { cp: CounterpartyDto }) {
         <div style={{ display: 'grid', gap: 'var(--spacing-3)' }}>
           <Row label={tr('form.director')}>{cp.directorName ?? ''}</Row>
           <Row label={tr('form.signBasis')}>{cp.signBasis ?? ''}</Row>
-          <Row label={tr('card.phone')}>{cp.phone ?? ''}</Row>
-          <Row label="E-mail">{cp.email ?? ''}</Row>
+          {!isHidden(cp.phone) && (
+            <Row label={tr('card.phone')}>
+              <RevealableValue value={cp.phone} recordType="counterparty" recordId={cp.id} field="phone" />
+            </Row>
+          )}
+          {!isHidden(cp.email) && (
+            <Row label="E-mail">
+              <RevealableValue value={cp.email} recordType="counterparty" recordId={cp.id} field="email" />
+            </Row>
+          )}
         </div>
         {cp.comment && (
           <>
@@ -617,8 +653,14 @@ function ContactsTab({
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600 }}>{c.name}</div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-                    {[c.position, c.phone, c.email].filter(Boolean).join(' · ') || '—'}
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem', display: 'flex', flexWrap: 'wrap', gap: '0 var(--spacing-2)', alignItems: 'center' }}>
+                    <ContactLine
+                      parts={[
+                        c.position ? <span key="p">{c.position}</span> : null,
+                        shown(c.phone) ? <RevealableValue key="t" value={c.phone} recordType="counterparty" recordId={c.id} field="contactPhone" /> : null,
+                        shown(c.email) ? <RevealableValue key="e" value={c.email} recordType="counterparty" recordId={c.id} field="contactEmail" /> : null,
+                      ]}
+                    />
                   </div>
                 </div>
                 {isManager && (
@@ -748,7 +790,9 @@ function AccountsTab({
                 }}
               >
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono, monospace)' }}>{a.iban}</div>
+                  <div style={{ fontWeight: 600, fontFamily: 'var(--font-mono, monospace)' }}>
+                    <RevealableValue value={a.iban} recordType="counterparty" recordId={a.id} field="iban" />
+                  </div>
                   <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
                     {a.bankName} · {tr('accounts.bik')} {a.bik}
                   </div>
@@ -941,8 +985,10 @@ function CounterpartyFormModal({
     existing?.vatDate ? new Date(`${existing.vatDate}T00:00:00`) : null,
   );
   const [directorName, setDirectorName] = useState(existing?.directorName ?? '');
-  const [phone, setPhone] = useState(existing?.phone ?? '');
-  const [email, setEmail] = useState(existing?.email ?? '');
+  const phoneEditable = !existing || isVisible(existing.phone);
+  const emailEditable = !existing || isVisible(existing.email);
+  const [phone, setPhone] = useState(existing ? (visibleOr(existing.phone, null) ?? '') : '');
+  const [email, setEmail] = useState(existing ? (visibleOr(existing.email, null) ?? '') : '');
   const [comment, setComment] = useState(existing?.comment ?? '');
   const [dupOf, setDupOf] = useState<string | null>(null);
 
@@ -1021,8 +1067,8 @@ function CounterpartyFormModal({
                 ...(basisOption?.needsDetail && basisDate ? { date: toYmd(basisDate) } : {}),
                 ...(basisKey === 'custom' ? { text: basisCustom.trim() } : {}),
               },
-        phone: phone.trim() || null,
-        email: email.trim() || null,
+        ...(phoneEditable ? { phone: phone.trim() || null } : {}),
+        ...(emailEditable ? { email: email.trim() || null } : {}),
         comment: comment.trim() || null,
       };
       return existing
@@ -1215,8 +1261,8 @@ function CounterpartyFormModal({
           )}
         </div>
         <div style={twoCols}>
-          <Input label={tr('card.phone')} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 727 244 00 00" />
-          <Input label="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="info@company.kz" />
+          {phoneEditable && <Input label={tr('card.phone')} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+7 727 244 00 00" />}
+          {emailEditable && <Input label="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="info@company.kz" />}
         </div>
         <Textarea label={tr('form.comment')} value={comment} onChange={(e) => setComment(e.target.value)} rows={2} />
       </div>

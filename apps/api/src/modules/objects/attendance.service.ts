@@ -13,6 +13,7 @@ import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/a
 import { ChatterService } from '../../core/chatter/chatter.service';
 import { ObjectsService } from './objects.service';
 import { utcToLocalDate } from './shift-time';
+import { VisibilityService, markShaped } from '../../core/visibility/visibility.service';
 
 function dayOf(iso: string): Date {
   return new Date(`${iso}T00:00:00.000Z`);
@@ -37,6 +38,7 @@ export class AttendanceService {
     private readonly chatter: ChatterService,
     private readonly objects: ObjectsService,
     private readonly i18n: I18nService,
+    private readonly visibility: VisibilityService,
   ) {}
 
   /** Отметить факт по ПЛАНОВОЙ смене (управляющий/планировщик объекта). */
@@ -93,7 +95,7 @@ export class AttendanceService {
       });
       return saved;
     });
-    return this.serialize(row);
+    return (await this.shapeFor(workspaceId, [row]))[0]!;
   }
 
   /** Внеплановый выход: смены в плане не было (подмена, аврал). */
@@ -138,7 +140,7 @@ export class AttendanceService {
       });
       return saved;
     });
-    return this.serialize(row);
+    return (await this.shapeFor(workspaceId, [row]))[0]!;
   }
 
   /**
@@ -181,7 +183,8 @@ export class AttendanceService {
     const nameOf = new Map(
       users.map((u) => [u.id, [u.lastName, u.firstName].filter(Boolean).join(' ') || someone]),
     );
-    return rows.map((r) => ({ ...this.serialize(r), userName: nameOf.get(r.userId) ?? null }));
+    const shaped = await this.shapeFor(workspaceId, rows);
+    return shaped.map((d, i) => markShaped({ ...d, userName: nameOf.get(rows[i]!.userId) ?? null }));
   }
 
   /** Правка записи факта — включая внеплановую (иначе её не исправить). */
@@ -227,7 +230,7 @@ export class AttendanceService {
       });
       return next;
     });
-    return this.serialize(updated);
+    return (await this.shapeFor(workspaceId, [updated]))[0]!;
   }
 
   /** Удалить ошибочную запись факта. */
@@ -268,7 +271,7 @@ export class AttendanceService {
     const { branch, caps } = await this.objects.getOrThrow(userId, workspaceId, branchId);
     if (!caps.attendanceMark) throw forbidden('objects.attendanceMarkOnly');
     await this.assertWorksHere(workspaceId, branch, dto.userId);
-    return this.recordAttendanceSystem({
+    const fact = await this.recordAttendanceSystem({
       workspaceId,
       branchId,
       userId: dto.userId,
@@ -277,6 +280,7 @@ export class AttendanceService {
       source: 'access_control',
       sourceRef: dto.sourceRef ?? null,
     });
+    return fact ? (await this.shapeRaw(workspaceId, [fact]))[0]! : null;
   }
 
   /**
@@ -389,6 +393,38 @@ export class AttendanceService {
   }
 
   /**
+   * Факт глазами зрителя (core/visibility, `objects.shift`): исход, опоздание, время и
+   * заметка — владельцу/админу, руководителю объекта, ведущему график, руководителю человека
+   * и самому; остальным — маркер. Какие СТРОКИ видны, решает сервис (R13: рядовой — свои).
+   */
+  private async shapeFor(workspaceId: string, rows: Parameters<AttendanceService['serialize']>[0][]): Promise<AttendanceDto[]> {
+    return this.shapeRaw(workspaceId, rows.map((r) => this.serialize(r)));
+  }
+
+  private async shapeRaw(workspaceId: string, dtos: AttendanceDto[]): Promise<AttendanceDto[]> {
+    if (!dtos.length) return [];
+    const shaped = await this.visibility.shape(
+      this.visibility.viewer('api', { workspaceId }),
+      'objects.shift',
+      dtos.map((d) => ({
+        ref: { recordId: d.shiftId ?? d.id, subjectId: d.userId, workspaceId, branchId: d.branchId },
+        values: { outcome: d.outcome, lateMin: d.lateMin, actualStartAt: d.actualStartAt, actualEndAt: d.actualEndAt, attendanceNote: d.note },
+      })),
+    );
+    return dtos.map((d, i) => {
+      const v = shaped[i]!;
+      return markShaped({
+        ...d,
+        outcome: v.outcome as AttendanceDto['outcome'],
+        lateMin: v.lateMin as AttendanceDto['lateMin'],
+        actualStartAt: v.actualStartAt as AttendanceDto['actualStartAt'],
+        actualEndAt: v.actualEndAt as AttendanceDto['actualEndAt'],
+        note: v.attendanceNote as AttendanceDto['note'],
+      });
+    });
+  }
+
+  /**
    * Табель — про СВОИХ. У `shift_attendance.user_id` внешнего ключа нет вовсе,
    * поэтому принадлежность проверяется здесь: иначе в табель своей организации
    * можно записать постороннего человека по одному только uuid.
@@ -415,7 +451,7 @@ export class AttendanceService {
     if (!found) throw badRequest('objects.notWorkingHere');
   }
 
-  private serialize(r: {
+  serialize(r: {
     id: string;
     shiftId: string | null;
     branchId: string;

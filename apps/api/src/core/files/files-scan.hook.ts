@@ -5,10 +5,10 @@ import * as net from 'net';
 import { Readable } from 'stream';
 import { DatabaseService } from '../../shared/database/database.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
-import { NotificationsService } from '../notifications/notifications.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { STORAGE_DRIVER, StorageDriver } from './storage/storage-driver';
+import { AuditService } from '../audit/audit.service';
 
 /** Тип джоба антивирусного скана в реестре core/jobs. */
 const FILES_SCAN_JOB = 'files.scan';
@@ -27,10 +27,10 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
   constructor(
     private readonly db: DatabaseService,
     private readonly events: EventBusService,
-    private readonly notifications: NotificationsService,
     private readonly jobs: JobsService,
     private readonly jobsRegistry: JobsRegistry,
     @Inject(STORAGE_DRIVER) private readonly driver: StorageDriver,
+    private readonly audit: AuditService,
   ) {}
 
   get enabled(): boolean {
@@ -171,24 +171,29 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
       throw err;
     }
 
-    await this.db.fileObject.updateMany({
-      where: { id: fileId },
-      data: { scanStatus: verdict, ...(verdict === 'infected' ? { error: `virus: ${signature ?? 'FOUND'}` } : {}) },
+    // Вердикт и событие журнала безопасности — одной транзакцией (выдача блокируется тем же
+    // фактом, что попадает в журнал). Переход по условию: повтор джоба не пишет второй раз.
+    // Уведомление загрузившему шлёт движок журнала паспортом события (`notify`), в той же
+    // транзакции — раньше оно было best-effort после записи вердикта и могло потеряться.
+    await this.db.$transaction(async (tx) => {
+      const moved = await tx.fileObject.updateMany({
+        where: { id: fileId, scanStatus: { not: verdict } },
+        data: { scanStatus: verdict, ...(verdict === 'infected' ? { error: `virus: ${signature ?? 'FOUND'}` } : {}) },
+      });
+      if (verdict !== 'infected' || !moved.count) return;
+      await this.audit.record(tx, {
+        key: 'files.malware_detected',
+        actor: { kind: 'system' },
+        subjectUserId: file.uploaderId,
+        workspaceId: file.ownerType === 'workspace' ? file.ownerId : null,
+        target: { type: 'file', id: fileId, label: file.name },
+        details: { engine: 'clamav', signature: signatureCode(signature) },
+        notify: { params: { name: file.name } },
+      });
     });
 
     if (verdict === 'infected') {
       this.events.emit('file.scan.infected', { fileId, name: file.name, signature }, 'files');
-      try {
-        await this.notifications.send(null, {
-          type: 'files.scan.infected',
-          to: [{ userId: file.uploaderId }],
-          payload: { name: file.name, fileId },
-          reason: 'owner',
-          idempotencyKey: `scan:inf:${fileId}`,
-        });
-      } catch {
-        // уведомление best-effort
-      }
       this.logger.warn(`File ${fileId} is infected (${signature}) — serving is blocked`);
     }
   }
@@ -310,4 +315,10 @@ export class FilesScanHook implements OnModuleInit, OnApplicationBootstrap {
       });
     });
   }
+}
+
+/** Имя сигнатуры ClamAV (`Win.Test.EICAR_HDB-1`) — машинный код для деталей журнала: чужие символы заменяются. */
+function signatureCode(signature: string | undefined): string {
+  const code = (signature ?? '').replace(/[^A-Za-z0-9_.:-]/g, '_').slice(0, 128);
+  return code || 'unknown';
 }

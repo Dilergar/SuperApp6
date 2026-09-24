@@ -100,6 +100,8 @@ export interface AuditObservedEvent {
   reasonCode: string | null;
   actorKind: string;
   actorId: string | null;
+  /** Инициатор системного действия (увольнение КЭДО применил джоб) */
+  onBehalfOfId: string | null;
   subjectUserId: string | null;
   workspaceId: string | null;
   visWorkspace: boolean;
@@ -200,6 +202,7 @@ export class AuditService implements OnModuleDestroy {
       reasonCode: d.reasonCode ?? null,
       actorKind: row.actorKind,
       actorId: d.actorId ?? null,
+      onBehalfOfId: d.onBehalfOfId ?? null,
       subjectUserId: row.subjectUserId,
       workspaceId: d.workspaceId ?? null,
       visWorkspace: d.visWorkspace === true,

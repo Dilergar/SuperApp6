@@ -50,9 +50,38 @@ export const VERIFY_PURPOSES = [
   // Подтверждение НОВОЙ сессии раньше срока cooling (core/audit): пароль + код на свой номер.
   // Старт — /verify/step-up (залогинен); гашение — POST /users/me/sessions/confirm.
   'security_confirm',
+  // Раскрытие строгого поля (core/visibility: ИИН, удостоверение, адрес, IBAN) — пароль + код
+  // на свой номер, окно 15 минут на ВСЕ раскрытия (решение грилла №3). Своя цель: окно
+  // управления ключами не должно открывать чужие ИИН, и наоборот.
+  // Старт — /verify/step-up (залогинен); гашение — POST /verify/step-up/confirm.
+  'visibility_reveal',
+  // Управление правилами видимости организации (core/visibility): публикация, ОСЛАБЛЯЮЩАЯ
+  // строгие поля, и выдача делегирования раскрытия — пароль + код, окно 15 минут.
+  'visibility_manage',
 ] as const;
 
 export type VerifyPurpose = (typeof VERIFY_PURPOSES)[number];
+
+/**
+ * Цели «сильного подтверждения» С ОКНОМ (пароль + код → окно N минут без повторного SMS).
+ * Одна служба окна на платформу (`core/verify/step-up.service.ts`): сюда позже встанут
+ * passkeys/ЭЦП, потребители зовут только `assert(userId, purpose)`.
+ */
+export const STEP_UP_WINDOW_PURPOSES = ['keys_manage', 'visibility_reveal', 'visibility_manage'] as const;
+export type StepUpWindowPurpose = (typeof STEP_UP_WINDOW_PURPOSES)[number];
+export const STEP_UP_WINDOW_MINUTES: Record<StepUpWindowPurpose, number> = {
+  keys_manage: 15,
+  visibility_reveal: 15,
+  visibility_manage: 15,
+};
+/** Ключ Redis окна: цель в ключе — окно одной цели не открывает другую. */
+export const stepUpWindowKey = (purpose: StepUpWindowPurpose, userId: string): string => `verify:stepup:${purpose}:${userId}`;
+/** Коды отказа «окно закрыто» по цели (клиент ведёт в шаг пароль → код). */
+export const STEP_UP_REQUIRED_CODES: Record<StepUpWindowPurpose, string> = {
+  keys_manage: 'keys.step_up_required',
+  visibility_reveal: 'visibility.step_up_required',
+  visibility_manage: 'visibility.step_up_required',
+};
 
 export const VERIFY_LIMITS = {
   codeLength: 6,

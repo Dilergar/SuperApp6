@@ -56,11 +56,35 @@ export interface SecurityServerToClientEvents {
   'security:changed': (p: WsSecurityChanged) => void;
 }
 
+/**
+ * `visibility:changed` — политика видимости владельца сменилась (core/visibility, R6):
+ * организация опубликовала версию или человек поменял «кто видит» своей карточки. Клиент
+ * сбрасывает RQ-ключи этой организации (или карточки человека) — план зрителя пересчитается.
+ * Только коды и id: какие поля и кому — не едет.
+ */
+export interface WsVisibilityChanged {
+  ownerKind: 'workspace' | 'user';
+  ownerId: string;
+  recordType: string;
+  pv: number;
+}
+
+export interface VisibilityServerToClientEvents {
+  'visibility:changed': (p: WsVisibilityChanged) => void;
+}
+
+/** Payload шины `visibility.changed` (движок → relay: организация — в комнату команды, человек — связанным). */
+export interface VisibilityChangedBusPayload extends WsVisibilityChanged {
+  /** Кому доставить: участники организации либо связанные с человеком (решает продюсер) */
+  userIds: string[];
+}
+
 export type RealtimeServerToClientEvents = MessengerServerToClientEvents &
   NotificationServerToClientEvents &
   EntitlementsServerToClientEvents &
   KeysServerToClientEvents &
-  SecurityServerToClientEvents;
+  SecurityServerToClientEvents &
+  VisibilityServerToClientEvents;
 
 /** Payload шины `entitlements.changed` (движок → relay для user; workspaces подписывается для организации). */
 export interface EntitlementsChangedBusPayload {

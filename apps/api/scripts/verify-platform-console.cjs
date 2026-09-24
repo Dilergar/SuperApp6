@@ -69,6 +69,11 @@ async function clearConsoleLocks(userIds, phones) {
 const run = (token, key, input, extra = {}) =>
   call('POST', `/platform/commands/${key}`, token, { input, idempotencyKey: extra.idempotencyKey ?? `suite-${Date.now()}-${Math.random().toString(36).slice(2)}`, reason: extra.reason, ticketRef: extra.ticketRef });
 
+// Маска Кабинета = маска продукта (core/visibility R23): «+7 70* *** *5 67» — звёздочки и НЕ полный номер
+function isMaskedPhone(masked, full) {
+  return typeof masked === 'string' && /\*/.test(masked) && !masked.replace(/\D/g, '').includes(full.replace(/\D/g, '').slice(-7));
+}
+
 async function main() {
   const { check, finish } = makeChecker();
   const prisma = new PrismaClient();
@@ -243,7 +248,7 @@ async function main() {
 
     // ===== 6. Lookup, карточка 360, PII =====
     const lk = await call('GET', `/platform/lookup?q=${encodeURIComponent(SUITE.p3)}`, t1);
-    check('lookup по полному телефону → 1 человек, телефон маскирован', lk.ok && lk.json.data.query.kind === 'phone' && lk.json.data.users.length === 1 && /•••/.test(lk.json.data.users[0].phoneMasked), JSON.stringify(lk.json?.data).slice(0, 200));
+    check('lookup по полному телефону → 1 человек, телефон маскирован', lk.ok && lk.json.data.query.kind === 'phone' && lk.json.data.users.length === 1 && isMaskedPhone(lk.json.data.users[0].phoneMasked, SUITE.p3), JSON.stringify(lk.json?.data).slice(0, 200));
     const lkPartial = await call('GET', `/platform/lookup?q=${encodeURIComponent('+7700999')}`, t1);
     check('неполный телефон → пусто (tooShort)', lkPartial.ok && lkPartial.json.data.users.length === 0 && lkPartial.json.data.query.kind === 'tooShort');
     const lkUuid = await call('GET', `/platform/lookup?q=${s3.id}`, t1);
@@ -263,7 +268,7 @@ async function main() {
       check('панель тарифа организации грузится', p.ok && !!p.json.data.data?.snapshot);
     }
     const card3 = await call('GET', `/platform/entities/user/${s3.id}`, t1);
-    check('карточка человека: шапка маскирована, панели', card3.ok && /•••/.test(card3.json.data.header.phoneMasked) && card3.json.data.panels.some((p) => p.key === 'user.profile'));
+    check('карточка человека: шапка маскирована, панели', card3.ok && isMaskedPhone(card3.json.data.header.phoneMasked, SUITE.p3) && card3.json.data.panels.some((p) => p.key === 'user.profile'));
     const prof = await call('GET', `/platform/entities/user/${s3.id}/panels/user.profile`, t1);
     const profStr = JSON.stringify(prof.json?.data);
     check('панель профиля без запрещённых полей и с масками', prof.ok && !/"password"|"tokenEpoch"|"token"/.test(profStr) && !profStr.includes(SUITE.p3) && /phoneMasked/.test(profStr), profStr.slice(0, 200));

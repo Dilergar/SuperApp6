@@ -185,7 +185,7 @@ export class VerifyService {
    */
   async startStepUp(
     userId: string,
-    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete' | 'security_confirm',
+    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete' | 'security_confirm' | 'visibility_reveal' | 'visibility_manage',
     password: string,
     newPhone: string | undefined,
     ip?: string,
@@ -460,7 +460,7 @@ export class VerifyService {
       challengeId,
       resendInSec: isTest ? 0 : nextResend,
       ttlSec: VERIFY_LIMITS.codeTtlMin * 60,
-      phoneMasked: maskPhone(phone),
+      phoneMasked: maskPhone(phone) ?? '',
       purpose,
     };
   }

@@ -9,6 +9,7 @@
 
 import type { FileDto } from './file';
 import type { AssetKind, AssetMoveKind, AssetStatus, AttendanceOutcome, AttendanceSource, HoldingKind, ObjectKind, RateType, ShiftStatus } from '../constants/objects';
+import type { Guarded } from '../visibility/types';
 
 /** Что зритель может делать с объектом. Считается ОДИН раз на запрос. */
 export interface ObjectCapsDto {
@@ -125,14 +126,18 @@ export interface StaffingRowDto {
   note: string | null;
   /** Строка занята человеком либо это ВАКАНСИЯ (assignment = null) */
   assignment: StaffingAssignmentDto | null;
-  /** Только при caps.payrollView */
-  employment?: StaffingEmploymentDto;
-  /** Оклад по договору КЭДО, тиыны строкой; только при caps.payrollView */
-  officialSalary?: { amount: string; currency: string } | null;
-  /** Управленческая ставка человека; только при caps.payrollView */
-  actualRate?: StaffRateDto | null;
-  /** Плановая ставка штатной единицы; только при caps.payrollView */
-  plannedRate?: StaffRateDto | null;
+  /**
+   * Деньги строки — поля `objects.staffing` движка видимости (core/visibility): значение, маска
+   * или «скрыто» по правилам организации (руководитель объекта, «видит деньги», руководитель
+   * человека, сам). Поля нет вовсе — зритель не видит их ни в одной строке.
+   */
+  employment?: Guarded<StaffingEmploymentDto | null>;
+  /** Оклад по договору КЭДО, тиыны строкой */
+  officialSalary?: Guarded<{ amount: string; currency: string } | null>;
+  /** Управленческая ставка человека */
+  actualRate?: Guarded<StaffRateDto | null>;
+  /** Плановая ставка штатной единицы */
+  plannedRate?: Guarded<StaffRateDto | null>;
   /**
    * Только у ВАКАНСИИ: с какой даты место пустует (YYYY-MM-DD). Считается по всей
    * хронике назначений единицы, не по окну периода; если провалов не было — дата
@@ -211,7 +216,8 @@ export interface ShiftDto {
   patternId: string | null;
   status: ShiftStatus;
   publishedAt: string | null;
-  note: string | null;
+  /** Заметка к смене — поле `objects.shift.shiftNote` (core/visibility) */
+  note: Guarded<string | null>;
   version: number;
   /** Факт по смене (если отмечен) */
   attendance: AttendanceDto | null;
@@ -226,12 +232,13 @@ export interface AttendanceDto {
   userId: string;
   userName: string | null;
   localDate: string;
-  outcome: AttendanceOutcome;
-  lateMin: number;
-  actualStartAt: string | null;
-  actualEndAt: string | null;
+  /** Факт выхода — поля `objects.shift` (core/visibility): планировщикам, руководителю и самому */
+  outcome: Guarded<AttendanceOutcome>;
+  lateMin: Guarded<number>;
+  actualStartAt: Guarded<string | null>;
+  actualEndAt: Guarded<string | null>;
   source: AttendanceSource;
-  note: string | null;
+  note: Guarded<string | null>;
   markedById: string | null;
   markedAt: string;
 }

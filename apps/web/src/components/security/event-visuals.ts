@@ -18,6 +18,9 @@ const CATEGORY_ICON: Record<AuditCategory, IconName> = {
   data: 'download',
   detect: 'shieldWarning',
   audit: 'history',
+  sharing: 'share',
+  files: 'file',
+  authz: 'blocked',
 };
 
 /** Ключи с собственным рисунком (важнее категории) */
@@ -35,6 +38,22 @@ const KEY_ICON: Partial<Record<string, IconName>> = {
   'auth.logout_all': 'signOut',
   'account.frozen': 'snowflake',
   'account.unfrozen': 'lockOpen',
+  'account.integration.connected': 'plug',
+  'account.integration.disconnected': 'plug',
+  'org.member.invitation_cancelled': 'userAdd',
+  'sharing.link.created': 'link',
+  'sharing.link.updated': 'link',
+  'sharing.link.revoked': 'link',
+  'sharing.link.password_locked': 'lock',
+  'sharing.link.guest_verified': 'eye',
+  'files.malware_detected': 'shieldWarning',
+  // core/visibility: раскрытие защищённого поля, отказ, массовое раскрытие, правила
+  'pii.reveal': 'eye',
+  'pii.reveal_denied': 'eyeOff',
+  'detect.mass_reveal': 'shieldWarning',
+  'org.visibility.policy_published': 'eye',
+  'org.visibility.settings_changed': 'sliders',
+  'org.visibility.explain_viewed': 'eye',
 };
 
 export function eventIcon(e: Pick<SecurityEventDto, 'key' | 'category'>): IconName {
@@ -42,7 +61,8 @@ export function eventIcon(e: Pick<SecurityEventDto, 'key' | 'category'>): IconNa
 }
 
 export function eventTone(e: Pick<SecurityEventDto, 'key' | 'severity' | 'outcome'>): Tone {
-  if (e.key === 'account.frozen' || e.key === 'auth.session.refresh_reuse' || e.severity === 'critical') return 'danger';
+  // Вирус в загрузке — опасное по сути, хотя исход «успех» (сканер сработал)
+  if (e.key === 'account.frozen' || e.key === 'auth.session.refresh_reuse' || e.key === 'files.malware_detected' || e.severity === 'critical') return 'danger';
   if (e.outcome === 'failure' || e.outcome === 'denied' || e.key === 'auth.login.locked') return 'warning';
   return 'neutral';
 }

@@ -50,6 +50,8 @@ export interface RequestActor {
   /** Семейство refresh-цепочки (`fam`) — «сессия» человека */
   familyId: string | null;
   keyId: string | null;
+  /** R9: ключ/бот с доступом к контактным данным (класс `contact` движка видимости) */
+  contactAccess?: boolean;
   /** Роли сотрудника платформы на момент запроса (только platform_staff) */
   roles?: readonly string[] | null;
 }

@@ -12,6 +12,7 @@ import { WalletModule } from '../wallet/wallet.module';
 import { WorkspacesNotificationRefsProvider } from './workspaces-notification-refs.provider';
 import { WorkspacesEntitlementsProvider } from './workspaces-entitlements.provider';
 import { WorkspacePurgeRegistry } from './workspace-purge.registry';
+import { WorkspacesVisibilityProvider } from './workspaces-visibility.provider';
 
 /**
  * WorkspacesModule — B2B organizations + membership.
@@ -21,7 +22,7 @@ import { WorkspacePurgeRegistry } from './workspace-purge.registry';
  * the globally-available RolesService; this module owns workspaces, members & invitations.
  * StaffModule даёт назначения должностей (ростер, каскад увольнения, найм с должностью).
  * WalletModule даёт PaymentCardsService — основная карта сотрудника в реквизитном
- * блоке ростера (второй уровень «Видимости в Компаниях», manager+).
+ * блоке ростера (последние четыре; кто видит — правила видимости `staff.member`).
  */
 @Global()
 @Module({
@@ -44,6 +45,8 @@ import { WorkspacePurgeRegistry } from './workspace-purge.registry';
     WorkspacesTemplateFieldsProvider,
     // Хуки сервисов в каскаде окончательного удаления (Диск, Заметки — полиморфные владельцы)
     WorkspacePurgeRegistry,
+    // Движок видимости: тип `workspace.card` (анкета и реквизиты организации; раскрытие IBAN)
+    WorkspacesVisibilityProvider,
     { provide: 'WorkspacesService', useExisting: WorkspacesService },
   ],
   exports: [WorkspacesService, LegalEntitiesService, WorkspacePurgeRegistry, 'WorkspacesService'],

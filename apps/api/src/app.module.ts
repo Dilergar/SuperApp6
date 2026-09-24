@@ -16,6 +16,7 @@ import { I18nModule } from './shared/i18n/i18n.module';
 // Core modules
 import { AuthModule } from './core/auth/auth.module';
 import { UsersModule } from './core/users/users.module';
+import { UserCardModule } from './core/users/user-card.module';
 import { RolesModule } from './core/roles/roles.module';
 import { AccessModule } from './core/access/access.module';
 import { RichCardsModule } from './core/rich-cards/rich-cards.module';
@@ -45,6 +46,8 @@ import { ConsentsGateModule } from './core/consents/gate/consents-gate.module';
 import { ConsentsModule } from './core/consents/consents.module';
 import { IdempotencyModule } from './core/idempotency/idempotency.module';
 import { AuditModule } from './core/audit/audit.module';
+import { VisibilityModule } from './core/visibility/visibility.module';
+import { VisibilityResponseGuard } from './core/visibility/visibility.response.guard';
 import { IdempotencyInterceptor } from './core/idempotency/idempotency.interceptor';
 import { ConsentGateGuard } from './shared/guards/consent-gate.guard';
 import { KeyScopeGuard } from './core/keys/api-keys/key-scope.guard';
@@ -130,12 +133,14 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // на уровне БД, партиции по месяцам, подписанные дайджесты. Идёт ПОСЛЕ KeysModule: IP
     // шифруется платформенным KEK, псевдонимы — HMAC keystore (docs/audit_engine.md).
     AuditModule,
+    VisibilityModule,
     WebhooksModule,
     ConsentsModule,
 
     // Core — auth, users & universal identity
     AuthModule,
     UsersModule,
+    UserCardModule,
     RolesModule,
     // Unified authorization engine (ReBAC). Потребители — все сервисы с шерингом (магазин,
     // календарь, задачи, Диск, документы, финансы, Staff-оси): docs/access_engine.md.
@@ -316,6 +321,13 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     {
       provide: APP_INTERCEPTOR,
       useClass: IdempotencyInterceptor,
+    },
+    // Страж ответа (core/visibility): объявлен ПОСЛЕ идемпотентности, значит на выходе стоит
+    // ВНУТРИ неё — защищённые поля мимо `shape()` останавливаются до того, как ответ попадёт
+    // в снимок повтора
+    {
+      provide: APP_INTERCEPTOR,
+      useExisting: VisibilityResponseGuard,
     },
   ],
 })

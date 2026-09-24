@@ -36,6 +36,12 @@ export class CounterpartiesRegistriesProvider implements OnModuleInit {
     // ---- Хроника карточки: видит команда организации ----
     this.chatterRegistry.register(COUNTERPARTY_REF_TYPE, {
       canView: (viewerId, refId) => this.canView(viewerId, refId),
+      // Контакты контрагента в «было → стало» — по правилам организации (стажёру — маской)
+      visibility: {
+        recordType: 'counterparty',
+        fieldMap: { phone: 'phone', email: 'email' },
+        refOf: ({ refId, workspaceId }) => ({ recordId: refId, subjectId: null, workspaceId }),
+      },
     });
 
     // ---- Глобальный поиск: имя и БИН ----

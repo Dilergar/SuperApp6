@@ -7,6 +7,7 @@ import { MESSENGER_LIMITS } from '@superapp/shared';
 import { ContactPicker, useContacts } from './ContactPicker';
 import { EntitySelector } from '@/components/EntitySelector';
 import { loadEntities, type EntityOption, type Principal } from '@/lib/entities';
+import { guardedDisplay } from '@superapp/shared';
 
 type Mode = 'dm' | 'group';
 
@@ -43,8 +44,8 @@ export function NewChatModal({
   const groupModeOptions: EntityOption[] = [
     ...contacts.map((c) => ({
       type: 'user', id: c.them.id,
-      title: `${c.them.firstName} ${c.them.lastName ?? ''}`.trim(),
-      firstName: c.them.firstName, lastName: c.them.lastName, role: c.myRole,
+      title: `${c.them.firstName} ${guardedDisplay(c.them.lastName) ?? ''}`.trim(),
+      firstName: c.them.firstName, lastName: guardedDisplay(c.them.lastName), role: c.myRole,
     })),
     ...groups,
   ];

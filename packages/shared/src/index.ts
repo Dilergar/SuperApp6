@@ -51,13 +51,13 @@ export * from './types/analytics';
 export * from './types/keys';
 export * from './types/consents';
 export * from './types/audit';
+export * from './types/visibility';
 
 // Validation schemas
 export * from './validation/query';
 export * from './validation/auth';
 export * from './validation/notification';
 export * from './validation/task';
-export * from './validation/card-visibility';
 export * from './validation/contact';
 export * from './validation/circle';
 export * from './validation/calendar';
@@ -100,6 +100,7 @@ export * from './validation/analytics';
 export * from './validation/keys';
 export * from './validation/consents';
 export * from './validation/audit';
+export * from './validation/visibility';
 
 // Utils
 export * from './utils/phone';
@@ -115,7 +116,6 @@ export * from './utils/cidr';
 export * from './constants/i18n';
 export * from './constants/roles';
 export * from './constants/contacts';
-export * from './constants/card-visibility';
 export * from './notifications';
 // Тариф и лимиты (core/entitlements) и кабинет платформы (core/platform)
 export * from './entitlements';
@@ -131,6 +131,9 @@ export * from './consents';
 export * from './idempotency';
 // Журнал аудита безопасности (core/audit): реестр событий, видимость, лимиты, OCSF
 export * from './audit';
+// Правила видимости (core/visibility): реестр типов записей, маски, провод Guarded<T>, пресеты
+export * from './visibility';
+export * from './constants/visibility';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';

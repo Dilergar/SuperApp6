@@ -369,7 +369,9 @@
       "security_keys_recorded": "Security: keys and integrations",
       "security_data_recorded": "Security: data exports",
       "security_consents_recorded": "Security: consents",
-      "security_detect_recorded": "Security: detections"
+      "security_detect_recorded": "Security: detections",
+      "security_sharing_recorded": "Security: access and public links",
+      "security_files_recorded": "Security: files"
     },
     "createdTitle": "Webhook created",
     "createdNote": "This is the signing secret. It is shown only once — put it into the receiver now.",
@@ -415,5 +417,9 @@
   "throttledReason": {
     "rate": "too many requests per minute",
     "export": "the daily limit of exported rows is reached"
+  },
+  "contactAccess": {
+    "label": "Access to contact data",
+    "hint": "Phones and e-mails of clients and counterparties. Without it the integration sees only internal fields; salary, IIN and card numbers are never open to keys."
   }
 }

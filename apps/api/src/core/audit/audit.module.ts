@@ -22,6 +22,8 @@ import { AuditWorkspaceAccess } from './audit.workspace-access';
 import { AuditWorkspaceController } from './audit.workspace.controller';
 import { AuditPlatformController, AuditPlatformProvider } from './audit.platform';
 import { AuditDetections } from './audit.detections';
+import { AuditAuthz } from './audit.authz';
+import { AuditSettingsCheck } from './audit.settings';
 import { AuditDigestService } from './audit.digests';
 import { AuditArchiveService } from './audit.archive';
 import { AuditExportService } from './audit.export';
@@ -67,6 +69,8 @@ import { AUDIT_EVENT_ENTITY } from './audit.constants';
     AuditWorkspaceAccess,
     AuditPlatformProvider,
     AuditDetections,
+    AuditAuthz,
+    AuditSettingsCheck,
     AuditDigestService,
     AuditArchiveService,
     AuditExportService,

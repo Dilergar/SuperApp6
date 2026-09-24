@@ -5,6 +5,7 @@ import { ContactsController } from './contacts.controller';
 import { ContactsCron } from './contacts.cron';
 import { PersonalGraphRegistry } from './personal-graph.registry';
 import { ContactsNotificationRefsProvider } from './contacts-notification-refs.provider';
+import { ContactsVisibilityProvider } from './contacts-visibility.provider';
 
 /**
  * ContactsModule — bilateral confirmed social graph.
@@ -18,7 +19,14 @@ import { ContactsNotificationRefsProvider } from './contacts-notification-refs.p
   controllers: [ContactsController],
   providers: [
     // Движок уведомлений: резолвер объекта (право видеть батчем + deep link) — фича → движок
-    ContactsNotificationRefsProvider,ContactsService, ContactsCron, PersonalGraphRegistry, ContactsAudiencesProvider],
+    ContactsNotificationRefsProvider,
+    ContactsService,
+    ContactsCron,
+    PersonalGraphRegistry,
+    ContactsAudiencesProvider,
+    // Движок видимости: личный граф (связь, Группы, коллеги) + снятие исключений при разрыве связи
+    ContactsVisibilityProvider,
+  ],
   exports: [ContactsService, PersonalGraphRegistry],
 })
 export class ContactsModule {}

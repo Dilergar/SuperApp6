@@ -34,6 +34,8 @@ export function routeTemplateOf(pathname: string): string {
  * ДО общего `/workspaces`. Новый раздел веба = +1 строка (иначе он попадёт в `other`).
  */
 const ROUTE_AREAS: ReadonlyArray<readonly [string, AnalyticsAreaKey]> = [
+  // Правила видимости организации (core/visibility) — секция профиля, но своя область
+  ['/workspaces/:id/profile/visibility', 'visibility'],
   ['/workspaces/:id/members', 'staff'],
   ['/workspaces/:id/objects', 'objects'],
   ['/workspaces/:id/notes', 'notes'],

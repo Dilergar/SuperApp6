@@ -4,7 +4,7 @@ import { PassThrough } from 'node:stream';
 import * as yazl from 'yazl';
 import * as QRCode from 'qrcode';
 import type { SignAct as PrismaSignAct, SignRequest as PrismaSignRequest } from '@prisma/client';
-import { SIGN_LIMITS, maskIin, signCheckUrl } from '@superapp/shared';
+import { SIGN_LIMITS, maskIin, maskPhone, signCheckUrl } from '@superapp/shared';
 import type { Formatters, Translator } from '@superapp/i18n';
 import { ApiError, notFound } from '../../shared/errors/api-error';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -94,7 +94,8 @@ export class SignProtocolService {
                }),
              )}</div>`
           : `<div class="muted">${esc(
-              t('sign.protocol.pepLine', { phone: maskPhoneSafe(a.signerPhone, dash) }),
+              // Маска номера — ОБЩАЯ (shared): своя рядом с общей выдала бы оригинал по сочетанию
+              t('sign.protocol.pepLine', { phone: maskPhone(a.signerPhone) ?? dash }),
             )}</div>`;
         return `<tr>
           <td>
@@ -314,11 +315,6 @@ type ExportRow = PrismaSignRequest & { acts: PrismaSignAct[] };
 
 function esc(s: string | null | undefined): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
-function maskPhoneSafe(phone: string | null, dash: string): string {
-  if (!phone) return dash;
-  return `${phone.slice(0, 6)}•••${phone.slice(-2)}`;
 }
 
 /** Имена внутри архива не должны уводить наружу папки (zip-slip) */

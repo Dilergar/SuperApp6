@@ -384,13 +384,16 @@ async function main() {
   const accA = await acceptAllPending(BASE, tA);
   const pendA = await call('GET', '/consents/pending', tA);
   check('первый аккаунт сьюта принял новые версии и вышел из-за шлюза', accA.ok && pendA.ok && pendA.json.data.blocking.length === 0, `${JSON.stringify(accA)}`);
-  const vis = await call('PATCH', '/users/me', tA, { cardVisibility: { city: false } });
+  // Открыть поле «всем» — распространение по действию субъекта (core/visibility R20 → pd.publication)
+  const vis = await call('PUT', '/visibility/me', tA, { fields: [{ fieldKey: 'city', audiences: [{ kind: 'everybody', id: null }] }] });
   const folder = await call('POST', '/drive/folders', tA, { name: `consents-${stamp}` });
   const link = folder.ok ? await call('POST', '/share-links', tA, { refType: 'drive_node', refId: folder.json.data.id }) : { ok: false, status: folder.status };
   const tr = await call('GET', '/consents/my-data/transfers', tA);
   const items = tr.json?.data?.items ?? [];
   check('учёт: SMS регистрации (kazinfoteh, otp_sms) записано уже после создания аккаунта', items.some((x) => x.purpose === 'otp_sms' && x.recipientKey === 'kazinfoteh' && x.crossBorder === false), items.map((x) => x.purpose).join(','));
   check('учёт: смена видимости карточки — распространение (publication)', vis.ok && items.some((x) => x.purpose === 'card_visibility_changed' && x.actionType === 'publication'));
+  // Вернуть поле к умолчаниям платформы (аккаунт общий для всех сьютов)
+  await call('POST', '/visibility/me/reset', tA, { fieldKeys: ['city'] });
   check('учёт: ссылка наружу — распространение (publication)', link.ok && items.some((x) => x.purpose === 'share_link_created' && x.actionType === 'publication'), `${link.status}`);
   check('учёт несёт только КОДЫ полей, без значений', items.every((x) => x.fields.every((f) => /^[a-z_]+$/.test(f))));
   skip('учёт: web push / Google Calendar / доставка вебхука', 'нужны VAPID, OAuth Google и живой приёмник — запись стоит в коде доставки (notifications.delivery, google-calendar.service, webhooks.delivery.job)');

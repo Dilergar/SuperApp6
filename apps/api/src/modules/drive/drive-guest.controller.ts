@@ -24,6 +24,7 @@ import { Public } from '../../shared/decorators/public.decorator';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ApiError, notFound } from '../../shared/errors/api-error';
 import { DriveGuestZipService } from './drive-guest-zip.service';
+import { AuditService } from '../../core/audit/audit.service';
 import { DriveShareLinksProvider } from './drive-share-links.provider';
 import { DriveService, type NodeRow } from './drive.service';
 
@@ -47,6 +48,7 @@ export class DriveGuestController {
     private readonly guest: ShareLinksGuestService,
     private readonly provider: DriveShareLinksProvider,
     private readonly zipper: DriveGuestZipService,
+    private readonly audit: AuditService,
   ) {}
 
   @Public()
@@ -88,7 +90,7 @@ export class DriveGuestController {
     // Пропуск здесь приходит параметром, а не заголовком: скачивание — это навигация
     // браузера, своих заголовков у неё нет. Единственное такое место в движке.
     const q = driveGuestZipSchema.parse(query);
-    const { link, root } = await this.rootOf(q.session);
+    const { link, root, guest } = await this.rootOf(q.session);
     if (!link.allowDownload) {
       throw new ApiError(HttpStatus.FORBIDDEN, {
         code: 'drive.linkViewOnly',
@@ -99,7 +101,18 @@ export class DriveGuestController {
 
     const target = q.nodeId ? await this.nodeInScope(root, q.nodeId) : root;
     if (target.kind !== 'folder') throw notFound('drive.folderNotFound');
-    await this.zipper.stream(target, res);
+    // Массовый вынос по публичной ссылке — событие выгрузки: видят автор ссылки и организация
+    await this.zipper.stream(target, res, async (files) => {
+      await this.audit.record(null, {
+        key: 'data.export',
+        actor: guest ? { kind: 'guest', id: guest.id } : { kind: 'anonymous' },
+        subjectUserId: link.createdById,
+        workspaceId: link.workspaceId,
+        target: { type: DRIVE_NODE_REF_TYPE, id: target.id, label: target.name },
+        ref: { type: 'share_link', id: link.id },
+        details: { source: 'drive_guest_zip', rows: files },
+      });
+    });
   }
 
   @Public()
@@ -117,14 +130,14 @@ export class DriveGuestController {
   // ============================================================
 
   /** Пропуск → живая ссылка → её корневой узел (он же граница видимого поддерева) */
-  private async rootOf(session: string | undefined): Promise<{ link: ShareLink; root: NodeRow }> {
-    // Личность гостя Диску пока не нужна (просмотр и скачивание безличны) — берём
-    // только ссылку. Будущие потребители-действия берут из того же вызова `guest`.
-    const { link } = await this.guest.authorizeGuest(session, DRIVE_NODE_REF_TYPE);
+  private async rootOf(session: string | undefined): Promise<{ link: ShareLink; root: NodeRow; guest: { id: string } | null }> {
+    // Просмотр и скачивание безличны; личность гостя (если ссылка её требовала) нужна
+    // только журналу безопасности — кто вынес папку ZIP-архивом.
+    const { link, guest } = await this.guest.authorizeGuest(session, DRIVE_NODE_REF_TYPE);
     const root = await this.db.driveNode.findUnique({ where: { id: link.refId } });
     // Корень исчез или уехал в корзину — тот же ответ, что даёт resolveGuestView.
     if (!root || root.trashedAt) throw notFound('drive.itemGone');
-    return { link, root };
+    return { link, root, guest: guest ? { id: guest.id } : null };
   }
 
   /**

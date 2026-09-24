@@ -239,6 +239,7 @@ export class AuditQueryService {
     for (const r of rows) {
       const kind = auditActorKindOf(r.actorKind);
       if (r.actorId && (kind === 'user' || kind === 'bot' || (kind === 'platform_staff' && viewer.kind === 'platform'))) personIds.add(r.actorId);
+      if (kind === 'system' && r.onBehalfOfId) personIds.add(r.onBehalfOfId);
       if (r.subjectUserId && viewer.kind !== 'subject') personIds.add(r.subjectUserId);
       if (r.targetType === 'user' && r.targetId) personIds.add(r.targetId);
     }
@@ -296,7 +297,7 @@ export class AuditQueryService {
         op: viewer.kind === 'subject' && def?.category !== 'keys' ? null : r.op,
         title: text.title,
         body: text.body,
-        actor: this.actorDto(viewer, actorKind, r.actorId, personById),
+        actor: this.actorDto(viewer, actorKind, r.actorId, personById, r.onBehalfOfId),
         subject: viewer.kind !== 'subject' && r.subjectUserId ? (personById.get(r.subjectUserId) ?? null) : null,
         workspaceId: r.workspaceId,
         target: r.targetType && r.targetId ? { type: r.targetType, id: r.targetId, label: r.targetLabel, ...(r.targetType === 'user' ? { person: personById.get(r.targetId) ?? null } : {}) } : null,
@@ -311,8 +312,13 @@ export class AuditQueryService {
     });
   }
 
-  /** Актор в проекции: личность сотрудника платформы вне Кабинета не раскрывается никогда. */
-  private actorDto(viewer: AuditViewer, kind: AuditActorKind, id: string | null, people: Map<string, AuditPersonDto>): AuditActorDto {
+  /**
+   * Актор в проекции: личность сотрудника платформы вне Кабинета не раскрывается никогда.
+   * `onBehalfOf` системы — человек продукта, по чьему действию она сработала (кадровое действие
+   * применил джоб). Делегирование сотрудника платформы пишется актором `platform_staff`, а не
+   * системой, — поэтому через эту ветку его личность наружу не уходит.
+   */
+  private actorDto(viewer: AuditViewer, kind: AuditActorKind, id: string | null, people: Map<string, AuditPersonDto>, onBehalfOfId: string | null = null): AuditActorDto {
     switch (kind) {
       case 'user':
         return id ? { kind: 'user', id, person: people.get(id) ?? null } : { kind: 'anonymous' };
@@ -323,9 +329,10 @@ export class AuditQueryService {
         return viewer.kind === 'platform' && id ? { kind: 'platform_staff', id, person: people.get(id) ?? null } : { kind: 'platform' };
       case 'device':
         return { kind: 'device', id };
+      case 'system':
+        return onBehalfOfId ? { kind, onBehalfOf: people.get(onBehalfOfId) ?? null } : { kind };
       case 'guest':
       case 'anonymous':
-      case 'system':
         return { kind };
     }
   }

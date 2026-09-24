@@ -32,8 +32,42 @@ export function ActorView({ actor }: { actor: AuditActorDto }) {
           <Chip tone="accent" size="sm">{t('actorKinds.platform_staff')}</Chip>
         </span>
       );
+    case 'system':
+      // Система, сработавшая по действию человека (увольнение КЭДО применил джоб), — с инициатором
+      return actor.onBehalfOf ? (
+        <span style={{ display: 'inline-flex', gap: '0.375rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <Chip tone="neutral" size="sm">{t('actorKinds.system')}</Chip>
+          <span className="label-sm">{t('ui.event.initiator')}</span>
+          <PersonChip size="S" userId={actor.onBehalfOf.id} firstName={actor.onBehalfOf.firstName} lastName={actor.onBehalfOf.lastName} avatar={actor.onBehalfOf.avatar} />
+        </span>
+      ) : (
+        <Chip tone="neutral" size="sm">{t('actorKinds.system')}</Chip>
+      );
     default:
       return <Chip tone="neutral" size="sm">{t(`actorKinds.${actor.kind}`)}</Chip>;
+  }
+}
+
+/**
+ * Адрес объекта события в продукте — те же адреса, что у уведомлений его владельца. Только
+ * объекты организации, которые админ может открыть; удалённый объект (ссылка закрыта
+ * системой) ссылки не получает.
+ */
+function objectHref(event: Pick<SecurityEventDto, 'target' | 'workspaceId' | 'details'>): string | null {
+  const target = event.target;
+  if (!target || event.details.reason === 'object_deleted') return null;
+  const ws = event.workspaceId;
+  switch (target.type) {
+    case 'drive_node':
+      return `/drive/n/${target.id}`;
+    case 'note':
+      return ws ? `/workspaces/${ws}/notes/${target.id}` : null;
+    case 'note_folder':
+      return ws ? `/workspaces/${ws}/notes?folder=${target.id}` : null;
+    case 'doc_template':
+      return ws ? `/workspaces/${ws}/documents/templates/${target.id}` : null;
+    default:
+      return null;
   }
 }
 
@@ -148,7 +182,14 @@ export function SecurityEventModal({
           {event.target.person ? (
             <PersonChip size="S" userId={event.target.person.id} firstName={event.target.person.firstName} lastName={event.target.person.lastName} avatar={event.target.person.avatar} />
           ) : (
-            <span>{event.target.label ?? event.target.id}</span>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <span>{event.target.label ?? event.target.id}</span>
+              {viewer === 'workspace' && objectHref(event) && (
+                <Button variant="outline" size="sm" href={objectHref(event)!}>
+                  {t('ui.event.openObject')}
+                </Button>
+              )}
+            </span>
           )}
         </Row>
       )}

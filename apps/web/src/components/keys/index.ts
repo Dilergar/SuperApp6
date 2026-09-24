@@ -4,4 +4,4 @@ export { KeyRevealOnce } from './KeyRevealOnce';
 export { ScopeMatrix, ScopeSummary } from './ScopeMatrix';
 export { KeysStepUpProvider, useKeysStepUp, StepUpWindowChip } from './KeysStepUp';
 export { BotWizard } from './BotWizard';
-export { PersonalKeyDialog, RotateKeyDialog, RevokeKeyDialog, BotKeyDialog, ExpiryFields, AllowlistField } from './KeyDialogs';
+export { PersonalKeyDialog, RotateKeyDialog, RevokeKeyDialog, BotKeyDialog, ExpiryFields, AllowlistField, ContactAccessField } from './KeyDialogs';

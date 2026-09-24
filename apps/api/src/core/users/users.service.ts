@@ -38,6 +38,10 @@ import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { KeysCascadesService } from '../keys/api-keys/keys.cascades.service';
 import { KeysEnvelopeService } from '../keys/keys.envelope.service';
+import { VisibilityPolicyService } from '../visibility/visibility.policy.service';
+import { VisibilityService, markShaped } from '../visibility/visibility.service';
+import { VisibilityDiscoverabilityService } from '../visibility/visibility.discoverability.service';
+import { USER_CARD_SELECT, UserCardService } from './user-card.service';
 import {
   CONSENT_AGE,
   CONSENT_ERROR_CODES,
@@ -45,8 +49,6 @@ import {
   ageOnDate,
   maskPhone,
   platformTodayIso,
-  resolveCardVisibility,
-  type CardVisibility,
   type AccountDeletionBlockersDto,
   type ChangePasswordInput,
   type ChangePhoneInput,
@@ -55,6 +57,9 @@ import {
   type User,
   type UserLookupDto,
   type UserProfile,
+  type ContactUserCard,
+  type VisibilityPreviewAs,
+  type VisibilityPreviewQuery,
 } from '@superapp/shared';
 
 /** Days a deleted account stays recoverable before permanent anonymization. */
@@ -95,6 +100,10 @@ export class UsersService implements OnModuleInit {
     private audit: AuditService,
     private sessions: AuditSessionsService,
     private account: AuditAccountService,
+    private visibilityPolicies: VisibilityPolicyService,
+    private visibility: VisibilityService,
+    private discoverability: VisibilityDiscoverabilityService,
+    private userCards: UserCardService,
   ) {}
 
   onModuleInit(): void {
@@ -129,7 +138,6 @@ export class UsersService implements OnModuleInit {
         email: true,
         maritalStatus: true,
         socialLinks: true,
-        onlineStatusMode: true,
         phoneVerifiedAt: true,
         kind: true,
         locale: true,
@@ -139,8 +147,6 @@ export class UsersService implements OnModuleInit {
         idDocNumber: true,
         idDocIssuedBy: true,
         idDocIssuedAt: true,
-        cardVisibility: true,
-        companyCardVisibility: true,
         createdAt: true,
         updatedAt: true,
         roles: {
@@ -169,7 +175,7 @@ export class UsersService implements OnModuleInit {
       throw notFound('auth.userNotFound');
     }
 
-    const { _count, cardVisibility, companyCardVisibility, dateOfBirth, phoneVerifiedAt, idDocIssuedAt, ...rest } = user;
+    const { _count, dateOfBirth, phoneVerifiedAt, idDocIssuedAt, ...rest } = user;
 
     const profile: UserProfile = {
       ...rest,
@@ -182,15 +188,6 @@ export class UsersService implements OnModuleInit {
       kind: rest.kind === 'bot' ? 'bot' : 'person',
       dateOfBirth: dateOfBirth ? dateOfBirth.toISOString().slice(0, 10) : null,
       idDocIssuedAt: idDocIssuedAt ? idDocIssuedAt.toISOString().slice(0, 10) : null,
-      // Owner's DEFAULT visibility — applied to contacts in none of the
-      // owner's groups. Per-group visibility lives on Circle.
-      cardVisibility: resolveCardVisibility(
-        cardVisibility as Parameters<typeof resolveCardVisibility>[0],
-      ),
-      // «Видимость в Компаниях» — что видят коллеги по организации в ростере.
-      companyCardVisibility: resolveCardVisibility(
-        companyCardVisibility as Parameters<typeof resolveCardVisibility>[0],
-      ),
       circlesCount: _count.ownedCircles,
       workspacesCount: _count.workspaceMembers,
       contactsCount: _count.contactLinksA + _count.contactLinksB,
@@ -231,35 +228,13 @@ export class UsersService implements OnModuleInit {
     userId: string,
     data: UpdateProfileInput,
   ): Promise<Omit<User, 'isVerified' | 'createdAt' | 'updatedAt'>> {
-    const { dateOfBirth, cardVisibility, companyCardVisibility, socialLinks, ...rest } = data;
+    const { dateOfBirth, socialLinks, ...rest } = data;
     // Аватар хранится ССЫЛКОЙ (не FileLink) → при замене прибираем прежний файл сами,
     // иначе каждая смена аватара навсегда копит квоту (публичные файлы крон не свипает).
     const prevAvatar =
       rest.avatar !== undefined
         ? (await this.db.user.findUnique({ where: { id: userId }, select: { avatar: true } }))?.avatar
         : undefined;
-
-    // Карты видимости пишутся МЕРЖЕМ над текущей, а не заменой. Схема допускает
-    // частичный объект (все поля optional), и `PATCH {cardVisibility:{city:false}}`
-    // затирал всю карту: недостающие поля на чтении добирались из ПЛАТФОРМЕННЫХ
-    // дефолтов, где био/возраст/соцсети открыты, — то есть частичное сужение
-    // молча ОТКРЫВАЛО ранее скрытые поля. Видимость групп (CirclesService) уже
-    // мержится; теперь контракт один и тот же.
-    const mergeVisibility = (
-      current: unknown,
-      patch: Partial<CardVisibility> | null | undefined,
-    ): Prisma.InputJsonValue | typeof Prisma.JsonNull | undefined => {
-      if (patch === undefined) return undefined;
-      // Явный null — осознанный сброс «как у всех» (платформенные дефолты),
-      // в отличие от частичного объекта, который мержится над текущим.
-      if (patch === null) return Prisma.JsonNull;
-      const base = resolveCardVisibility(current as Partial<CardVisibility> | null);
-      return resolveCardVisibility({
-        ...base,
-        ...patch,
-        extras: { ...(base.extras ?? {}), ...(patch.extras ?? {}) },
-      }) as unknown as Prisma.InputJsonValue;
-    };
 
     // Дата рождения — опора возрастных правил (регистрация с 16, реальные деньги с 18): её нельзя
     // ни стереть, ни сдвинуть ниже порога регистрации. «Сегодня» — в поясе платформы.
@@ -269,33 +244,12 @@ export class UsersService implements OnModuleInit {
       if (!Number.isFinite(age) || age < CONSENT_AGE.minRegistration) throw forbidden(CONSENT_ERROR_CODES.minorNotAllowed, { age: CONSENT_AGE.minRegistration });
     }
 
-    const needsVisibilityMerge =
-      cardVisibility !== undefined || companyCardVisibility !== undefined;
-    const currentVisibility = needsVisibilityMerge
-      ? await this.db.user.findUnique({
-          where: { id: userId },
-          select: { cardVisibility: true, companyCardVisibility: true },
-        })
-      : null;
-
     const user = await this.db.user.update({
       where: { id: userId },
       data: {
         ...rest,
         ...(dateOfBirth !== undefined && {
           dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : null,
-        }),
-        ...(cardVisibility !== undefined && {
-          cardVisibility: mergeVisibility(
-            currentVisibility?.cardVisibility,
-            cardVisibility,
-          ),
-        }),
-        ...(companyCardVisibility !== undefined && {
-          companyCardVisibility: mergeVisibility(
-            currentVisibility?.companyCardVisibility,
-            companyCardVisibility,
-          ),
         }),
         ...(socialLinks !== undefined && {
           socialLinks: socialLinks as any,
@@ -314,7 +268,6 @@ export class UsersService implements OnModuleInit {
         email: true,
         maritalStatus: true,
         socialLinks: true,
-        onlineStatusMode: true,
         kind: true,
         locale: true,
         timezone: true,
@@ -328,12 +281,6 @@ export class UsersService implements OnModuleInit {
 
     // Invalidate cache
     await this.redis.invalidateUserProfile(userId);
-
-    // Учёт действий с ПДн: смена видимости карточки меняет то, что о человеке видят другие
-    // (распространение по его собственному действию). Пишется факт, не значения полей.
-    if (cardVisibility !== undefined) {
-      await this.pdActions.record(null, { subjectId: userId, actionType: 'publication', basis: 'subject_action', fields: ['public_card'], purpose: 'card_visibility_changed', refType: 'user', refId: userId });
-    }
 
     if (rest.avatar !== undefined && prevAvatar !== user.avatar) {
       await this.files
@@ -721,6 +668,9 @@ export class UsersService implements OnModuleInit {
         where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
       });
       await tx.circle.deleteMany({ where: { ownerId: userId } }); // cascades memberships
+      // Политики видимости человека (полиморфный владелец, без FK) и его место в чужих
+      // исключениях — иначе пережили бы аккаунт навсегда (core/visibility, R1)
+      await this.visibilityPolicies.purgeOwner(tx, 'user', userId);
       await tx.session.deleteMany({ where: { userId } });
       // Устройства (подписи, UA-семейства) — ПДн аккаунта; журнал безопасности остаётся (срок
       // хранения по закону), а устройства человека, которого больше нет, — нет
@@ -765,7 +715,6 @@ export class UsersService implements OnModuleInit {
           dateOfBirth: null,
           maritalStatus: null,
           socialLinks: Prisma.JsonNull,
-          cardVisibility: Prisma.JsonNull,
           deletionScheduledAt: null,
         },
       });
@@ -797,16 +746,26 @@ export class UsersService implements OnModuleInit {
     );
   }
 
-  async findByPhone(phone: string): Promise<UserLookupDto | null> {
-    return this.db.user.findUnique({
-      where: { phone },
-      select: {
-        id: true,
-        phone: true,
-        firstName: true,
-        lastName: true,
-        avatar: true,
-      },
-    });
+  /** Поиск по номеру глазами зрителя: находимость + минимальная карточка по правилам владельца. */
+  async lookupForViewer(viewerId: string, phone: string): Promise<UserLookupDto | null> {
+    const row = await this.db.user.findUnique({ where: { phone }, select: { ...USER_CARD_SELECT, deletedAt: true, kind: true } });
+    if (!row || row.deletedAt || row.kind === 'bot') return null;
+    const viewer = this.visibility.viewer('api', { workspaceId: null });
+    if (!(await this.discoverability.isDiscoverable(row.id, viewerId, viewer.kind === 'bot' ? 'bot' : 'user'))) return null;
+    const card = await this.userCards.card(viewer, row);
+    return markShaped({ id: row.id, phone: row.phone, firstName: card.firstName, lastName: card.lastName, avatar: card.avatar });
+  }
+
+  /** Своя карточка глазами синтетического зрителя («Как видит»). Группа — только своя. */
+  async cardPreview(userId: string, q: VisibilityPreviewQuery): Promise<ContactUserCard> {
+    const row = await this.db.user.findUnique({ where: { id: userId }, select: USER_CARD_SELECT });
+    if (!row) throw notFound('auth.userNotFound');
+    if (q.as === 'circle') {
+      const own = await this.db.circle.count({ where: { id: q.id!, ownerId: userId } });
+      if (!own) throw notFound('contacts.circleNotFound');
+    }
+    const as: VisibilityPreviewAs =
+      q.as === 'circle' ? { kind: 'circle', id: q.id! } : q.as === 'colleague' ? { kind: 'colleague', workspaceId: q.id! } : q.as === 'user' ? { kind: 'user', id: q.id! } : { kind: q.as };
+    return this.userCards.preview(row, as);
   }
 }

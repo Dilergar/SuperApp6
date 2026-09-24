@@ -7,7 +7,9 @@ import { VerifyService } from './verify.service';
 import { Public } from '../../shared/decorators/public.decorator';
 import { Idempotent, SkipIdempotency } from '../../shared/decorators/idempotency.decorator';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
-import { verifyStartSchema, verifyStepUpSchema, verifyCheckSchema } from '@superapp/shared';
+import { verifyStartSchema, verifyStepUpSchema, verifyCheckSchema, stepUpConfirmSchema, stepUpStatusQuerySchema } from '@superapp/shared';
+import { NoApiKeys } from '../../shared/decorators/api-keys.decorator';
+import { StepUpService } from './step-up.service';
 import { SkipConsentGate } from '../../shared/decorators/skip-consent-gate.decorator';
 
 /**
@@ -28,7 +30,10 @@ function clientIp(req: Request): string | undefined {
 @SkipConsentGate()
 @Controller('verify')
 export class VerifyController {
-  constructor(private verify: VerifyService) {}
+  constructor(
+    private verify: VerifyService,
+    private stepUpWindows: StepUpService,
+  ) {}
 
   @Public()
   @Get('status')
@@ -66,6 +71,40 @@ export class VerifyController {
     // после сожжённого кода, а угнанный токен работал бы кнопкой SMS-спама.
     const result = await this.verify.startStepUp(user.sub, data.purpose, data.password, data.newPhone, clientIp(req));
     return { success: true, data: result };
+  }
+
+  /** Окно «сильного подтверждения» цели (ключи, раскрытие строгих полей, правила видимости). */
+  @NoApiKeys()
+  @Get('step-up/status')
+  @ApiOperation({ summary: 'Is the strong-confirmation window of a purpose open (keys, visibility reveal/manage)' })
+  async stepUpStatus(@CurrentUser() user: JwtPayload, @Query() q: unknown) {
+    const { purpose } = stepUpStatusQuerySchema.parse(q ?? {});
+    return { success: true, data: await this.stepUpWindows.status(user.sub, purpose) };
+  }
+
+  /** Погасить пропуск цели → окно 15 минут. Пропуск одноразовый — повтор безопасен сам. */
+  @NoApiKeys()
+  @SkipIdempotency('own_mechanism')
+  @Post('step-up/confirm')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ long: { limit: 30, ttl: 900000 } })
+  @ApiOperation({ summary: 'Consume a step-up verifyToken of a purpose and open its window' })
+  async stepUpConfirm(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    const { purpose, verifyToken } = stepUpConfirmSchema.parse(body ?? {});
+    return { success: true, data: await this.stepUpWindows.confirm(user.sub, purpose, verifyToken) };
+  }
+
+  /** Закрыть окно досрочно (кнопка «Завершить»). */
+  @NoApiKeys()
+  // Закрыть уже закрытое окно — тот же результат
+  @SkipIdempotency('naturally_idempotent')
+  @Post('step-up/end')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Close the step-up window of a purpose early' })
+  async stepUpEnd(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    const { purpose } = stepUpStatusQuerySchema.parse(body ?? {});
+    await this.stepUpWindows.end(user.sub, purpose);
+    return { success: true, data: { until: null } };
   }
 
   @Public()

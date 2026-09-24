@@ -30,4 +30,6 @@ export const SECURITY_NOTIFICATIONS = defineNotifications({
   // Детекция mass_export внутри организации: владелец и админы узнают о массовой выгрузке данных
   // своим журналом (ссылка — на событие-причину в журнале организации); одна тревога — одно письмо
   'security.org.massExport': { service: 'security', priority: 'high', icon: 'warning', contexts: 'workspace', collapse: 'none' },
+  // Подбор кода доступа к публичной ссылке упёрся в блок — автору ссылки (сменить код или закрыть ссылку)
+  'security.link.passwordLocked': { service: 'security', priority: 'critical', icon: 'lock', contexts: 'personal', collapse: 'none' },
 });

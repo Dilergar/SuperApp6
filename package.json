@@ -12,6 +12,7 @@
     "check:i18n": "node scripts/check-i18n.cjs",
     "check:analytics": "node scripts/check-analytics.cjs",
     "check:audit": "node scripts/check-audit.cjs",
+    "check:visibility": "node scripts/check-visibility.cjs",
     "i18n:gen": "pnpm --filter @superapp/i18n gen",
     "clean": "turbo clean",
     "db:generate": "turbo db:generate",

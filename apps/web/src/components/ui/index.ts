@@ -19,6 +19,7 @@ export { Field, Input, Textarea, SearchField, type InputProps, type TextareaProp
 export { Select, type SelectOption, type SelectProps } from './Select';
 export { Toggle, Checkbox, type ToggleProps, type CheckboxProps } from './Toggle';
 export { Chip, Badge, StatusDot, type ChipProps } from './Chip';
+export { GuardedValue, type GuardedValueProps } from './GuardedValue';
 export { Card, CardHeader, PageHeader, StatTile, EmptyState, Divider, BentoGrid, type CardProps } from './Card';
 export { TickBar, GradientTickBar, type TickBarProps } from './TickBar';
 export { Modal, ConfirmDialog, type ModalProps, type ModalSize } from './Modal';

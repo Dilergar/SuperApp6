@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Employment as EmploymentRow } from '@prisma/client';
 import {
   CONTRACT_MAX_SILENT_EXTENSIONS,
   ESUTD_KINDS,
@@ -24,6 +24,7 @@ import {
   type PersonalDocRecordDto,
   type UpsertEmploymentInput,
   type WorkspaceRole,
+  visibleOr,
 } from '@superapp/shared';
 import { SOURCE_LOCALE } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -40,6 +41,8 @@ import { HrActionsService } from './hr-actions.service';
 import { LegalEntitiesService } from '../workspaces/legal-entities.service';
 import { HR_MEMBER_REF_TYPE, assertCanManageHrSubject, hrMemberRefId } from './hr.constants';
 import { fullName } from '../../shared/utils/user-name';
+import { VisibilityService, markShaped, type VisibilityViewer } from '../../core/visibility/visibility.service';
+import { UserCardService, USER_CARD_SELECT } from '../../core/users/user-card.service';
 
 const WS_CONTEXT = 'workspace';
 
@@ -68,6 +71,8 @@ export class HrService implements HrPort, HrNodesPort {
     private readonly actions: HrActionsService,
     private readonly legal: LegalEntitiesService,
     private readonly i18n: I18nService,
+    private readonly visibility: VisibilityService,
+    private readonly userCards: UserCardService,
   ) {}
 
   /** Слово в языке ИСТОЧНИКА — для снимков, которые ложатся в БД навсегда */
@@ -125,7 +130,60 @@ export class HrService implements HrPort, HrNodesPort {
   // Трудовая карточка (Employment)
   // ============================================================
 
-  serializeEmployment(row: {
+  /**
+   * Трудовые карточки ГЛАЗАМИ ЗРИТЕЛЯ (core/visibility, `hr.employment`): оклад —
+   * владельцу/админу, руководителю субъекта и руководителю его объекта, самому (ТК ст. 113);
+   * основание увольнения — конфиденциально. Право на ЗАПИСЬ (сам или Менеджер+) решает
+   * вызывающий; поля — движок. Поле простого типа, которое движок не отдал, — `null`
+   * (fail-closed), защищённые — маркером.
+   */
+  async serializeEmploymentsFor(viewer: VisibilityViewer, rows: readonly EmploymentRow[]): Promise<EmploymentDto[]> {
+    if (!rows.length) return [];
+    const shaped = await this.visibility.shape(
+      viewer,
+      'hr.employment',
+      rows.map((r) => ({
+        ref: { recordId: r.id, subjectId: r.userId, workspaceId: r.workspaceId, stage: r.status, branchId: r.legalBranchId },
+        values: {
+          hiredAt: dateStr(r.hiredAt),
+          firedAt: dateStr(r.firedAt),
+          contractNumber: r.contractNumber,
+          contractDate: dateStr(r.contractDate),
+          contractType: r.contractType,
+          contractEndAt: dateStr(r.contractEndAt),
+          probationUntil: dateStr(r.probationUntil),
+          workRate: r.workRate,
+          workSchedule: r.workSchedule,
+          personnelNumber: r.personnelNumber,
+          dismissalGround: r.dismissalGround,
+          salaryAmount: r.salaryAmount === null ? null : String(r.salaryAmount),
+        },
+      })),
+    );
+    return rows.map((r, i) => {
+      const v = shaped[i]!;
+      const raw = this.serializeEmploymentRow(r);
+      const plain = (x: unknown) => visibleOr(x, null);
+      return markShaped({
+        ...raw,
+        hiredAt: plain(v.hiredAt) as string | null,
+        firedAt: plain(v.firedAt) as string | null,
+        contractNumber: plain(v.contractNumber) as string | null,
+        contractDate: plain(v.contractDate) as string | null,
+        contractType: ((plain(v.contractType) as string | null) ?? raw.contractType) as EmploymentDto['contractType'],
+        contractEndAt: plain(v.contractEndAt) as string | null,
+        probationUntil: plain(v.probationUntil) as string | null,
+        workRate: plain(v.workRate) as number | null,
+        workSchedule: plain(v.workSchedule) as string | null,
+        personnelNumber: plain(v.personnelNumber) as string | null,
+        dismissalGround: v.dismissalGround as EmploymentDto['dismissalGround'],
+        salaryAmount: v.salaryAmount as EmploymentDto['salaryAmount'],
+      });
+    });
+  }
+
+  /** Сырая форма строки — ТОЛЬКО основа `serializeEmploymentsFor` (наружу сама не уходит). */
+  private serializeEmploymentRow(row: {
     id: string;
     workspaceId: string;
     userId: string;
@@ -153,7 +211,7 @@ export class HrService implements HrPort, HrNodesPort {
     personnelNumber: string | null;
     createdAt: Date;
     updatedAt: Date;
-  }): EmploymentDto {
+  }): Omit<EmploymentDto, 'salaryAmount' | 'dismissalGround'> & { salaryAmount: string | null; dismissalGround: string | null } {
     return {
       id: row.id,
       workspaceId: row.workspaceId,
@@ -323,6 +381,31 @@ export class HrService implements HrPort, HrNodesPort {
     });
 
     const existing = target ?? (await this.liveEmployment(workspaceId, subjectUserId, legalEntityId));
+    // Нельзя править то, чего не видишь (W): оклад Менеджеру без права на него — 403 с кодом,
+    // маска в теле — 400 (форма, отрисованная по маске, записала бы маску вместо данных)
+    await this.visibility.assertWritable(
+      this.visibility.viewer('api', { workspaceId }),
+      'hr.employment',
+      {
+        recordId: existing?.id ?? subjectUserId,
+        subjectId: subjectUserId,
+        workspaceId,
+        stage: existing?.status ?? 'active',
+        branchId: dto.legalBranchId ?? existing?.legalBranchId ?? null,
+      },
+      {
+        hiredAt: dto.hiredAt,
+        contractNumber: dto.contractNumber,
+        contractDate: dto.contractDate,
+        contractType: dto.contractType,
+        contractEndAt: dto.contractEndAt,
+        probationUntil: dto.probationUntil,
+        workRate: dto.workRate,
+        workSchedule: dto.workSchedule,
+        personnelNumber: dto.personnelNumber,
+        salaryAmount: dto.salaryAmount,
+      },
+    );
     const data = {
       ...(dto.hiredAt !== undefined ? { hiredAt: dto.hiredAt ? new Date(dto.hiredAt) : null } : {}),
       ...(dto.contractNumber !== undefined ? { contractNumber: dto.contractNumber } : {}),
@@ -378,7 +461,7 @@ export class HrService implements HrPort, HrNodesPort {
             throw err;
           }
         })();
-    return this.serializeEmployment(row);
+    return (await this.serializeEmploymentsFor(this.visibility.viewer('api', { workspaceId }), [row]))[0]!;
   }
 
   /** Снимки названий должности/филиала по договору (валидируются принадлежностью) */
@@ -499,10 +582,7 @@ export class HrService implements HrPort, HrNodesPort {
     }
 
     const [user, assignments, liveEmp] = await Promise.all([
-      this.db.user.findUnique({
-        where: { id: subjectUserId },
-        select: { id: true, firstName: true, lastName: true, avatar: true, phone: true },
-      }),
+      this.db.user.findUnique({ where: { id: subjectUserId }, select: USER_CARD_SELECT }),
       this.db.staffAssignment.findMany({
         // Факт = ДЕЙСТВУЮЩИЕ назначения: закрытые остаются в истории, но плашку
         // «факт ≠ договор» и карточку рисуют только живые.
@@ -534,23 +614,32 @@ export class HrService implements HrPort, HrNodesPort {
     // Черновики действий — только управляющим: готовящийся приказ (основание
     // увольнения, дата, новый оклад) субъекту не показывается, как и черновик
     // самого документа.
-    const actions = canSeeEmployment
+    const viewer = this.visibility.viewer('api', { workspaceId });
+    const rawActions = canSeeEmployment
       ? await this.actions.listForUser(workspaceId, subjectUserId, 20, { includeDrafts: this.isManager(viewerRole) })
       : [];
+    // Оклад и основание увольнения в параметрах действия — те же поля трудовой карточки:
+    // Менеджер без права на оклад не видит его и в приказе о переводе
+    const actions = await this.shapeActionParams(viewer, workspaceId, subjectUserId, employment, rawActions);
     // Счётчик «Документы · N» — тоже сведение о человеке: постороннему коллеге
     // число приказов о нём знать незачем.
     const documentsCount = canSeeEmployment
       ? await this.db.orgDocument.count({ where: { workspaceId, subjectUserId } })
       : 0;
 
-    return {
-      user: {
-        id: user.id,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        avatar: user.avatar,
-        phone: user.phone,
-      },
+    // Контакты человека — ЕГО правила (user.card): коллега видит номер так, как решил человек
+    const [card, employmentsDto] = await Promise.all([
+      this.userCards.card(viewer, user),
+      canSeeEmployment ? this.serializeEmploymentsFor(viewer, employments) : Promise.resolve([] as EmploymentDto[]),
+    ]);
+    return markShaped({
+      user: markShaped({
+        id: card.id,
+        firstName: card.firstName,
+        lastName: card.lastName,
+        avatar: card.avatar,
+        phone: card.phone,
+      }),
       role: subjectRole,
       assignments: assignments.map((a) => ({
         id: a.id,
@@ -561,8 +650,8 @@ export class HrService implements HrPort, HrNodesPort {
         branchName: a.branch?.name ?? null,
         status: a.status,
       })),
-      employment: canSeeEmployment && employment ? this.serializeEmployment(employment) : null,
-      employments: canSeeEmployment ? employments.map((e) => this.serializeEmployment(e)) : [],
+      employment: canSeeEmployment && employment ? (employmentsDto[0] ?? null) : null,
+      employments: employmentsDto,
       mismatch: this.computeMismatch(
         assignments.map((a) => ({
           positionId: a.positionId,
@@ -576,7 +665,48 @@ export class HrService implements HrPort, HrNodesPort {
       documentsCount,
       canManage: this.isManager(viewerRole),
       canSeeEmployment,
-    };
+    });
+  }
+
+  /**
+   * Параметры кадровых действий глазами зрителя: `salaryAmount` и `ground` — поля
+   * `hr.employment` этого человека (маска/скрыто по тем же правилам, что у карточки).
+   */
+  private async shapeActionParams<A extends { id: string; params: Record<string, unknown> }>(
+    viewer: VisibilityViewer,
+    workspaceId: string,
+    subjectUserId: string,
+    employment: { id: string; status: string; legalBranchId: string | null } | null,
+    actions: A[],
+  ): Promise<A[]> {
+    const touched = actions.filter((a) => a.params && ('salaryAmount' in a.params || 'ground' in a.params));
+    if (!touched.length) return actions;
+    const shaped = await this.visibility.shape(
+      viewer,
+      'hr.employment',
+      touched.map((a) => ({
+        ref: { recordId: employment?.id ?? a.id, subjectId: subjectUserId, workspaceId, stage: employment?.status ?? null, branchId: employment?.legalBranchId ?? null },
+        values: {
+          ...('salaryAmount' in a.params
+            ? { salaryAmount: a.params.salaryAmount === null || a.params.salaryAmount === undefined ? null : String(a.params.salaryAmount) }
+            : {}),
+          ...('ground' in a.params ? { dismissalGround: (a.params.ground as string | null | undefined) ?? null } : {}),
+        },
+      })),
+    );
+    const byId = new Map(touched.map((a, i) => [a.id, shaped[i]!]));
+    return actions.map((a) => {
+      const v = byId.get(a.id);
+      if (!v) return a;
+      return {
+        ...a,
+        params: markShaped({
+          ...a.params,
+          ...('salaryAmount' in a.params ? { salaryAmount: v.salaryAmount } : {}),
+          ...('ground' in a.params ? { ground: v.dismissalGround } : {}),
+        }),
+      };
+    });
   }
 
   /**
@@ -693,11 +823,44 @@ export class HrService implements HrPort, HrNodesPort {
       take: 200,
     });
     const today = this.calendar.today();
+    const payloads = await this.shapeEsutdPayloads(this.visibility.viewer('api', { workspaceId }), workspaceId, rows);
     const items: EsutdSubmissionDto[] = [];
-    for (const r of rows) {
-      items.push(await this.serializeEsutd(r, today));
+    for (const [i, r] of rows.entries()) {
+      items.push(markShaped(await this.serializeEsutd({ ...r, payload: payloads[i] }, today)));
     }
     return { items, actors: await this.actorsOf(rows.map((r) => r.userId)) };
+  }
+
+  /**
+   * Снимки сведений ЕСУТД глазами зрителя: ИИН — строгое поле `staff.member`, основание
+   * увольнения — `hr.employment` (маска → раскрытие в карточке сотрудника). Пакетом.
+   */
+  private async shapeEsutdPayloads(
+    viewer: VisibilityViewer,
+    workspaceId: string,
+    rows: ReadonlyArray<{ userId: string; employmentId: string | null; payload: unknown }>,
+  ): Promise<Array<Partial<Record<EsutdPayloadField, unknown>>>> {
+    const payloads = rows.map((r) => ({ ...((r.payload ?? {}) as Partial<Record<EsutdPayloadField, unknown>>) }));
+    const withIin = payloads.map((p, i) => ({ p, i })).filter(({ p }) => 'employeeIin' in p);
+    const withGround = payloads.map((p, i) => ({ p, i })).filter(({ p }) => 'dismissalGround' in p);
+    const [iins, grounds] = await Promise.all([
+      this.visibility.shape(
+        viewer,
+        'staff.member',
+        withIin.map(({ p, i }) => ({ ref: { recordId: rows[i]!.userId, subjectId: rows[i]!.userId, workspaceId }, values: { iin: p.employeeIin ?? null } })),
+      ),
+      this.visibility.shape(
+        viewer,
+        'hr.employment',
+        withGround.map(({ p, i }) => ({
+          ref: { recordId: rows[i]!.employmentId ?? rows[i]!.userId, subjectId: rows[i]!.userId, workspaceId },
+          values: { dismissalGround: p.dismissalGround ?? null },
+        })),
+      ),
+    ]);
+    withIin.forEach(({ p }, k) => { p.employeeIin = iins[k]!.iin; });
+    withGround.forEach(({ p }, k) => { p.dismissalGround = grounds[k]!.dismissalGround; });
+    return payloads;
   }
 
   private async serializeEsutd(
@@ -807,7 +970,8 @@ export class HrService implements HrPort, HrNodesPort {
       kindLabelKey: `hr.esutdKind.${row.kind}`,
       ...(externalNumber ? { numberSuffixKey: 'hr.esutd.numberSuffix', number: externalNumber } : {}),
     });
-    return this.serializeEsutd(updated, today);
+    const [shapedPayload] = await this.shapeEsutdPayloads(this.visibility.viewer('api', { workspaceId }), workspaceId, [updated]);
+    return markShaped(await this.serializeEsutd({ ...updated, payload: shapedPayload }, today));
   }
 
   async markEsutdNotRequired(viewerId: string, workspaceId: string, submissionId: string): Promise<EsutdSubmissionDto> {
@@ -824,7 +988,8 @@ export class HrService implements HrPort, HrNodesPort {
       where: { id: row.id },
       data: { status: 'not_required', submittedById: viewerId },
     });
-    return this.serializeEsutd(updated, this.calendar.today());
+    const [shapedPayload] = await this.shapeEsutdPayloads(this.visibility.viewer('api', { workspaceId }), workspaceId, [updated]);
+    return markShaped(await this.serializeEsutd({ ...updated, payload: shapedPayload }, this.calendar.today()));
   }
 
   /**
@@ -911,10 +1076,11 @@ export class HrService implements HrPort, HrNodesPort {
     await this.requireManager(viewerId, workspaceId);
     const row = await this.db.esutdSubmission.findFirst({ where: { id: submissionId, workspaceId } });
     if (!row) throw notFound('hr.esutdRowNotFound');
-    const payload = await this.buildEsutdPayload(workspaceId, row);
-    // Снимок отправленного сохраняем на строке (что именно копировали)
-    await this.db.esutdSubmission.update({ where: { id: row.id }, data: { payload: payload as object } });
-    return this.labelEsutdPayload(payload);
+    const raw = await this.buildEsutdPayload(workspaceId, row);
+    // Снимок на строке — содержание сведений (что уходит в госорган); наружу — глазами зрителя
+    await this.db.esutdSubmission.update({ where: { id: row.id }, data: { payload: raw as object } });
+    const [shaped] = await this.shapeEsutdPayloads(this.visibility.viewer('api', { workspaceId }), workspaceId, [{ ...row, payload: raw }]);
+    return markShaped(this.labelEsutdPayload(shaped!));
   }
 
   // ============================================================

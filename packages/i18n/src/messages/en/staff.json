@@ -368,15 +368,8 @@
   "peopleCount": "{n, plural, one {# person} other {# people}}",
   "positionsCount": "{n, plural, one {# position} other {# positions}}",
   "requisites": {
-    "address": "Residential address",
-    "dateOfBirth": "Date of birth",
     "forContracts": "For contracts and payouts",
-    "idDoc": "Identity document",
-    "idDocIssuedAt": "issued on {date}",
-    "idDocNumber": "No. {number}",
-    "iin": "IIN",
-    "note": "The data for contracts and payouts. The employee sees it in their own profile; colleagues do not.",
-    "paymentCard": "Card for payouts",
+    "note": "Data for contracts and payouts. Who sees it is decided by the organization’s visibility rules; the employee always sees their own.",
     "title": "Requisites"
   },
   "term": {

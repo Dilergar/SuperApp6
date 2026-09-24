@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { OCSF_ACTIVITY as A, OCSF_CLASS as C } from './ocsf';
 import { AUDIT_VIS, defineAuditEvents, detailCode, detailCount } from './types';
 
+const revealFields = z.array(detailCode(64)).min(1).max(12);
+
 // ============================================================
 // Чтения ПДн ограниченного доступа (приказ МЦРИАП № 179/НҚ; бывший `pii_access_log`)
 // ============================================================
@@ -24,6 +26,42 @@ export const PII_AUDIT_EVENTS = defineAuditEvents({
       })
       .strict(),
     vocab: 'sensitive_read',
+    ocsf: { classUid: C.datastoreActivity, activityId: A.datastoreActivity.read },
+  },
+  /**
+   * Раскрытие маскированного поля ОДНОЙ записи (core/visibility, break-glass): кто, чьё, какие
+   * поля. Видит и сам человек (ЗоПД ст. 24: «Мои данные»), и его организация. Значений нет —
+   * только коды полей. `delegated` — раскрыл адресат по делегированию, а не владелец/админ.
+   */
+  'pii.reveal': {
+    category: 'pii',
+    severity: 'medium',
+    visibility: AUDIT_VIS.both,
+    details: z
+      .object({
+        recordType: detailCode(64),
+        fields: revealFields,
+        mode: z.enum(['one']),
+        delegated: z.boolean(),
+      })
+      .strict(),
+    vocab: 'sensitive_read',
+    ocsf: { classUid: C.datastoreActivity, activityId: A.datastoreActivity.read },
+  },
+  /** Отказ в раскрытии (нет права, окно подтверждения закрыто, квота, пауза детекции) — свёрткой по часу */
+  'pii.reveal_denied': {
+    category: 'pii',
+    severity: 'low',
+    visibility: AUDIT_VIS.workspace,
+    details: z
+      .object({
+        recordType: detailCode(64),
+        fields: revealFields,
+        reason: detailCode(32),
+        attempts: detailCount(),
+      })
+      .strict(),
+    vocab: 'authz_fail',
     ocsf: { classUid: C.datastoreActivity, activityId: A.datastoreActivity.read },
   },
 });

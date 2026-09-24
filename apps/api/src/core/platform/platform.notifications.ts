@@ -27,7 +27,9 @@ export type PlatformSecurityEvent =
   | 'credentialStuffing'
   | 'massExport'
   | 'digestMismatch'
-  | 'auditDegraded';
+  | 'auditDegraded'
+  | 'idorProbing'
+  | 'malwareBurst';
 
 /**
  * Уведомления кабинета: security-alert всем владельцам (critical, in-app + SMS по opt-in),

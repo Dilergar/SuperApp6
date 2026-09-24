@@ -20,10 +20,11 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { RATE_TYPES, type StaffingRowDto } from '@superapp/shared';
+import { RATE_TYPES, isGuardMarker, isHidden, isVisible, visibleOr, type StaffingRowDto } from '@superapp/shared';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useIsMobile } from '@/lib/hooks/useIsMobile';
 import {
+  GuardedValue,
   Button,
   Card,
   CardHeader,
@@ -143,7 +144,11 @@ export default function StaffingPage() {
   };
 
   const caps = data?.caps;
-  const showMoney = !!caps?.payrollView;
+  // Деньги строк решает движок видимости по КАЖДОЙ строке: руководитель человека видит ставку
+  // своих, не видя денег объекта целиком — колонка есть, если деньги видны хоть в одной строке
+  const showMoney =
+    !!caps?.payrollView ||
+    (data?.rows ?? []).some((r) => [r.officialSalary, r.actualRate, r.plannedRate].some((v) => v !== undefined && !isHidden(v)));
   const canManage = !!caps?.manage;
 
   // Колонки — про НАЗНАЧЕНИЕ; единица живёт в строке-группе на всю ширину.
@@ -209,9 +214,11 @@ export default function StaffingPage() {
   // Фильтр «Не оформлены» опирается на `employment`, которого без права на деньги
   // в ответе нет вовсе, — без права чип не показываем, а не показываем пустой список.
   const vacantCount = rows.filter((r) => !r.assignment).length;
-  const unregisteredCount = showMoney ? rows.filter((r) => r.assignment?.active && !r.employment).length : 0;
+  // «Не оформлен» знаем только там, где карточка видна (null = договора нет; маркер — не знаем)
+  const unregistered = (row: StaffingRowDto) => !!row.assignment?.active && row.employment === null;
+  const unregisteredCount = showMoney ? rows.filter(unregistered).length : 0;
   const matches = (row: StaffingRowDto): boolean =>
-    filter === 'all' ? true : filter === 'vacant' ? !row.assignment : !!row.assignment?.active && !row.employment;
+    filter === 'all' ? true : filter === 'vacant' ? !row.assignment : unregistered(row);
 
   // Итоги считаются из строк и видны всем; деньги — из totals, только по праву.
   // Строки одной единицы повторяют её headcount — складываем по единицам, не по строкам.
@@ -258,7 +265,7 @@ export default function StaffingPage() {
             />
             <span className="label-sm" style={NOWRAP}>{`${row.filled} / ${row.headcount}`}</span>
           </span>
-          {showMoney && row.plannedRate && (
+          {showMoney && row.plannedRate && isVisible(row.plannedRate) && (
             <span className="label-sm" style={NOWRAP}>{t('staffing.plannedShort', { value: rate(row.plannedRate) ?? '' })}</span>
           )}
           {isCollapsed && <span className="label-sm" style={NOWRAP}>{t('staffing.rowsCount', { n: unitRows.length })}</span>}
@@ -352,15 +359,23 @@ export default function StaffingPage() {
         {showMoney && (
           <>
             <TableCell align="end" hideOnMobile>
-              <span className="label-sm">{a ? money(row.officialSalary?.amount, row.officialSalary?.currency) : '—'}</span>
+              <span className="label-sm">
+                {a && row.officialSalary !== undefined ? (
+                  <GuardedValue value={row.officialSalary} render={(v) => (v ? money(v.amount, v.currency) : '—')} empty="—" />
+                ) : (
+                  '—'
+                )}
+              </span>
             </TableCell>
             <TableCell align="end" hideOnMobile>
               <span className="label-sm">
-                {a
-                  ? (rate(row.actualRate) ?? '—')
-                  : row.plannedRate
-                    ? `${money(row.plannedRate.amount, row.plannedRate.currency)} · ${t('staffing.planned')}`
-                    : '—'}
+                {a ? (
+                  row.actualRate !== undefined ? <GuardedValue value={row.actualRate} render={(v) => rate(v) ?? '—'} empty="—" /> : '—'
+                ) : row.plannedRate && isVisible(row.plannedRate) ? (
+                  `${money(row.plannedRate.amount, row.plannedRate.currency)} · ${t('staffing.planned')}`
+                ) : (
+                  '—'
+                )}
               </span>
             </TableCell>
           </>
@@ -521,7 +536,7 @@ export default function StaffingPage() {
             staffingPositionId: editingUnit.staffingPositionId,
             positionName: editingUnit.positionName,
             headcount: editingUnit.headcount,
-            plannedRate: editingUnit.plannedRate ?? null,
+            plannedRate: visibleOr(editingUnit.plannedRate ?? null, null),
           }}
           onClose={() => setEditingUnit(null)}
           onSaved={invalidate}
@@ -575,6 +590,8 @@ function RowMenu({ items, label }: { items: MenuAction[]; label: string }) {
 function EmploymentChip({ row }: { row: StaffingRowDto }) {
   const t = useTranslations('objects');
   const e = row.employment;
+  // Маркер «скрыто/маска» — договор этой строки зрителю не виден: чипа нет вовсе
+  if (e === undefined || isGuardMarker(e)) return null;
   if (!e) return <Chip tone="warning">{t('staffing.employment.none')}</Chip>;
   if (e.status === 'draft') return <Chip tone="neutral">{t('staffing.employment.draft')}</Chip>;
   if (e.status === 'terminated') return <Chip tone="danger">{t('staffing.employment.terminated')}</Chip>;

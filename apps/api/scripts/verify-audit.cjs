@@ -29,7 +29,7 @@
 // снимаем `POST /audit/dev/unlock` в finally — 5 неверных входов на suite1/2 роняли бы CI.
 // Run: node apps/api/scripts/verify-audit.cjs
 const { randomUUID } = require('crypto');
-const { BASE, SUITE, SUITE_DEVICE_ID, call, login, makeChecker } = require('./_lib.cjs');
+const { BASE, SUITE, SUITE_DEVICE_ID, call, createSuiteWorkspace, login, makeChecker } = require('./_lib.cjs');
 const { PrismaClient } = require('@prisma/client');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -130,6 +130,8 @@ async function main() {
     await sectionExport({ check, prisma, s1 });
     await sectionStream({ check, prisma, s1 });
     await sectionReview({ check, prisma, s1 });
+    await sectionMembership({ check, prisma, s1 });
+    await sectionCoverage({ check, prisma, s1 });
   } finally {
     await prisma.$disconnect();
   }
@@ -315,6 +317,370 @@ async function sectionReview({ check, prisma, s1 }) {
   theirs.s.close();
 }
 
+// ===================== M. Снятие членства: доступ, роли и журнал — одним фактом =====================
+async function sectionMembership({ check, prisma, s1 }) {
+  console.log("\n[M] membership removal: roles, keys and the journal are one fact");
+  const s2 = await login(SUITE.p2);
+  const ws = await createSuiteWorkspace(s1.token, 'Сьют-Аудит-Члены');
+  const W = ws.json?.data?.id;
+  check('M: workspace created', ws.ok && !!W, `${ws.status} ${ws.code}`);
+  if (!W) return;
+  const Redis = require('ioredis');
+  const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+  const join = async () => {
+    const inv = await call('POST', `/workspaces/${W}/invitations`, s1.token, { phone: SUITE.p2 });
+    const incoming = await call('GET', '/workspaces/invitations/incoming', s2.token);
+    const invId = (incoming.json?.data ?? []).find((i) => i.workspaceId === W)?.id ?? inv.json?.data?.id;
+    return (await call('POST', `/workspaces/invitations/${invId}/accept`, s2.token)).ok;
+  };
+  const state = async () => {
+    const [member, roles] = await Promise.all([
+      prisma.workspaceMember.findUnique({ where: { workspaceId_userId: { workspaceId: W, userId: s2.id } }, select: { id: true } }),
+      prisma.userRole.findMany({ where: { userId: s2.id, context: 'workspace', tenantId: W, isActive: true }, select: { role: true } }),
+    ]);
+    return { member: !!member, roles: roles.map((r) => r.role) };
+  };
+  const removedSince = (since) => prisma.securityEvent.findMany({ where: { eventKey: 'org.member.removed', workspaceId: W, targetId: s2.id, occurredAt: { gte: since } } });
+  try {
+    // M1. Снятие: строка членства, роли и событие журнала — вместе
+    check('M1: suite2 joined', await join());
+    let t0 = new Date();
+    const rm = await call('DELETE', `/workspaces/${W}/members/${s2.id}`, s1.token);
+    let st = await state();
+    let evs = await removedSince(t0);
+    check('M1: removal leaves neither the membership nor an active role, with exactly one journal event', rm.ok && !st.member && st.roles.length === 0 && evs.length === 1 && evs[0].details?.role === 'trainee' && evs[0].actorId === s1.id, `${rm.status} ${JSON.stringify(st)} events=${evs.length}`);
+
+    // M2. Осиротевшее членство (строка есть, ролей нет — след прежнего неатомарного снятия) снимается,
+    // а не упирается в 404 «не член»
+    check('M2: suite2 joined again', await join());
+    await prisma.userRole.updateMany({ where: { userId: s2.id, context: 'workspace', tenantId: W }, data: { isActive: false } });
+    await redis.del(`user:${s2.id}:roles`);
+    t0 = new Date();
+    const orphan = await call('DELETE', `/workspaces/${W}/members/${s2.id}`, s1.token);
+    st = await state();
+    evs = await removedSince(t0);
+    check('M2: an orphaned membership (row without roles) is removed and journaled', orphan.ok && !st.member && evs.length === 1 && evs[0].details?.role === undefined, `${orphan.status} ${orphan.code} ${JSON.stringify(st)} events=${evs.length}`);
+
+    // M3. Параллельные снятия — один факт: одно событие журнала
+    check('M3: suite2 joined again', await join());
+    t0 = new Date();
+    const both = await Promise.all([0, 1].map(() => call('DELETE', `/workspaces/${W}/members/${s2.id}`, s1.token)));
+    st = await state();
+    evs = await removedSince(t0);
+    check('M3: two parallel removals record ONE event', !st.member && st.roles.length === 0 && evs.length === 1, `${both.map((b) => b.status).join(',')} ${JSON.stringify(st)} events=${evs.length}`);
+
+    // M4. Смена роли наперегонки со снятием: роль без членства не остаётся (замок строки членства)
+    let orphaned = 0;
+    for (let i = 0; i < 3; i += 1) {
+      if (!(await join())) continue;
+      await Promise.all([
+        call('PATCH', `/workspaces/${W}/members/${s2.id}`, s1.token, { role: 'staff' }),
+        call('DELETE', `/workspaces/${W}/members/${s2.id}`, s1.token),
+      ]);
+      st = await state();
+      if (!st.member && st.roles.length) orphaned += 1;
+      if (st.member) await call('DELETE', `/workspaces/${W}/members/${s2.id}`, s1.token);
+    }
+    check('M4: a role change racing the removal never leaves a role without membership', orphaned === 0, `orphaned=${orphaned}`);
+
+    // M5. Система по поручению человека (увольнение КЭДО применил джоб): организация видит инициатора
+    const seeded = await call('POST', '/audit/dev/seed', s1.token, { key: 'org.member.removed', subjectUserId: s2.id, workspaceId: W, daysAgo: 0, details: {}, onBehalfOfId: s1.id });
+    const feed = await call('GET', `/workspaces/${W}/security/events?limit=50`, s1.token);
+    const item = (feed.json?.data?.items ?? []).find((e) => e.id === seeded.json?.data?.id);
+    check('M5: a system event on behalf of a person shows the initiator to the organization', item?.actor?.kind === 'system' && item.actor.onBehalfOf?.id === s1.id, JSON.stringify(item?.actor ?? feed.status));
+
+    // M6. Галочка «снять и членство» в увольнении КЭДО — то же право, что у кнопки ростера, и
+    // проверяется при СОЗДАНИИ приказа (раньше менеджер ставил её, а применение молча не снимало).
+    // Отказ — до шаблона и маршрута, поэтому шаблон здесь — любой uuid.
+    const s3 = await login(SUITE.p3);
+    check('M6: suite2 joined again', await join());
+    const promoted = await call('PATCH', `/workspaces/${W}/members/${s2.id}`, s1.token, { role: 'manager' });
+    await call('POST', `/workspaces/${W}/invitations`, s1.token, { phone: SUITE.p3 });
+    const inc3 = await call('GET', '/workspaces/invitations/incoming', s3.token);
+    const inv3 = (inc3.json?.data ?? []).find((i) => i.workspaceId === W)?.id;
+    const joined3 = await call('POST', `/workspaces/invitations/${inv3}/accept`, s3.token);
+    check('M6: suite2 is a manager, suite3 a trainee', promoted.ok && joined3.ok, `${promoted.status} ${joined3.status}`);
+    const today = new Date().toISOString().slice(0, 10);
+    const dismissal = (token, userId, alsoRemoveMembership) => call('POST', `/workspaces/${W}/hr/actions`, token, { kind: 'dismissal', userId, effectiveAt: today, templateId: randomUUID(), params: { ground: 'st50', ...(alsoRemoveMembership ? { alsoRemoveMembership: true } : {}) } });
+    const RIGHTS = ['workspace.manageForbidden', 'workspace.ownerNotRemovable', 'workspace.adminRemoveOwnerOnly'];
+    const byManager = await dismissal(s2.token, s3.id, true);
+    check('M6: a manager cannot order a dismissal that also removes the membership → 403 workspace.manageForbidden', byManager.status === 403 && byManager.code === 'workspace.manageForbidden', `${byManager.status} ${byManager.code}`);
+    const plain = await dismissal(s2.token, s3.id, false);
+    check('M6: the same manager still orders a plain dismissal (the gate is the checkbox only)', !RIGHTS.includes(plain.code), `${plain.status} ${plain.code}`);
+    const ownerSelf = await dismissal(s1.token, s1.id, true);
+    check('M6: the organization owner cannot be dismissed with membership removal → 400 workspace.ownerNotRemovable', ownerSelf.status === 400 && ownerSelf.code === 'workspace.ownerNotRemovable', `${ownerSelf.status} ${ownerSelf.code}`);
+    const byOwner = await dismissal(s1.token, s3.id, true);
+    check('M6: the owner passes the membership check (fails later only on the template)', !RIGHTS.includes(byOwner.code), `${byOwner.status} ${byOwner.code}`);
+    const batch = await call('POST', `/workspaces/${W}/hr/batches`, s2.token, { kind: 'dismissal', audience: [{ type: 'user', id: s3.id }], effectiveAt: today, templateId: randomUUID(), params: { ground: 'st50', alsoRemoveMembership: true } });
+    check('M6: a manager cannot start a batch of dismissals with membership removal → 403', batch.status === 403 && batch.code === 'workspace.manageForbidden', `${batch.status} ${batch.code}`);
+  } finally {
+    redis.disconnect();
+  }
+}
+
+// ===================== S. Охват экосистемы: доступы, ссылки, выгрузка, файлы, отказы, организации, интеграции, настройки =====================
+async function sectionCoverage({ check, prisma, s1 }) {
+  console.log('\n[S] coverage: access, public links, guest ZIP, files, denials, organizations, integrations, settings');
+  const s2 = await login(SUITE.p2);
+  const s3 = await login(SUITE.p3);
+  const since = new Date(Date.now() - 2000);
+  const stamp = Date.now();
+  const events = (where) => prisma.securityEvent.findMany({ where: { occurredAt: { gte: since }, ...where }, orderBy: { id: 'asc' } });
+  const ws = await createSuiteWorkspace(s1.token, 'Сьют-Аудит-Охват');
+  const W = ws.json?.data?.id;
+  check('S: workspace created', ws.ok && !!W, `${ws.status} ${ws.code}`);
+  if (!W) return;
+
+  // ---- S0. Создание организации — первый факт её журнала ----
+  const created = await events({ eventKey: 'org.workspace.created', workspaceId: W });
+  check('S0: org.workspace.created — creator is the subject, both the person and the organization see it', created.length === 1 && created[0].subjectUserId === s1.id && created[0].visSubject && created[0].visWorkspace, created.length);
+
+  // suite2 — сотрудник организации (ему открываются доступы)
+  await call('POST', `/workspaces/${W}/invitations`, s1.token, { phone: SUITE.p2 });
+  const inc2 = await call('GET', '/workspaces/invitations/incoming', s2.token);
+  const inv2 = (inc2.json?.data ?? []).find((i) => i.workspaceId === W)?.id;
+  check('S: suite2 joined', (await call('POST', `/workspaces/invitations/${inv2}/accept`, s2.token)).ok);
+
+  // ---- S1. Отмена приглашения ----
+  const inv3 = await call('POST', `/workspaces/${W}/invitations`, s1.token, { phone: SUITE.p3 });
+  const inv3Id = inv3.json?.data?.id;
+  const cancel = await call('POST', `/workspaces/${W}/invitations/${inv3Id}/cancel`, s1.token);
+  const cancelTwice = await call('POST', `/workspaces/${W}/invitations/${inv3Id}/cancel`, s1.token);
+  const cancelled = await events({ eventKey: 'org.member.invitation_cancelled', workspaceId: W, targetId: inv3Id });
+  check('S1: cancelling an invitation is journaled once; a second cancel → 400', cancel.ok && cancelTwice.status === 400 && cancelled.length === 1 && cancelled[0].visWorkspace, `${cancel.status}/${cancelTwice.status} events=${cancelled.length}`);
+
+  // ---- S2. Доступ к папке Диска организации ----
+  const folder = await call('POST', '/drive/folders', s1.token, { workspaceId: W, name: `audit-share-${stamp}` });
+  const F = folder.json?.data?.id;
+  check('S2: an organization folder created', folder.ok && !!F, folder.status);
+  const shareAs = (role) => call('POST', `/drive/nodes/${F}/shares`, s1.token, { principalType: 'user', principalId: s2.id, role });
+  const a1 = await shareAs('viewer');
+  const a2 = await shareAs('editor');
+  const a3 = await shareAs('editor');
+  const unshare = () => call('DELETE', `/drive/nodes/${F}/shares/user/${s2.id}`, s1.token);
+  const u1 = await unshare();
+  const u2 = await unshare();
+  const granted = await events({ eventKey: 'sharing.access.granted', workspaceId: W, targetId: F });
+  const revoked = await events({ eventKey: 'sharing.access.revoked', workspaceId: W, targetId: F });
+  check(
+    'S2: folder access — opened (none → viewer), changed (viewer → editor), the same level again writes nothing',
+    a1.ok && a2.ok && a3.ok && granted.length === 2 && granted[0].details.previousAccess === 'none' && granted[0].details.access === 'viewer' && granted[1].details.previousAccess === 'viewer' && granted[1].details.access === 'editor',
+    JSON.stringify(granted.map((e) => e.details)),
+  );
+  check('S2: closing access is journaled once (closing a missing grant writes nothing)', u1.ok && u2.ok && revoked.length === 1 && revoked[0].subjectUserId === s2.id, revoked.length);
+  check('S2: access events are the organization’s (never the person’s feed)', [...granted, ...revoked].every((e) => e.visWorkspace && !e.visSubject));
+  const sharingFeed = await call('GET', `/workspaces/${W}/security/events?filter=sharing&limit=50`, s1.token);
+  const sharingKeys = (sharingFeed.json?.data?.items ?? []).map((e) => e.key);
+  check('S2: the “Access” chip of the organization log shows them', sharingFeed.ok && sharingKeys.includes('sharing.access.granted') && sharingKeys.includes('sharing.access.revoked'), JSON.stringify(sharingKeys));
+
+  // Личная папка: шеринг другу — хроника, не журнал безопасности
+  const [x, y] = s1.id < s2.id ? [s1.id, s2.id] : [s2.id, s1.id];
+  if (!(await prisma.contactLink.findFirst({ where: { userAId: x, userBId: y } }))) {
+    await prisma.contactLink.create({ data: { userAId: x, userBId: y, roleAForB: 'Коллега', roleBForA: 'Коллега', initiatedBy: s1.id } });
+  }
+  const personal = await call('POST', '/drive/folders', s1.token, { name: `audit-personal-${stamp}` });
+  const P = personal.json?.data?.id;
+  const pShare = await call('POST', `/drive/nodes/${P}/shares`, s1.token, { principalType: 'user', principalId: s2.id, role: 'viewer' });
+  const pEvents = await events({ eventKey: { in: ['sharing.access.granted', 'sharing.access.revoked'] }, targetId: P });
+  check('S2: sharing a PERSONAL folder is not a security event (history of the item only)', pShare.ok && pEvents.length === 0, `${pShare.status} events=${pEvents.length}`);
+  await call('DELETE', `/drive/nodes/${P}/shares/user/${s2.id}`, s1.token);
+
+  // ---- S3. Заметки организации ----
+  const note = await call('POST', '/notes', s1.token, { workspaceId: W, content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: `audit note ${stamp}` }] }] } });
+  const N = note.json?.data?.id;
+  const nShare = await call('POST', `/notes/${N}/shares`, s1.token, { principalType: 'user', principalId: s2.id, role: 'viewer' });
+  const nUnshare = await call('DELETE', `/notes/${N}/shares/user/${s2.id}`, s1.token);
+  const nf = await call('POST', '/notes/folders', s1.token, { workspaceId: W, name: `audit-notes-${stamp}` });
+  const NF = nf.json?.data?.id;
+  const nfShare = await call('POST', `/notes/folders/${NF}/shares`, s1.token, { principalType: 'workspace', principalId: W, role: 'viewer' });
+  const noteEv = await events({ eventKey: { in: ['sharing.access.granted', 'sharing.access.revoked'] }, workspaceId: W, targetId: { in: [N, NF].filter(Boolean) } });
+  check(
+    'S3: organization notes — note shared and unshared, folder opened to the whole team',
+    nShare.ok && nUnshare.ok && nfShare.ok && noteEv.some((e) => e.eventKey === 'sharing.access.granted' && e.details.resource === 'note') && noteEv.some((e) => e.eventKey === 'sharing.access.revoked' && e.details.resource === 'note') && noteEv.some((e) => e.details.resource === 'note_folder' && e.details.principalType === 'workspace'),
+    `${nShare.status}/${nUnshare.status}/${nfShare.status} ${JSON.stringify(noteEv.map((e) => [e.eventKey, e.details.resource]))}`,
+  );
+
+  // ---- S4. Шаблон документов организации ----
+  const lib = await call('POST', `/workspaces/${W}/hr/library/install`, s1.token, { key: 'employment_contract', signerUserId: s1.id });
+  const tpl = await prisma.docTemplate.findFirst({ where: { workspaceId: W }, select: { id: true } });
+  if (tpl) {
+    const tGrant = await call('POST', `/workspaces/${W}/documents/templates/${tpl.id}/grants`, s1.token, { principalType: 'user', principalId: s2.id });
+    const tGrantAgain = await call('POST', `/workspaces/${W}/documents/templates/${tpl.id}/grants`, s1.token, { principalType: 'user', principalId: s2.id });
+    const tRevoke = await call('DELETE', `/workspaces/${W}/documents/templates/${tpl.id}/grants/user/${s2.id}`, s1.token);
+    const tplEv = await events({ eventKey: { in: ['sharing.access.granted', 'sharing.access.revoked'] }, workspaceId: W, targetId: tpl.id });
+    check('S4: a document template granted (once) and withdrawn', tGrant.ok && tGrantAgain.ok && tRevoke.ok && tplEv.length === 2 && tplEv[0].details.access === 'use', `${tGrant.status}/${tGrantAgain.status}/${tRevoke.status} events=${tplEv.length}`);
+  } else {
+    check('S4: a document template installed from the library', false, `${lib.status} ${lib.code}`);
+  }
+
+  // ---- S5. Публичные ссылки: жизнь ссылки ----
+  const tokenOf = (url) => String(url).split('/s/')[1];
+  const mkLink = (body) => call('POST', '/share-links', s1.token, { refType: 'drive_node', refId: F, ...body });
+  const l1 = await mkLink({ password: 'secret-42', label: 'audit' });
+  const L1 = l1.json?.data?.id;
+  const lCreated = await events({ eventKey: 'sharing.link.created', workspaceId: W });
+  check('S5: public link created — what closes it is in the details, the organization sees it', l1.ok && lCreated.length === 1 && lCreated[0].details.passcode === true && lCreated[0].details.identity === false && lCreated[0].subjectUserId === s1.id && lCreated[0].visWorkspace, JSON.stringify(lCreated[0]?.details));
+  const upd = await call('PATCH', `/share-links/${L1}`, s1.token, { allowDownload: false });
+  const updSame = await call('PATCH', `/share-links/${L1}`, s1.token, { allowDownload: false });
+  const rot = await call('POST', `/share-links/${L1}/rotate`, s1.token);
+  const lUpd = await events({ eventKey: 'sharing.link.updated', workspaceId: W });
+  check('S5: link changes — only real changes, by field code; a new address is a change too', upd.ok && updSame.ok && rot.ok && lUpd.length === 2 && JSON.stringify(lUpd[0].details.fields) === '["download"]' && JSON.stringify(lUpd[1].details.fields) === '["address"]', JSON.stringify(lUpd.map((e) => e.details.fields)));
+
+  // Подбор пароля: одна строка на залп и уведомление автору
+  const tok1 = tokenOf(rot.json?.data?.url);
+  let last = null;
+  for (let i = 0; i < 6; i++) last = await call('POST', `/share-links/guest/${tok1}/session`, null, { password: `wrong-${i}` });
+  const locked = await events({ eventKey: 'sharing.link.password_locked', workspaceId: W });
+  check('S5: password guessing on a link → ONE password_locked (author + organization), attempts in the lock are not rows', locked.length === 1 && locked[0].subjectUserId === s1.id && locked[0].visSubject && locked[0].visWorkspace && last?.status === 403, `${locked.length} last=${last?.status}/${last?.code}`);
+  const lockNote = await waitRow(() => prisma.notification.findFirst({ where: { userId: s1.id, type: 'security.link.passwordLocked', createdAt: { gte: since } } }), 5000);
+  check('S5: the link author is notified (in the transaction of the event)', !!lockNote);
+
+  const rev = await call('POST', `/share-links/${L1}/revoke`, s1.token);
+  const l2 = await mkLink({});
+  const l3 = await mkLink({});
+  const mine = await call('POST', '/share-links/mine/revoke', s1.token, { ids: [l2.json?.data?.id, l3.json?.data?.id] });
+  const l4 = await mkLink({});
+  const org = await call('POST', `/workspaces/${W}/share-links/revoke`, s1.token, { ids: [l4.json?.data?.id] });
+  const sub = await call('POST', '/drive/folders', s1.token, { workspaceId: W, name: `audit-doomed-${stamp}`, parentId: F });
+  const SUB = sub.json?.data?.id;
+  const l5 = await call('POST', '/share-links', s1.token, { refType: 'drive_node', refId: SUB });
+  await call('POST', '/drive/nodes/trash', s1.token, { ids: [SUB] });
+  const purge = await call('DELETE', '/drive/nodes', s1.token, { ids: [SUB] });
+  const lRev = await events({ eventKey: 'sharing.link.revoked', workspaceId: W });
+  const reasons = lRev.map((e) => e.details.reason).sort();
+  check(
+    'S5: every way a link closes is journaled with its reason (manual · mine_bulk ×2 · workspace_bulk · object_deleted by the system)',
+    rev.ok && mine.ok && org.ok && l5.ok && purge.ok && JSON.stringify(reasons) === JSON.stringify(['manual', 'mine_bulk', 'mine_bulk', 'object_deleted', 'workspace_bulk']) && lRev.find((e) => e.details.reason === 'object_deleted')?.actorKind === 3,
+    `${purge.status} ${JSON.stringify(reasons)}`,
+  );
+
+  // ---- S6. Новый гость с подтверждённым номером ----
+  const withFile = await call('POST', '/drive/folders', s1.token, { workspaceId: W, name: `audit-guest-${stamp}` });
+  const G = withFile.json?.data?.id;
+  const bytes = Buffer.from(`audit guest file ${stamp}`, 'utf8');
+  const init = await call('POST', '/files', s1.token, { profile: 'drive_file', name: `audit-${stamp}.txt`, mime: 'text/plain', size: bytes.length });
+  const fileId = init.json?.data?.file?.id;
+  const fd = new FormData();
+  fd.append('file', new Blob([bytes], { type: 'text/plain' }), `audit-${stamp}.txt`);
+  await fetch(`${BASE}/files/${fileId}/content`, { method: 'PUT', headers: { Authorization: 'Bearer ' + s1.token }, body: fd });
+  await call('POST', `/files/${fileId}/complete`, s1.token, {});
+  const placed = await call('POST', '/drive/nodes', s1.token, { parentId: G, fileId });
+  check('S6: a file placed in the organization folder', placed.ok, placed.status);
+  const idLink = await call('POST', '/share-links', s1.token, { refType: 'drive_node', refId: G, requireIdentity: true });
+  const idTok = tokenOf(idLink.json?.data?.url);
+  const guestPhone = '+7705' + String(stamp).slice(-7);
+  const openAsGuest = async () => {
+    const st = await call('POST', `/share-links/guest/${idTok}/identity/start`, null, { phone: guestPhone });
+    const code = st.ok ? await devCode(st.json.data.challengeId) : null;
+    const chk = code ? await call('POST', '/verify/check', null, { challengeId: st.json.data.challengeId, code }) : null;
+    return chk?.ok ? call('POST', `/share-links/guest/${idTok}/session`, null, { verifyToken: chk.json.data.verifyToken, guestName: 'Аудит Гость' }) : null;
+  };
+  const g1 = await openAsGuest();
+  const gv = await events({ eventKey: 'sharing.link.guest_verified', workspaceId: W });
+  check('S6: a new verified guest of the link is journaled (actor guest, subject = link author)', g1?.ok && gv.length === 1 && gv[0].actorKind === 4 && gv[0].subjectUserId === s1.id && gv[0].details.guestId === gv[0].actorId, `${g1?.status} events=${gv.length}`);
+
+  // ---- S7. Гостевой ZIP папки = выгрузка ----
+  const zipLink = await call('POST', '/share-links', s1.token, { refType: 'drive_node', refId: G });
+  const zs = await call('POST', `/share-links/guest/${tokenOf(zipLink.json?.data?.url)}/session`, null, {});
+  const zip = await fetch(`${BASE}/drive/guest/download-zip?session=${encodeURIComponent(zs.json?.data?.sessionToken ?? '')}`);
+  await zip.arrayBuffer().catch(() => undefined);
+  const exp = await events({ eventKey: 'data.export', workspaceId: W });
+  const guestZip = exp.find((e) => e.details.source === 'drive_guest_zip');
+  check('S7: a guest ZIP of a folder is an export (author + organization see it, rows = files)', zip.status === 200 && !!guestZip && guestZip.details.rows === 1 && guestZip.subjectUserId === s1.id && guestZip.visWorkspace, `${zip.status} ${JSON.stringify(guestZip?.details)}`);
+
+  // ---- S8. Вирус в загрузке (нужен ClamAV у API и здесь) ----
+  if (process.env.CLAMAV_HOST) {
+    const EICAR = 'X5O!P%@AP[4' + String.fromCharCode(92) + 'PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
+    const infected = [];
+    for (let i = 0; i < 3; i++) {
+      const b = Buffer.from(EICAR);
+      const ini = await call('POST', '/files', s1.token, { profile: 'generic', name: `eicar-${stamp}-${i}.txt`, mime: 'text/plain', size: b.length });
+      const id = ini.json?.data?.file?.id;
+      const f2 = new FormData();
+      f2.append('file', new Blob([b], { type: 'text/plain' }), `eicar-${i}.txt`);
+      await fetch(`${BASE}/files/${id}/content`, { method: 'PUT', headers: { Authorization: 'Bearer ' + s1.token }, body: f2 });
+      await call('POST', `/files/${id}/complete`, s1.token, {});
+      infected.push(id);
+    }
+    const mal = await waitRow(async () => {
+      const rows = await events({ eventKey: 'files.malware_detected', targetId: { in: infected } });
+      return rows.length === infected.length ? rows : null;
+    }, 60_000);
+    check('S8: a virus in an upload → files.malware_detected in the verdict transaction (uploader sees it, signature is a code)', !!mal && mal.every((e) => e.subjectUserId === s1.id && e.visSubject && /^[A-Za-z0-9_.:-]+$/.test(e.details.signature)), mal ? JSON.stringify(mal[0].details) : 'timeout');
+    const malNote = await prisma.notification.findFirst({ where: { userId: s1.id, type: 'files.scan.infected', createdAt: { gte: since } } });
+    check('S8: the uploader is notified by the event passport', !!malNote);
+    const burst = await waitRow(() => prisma.securityAlert.findFirst({ where: { kind: 'malware_burst', subjectUserId: s1.id, status: { in: ['open', 'ack'] } } }), 5000);
+    check('S8: three infected uploads by one person → malware_burst alert', !!burst);
+  } else {
+    console.log('  (S8 skipped: CLAMAV_HOST is not set — run the API and the suite with ClamAV to cover malware)');
+  }
+
+  // ---- S9. Отказы 403 и перебор чужих id ----
+  // Свёртка живёт час на (актор, шаблон маршрута): раздел G уже получал этот отказ — окно с нуля
+  const Redis = require('ioredis');
+  const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+  await redis.del(`audit:collapse:authz:${s3.id}:/api/workspaces/:workspaceId/security/events`);
+  redis.disconnect();
+  const denied = await call('GET', `/workspaces/${W}/security/events`, s3.token);
+  for (let i = 0; i < 3; i++) await call('GET', `/workspaces/${W}/security/events`, s3.token);
+  const dRows = await waitRow(async () => {
+    const r = await events({ eventKey: 'authz.denied', actorId: s3.id });
+    return r.length ? r : null;
+  }, 5000);
+  const dRow = (dRows ?? []).find((e) => String(e.route ?? '').includes('/security/events'));
+  check('S9: a 403 is journaled as authz.denied — platform only, reason = the refusal code', denied.status === 403 && !!dRow && dRow.details.reason === denied.code && !dRow.visSubject && !dRow.visWorkspace, `${denied.status} ${denied.code} ${JSON.stringify(dRow?.details)}`);
+  check('S9: repeated denials collapse (1, 10, 100… — not a row per refusal)', (dRows ?? []).filter((e) => String(e.route ?? '').includes('/security/events')).length === 1, (dRows ?? []).length);
+  const s3feed = await call('GET', '/users/me/security/events?limit=50', s3.token);
+  check('S9: the person does not see their own access denials', s3feed.ok && !(s3feed.json?.data?.items ?? []).some((e) => e.key === 'authz.denied'));
+  // Разные чужие id, не быстрее троттлинга (10 запросов в секунду)
+  for (let i = 0; i < 31; i++) {
+    await call('GET', `/workspaces/${randomUUID()}/security/events`, s3.token);
+    await sleep(120);
+  }
+  const idor = await waitRow(() => prisma.securityAlert.findFirst({ where: { kind: 'idor_probing', subjectUserId: s3.id, status: { in: ['open', 'ack'] } } }), 5000);
+  check('S9: 30 different foreign ids in 10 min → idor_probing alert', !!idor);
+
+  // ---- S10. Интеграция Google: отключение кнопкой ----
+  await prisma.googleConnection.upsert({ where: { userId: s2.id }, create: { userId: s2.id, googleEmail: 'suite@example.com', accessToken: '', refreshToken: '' }, update: {} });
+  const disc = await call('DELETE', '/integrations/google', s2.token);
+  const left = await prisma.googleConnection.findUnique({ where: { userId: s2.id } });
+  const dEv = await events({ eventKey: 'account.integration.disconnected', subjectUserId: s2.id });
+  check('S10: disconnecting Google is journaled for the person (reason self)', disc.ok && !left && dEv.some((e) => e.details.reason === 'self' && e.details.provider === 'google_calendar' && e.visSubject), `${disc.status} ${JSON.stringify(dEv.map((e) => e.details))}`);
+
+  // ---- S11. Настройки журнала ----
+  const sBase = await call('POST', '/audit/dev/settings/check', s1.token, {});
+  const sOff = await call('POST', '/audit/dev/settings/check', s1.token, { archiveEnabled: false });
+  const sBack = await call('POST', '/audit/dev/settings/check', s1.token, {});
+  const sEv = await events({ eventKey: 'audit.settings.changed' });
+  const settingOf = (e) => e.details.setting;
+  const baseline = await prisma.securityEvent.findMany({ where: { eventKey: 'audit.settings.changed', reasonCode: 'baseline' }, select: { details: true } });
+  check('S11: every log setting has a baseline; an unchanged start writes nothing', sBase.json?.data?.written === 0 && ['digest_interval_min', 'retention_years', 'archive_enabled', 'trusted_country'].every((s) => baseline.some((b) => b.details.setting === s)), JSON.stringify(sBase.json?.data));
+  check('S11: switching the archive off and back → two events (true → false → true)', sOff.json?.data?.written === 1 && sBack.json?.data?.written === 1 && sEv.filter((e) => settingOf(e) === 'archive_enabled').map((e) => `${e.details.from}>${e.details.to}`).join(',') === 'true>false,false>true', JSON.stringify(sEv.map((e) => e.details)));
+
+  // ---- S12. Инициатор — в выгрузке и SIEM-стриме ----
+  const { csvRow, ndjsonRow, CSV_COLUMNS } = require('../dist/core/audit/audit.export.js');
+  const { AuditStreamService } = require('../dist/core/audit/audit.stream.js');
+  const shared = require('@superapp/shared');
+  const dto = {
+    id: '1', eventId: randomUUID(), occurredAt: new Date().toISOString(), key: 'org.member.removed', category: 'org', severity: 'medium', outcome: 'success', reasonCode: null, op: null,
+    title: 'x', body: null, actor: { kind: 'system', onBehalfOf: { id: s1.id, firstName: 'A', lastName: 'B', avatar: null } }, subject: { id: s2.id }, workspaceId: W,
+    target: { type: 'user', id: s2.id, label: null }, client: 'job', location: { country: null, city: null }, device: { label: null, class: null }, details: {}, disputable: false, requestId: null, ref: null,
+  };
+  const cells = csvRow(dto).split(',');
+  check('S12: CSV export carries the initiator column', cells[CSV_COLUMNS.indexOf('onBehalfOfId')] === s1.id, cells.join('|'));
+  check('S12: NDJSON export carries actor.onBehalfOfId', JSON.parse(ndjsonRow(dto)).actor.onBehalfOfId === s1.id);
+  const payload = AuditStreamService.prototype.payload.call({}, {
+    eventId: randomUUID(), key: 'org.member.removed', def: shared.auditEventDef('org.member.removed'), occurredAt: new Date(), outcome: 'success', reasonCode: null,
+    actorKind: 'system', actorId: null, onBehalfOfId: s1.id, subjectUserId: s2.id, workspaceId: W, targetType: 'user', targetId: s2.id, country: null, client: 'job', uaFamily: null, requestId: null, details: {},
+  });
+  check('S12: SIEM stream payload carries actor.onBehalfOfId of a system action', payload.actor.onBehalfOfId === s1.id, JSON.stringify(payload.actor));
+  const staffPayload = AuditStreamService.prototype.payload.call({}, {
+    eventId: randomUUID(), key: 'org.member.removed', def: shared.auditEventDef('org.member.removed'), occurredAt: new Date(), outcome: 'success', reasonCode: null,
+    actorKind: 'platform_staff', actorId: s1.id, onBehalfOfId: s2.id, subjectUserId: s2.id, workspaceId: W, targetType: 'user', targetId: s2.id, country: null, client: 'console', uaFamily: null, requestId: null, details: {},
+  });
+  check('S12: a platform staff delegation never leaves in the stream', staffPayload.actor.kind === 'platform' && staffPayload.actor.id === null && !('onBehalfOfId' in staffPayload.actor), JSON.stringify(staffPayload.actor));
+}
+
 // ===================== C. Защита входа =====================
 async function sectionLogin({ check, prisma }) {
   console.log('\n[C] sign-in protection (suite3 only — the lockout is lifted in finally)');
@@ -473,7 +839,13 @@ async function sectionNotMe({ check, prisma }) {
   check('my data (full IP history) is closed to a fresh unconfirmed session (cooling)', intruderExport.status === 403 && intruderExport.code === 'auth.cooling_period', `${intruderExport.status} ${intruderExport.code}`);
   const fromIntruder = await call('POST', '/users/me/security/not-me', intruder.json.data.accessToken, { eventId: String(loginEv.id) });
   check('the fresh intruder session cannot run the wizard (cooling)', fromIntruder.status === 403 && fromIntruder.code === 'auth.cooling_period', `${fromIntruder.status} ${fromIntruder.code}`);
+  // Подключение Google, выданное из угнанной сессии (канал выноса календаря) — мастер обязан его погасить
+  await prisma.googleConnection.upsert({ where: { userId: owner.id }, create: { userId: owner.id, googleEmail: 'intruder@example.com', accessToken: '', refreshToken: '' }, update: {} });
+  const notMeSince = new Date(Date.now() - 1000);
   const res = await call('POST', '/users/me/security/not-me', owner.token, { eventId: String(loginEv.id) });
+  const googleLeft = await prisma.googleConnection.findUnique({ where: { userId: owner.id } });
+  const googleEv = await prisma.securityEvent.findFirst({ where: { eventKey: 'account.integration.disconnected', subjectUserId: owner.id, occurredAt: { gte: notMeSince } } });
+  check('not-me: the Google connection is really removed and journaled (reason not_me)', res.ok && !googleLeft && googleEv?.details?.reason === 'not_me', `${res.status} left=${!!googleLeft} ${JSON.stringify(googleEv?.details)}`);
   check('not-me: other sessions ended, devices forgotten', res.ok && res.json.data.sessionsRevoked >= 1 && res.json.data.devicesForgotten >= 1, JSON.stringify(res.json?.data));
   const intruderDead = await call('GET', '/users/me', intruder.json.data.accessToken);
   check('the intruder is out immediately', intruderDead.status === 401, intruderDead.status);
@@ -740,9 +1112,17 @@ async function sectionIntegrity({ check, prisma, s1 }) {
   check('verify: intact log → ok', ok1.ok && ok1.json.data.ok === true && ok1.json.data.digests >= 1, JSON.stringify(ok1.json?.data));
   const mine = run.json?.data?.id ? await prisma.securityDigest.findUnique({ where: { id: run.json.data.id } }) : null;
   if (mine) {
-    const lv = await prisma.$queryRawUnsafe(`SELECT sha256(convert_to(jsonb_strip_nulls(to_jsonb(e) - 'ip_enc' - 'ua_raw_enc')::text, 'UTF8')) AS h FROM security_events e WHERE xact >= $1::xid8 AND xact < $2::xid8 ORDER BY xact, id`, String(mine.xactFrom), String(mine.xactTo));
+    const lv = await prisma.$queryRawUnsafe(`SELECT sha256(convert_to(jsonb_strip_nulls(to_jsonb(e) - 'ip_enc' - 'ua_raw_enc')::text, 'UTF8')) AS h FROM security_events e WHERE e.xact >= $1::xid8 AND e.xact < $2::xid8 ORDER BY e.xact, e.id`, String(mine.xactFrom), String(mine.xactTo));
     const ref = merkleRef(lv.map((r) => Buffer.from(r.h)));
-    check('digest = v2 leaves (null-stripped) and its root equals an independent RFC 6962 root', mine.leafVersion === 2 && lv.length === mine.count && ref.equals(Buffer.from(mine.merkleRoot)), `v${mine.leafVersion} ${lv.length}/${mine.count}`);
+    check('digest = v3 leaves (null-stripped, numeric order) and its root equals an independent RFC 6962 root', mine.leafVersion === 3 && lv.length === mine.count && ref.equals(Buffer.from(mine.merkleRoot)), `v${mine.leafVersion} ${lv.length}/${mine.count}`);
+    // Регрессия порядка листьев: ВЕСЬ журнал (больше страницы движка, через 9 999 → 10 000 id и
+    // переходы разрядов xact) — корень движка v3 равен независимому числовому. Текстовый порядок
+    // выходных колонок (v1–v2) здесь расходился, а курсор страницы терял строки.
+    const span = (await prisma.$queryRawUnsafe(`SELECT min(xact)::text AS lo, (max(xact)::text::numeric + 1)::text AS hi, count(*)::int AS n FROM security_events`))[0];
+    const { AuditDigestService } = require('../dist/core/audit/audit.digests.js');
+    const engine = await Object.assign(Object.create(AuditDigestService.prototype), { db: prisma }).leaves(BigInt(span.lo), BigInt(span.hi), 3);
+    const allLv = await prisma.$queryRawUnsafe(`SELECT sha256(convert_to(jsonb_strip_nulls(to_jsonb(e) - 'ip_enc' - 'ua_raw_enc')::text, 'UTF8')) AS h FROM security_events e WHERE e.xact >= $1::xid8 AND e.xact < $2::xid8 ORDER BY e.xact, e.id`, span.lo, span.hi);
+    check('whole-log v3 root (pages of the engine) equals the independent numeric-order root — no row lost or reordered', engine.count === allLv.length && engine.root.equals(merkleRef(allLv.map((r) => Buffer.from(r.h)))), `${engine.count}/${allLv.length} of ${span.n}`);
   }
 
   // Подмена строки ВНЕ стража (суперпользователь выключил триггер) — дайджест ловит её

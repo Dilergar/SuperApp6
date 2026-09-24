@@ -149,16 +149,18 @@ async function main() {
     const outgoing = await call('GET', '/contacts/invitations/outgoing', t1);
     const card = (outgoing.json?.data?.items ?? []).find((i) => i.toPhone === freshPhone)?.to;
     check('#7 карточка приглашённого отдаётся', !!card, JSON.stringify(outgoing.json?.data?.items?.length));
-    check('#7 фамилия маскирована до инициала', card?.lastName === 'Н.', JSON.stringify(card?.lastName));
+    // Провод core/visibility: маска — маркер `{ $v: 'masked', display }`, скрыто — `{ $v: 'hidden' }`
+    const hiddenOrEmpty = (v) => v === null || v?.$v === 'hidden';
+    check('#7 фамилия маскирована до инициала', card?.lastName?.$v === 'masked' && card.lastName.display === 'Н.', JSON.stringify(card?.lastName));
     check('#7 имя видно (по нему узнают человека)', card?.firstName === 'Диана', JSON.stringify(card?.firstName));
-    check('#7 био скрыто до согласия', card?.bio === null, JSON.stringify(card?.bio));
-    check('#7 город скрыт до согласия', card?.city === null, JSON.stringify(card?.city));
-    check('#7 соцсети/возраст скрыты', card?.socialLinks === null && card?.age === null);
+    check('#7 био скрыто до согласия', hiddenOrEmpty(card?.bio), JSON.stringify(card?.bio));
+    check('#7 город скрыт до согласия', hiddenOrEmpty(card?.city), JSON.stringify(card?.city));
+    check('#7 соцсети/возраст скрыты', hiddenOrEmpty(card?.socialLinks) && hiddenOrEmpty(card?.age), JSON.stringify({ s: card?.socialLinks, a: card?.age }));
 
     // Входящее — та же пре-линк карточка у получателя
     const incoming = await call('GET', '/contacts/invitations/incoming', freshTok);
     const fromCard = (incoming.json?.data?.items ?? [])[0]?.from;
-    check('#7 входящее приглашение тоже пре-линк (фамилия маскирована)', !!fromCard && /^.\.$/.test(fromCard.lastName ?? ''), JSON.stringify(fromCard?.lastName));
+    check('#7 входящее приглашение тоже пре-линк (фамилия маскирована)', !!fromCard && fromCard.lastName?.$v === 'masked' && /^.\.$/.test(fromCard.lastName.display ?? ''), JSON.stringify(fromCard?.lastName));
   } finally {
     if (cleanup.showcaseId) await call('DELETE', `/shop/showcases/${cleanup.showcaseId}`, await login(P1)).catch(() => {});
     if (cleanup.wsId) await call('DELETE', `/workspaces/${cleanup.wsId}`, await login(P1)).catch(() => {});

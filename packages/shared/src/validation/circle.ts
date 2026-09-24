@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { cardVisibilityObjectSchema } from './card-visibility';
 import { CONTACT_LIMITS } from '../constants/contacts';
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, 'validation.calendar.color');
@@ -18,8 +17,6 @@ export const updateCircleSchema = z.object({
   icon: iconSchema.nullable().optional(),
   color: hexColor.nullable().optional(),
   sortOrder: z.number().int().min(0).optional(),
-  // Per-group card visibility (partial — merged over defaults on write).
-  cardVisibility: cardVisibilityObjectSchema.nullable().optional(),
   // Per-group calendar access (Phase 2).
   calendarVisibility: z.enum(['none', 'busy', 'detailed']).optional(),
 });

@@ -6,6 +6,7 @@ import { UsageProviderRegistry } from '../../core/entitlements/entitlements.regi
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { RolesService } from '../../core/roles/roles.service';
 import { ChatterService } from '../../core/chatter/chatter.service';
+import { VisibilityService, markShaped } from '../../core/visibility/visibility.service';
 import { fullName } from '../../shared/utils/user-name';
 import { badRequest, conflict, notFound } from '../../shared/errors/api-error';
 import {
@@ -24,6 +25,7 @@ import {
   type LegalEntityLiteDto,
   type UpdateBankAccountInput,
   type UpdateLegalEntityInput,
+  type WorkspaceBankAccountDto,
   type WorkspaceRole,
 } from '@superapp/shared';
 
@@ -91,7 +93,28 @@ export class LegalEntitiesService implements OnModuleInit {
     private i18n: I18nService,
     private entitlements: EntitlementsService,
     private usageProviders: UsageProviderRegistry,
+    private visibility: VisibilityService,
   ) {}
+
+  /**
+   * Банковские счета организации: IBAN — строгое поле `workspace.card` (core/visibility:
+   * маска последних четырёх, раскрытие по одной записи владельцем/админом). Общая проекция
+   * для реквизитов организации и страницы юрлиц — правило действует на ВСЕХ путях.
+   */
+  async shapeBankAccounts(
+    workspaceId: string,
+    accounts: Array<{ id: string; iban: string; bankName: string; bik: string; isPrimary: boolean }>,
+  ): Promise<WorkspaceBankAccountDto[]> {
+    if (!accounts.length) return [];
+    const shaped = await this.visibility.shape(
+      this.visibility.viewer('api'),
+      'workspace.card',
+      accounts.map((a) => ({ ref: { recordId: a.id, subjectId: null, workspaceId }, values: { iban: a.iban } })),
+    );
+    return accounts.map((a, i) =>
+      markShaped({ id: a.id, iban: shaped[i]!.iban as WorkspaceBankAccountDto['iban'], bankName: a.bankName, bik: a.bik, isPrimary: a.isPrimary }),
+    );
+  }
 
   /**
    * Расход ключа `legalEntities.maxPerWorkspace` — ЖИВЫЕ юрлица организации (провайдер
@@ -494,6 +517,7 @@ export class LegalEntitiesService implements OnModuleInit {
   async serialize(
     row: {
       id: string;
+      workspaceId: string;
       name: string;
       isHead: boolean;
       sortOrder: number;
@@ -556,13 +580,7 @@ export class LegalEntitiesService implements OnModuleInit {
         (iso) => this.i18n.format().date(iso),
       ),
       signBasisParts: signBasisPartsOf(row),
-      bankAccounts: accounts.map((a) => ({
-        id: a.id,
-        iban: a.iban,
-        bankName: a.bankName,
-        bik: a.bik,
-        isPrimary: a.isPrimary,
-      })),
+      bankAccounts: await this.shapeBankAccounts(row.workspaceId, accounts),
     };
   }
 

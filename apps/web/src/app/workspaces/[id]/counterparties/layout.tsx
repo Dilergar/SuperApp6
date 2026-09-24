@@ -10,5 +10,5 @@ import type { ReactNode } from 'react';
 import { ServiceMessages } from '@/i18n/ServiceMessages';
 
 export default function WorkspaceCounterpartiesLayout({ children }: { children: ReactNode }) {
-  return <ServiceMessages ns={['counterparties', 'documents', 'notes', 'messenger', 'workspaces', 'circles']}>{children}</ServiceMessages>;
+  return <ServiceMessages ns={['counterparties', 'documents', 'notes', 'messenger', 'workspaces', 'circles', 'visibility']}>{children}</ServiceMessages>;
 }

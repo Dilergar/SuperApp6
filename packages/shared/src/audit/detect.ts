@@ -41,8 +41,19 @@ export const DETECT_AUDIT_EVENTS = defineAuditEvents({
   'detect.credential_stuffing': detect('critical'),
   /** Бомбардировка кодами: ≥ 5 запросов OTP за 5 мин на один аккаунт */
   'detect.otp_fatigue': detect('high', AUDIT_VIS.subject),
+  /**
+   * Массовое раскрытие (core/visibility): ≥ 30 раскрытий одним человеком за 10 мин — видит
+   * организация; раскрытия этому человеку стоят до решения админа, владельцам — тревога.
+   */
+  'detect.mass_reveal': detect('high', AUDIT_VIS.workspace),
+  /** Скрейпинг: > 20 000 чужих записей с контактами/личными полями целиком за час одним актором (core/visibility) */
+  'detect.pii_scrape': detect('high', AUDIT_VIS.workspace),
   /** Массовый вынос: > 1000 строк ПДн за 10 мин одним актором — видит и организация */
   'detect.mass_export': detect('high', AUDIT_VIS.workspace),
+  /** Перебор чужих объектов: ≥ 30 разных id с отказом (403/404) одним актором за 10 мин */
+  'detect.idor_probing': { ...detect('high'), vocab: 'malicious_direct_reference' },
+  /** Серия заражённых загрузок: ≥ 3 файла с вирусом от одного актора за час */
+  'detect.malware_burst': { ...detect('high'), vocab: 'upload_validation' },
   /** Первый вход после 180 дней тишины */
   'detect.dormant_login': detect('medium'),
   /** Проверка подписанных дайджестов: строки журнала изменены или пропали */

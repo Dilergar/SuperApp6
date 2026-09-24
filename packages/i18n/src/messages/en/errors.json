@@ -604,7 +604,8 @@
     "holder_only": "Only the holder of a personal key can change or rotate it — others can only revoke it",
     "root_next_not_loaded": "The next root is not loaded on this instance (KEYS_ROOT_KEY_FILE_NEXT) or its fingerprint is different",
     "root_fleet_not_ready": "Not every running instance holds the next root yet ({count}) — finish the rollout first",
-    "rotation_in_progress": "A key rotation is already in progress — wait until it finishes"
+    "rotation_in_progress": "A key rotation is already in progress — wait until it finishes",
+    "contact_access_not_applicable": "Contact data access is set on the bot or on an organization key"
   },
   "legalEntity": {
     "archived": "The legal entity is archived — pick an active one",
@@ -1422,6 +1423,14 @@
       "idleDays": "Choose one of the offered periods",
       "range": "The end of the period must be after its start",
       "rangeTooLong": "The period is too long — narrow it"
+    },
+    "visibility": {
+      "recordType": "Unknown record type",
+      "fieldKey": "Invalid field",
+      "ruleTarget": "A rule targets exactly one field, group or section",
+      "denyLevel": "A deny rule always hides",
+      "exceptionConflict": "A person cannot be in both lists",
+      "previewTarget": "Choose whose eyes to preview with"
     }
   },
   "verify": {
@@ -1567,5 +1576,26 @@
     "alert_closed": "The alert is already closed",
     "not_frozen": "The account is not frozen",
     "partition_not_found": "The log month was not found in the archive"
+  },
+  "visibility": {
+    "field_forbidden": "You cannot change a field you do not fully see",
+    "masked_value_rejected": "A masked value cannot be saved — enter the full value",
+    "field_not_queryable": "You cannot filter or sort by a field you do not fully see",
+    "mandatory_violation": "This change would hide data that must stay visible",
+    "unshaped_response": "The response was blocked by the visibility check",
+    "reveal_not_allowed": "You cannot reveal this data",
+    "step_up_required": "Confirm with your password and an SMS code to reveal",
+    "reveal_paused": "Reveals are paused by the security check — ask the organization admin",
+    "rule_invalid": "The rule is not valid for this field",
+    "exception_conflict": "A person cannot be in both “Always” and “Never”",
+    "draft_missing": "There is no draft",
+    "draft_changed": "The draft changed after you reviewed it — review the changes again",
+    "dual_control_required": "Loosening restricted fields needs a second admin’s approval",
+    "unknown_record_type": "Unknown record type",
+    "record_not_found": "The record was not found",
+    "too_many_audiences": "Too many audiences for one field",
+    "owner_only": "Only the owner changes these settings",
+    "lookup_rate": "Too many phone lookups from this organization — try again later",
+    "no_second_admin": "Nobody else can approve: another owner or admin is needed, or turn off second-admin approval"
   }
 }

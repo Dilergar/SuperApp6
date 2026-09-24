@@ -11,6 +11,7 @@ import type {
   WsEntitlementsChanged,
   WsKeysChanged,
   WsSecurityChanged,
+  WsVisibilityChanged,
   WsMessageDeleted,
   WsMessageNew,
   WsMessageUpdated,
@@ -50,6 +51,8 @@ export interface RealtimeHandlers {
   onKeysChanged?: (p: WsKeysChanged) => void;
   /** Журнал безопасности или сессии изменились (core/audit) — раздел «Безопасность» перечитывает. */
   onSecurityChanged?: (p: WsSecurityChanged) => void;
+  /** Политика видимости владельца сменилась (core/visibility) — сбросить его RQ-ключи. */
+  onVisibilityChanged?: (p: WsVisibilityChanged) => void;
   /**
    * После РЕ-коннекта (не первого connect): события за время провала потеряны —
    * подписчик догоняется (перечитывает чаты/ленту/counts).
@@ -106,6 +109,7 @@ function createSingleton(): SingletonState {
   socket.on('entitlements:changed', (p) => dispatch((h) => h.onEntitlementsChanged?.(p)));
   socket.on('keys:changed', (p) => dispatch((h) => h.onKeysChanged?.(p)));
   socket.on('security:changed', (p) => dispatch((h) => h.onSecurityChanged?.(p)));
+  socket.on('visibility:changed', (p) => dispatch((h) => h.onVisibilityChanged?.(p)));
 
   // Heartbeat presence с visibility-гейтом: ОДИН интервал на соединение; скрытая
   // вкладка биений не шлёт (away-модель Slack) — серверный TTL переведёт в offline.

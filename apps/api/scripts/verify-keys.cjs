@@ -276,27 +276,38 @@ async function main() {
     // ============================================================
     // C. Секреты: карты и креды Процессов — envelope в БД, legacy-строки перешиты джобом
     // ============================================================
-    const card = await call('POST', '/wallet/cards', s1.token, { pan: '4111111111111111', holderName: 'KEYS SUITE', expMonth: 12, expYear: 2031 });
+    // Полного номера карты в продукте нет ни у кого (core/visibility R11, PCI DSS 3.4.1): круговое
+    // шифрование проверяется IBAN карт-счёта — он читается владельцу, а PAN — только маской
+    const IBAN = 'KZ86125KZT5004100100';
+    const card = await call('POST', '/wallet/cards', s1.token, { pan: '4111111111111111', iban: IBAN, holderName: 'KEYS SUITE', expMonth: 12, expYear: 2031 });
     if (card.ok) {
       const row = await prisma.userPaymentCard.findUnique({ where: { id: card.json.data.id } });
       check('card PAN stored as envelope sa6e:', row?.panEncrypted?.startsWith('sa6e:1:') === true, row?.panEncrypted?.slice(0, 12));
+      check('card IBAN stored as envelope sa6e:', row?.ibanEncrypted?.startsWith('sa6e:1:') === true, row?.ibanEncrypted?.slice(0, 12));
       const list = await call('GET', '/wallet/cards', s1.token);
-      check('card PAN decrypts back for the owner', (list.json?.data ?? []).some((c) => c.id === card.json.data.id && c.pan === '4111111111111111'));
+      const mine = (list.json?.data ?? []).find((c) => c.id === card.json.data.id);
+      check('card IBAN decrypts back for the owner', mine?.iban === IBAN, mine?.iban);
+      check('R11: full PAN is never on the wire (even to the owner) — only last-4 mask', !!mine && !('pan' in mine) && /1111$/.test(mine.panMasked ?? '') && !JSON.stringify(list.json).includes('4111111111111111'));
       // legacy-строка: старый AES производным ключом → джоб перешивает → API читает
       const legacyKey = crypto.createHash('sha256').update(`field:payment-card:${legacySecret}`).digest();
       const iv = crypto.randomBytes(12);
       const c = crypto.createCipheriv('aes-256-gcm', legacyKey, iv);
       const enc = Buffer.concat([c.update('4242424242424242', 'utf8'), c.final()]);
       const legacyStored = `${iv.toString('base64')}.${c.getAuthTag().toString('base64')}.${enc.toString('base64')}`;
-      const legacyCard = await prisma.userPaymentCard.create({ data: { userId: s1.id, panEncrypted: legacyStored, panLast4: '0001', holderName: 'LEGACY', expMonth: 1, expYear: 2030 } });
+      // IBAN тем же прежним шифром — его и читаем (PAN наружу не отдаётся никогда)
+      const iv2 = crypto.randomBytes(12);
+      const c2 = crypto.createCipheriv('aes-256-gcm', legacyKey, iv2);
+      const enc2 = Buffer.concat([c2.update(IBAN, 'utf8'), c2.final()]);
+      const legacyIban = `${iv2.toString('base64')}.${c2.getAuthTag().toString('base64')}.${enc2.toString('base64')}`;
+      const legacyCard = await prisma.userPaymentCard.create({ data: { userId: s1.id, panEncrypted: legacyStored, ibanEncrypted: legacyIban, panLast4: '0001', holderName: 'LEGACY', expMonth: 1, expYear: 2030 } });
       const before = await call('GET', '/wallet/cards', s1.token);
-      check('legacy card readable before re-encrypt (window open)', (before.json?.data ?? []).some((x) => x.id === legacyCard.id && x.pan === '4242424242424242'));
+      check('legacy card readable before re-encrypt (window open)', (before.json?.data ?? []).some((x) => x.id === legacyCard.id && x.iban === IBAN));
       const re = await dev('legacy/reencrypt', {});
       check('legacy/reencrypt: ≥1 row', re.ok && re.json?.data?.rows >= 1, JSON.stringify(re.json));
       const after = await prisma.userPaymentCard.findUnique({ where: { id: legacyCard.id } });
       check('legacy card re-encrypted into envelope', after?.panEncrypted?.startsWith('sa6e:1:') === true);
       const afterList = await call('GET', '/wallet/cards', s1.token);
-      check('re-encrypted card still decrypts to the same PAN', (afterList.json?.data ?? []).some((x) => x.id === legacyCard.id && x.pan === '4242424242424242'));
+      check('re-encrypted card still decrypts to the same value', (afterList.json?.data ?? []).some((x) => x.id === legacyCard.id && x.iban === IBAN));
       await call('DELETE', `/wallet/cards/${legacyCard.id}`, s1.token);
       await call('DELETE', `/wallet/cards/${card.json.data.id}`, s1.token);
     } else {

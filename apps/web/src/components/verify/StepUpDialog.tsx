@@ -16,7 +16,7 @@ import { useOtpFlow } from './otp-flow';
 import { OtpStep } from './OtpStep';
 import { Alert, Button, Input, Modal } from '@/components/ui';
 
-export type StepUpPurpose = Extract<VerifyPurpose, 'keys_manage' | 'security_confirm'>;
+export type StepUpPurpose = Extract<VerifyPurpose, 'keys_manage' | 'security_confirm' | 'visibility_reveal' | 'visibility_manage'>;
 
 export interface StepUpDialogProps {
   open: boolean;

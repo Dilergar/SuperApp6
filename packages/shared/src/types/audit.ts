@@ -33,7 +33,8 @@ export type AuditActorDto =
   | { kind: 'bot'; id: string; name: string | null }
   | { kind: 'platform_staff'; id: string; person: AuditPersonDto | null }
   | { kind: 'platform' }
-  | { kind: 'system' }
+  /** Система — по поручению человека продукта (кадровое действие применил джоб), если он известен */
+  | { kind: 'system'; onBehalfOf?: AuditPersonDto | null }
   | { kind: 'guest' }
   | { kind: 'anonymous' }
   | { kind: 'device'; id: string | null };
@@ -360,7 +361,8 @@ export interface SecurityWebhookPayload {
   occurredAt: string;
   severity: AuditSeverity;
   outcome: AuditOutcome;
-  actor: { kind: string; id: string | null };
+  /** `onBehalfOfId` — у системного актора: человек продукта, по чьему действию сработала система */
+  actor: { kind: string; id: string | null; onBehalfOfId?: string | null };
   subjectUserId: string | null;
   target: { type: string; id: string } | null;
   country: string | null;

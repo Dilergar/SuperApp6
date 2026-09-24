@@ -2,12 +2,11 @@
 // Name helpers
 // ============================================================
 
+import { maskNameInitial } from '../visibility/masks';
+
 /**
- * Mask a last name to its initial: "Нурланов" → "Н." (Kaspi-style).
- * Used wherever a person is shown to someone NOT (yet) linked with them:
- * the phone-lookup in the invite form, the blocked-users list.
+ * Фамилия до инициала: «Нурланов» → «Н.» (Kaspi-стиль) — маска `name_initials` движка
+ * видимости (одна функция на платформу). Там, где человек показан тому, с кем связи ещё
+ * НЕТ: пре-линк карточка, заблокированные, находимость по номеру.
  */
-export function maskLastName(lastName: string | null | undefined): string | null {
-  if (!lastName) return null;
-  return `${lastName.charAt(0).toUpperCase()}.`;
-}
+export const maskLastName = maskNameInitial;

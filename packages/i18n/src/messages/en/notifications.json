@@ -599,7 +599,8 @@
     "tasks": "Tasks",
     "wallet": "Wallet",
     "workspaces": "Organizations",
-    "consents": "Consents and documents"
+    "consents": "Consents and documents",
+    "visibility": "Visibility rules"
   },
   "settings": {
     "always": {
@@ -934,6 +935,34 @@
         "title": "Mass data export in the organization",
         "body": "{rows, plural, one {# row} other {# rows}} in {minutes} min by one account. Check the security log.",
         "label": "Mass data export"
+      }
+    },
+    "link": {
+      "passwordLocked": {
+        "title": "Wrong passwords on your public link",
+        "body": "{attempts, plural, one {# wrong attempt} other {# wrong attempts}} in a row: the link to «{target}» is locked for {minutes} min. If you gave it to no one, close the link.",
+        "label": "Link password guessing"
+      }
+    }
+  },
+  "visibility": {
+    "reveal": {
+      "notice": {
+        "title": "Your data was revealed in «{workspace}»",
+        "body": "{recordTypeLabel}: {fieldCount, plural, one {# field} other {# fields}}. Details are in “My data”.",
+        "label": "Your data revealed"
+      },
+      "paused": {
+        "title": "Data reveals paused",
+        "body": "One person revealed too much data in a short time. Their reveals are paused until an admin decides.",
+        "label": "Reveals paused"
+      }
+    },
+    "policy": {
+      "published": {
+        "title": "Visibility rules published",
+        "body": "{recordTypeLabel}, version {version}",
+        "label": "Visibility rules published"
       }
     }
   }

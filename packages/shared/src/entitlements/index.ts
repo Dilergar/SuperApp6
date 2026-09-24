@@ -24,6 +24,7 @@ import { CARD_SKINS_ENTITLEMENTS } from './card-skins';
 import { NOTIFICATIONS_ENTITLEMENTS } from './notifications';
 import { KEYS_ENTITLEMENTS } from './keys';
 import { AUDIT_ENTITLEMENTS } from './audit';
+import { VISIBILITY_ENTITLEMENTS } from './visibility';
 import { PLAN_DEFS, PLAN_KEYS, PLAN_SEED_POLICY, type PlanKey } from './plans';
 
 export * from './types';
@@ -40,6 +41,7 @@ const REGISTRY_RAW = {
   ...NOTIFICATIONS_ENTITLEMENTS,
   ...KEYS_ENTITLEMENTS,
   ...AUDIT_ENTITLEMENTS,
+  ...VISIBILITY_ENTITLEMENTS,
 } as const satisfies Record<string, EntitlementDef>;
 
 /** Union ключей — выводится из реестра. */

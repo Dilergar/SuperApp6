@@ -43,6 +43,11 @@ export interface ChatterChange {
    * записях, где `raw` пересобрал значение (дата, число, слово-ключ).
    */
   display?: { from: string; to: string } | null;
+  /**
+   * Правила видимости (core/visibility) закрыли значения от ЭТОГО зрителя: `masked` — в
+   * `from`/`to` символы маски, `hidden` — значений нет, клиент пишет «изменено».
+   */
+  concealed?: 'masked' | 'hidden';
 }
 
 /** Лайт-профиль актёра для PersonChip (батч-обогащение страницы) */

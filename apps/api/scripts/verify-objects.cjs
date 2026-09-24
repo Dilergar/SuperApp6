@@ -165,13 +165,18 @@ async function main() {
   check('вакансия осталась строкой (2 по штату)', barmanAfter.length === 2 && barmanAfter.some((r) => !r.assignment), `${barmanAfter.length}`);
   check('«вакантно с» только у вакансии', barmanAfter.every((r) => (r.assignment ? !('vacantSince' in r) : typeof r.vacantSince === 'string')), JSON.stringify(barmanAfter.map((r) => r.vacantSince ?? null)));
 
-  // Деньги в JSON: рядовому их НЕТ (полей нет вовсе, не null)
+  // Деньги штатки — поля движка видимости (core/visibility, `objects.staffing`): рядовой видит
+  // СВОЮ ставку (решение грилла №12: «сам — своя ставка»), чужие деньги и план — маркером
+  // «скрыто», итогов плана затрат (агрегат) — нет вовсе
   const tableWorker = (await call('GET', `${base}/${floor.id}/staffing?period=${period}`, worker.token)).json?.data;
-  const workerRow = tableWorker?.rows?.[0];
   const raw = JSON.stringify(tableWorker ?? {});
+  const ownRow = (tableWorker?.rows ?? []).find((r) => r.assignment?.userId === worker.id);
+  const vacancyRow = (tableWorker?.rows ?? []).find((r) => r.positionId === posBarman.id && !r.assignment);
   check('рядовому штатка видна', !!tableWorker?.rows, `${tableWorker?.rows?.length}`);
-  check('без права ПОЛЕЙ денег нет', workerRow && !('actualRate' in workerRow) && !('officialSalary' in workerRow), Object.keys(workerRow ?? {}).join(','));
-  check('в JSON нет сумм', !raw.includes('25000000') && !raw.includes('30000000'));
+  check('своя ставка видна самому', ownRow?.actualRate?.amount === '25000000', JSON.stringify(ownRow?.actualRate ?? null));
+  check('плановая ставка вакансии скрыта маркером', vacancyRow?.plannedRate?.$v === 'hidden', JSON.stringify(vacancyRow?.plannedRate ?? null));
+  check('итогов плана затрат нет, payrollView = false', !tableWorker?.totals && tableWorker?.caps?.payrollView === false, JSON.stringify({ totals: tableWorker?.totals, caps: tableWorker?.caps }));
+  check('плановых сумм в JSON нет', !raw.includes('30000000'));
 
   // Пересечение периодов назначения → 409
   const overlap = await call('POST', `${base}/${floor.id}/staffing/assign`, owner.token, {

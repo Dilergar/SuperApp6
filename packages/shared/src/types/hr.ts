@@ -19,6 +19,7 @@ import type {
   PersonalDocKind,
 } from '../constants/hr';
 import type { DocStatus } from '../constants/org-documents';
+import type { Guarded } from '../visibility/types';
 
 /** Человек в КЭДО — только карточкой (Принцип 2), поэтому лайт-профиль */
 export interface HrActorLite {
@@ -41,7 +42,8 @@ export interface EmploymentDto {
   status: EmploymentStatus;
   hiredAt: string | null; // YYYY-MM-DD
   firedAt: string | null;
-  dismissalGround: string | null;
+  /** Основание увольнения — конфиденциально (core/visibility, `hr.employment`) */
+  dismissalGround: Guarded<string | null>;
   contractNumber: string | null;
   contractDate: string | null;
   contractType: ContractType;
@@ -54,8 +56,11 @@ export interface EmploymentDto {
   legalBranchName: string | null;
   workRate: number | null;
   workSchedule: string | null;
-  /** Тиыны строкой (BigInt). Виден Менеджер+ и самому человеку — как и вся карточка */
-  salaryAmount: string | null;
+  /**
+   * Тиыны строкой (BigInt). Кто видит — правила организации (`hr.employment.salaryAmount`):
+   * по умолчанию владелец, админ, руководитель человека и его объекта, сам (ТК ст. 113)
+   */
+  salaryAmount: Guarded<string | null>;
   salaryCurrency: string;
   paperMode: boolean;
   personnelNumber: string | null;
@@ -105,7 +110,8 @@ export interface HrActionDocLite {
 // ---------- Страница человека ----------
 
 export interface HrMemberCardDto {
-  user: HrActorLite & { phone: string | null };
+  /** Человек глазами зрителя: фамилия, фото и номер — по ЕГО правилам (`user.card`) */
+  user: { id: string; firstName: string; lastName: Guarded<string | null>; avatar: Guarded<string | null>; phone: Guarded<string> };
   role: string | null;
   /** Фактические назначения (StaffAssignment) — «как работает» */
   assignments: {

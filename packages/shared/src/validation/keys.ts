@@ -55,6 +55,8 @@ export const botCreateSchema = z
     responsibleUserId: uuid.optional(),
     scopes: keyScopesSchema,
     ipAllowlist: ipAllowlistSchema.default([]),
+    /** R9: доступ к контактным данным (класс `contact` движка видимости) — только явно */
+    contactAccess: z.boolean().default(false),
     storedHint,
     ...expiryShape,
   })
@@ -71,6 +73,7 @@ export const botUpdateSchema = z
     responsibleUserId: uuid.nullable().optional(),
     scopes: keyScopesSchema.optional(),
     ipAllowlist: ipAllowlistSchema.optional(),
+    contactAccess: z.boolean().optional(),
   })
   .strict();
 export type BotUpdateInput = z.infer<typeof botUpdateSchema>;
@@ -82,6 +85,8 @@ export const apiKeyCreateSchema = z
     purpose,
     scopes: keyScopesSchema,
     ipAllowlist: ipAllowlistSchema.default([]),
+    /** R9: только у ключа ДАННЫХ ОРГАНИЗАЦИИ (у личного для своих данных смысла нет) */
+    contactAccess: z.boolean().default(false),
     storedHint,
     ...expiryShape,
   })
@@ -111,7 +116,7 @@ export const apiKeyRevokeSchema = z
 export type ApiKeyRevokeInput = z.infer<typeof apiKeyRevokeSchema>;
 
 export const apiKeyUpdateSchema = z
-  .object({ name: name.optional(), storedHint, ipAllowlist: ipAllowlistSchema.optional() })
+  .object({ name: name.optional(), storedHint, ipAllowlist: ipAllowlistSchema.optional(), contactAccess: z.boolean().optional() })
   .strict();
 export type ApiKeyUpdateInput = z.infer<typeof apiKeyUpdateSchema>;
 

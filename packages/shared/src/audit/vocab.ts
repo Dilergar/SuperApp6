@@ -36,6 +36,8 @@ export const AUDIT_VOCAB = [
   'user_deleted',
   'sys_monitor_disabled',
   'sys_monitor_enabled',
+  'upload_validation',
+  'malicious_direct_reference',
 ] as const;
 export type AuditVocab = (typeof AUDIT_VOCAB)[number];
 

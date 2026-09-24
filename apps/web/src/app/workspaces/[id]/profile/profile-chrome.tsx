@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { apiGet } from '@/lib/api';
+import { useIsMobile } from '@/lib/hooks/useIsMobile';
 import type { Workspace } from '@superapp/shared';
 
 type Gate = 'all' | 'manage' | 'owner';
@@ -19,6 +20,8 @@ const SECTIONS: { key: string; gate: Gate }[] = [
   { key: 'subscription', gate: 'manage' },
   { key: 'settings', gate: 'manage' },
   { key: 'notifications', gate: 'manage' },
+  // Правила видимости данных организации (core/visibility): владелец и админ
+  { key: 'visibility', gate: 'manage' },
   { key: 'security', gate: 'owner' },
 ];
 
@@ -42,6 +45,8 @@ export function WorkspaceProfileChrome({ children }: { children: React.ReactNode
   const pathname = usePathname();
   const { id } = useParams<{ id: string }>();
   const [ws, setWs] = useState<Workspace | null>(null);
+  // На телефоне колонка меню в 200 px съедала экран — меню становится строкой над разделом
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (!isReady || !id) return;
@@ -55,8 +60,8 @@ export function WorkspaceProfileChrome({ children }: { children: React.ReactNode
     g === 'all' || (g === 'manage' && canManage) || (g === 'owner' && isOwner);
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '200px minmax(0, 1fr)', gap: 'var(--spacing-8)', minHeight: '70vh' }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--spacing-1)' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : '200px minmax(0, 1fr)', gap: isMobile ? 'var(--spacing-4)' : 'var(--spacing-8)', minHeight: '70vh' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: 'var(--spacing-1)' }}>
         <Link
           href={`/workspaces/${id}`}
           className="label-sm"
