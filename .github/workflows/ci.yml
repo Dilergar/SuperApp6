@@ -95,6 +95,13 @@ jobs:
       - name: Field visibility registry guard
         run: node scripts/check-visibility.cjs
 
+      # Страж реестра жизненного цикла данных (core/lifecycle): у каждой модели, сырой таблицы,
+      # профиля файлов и семейства ключей Redis есть политика; FK схемы = рёбра удаления;
+      # длительности только сутками; «по закону» — с нормой; hold у юридических записей;
+      # каталоги; манифест канареек; ратчет готовности к ячейкам (только сокращается).
+      - name: Data lifecycle registry guard
+        run: node scripts/check-lifecycle.cjs
+
       - name: Build shared package
         run: pnpm --filter @superapp/shared build
 

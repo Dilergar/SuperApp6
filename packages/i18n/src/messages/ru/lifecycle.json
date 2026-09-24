@@ -1,0 +1,792 @@
+{
+  "classes": {
+    "identity_pii": {
+      "title": "Личность и персональные данные",
+      "description": "Кто человек: имя, телефон, документы, устройства"
+    },
+    "auth_secret": {
+      "title": "Секреты входа",
+      "description": "Сессии, ключи и одноразовые коды"
+    },
+    "user_content_private": {
+      "title": "Личный контент",
+      "description": "Задачи, заметки, файлы и финансы одного человека"
+    },
+    "user_content_shared": {
+      "title": "Общий контент",
+      "description": "Чаты, общие задачи и встречи между людьми"
+    },
+    "tenant_record": {
+      "title": "Записи организации",
+      "description": "Структура, объекты, оборудование, процессы и их хроника"
+    },
+    "legal_record": {
+      "title": "Записи по закону",
+      "description": "Кадровые приказы, договоры, подписи и согласия"
+    },
+    "financial_record": {
+      "title": "Деньги",
+      "description": "Леджер, эскроу, заказы и платёжные реквизиты"
+    },
+    "security_audit": {
+      "title": "Журнал безопасности",
+      "description": "Входы, доступ и действия администраторов"
+    },
+    "operational": {
+      "title": "Служебные записи",
+      "description": "Доставки, журналы интеграций, приглашения и очереди"
+    },
+    "analytics_event": {
+      "title": "Продуктовая аналитика",
+      "description": "События использования и их агрегаты"
+    },
+    "derived": {
+      "title": "Производные копии",
+      "description": "Поисковый индекс, превью, кэши и архивы, собранные из источника"
+    },
+    "ephemeral": {
+      "title": "Короткоживущие данные",
+      "description": "Блокировки, одноразовые сессии и байты в пути"
+    }
+  },
+  "citations": {
+    "kz_pd_law_art12": "Закон РК о персональных данных, ст. 12: хранение в Казахстане и не дольше цели",
+    "kz_pd_law_art8_7": "Закон РК о персональных данных, ст. 8 п. 7: удаление по требованию за 15 рабочих дней",
+    "kz_civil_code_art41_4": "Гражданский кодекс РК: права третьих лиц — переписка остаётся у собеседников",
+    "kz_279_personnel_75y": "Перечень типовых документов (279-НҚ): приказы по личному составу и лицевые счета — 75 лет",
+    "kz_279_employment_contracts": "Перечень типовых документов (279-НҚ): трудовые договоры — 75 лет до заключения юриста о сроке",
+    "kz_279_timesheets_5y": "Перечень типовых документов (279-НҚ): табели — 5 лет (вредные условия — 75)",
+    "kz_279_contracts_5y": "Перечень типовых документов (279-НҚ): хозяйственные договоры и первичные документы — 5 лет после события",
+    "kz_payments_law_art13": "Закон РК о платежах и платёжных системах, ст. 13: сведения о платежах — 5 лет",
+    "kz_aml_law_art5": "Закон РК о ПОД/ФТ, ст. 5: сведения об операциях — 5 лет после прекращения отношений",
+    "kz_tax_code_records": "Налоговый кодекс РК: учётная документация в пределах срока исковой давности",
+    "kz_digital_code_art62": "Цифровой кодекс РК, ст. 62: электронная подпись и доказательства — на срок жизни документа",
+    "kz_et832_p38": "Единые требования № 832, п. 38: журналы безопасности — 3 года, не менее 2 месяцев онлайн",
+    "kz_pd_law_consent_evidence": "Закон РК о персональных данных, ст. 7–8: согласие и его отзыв — доказательство обработки",
+    "kz_pd_incident_rules": "Правила № 179 об инцидентах с персональными данными: журнал инцидентов и уведомлений"
+  },
+  "policies": {
+    "User": {
+      "title": "Аккаунты"
+    },
+    "UserRole": {
+      "title": "Роли в организациях"
+    },
+    "Session": {
+      "title": "Сессии входа"
+    },
+    "UserDevice": {
+      "title": "Устройства человека"
+    },
+    "VerifyChallenge": {
+      "title": "Проверки одноразовых кодов"
+    },
+    "RelationTuple": {
+      "title": "Правила доступа"
+    },
+    "NotificationEvent": {
+      "title": "События уведомлений"
+    },
+    "Notification": {
+      "title": "Уведомления"
+    },
+    "NotificationDelivery": {
+      "title": "Доставки уведомлений"
+    },
+    "NotificationPreference": {
+      "title": "Настройки уведомлений"
+    },
+    "WorkspaceNotificationPolicy": {
+      "title": "Политика уведомлений организации"
+    },
+    "NotificationSubscription": {
+      "title": "Подписки на уведомления"
+    },
+    "NotificationDevice": {
+      "title": "Устройства для пуш-уведомлений"
+    },
+    "UserNotificationSettings": {
+      "title": "Тишина и каналы уведомлений"
+    },
+    "FileObject": {
+      "title": "Файлы"
+    },
+    "FileLink": {
+      "title": "Места файлов"
+    },
+    "FileVariant": {
+      "title": "Превью файлов"
+    },
+    "VoiceTranscript": {
+      "title": "Расшифровки"
+    },
+    "CallSession": {
+      "title": "Звонки"
+    },
+    "CallSessionParticipant": {
+      "title": "Участники звонков"
+    },
+    "CallRecording": {
+      "title": "Записи звонков"
+    },
+    "CallRecordingClaim": {
+      "title": "Сохранённые записи звонков"
+    },
+    "Job": {
+      "title": "Фоновые задания"
+    },
+    "ChatterEntry": {
+      "title": "Хроника"
+    },
+    "SearchDocument": {
+      "title": "Поисковый индекс"
+    },
+    "ShareLink": {
+      "title": "Ссылки наружу"
+    },
+    "ShareLinkVisit": {
+      "title": "Посещения ссылок наружу"
+    },
+    "ShareLinkGuest": {
+      "title": "Гости ссылок"
+    },
+    "ApprovalRequest": {
+      "title": "Заявки на решение"
+    },
+    "ApprovalStep": {
+      "title": "Шаги решений"
+    },
+    "ApprovalDecision": {
+      "title": "Решения"
+    },
+    "SignRequest": {
+      "title": "Заявки на подпись"
+    },
+    "SignAct": {
+      "title": "Акты подписи"
+    },
+    "SignActEvent": {
+      "title": "Протокол подписания"
+    },
+    "SignQrSession": {
+      "title": "QR-сессии подписи"
+    },
+    "Document": {
+      "title": "Офисные документы"
+    },
+    "DocumentVersion": {
+      "title": "Версии офисных документов"
+    },
+    "DocumentSession": {
+      "title": "Сессии правки"
+    },
+    "Plan": {
+      "title": "Тарифы"
+    },
+    "PlanVersion": {
+      "title": "Версии тарифов"
+    },
+    "SubjectSubscription": {
+      "title": "Подписки на тариф"
+    },
+    "EntitlementGrant": {
+      "title": "Гранты"
+    },
+    "EntitlementOverride": {
+      "title": "Оверрайды"
+    },
+    "QuotaCounter": {
+      "title": "Счётчики квот"
+    },
+    "PlatformStaff": {
+      "title": "Сотрудники платформы"
+    },
+    "PlatformStaffRole": {
+      "title": "Роли сотрудников платформы"
+    },
+    "PlatformSession": {
+      "title": "Сессии Кабинета"
+    },
+    "PlatformPolicy": {
+      "title": "Политика платформы"
+    },
+    "PlatformCommandRequest": {
+      "title": "Заявки «четыре глаза»"
+    },
+    "PlatformCommandReceipt": {
+      "title": "Квитанции команд"
+    },
+    "AnalyticsIdentityLink": {
+      "title": "Склейки личности аналитики"
+    },
+    "AnalyticsEventOverride": {
+      "title": "Рубильники событий аналитики"
+    },
+    "AnalyticsQuarantine": {
+      "title": "Карантин аналитики"
+    },
+    "AnalyticsRollupEventDay": {
+      "title": "Дневные итоги событий"
+    },
+    "AnalyticsRollupActorDay": {
+      "title": "Дневная активность людей"
+    },
+    "AnalyticsRollupSessionDay": {
+      "title": "Дневные итоги сессий"
+    },
+    "AnalyticsReport": {
+      "title": "Отчёты аналитики"
+    },
+    "AnalyticsDashboard": {
+      "title": "Дашборды аналитики"
+    },
+    "CryptoKey": {
+      "title": "Ключи шифрования"
+    },
+    "CryptoKeyVersion": {
+      "title": "Версии ключей шифрования"
+    },
+    "Bot": {
+      "title": "Боты"
+    },
+    "ApiKey": {
+      "title": "Ключи API"
+    },
+    "ApiAccessLog": {
+      "title": "Журнал обращений ключей API"
+    },
+    "WebhookEndpoint": {
+      "title": "Адреса вебхуков"
+    },
+    "WebhookDelivery": {
+      "title": "Доставки вебхуков"
+    },
+    "WorkspaceKeyPolicy": {
+      "title": "Политика ключей организации"
+    },
+    "ConsentVersion": {
+      "title": "Юридические документы платформы"
+    },
+    "ConsentAcceptance": {
+      "title": "Приёмки согласий"
+    },
+    "PdIncident": {
+      "title": "Инциденты с персональными данными"
+    },
+    "PdIncidentEvent": {
+      "title": "Журнал инцидентов"
+    },
+    "IdempotencyInbox": {
+      "title": "Входящий ящик событий"
+    },
+    "SecurityEvent": {
+      "title": "Журнал безопасности"
+    },
+    "SecurityDigest": {
+      "title": "Дайджесты журнала безопасности"
+    },
+    "SecurityPartitionArchive": {
+      "title": "Архивы журнала безопасности"
+    },
+    "SecurityAlert": {
+      "title": "Тревоги безопасности"
+    },
+    "VisibilityPolicy": {
+      "title": "Правила видимости полей"
+    },
+    "VisibilityRule": {
+      "title": "Строки правил видимости"
+    },
+    "WorkspaceVisibilitySettings": {
+      "title": "Настройки видимости организации"
+    },
+    "Chat": {
+      "title": "Чаты"
+    },
+    "ChatMember": {
+      "title": "Участники чатов"
+    },
+    "Message": {
+      "title": "Сообщения"
+    },
+    "ScheduledMessage": {
+      "title": "Отложенные сообщения"
+    },
+    "Workspace": {
+      "title": "Организации"
+    },
+    "WorkspaceMember": {
+      "title": "Члены организаций"
+    },
+    "WorkspaceInvitation": {
+      "title": "Приглашения в организации"
+    },
+    "LegalEntity": {
+      "title": "Юрлица"
+    },
+    "WorkspaceBankAccount": {
+      "title": "Банковские счета организации"
+    },
+    "StaffDepartment": {
+      "title": "Отделы"
+    },
+    "StaffPosition": {
+      "title": "Должности"
+    },
+    "StaffBranch": {
+      "title": "Объекты"
+    },
+    "StaffAssignment": {
+      "title": "Назначения"
+    },
+    "StaffingPosition": {
+      "title": "Штатные единицы"
+    },
+    "StaffRate": {
+      "title": "Ставки"
+    },
+    "StaffDeputy": {
+      "title": "Заместители"
+    },
+    "ShiftTemplate": {
+      "title": "Шаблоны смен"
+    },
+    "ShiftPattern": {
+      "title": "Ротации"
+    },
+    "Shift": {
+      "title": "Смены"
+    },
+    "ShiftAttendance": {
+      "title": "Табель"
+    },
+    "AssetModel": {
+      "title": "Модели оборудования"
+    },
+    "Asset": {
+      "title": "Оборудование"
+    },
+    "AssetMove": {
+      "title": "Перемещения оборудования"
+    },
+    "AssetServiceRecord": {
+      "title": "Журнал обслуживания оборудования"
+    },
+    "Counterparty": {
+      "title": "Контрагенты"
+    },
+    "CounterpartyContact": {
+      "title": "Контакты контрагентов"
+    },
+    "CounterpartyBankAccount": {
+      "title": "Банковские счета контрагентов"
+    },
+    "DocType": {
+      "title": "Виды документов"
+    },
+    "DocTypeCounter": {
+      "title": "Нумерация документов"
+    },
+    "DocTemplate": {
+      "title": "Бланки"
+    },
+    "OrgDocument": {
+      "title": "Документы организации"
+    },
+    "DocCampaign": {
+      "title": "Кампании ознакомления"
+    },
+    "DocCampaignTarget": {
+      "title": "Ознакомления"
+    },
+    "DocTemplateLibraryInstall": {
+      "title": "Установленная библиотека бланков"
+    },
+    "Employment": {
+      "title": "Трудовые карточки"
+    },
+    "HrAction": {
+      "title": "Кадровые действия"
+    },
+    "HrActionBatch": {
+      "title": "Пакеты кадровых действий"
+    },
+    "EsutdSubmission": {
+      "title": "Передачи в ЕСУТД"
+    },
+    "PersonalDocRecord": {
+      "title": "Мои документы"
+    },
+    "WorkCalendarDay": {
+      "title": "Производственный календарь"
+    },
+    "ProcessDefinition": {
+      "title": "Процессы"
+    },
+    "ProcessVersion": {
+      "title": "Версии процессов"
+    },
+    "ProcessInstance": {
+      "title": "Запуски процессов"
+    },
+    "ProcessStepRun": {
+      "title": "Шаги процессов"
+    },
+    "ProcessTrigger": {
+      "title": "Триггеры процессов"
+    },
+    "ProcessCredential": {
+      "title": "Креды"
+    },
+    "OfficeRoom": {
+      "title": "Встречи"
+    },
+    "OfficeRoomParticipant": {
+      "title": "Участники встреч"
+    },
+    "ContactLink": {
+      "title": "Связи окружения"
+    },
+    "ContactInvitation": {
+      "title": "Приглашения в окружение"
+    },
+    "ContactBlock": {
+      "title": "Блокировки"
+    },
+    "Circle": {
+      "title": "Группы"
+    },
+    "CircleMembership": {
+      "title": "Состав групп"
+    },
+    "Task": {
+      "title": "Задачи"
+    },
+    "TaskParticipant": {
+      "title": "Участники задач"
+    },
+    "TaskTag": {
+      "title": "Метки задач"
+    },
+    "CalendarEvent": {
+      "title": "События календаря"
+    },
+    "CalendarEventReminder": {
+      "title": "Напоминания о событиях"
+    },
+    "EventParticipant": {
+      "title": "Участники событий"
+    },
+    "Resource": {
+      "title": "Ресурсы для брони"
+    },
+    "GoogleConnection": {
+      "title": "Подключение Google Календаря"
+    },
+    "UserPaymentCard": {
+      "title": "Сохранённые карты"
+    },
+    "Currency": {
+      "title": "Валюты"
+    },
+    "Account": {
+      "title": "Счета кошелька"
+    },
+    "LedgerTransfer": {
+      "title": "Проводки леджера"
+    },
+    "EscrowAgreement": {
+      "title": "Сделки эскроу"
+    },
+    "EscrowHold": {
+      "title": "Заморозки эскроу"
+    },
+    "Shop": {
+      "title": "Магазины"
+    },
+    "Showcase": {
+      "title": "Витрины"
+    },
+    "Listing": {
+      "title": "Товары"
+    },
+    "ListingPrice": {
+      "title": "Цены товаров"
+    },
+    "Order": {
+      "title": "Заказы"
+    },
+    "OrderContribution": {
+      "title": "Взносы в сбор"
+    },
+    "OrderPrice": {
+      "title": "Цены заказов"
+    },
+    "WishItem": {
+      "title": "Вишлист"
+    },
+    "CardSkin": {
+      "title": "Скины карточек"
+    },
+    "CardSkinInstance": {
+      "title": "Купленные скины"
+    },
+    "CardSkinTransfer": {
+      "title": "История владения скинами"
+    },
+    "FinBook": {
+      "title": "Книги финансов"
+    },
+    "FinAccount": {
+      "title": "Счета книги"
+    },
+    "FinTransaction": {
+      "title": "Операции книги"
+    },
+    "FinBudget": {
+      "title": "Лимиты"
+    },
+    "FinPerson": {
+      "title": "Близкие"
+    },
+    "FinRecurringRule": {
+      "title": "Повторы"
+    },
+    "FinAuditLog": {
+      "title": "Журнал изменений книги"
+    },
+    "DriveSpace": {
+      "title": "Диски"
+    },
+    "DriveNode": {
+      "title": "Файлы и папки Диска"
+    },
+    "DriveNodeVersion": {
+      "title": "Версии файлов Диска"
+    },
+    "DriveStar": {
+      "title": "Избранное Диска"
+    },
+    "DriveRecent": {
+      "title": "Недавнее на Диске"
+    },
+    "DrivePhotoBucket": {
+      "title": "Сетка фото"
+    },
+    "NoteSpace": {
+      "title": "Пространства заметок"
+    },
+    "NoteFolder": {
+      "title": "Папки заметок"
+    },
+    "Note": {
+      "title": "Заметки"
+    },
+    "NoteRevision": {
+      "title": "История заметок"
+    },
+    "NoteLink": {
+      "title": "Привязки заметок"
+    },
+    "NoteBoardItem": {
+      "title": "Карточки доски"
+    },
+    "NoteChunk": {
+      "title": "Фрагменты заметок для поиска"
+    },
+    "VoiceRecording": {
+      "title": "Записи диктофона"
+    }
+  },
+  "tables": {
+    "analytics_events": {
+      "title": "События аналитики"
+    },
+    "analytics_outbox": {
+      "title": "Очередь фактов аналитики"
+    },
+    "idem_keys": {
+      "title": "Ключи защиты от повторов"
+    },
+    "idem_responses": {
+      "title": "Сохранённые ответы для повторов"
+    },
+    "public__prisma_migrations": {
+      "title": "Миграции базы"
+    }
+  },
+  "blobs": {
+    "avatar": {
+      "title": "Аватары"
+    },
+    "listing_image": {
+      "title": "Фото товаров"
+    },
+    "chat_attachment": {
+      "title": "Вложения чатов"
+    },
+    "voice_message": {
+      "title": "Голосовые сообщения"
+    },
+    "dictaphone": {
+      "title": "Аудио диктофона"
+    },
+    "document": {
+      "title": "Файлы документов"
+    },
+    "drive_file": {
+      "title": "Содержимое файлов Диска"
+    },
+    "sign_subject": {
+      "title": "Подписанные оригиналы"
+    },
+    "sign_cms": {
+      "title": "Контейнеры подписей"
+    },
+    "sign_stamped": {
+      "title": "Штампованные копии"
+    },
+    "asset_photo": {
+      "title": "Фото оборудования"
+    },
+    "note_image": {
+      "title": "Изображения заметок"
+    },
+    "audit_export": {
+      "title": "Выгрузки журнала безопасности"
+    },
+    "generic": {
+      "title": "Прочие файлы"
+    }
+  },
+  "redis": {
+    "locks": {
+      "title": "Блокировки планировщика"
+    },
+    "event_bus": {
+      "title": "Шина событий"
+    },
+    "analytics_stream": {
+      "title": "Поток приёма аналитики"
+    },
+    "auth_revocation": {
+      "title": "Отозванные сессии"
+    },
+    "auth_throttle": {
+      "title": "Защита входа"
+    },
+    "throttler": {
+      "title": "Лимиты запросов"
+    },
+    "verify": {
+      "title": "Лимиты кодов и подтверждения"
+    },
+    "sms_outbound": {
+      "title": "Лимиты SMS"
+    },
+    "entitlement_epochs": {
+      "title": "Эпохи тарифов"
+    },
+    "access_epochs": {
+      "title": "Эпохи доступа"
+    },
+    "keys_state": {
+      "title": "Счётчики ключей"
+    },
+    "audit_state": {
+      "title": "Счётчики журнала безопасности"
+    },
+    "notifications_state": {
+      "title": "Окна уведомлений"
+    },
+    "platform_console": {
+      "title": "Сессии Кабинета (кэш)"
+    },
+    "analytics_state": {
+      "title": "Счётчики аналитики"
+    },
+    "wallet_state": {
+      "title": "Отметка сверки леджера"
+    },
+    "office_state": {
+      "title": "Отметка сверки встреч"
+    },
+    "socket_adapter": {
+      "title": "Каналы реального времени"
+    },
+    "lifecycle_state": {
+      "title": "Состояние жизненного цикла данных"
+    },
+    "auth_alive": {
+      "title": "Кэш «аккаунт жив»"
+    },
+    "keys_cache": {
+      "title": "Кэш ключей API"
+    },
+    "analytics_watermarks": {
+      "title": "Водяные знаки аналитики"
+    },
+    "access_cache": {
+      "title": "Кэш доступа"
+    },
+    "entitlement_cache": {
+      "title": "Кэш тарифов"
+    },
+    "visibility_cache": {
+      "title": "Кэш видимости"
+    },
+    "user_cache": {
+      "title": "Кэш профилей"
+    },
+    "presence": {
+      "title": "Присутствие"
+    },
+    "seen_throttle": {
+      "title": "Ограничители «был в сети»"
+    },
+    "consents_gate": {
+      "title": "Кэш шлюза согласий"
+    },
+    "org_graph": {
+      "title": "Кэш оргструктуры"
+    },
+    "analytics_cache": {
+      "title": "Кэш отчётов"
+    },
+    "docs_discovery": {
+      "title": "Кэш редактора документов"
+    },
+    "livekit": {
+      "title": "Состояние сервера звонков"
+    }
+  },
+  "derived": {
+    "audit_archive": {
+      "title": "Архив журнала безопасности"
+    },
+    "audit_digests": {
+      "title": "Копии дайджестов"
+    },
+    "lifecycle_archive": {
+      "title": "Холодный архив журналов"
+    },
+    "lifecycle_exports": {
+      "title": "Выгрузки данных"
+    },
+    "erasure_journal": {
+      "title": "Журнал стираний"
+    },
+    "backups": {
+      "title": "Резервные копии"
+    },
+    "app_logs": {
+      "title": "Логи приложения"
+    },
+    "upload_tmp": {
+      "title": "Загрузки в процессе"
+    },
+    "call_egress": {
+      "title": "Записи до сохранения"
+    }
+  }
+}

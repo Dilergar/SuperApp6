@@ -22,7 +22,7 @@ import type { AuditVocab } from './vocab';
  * исключение — семейство `auth.session.*` (категория `session`): сессии и устройства —
  * отдельная тема для человека и отдельный стрим для SIEM.
  */
-export const AUDIT_CATEGORIES = ['auth', 'session', 'account', 'org', 'keys', 'platform', 'pii', 'pd', 'consents', 'data', 'detect', 'audit', 'sharing', 'files', 'authz'] as const;
+export const AUDIT_CATEGORIES = ['auth', 'session', 'account', 'org', 'keys', 'platform', 'pii', 'pd', 'consents', 'data', 'detect', 'audit', 'sharing', 'files', 'authz', 'lifecycle'] as const;
 export type AuditCategory = (typeof AUDIT_CATEGORIES)[number];
 export const AUDIT_CATEGORY_CODE: Record<AuditCategory, number> = {
   auth: 0,
@@ -40,6 +40,7 @@ export const AUDIT_CATEGORY_CODE: Record<AuditCategory, number> = {
   sharing: 12,
   files: 13,
   authz: 14,
+  lifecycle: 15,
 };
 
 /** Серьёзность (OCSF severity_id 1..5; smallint 0..4 в колонке). */
@@ -332,7 +333,7 @@ export type AccountFreezeSource = (typeof ACCOUNT_FREEZE_SOURCES)[number];
  * обязателен. Скачивание одного документа (в т.ч. ZIP пакета подписи) — доступ к содержимому,
  * граница журнала: его ведёт журнал визитов/хроника объекта, не журнал безопасности.
  */
-export const AUDIT_EXPORT_SOURCES = ['hr_zip', 'audit_org', 'audit_platform', 'my_data', 'drive_guest_zip'] as const;
+export const AUDIT_EXPORT_SOURCES = ['hr_zip', 'audit_org', 'audit_platform', 'my_data', 'drive_guest_zip', 'lifecycle'] as const;
 export type AuditExportSource = (typeof AUDIT_EXPORT_SOURCES)[number];
 
 /** Форматы выгрузки журнала организацией. */

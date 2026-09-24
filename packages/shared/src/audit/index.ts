@@ -31,10 +31,12 @@ import { META_AUDIT_EVENTS } from './meta';
 import { SHARING_AUDIT_EVENTS } from './sharing';
 import { FILES_AUDIT_EVENTS } from './files';
 import { AUTHZ_AUDIT_EVENTS } from './authz';
+import { LIFECYCLE_AUDIT_EVENTS } from './lifecycle';
 
 export * from './types';
 export * from './ocsf';
 export * from './vocab';
+export { LIFECYCLE_ERASURE_STAGES, LIFECYCLE_HOLD_SCOPES } from './lifecycle';
 
 const REGISTRY_RAW = {
   ...AUTH_AUDIT_EVENTS,
@@ -51,6 +53,7 @@ const REGISTRY_RAW = {
   ...SHARING_AUDIT_EVENTS,
   ...FILES_AUDIT_EVENTS,
   ...AUTHZ_AUDIT_EVENTS,
+  ...LIFECYCLE_AUDIT_EVENTS,
 } as const satisfies Record<string, AuditEventDef>;
 
 /** Union ключей — выводится из реестра. Ключ вне реестра в `audit.record()` — ошибка компиляции. */

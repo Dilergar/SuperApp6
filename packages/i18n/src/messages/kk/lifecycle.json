@@ -1,0 +1,792 @@
+{
+  "classes": {
+    "identity_pii": {
+      "title": "Жеке тұлға және дербес деректер",
+      "description": "Адамның кім екені: аты, телефоны, құжаттары, құрылғылары"
+    },
+    "auth_secret": {
+      "title": "Кіру құпиялары",
+      "description": "Сессиялар, кілттер және бір реттік кодтар"
+    },
+    "user_content_private": {
+      "title": "Жеке мазмұн",
+      "description": "Бір адамның тапсырмалары, жазбалары, файлдары мен қаржысы"
+    },
+    "user_content_shared": {
+      "title": "Ортақ мазмұн",
+      "description": "Адамдар арасындағы чаттар, ортақ тапсырмалар мен кездесулер"
+    },
+    "tenant_record": {
+      "title": "Ұйым жазбалары",
+      "description": "Құрылым, нысандар, жабдық, процестер және олардың хроникасы"
+    },
+    "legal_record": {
+      "title": "Заң бойынша жазбалар",
+      "description": "Кадрлық бұйрықтар, шарттар, қолтаңбалар мен келісімдер"
+    },
+    "financial_record": {
+      "title": "Ақша",
+      "description": "Леджер, эскроу, тапсырыстар мен төлем деректемелері"
+    },
+    "security_audit": {
+      "title": "Қауіпсіздік журналы",
+      "description": "Кірулер, қолжетімділік және әкімшілер әрекеттері"
+    },
+    "operational": {
+      "title": "Қызметтік жазбалар",
+      "description": "Жеткізілімдер, интеграция журналдары, шақырулар мен кезектер"
+    },
+    "analytics_event": {
+      "title": "Өнім аналитикасы",
+      "description": "Пайдалану оқиғалары және олардың агрегаттары"
+    },
+    "derived": {
+      "title": "Туынды көшірмелер",
+      "description": "Дереккөзден жиналған іздеу индексі, алдын ала қарау, кэштер мен мұрағаттар"
+    },
+    "ephemeral": {
+      "title": "Қысқа мерзімді деректер",
+      "description": "Құлыптар, бір реттік сессиялар және жолдағы байттар"
+    }
+  },
+  "citations": {
+    "kz_pd_law_art12": "ҚР Дербес деректер туралы заңы, 12-бап: Қазақстанда және мақсаттан ұзақ емес сақтау",
+    "kz_pd_law_art8_7": "ҚР Дербес деректер туралы заңы, 8-бап 7-т.: талап бойынша 15 жұмыс күнінде жою",
+    "kz_civil_code_art41_4": "ҚР Азаматтық кодексі: үшінші тұлғалардың құқықтары — хат алмасу әңгімелесушілерде қалады",
+    "kz_279_personnel_75y": "Үлгілік құжаттар тізбесі (279-НҚ): жеке құрам бойынша бұйрықтар мен дербес шоттар — 75 жыл",
+    "kz_279_employment_contracts": "Үлгілік құжаттар тізбесі (279-НҚ): еңбек шарттары — заңгер мерзімді растағанға дейін 75 жыл",
+    "kz_279_timesheets_5y": "Үлгілік құжаттар тізбесі (279-НҚ): табельдер — 5 жыл (зиянды жағдайлар — 75)",
+    "kz_279_contracts_5y": "Үлгілік құжаттар тізбесі (279-НҚ): шаруашылық шарттары мен бастапқы құжаттар — оқиғадан кейін 5 жыл",
+    "kz_payments_law_art13": "ҚР Төлемдер және төлем жүйелері туралы заңы, 13-бап: төлем мәліметтері — 5 жыл",
+    "kz_aml_law_art5": "ҚР КЖ/ТҚ туралы заңы, 5-бап: операциялар туралы мәліметтер — қатынас тоқтағаннан кейін 5 жыл",
+    "kz_tax_code_records": "ҚР Салық кодексі: талап қою мерзімі шегінде есепке алу құжаттамасы",
+    "kz_digital_code_art62": "ҚР Цифрлық кодексі, 62-бап: электрондық қолтаңба мен дәлелдер — құжаттың өмір сүру мерзіміне",
+    "kz_et832_p38": "№ 832 Бірыңғай талаптар, 38-т.: қауіпсіздік журналдары — 3 жыл, кемінде 2 ай онлайн",
+    "kz_pd_law_consent_evidence": "ҚР Дербес деректер туралы заңы, 7–8-баптар: келісім және оны кері қайтару — өңдеудің дәлелі",
+    "kz_pd_incident_rules": "Дербес деректермен болған инциденттер туралы № 179 қағида: инциденттер мен хабарламалар журналы"
+  },
+  "policies": {
+    "User": {
+      "title": "Аккаунттар"
+    },
+    "UserRole": {
+      "title": "Ұйымдардағы рөлдер"
+    },
+    "Session": {
+      "title": "Кіру сессиялары"
+    },
+    "UserDevice": {
+      "title": "Адамның құрылғылары"
+    },
+    "VerifyChallenge": {
+      "title": "Бір реттік код тексерулері"
+    },
+    "RelationTuple": {
+      "title": "Қолжетімділік ережелері"
+    },
+    "NotificationEvent": {
+      "title": "Хабарландыру оқиғалары"
+    },
+    "Notification": {
+      "title": "Хабарландырулар"
+    },
+    "NotificationDelivery": {
+      "title": "Хабарландыру жеткізілімдері"
+    },
+    "NotificationPreference": {
+      "title": "Хабарландыру баптаулары"
+    },
+    "WorkspaceNotificationPolicy": {
+      "title": "Ұйымның хабарландыру саясаты"
+    },
+    "NotificationSubscription": {
+      "title": "Хабарландыруларға жазылымдар"
+    },
+    "NotificationDevice": {
+      "title": "Пуш-хабарландыру құрылғылары"
+    },
+    "UserNotificationSettings": {
+      "title": "Тыныштық және хабарландыру арналары"
+    },
+    "FileObject": {
+      "title": "Файлдар"
+    },
+    "FileLink": {
+      "title": "Файл орындары"
+    },
+    "FileVariant": {
+      "title": "Файлдарды алдын ала қарау"
+    },
+    "VoiceTranscript": {
+      "title": "Transcript-тер"
+    },
+    "CallSession": {
+      "title": "Қоңыраулар"
+    },
+    "CallSessionParticipant": {
+      "title": "Қоңырауға қатысушылар"
+    },
+    "CallRecording": {
+      "title": "Қоңырау жазбалары"
+    },
+    "CallRecordingClaim": {
+      "title": "Сақталған қоңырау жазбалары"
+    },
+    "Job": {
+      "title": "Фондық тапсырмалар"
+    },
+    "ChatterEntry": {
+      "title": "Хроника"
+    },
+    "SearchDocument": {
+      "title": "Іздеу индексі"
+    },
+    "ShareLink": {
+      "title": "Сыртқа сілтемелер"
+    },
+    "ShareLinkVisit": {
+      "title": "Сыртқа сілтемелерге кірулер"
+    },
+    "ShareLinkGuest": {
+      "title": "Сілтемелер қонақтары"
+    },
+    "ApprovalRequest": {
+      "title": "Шешімге өтінімдер"
+    },
+    "ApprovalStep": {
+      "title": "Шешім қадамдары"
+    },
+    "ApprovalDecision": {
+      "title": "Шешімдер"
+    },
+    "SignRequest": {
+      "title": "Қол қою өтінімдері"
+    },
+    "SignAct": {
+      "title": "Қолтаңба актілері"
+    },
+    "SignActEvent": {
+      "title": "Қол қою хаттамасы"
+    },
+    "SignQrSession": {
+      "title": "Қол қоюдың QR-сессиялары"
+    },
+    "Document": {
+      "title": "Кеңсе құжаттары"
+    },
+    "DocumentVersion": {
+      "title": "Кеңсе құжаттарының нұсқалары"
+    },
+    "DocumentSession": {
+      "title": "Өңдеу сессиялары"
+    },
+    "Plan": {
+      "title": "Тарифтер"
+    },
+    "PlanVersion": {
+      "title": "Тариф нұсқалары"
+    },
+    "SubjectSubscription": {
+      "title": "Тарифке жазылымдар"
+    },
+    "EntitlementGrant": {
+      "title": "Гранттар"
+    },
+    "EntitlementOverride": {
+      "title": "Оверрайдтар"
+    },
+    "QuotaCounter": {
+      "title": "Квота есептегіштері"
+    },
+    "PlatformStaff": {
+      "title": "Платформа қызметкерлері"
+    },
+    "PlatformStaffRole": {
+      "title": "Платформа қызметкерлерінің рөлдері"
+    },
+    "PlatformSession": {
+      "title": "Кабинет сессиялары"
+    },
+    "PlatformPolicy": {
+      "title": "Платформа саясаты"
+    },
+    "PlatformCommandRequest": {
+      "title": "«Төрт көз» өтінімдері"
+    },
+    "PlatformCommandReceipt": {
+      "title": "Команда түбіртектері"
+    },
+    "AnalyticsIdentityLink": {
+      "title": "Аналитика тұлғасының байланыстары"
+    },
+    "AnalyticsEventOverride": {
+      "title": "Аналитика оқиғаларының ажыратқыштары"
+    },
+    "AnalyticsQuarantine": {
+      "title": "Аналитика карантині"
+    },
+    "AnalyticsRollupEventDay": {
+      "title": "Оқиғалардың күндік қорытындылары"
+    },
+    "AnalyticsRollupActorDay": {
+      "title": "Адамдардың күндік белсенділігі"
+    },
+    "AnalyticsRollupSessionDay": {
+      "title": "Сессиялардың күндік қорытындылары"
+    },
+    "AnalyticsReport": {
+      "title": "Аналитика есептері"
+    },
+    "AnalyticsDashboard": {
+      "title": "Аналитика дашбордтары"
+    },
+    "CryptoKey": {
+      "title": "Шифрлау кілттері"
+    },
+    "CryptoKeyVersion": {
+      "title": "Шифрлау кілттерінің нұсқалары"
+    },
+    "Bot": {
+      "title": "Боттар"
+    },
+    "ApiKey": {
+      "title": "API кілттері"
+    },
+    "ApiAccessLog": {
+      "title": "API кілттерінің қатынау журналы"
+    },
+    "WebhookEndpoint": {
+      "title": "Вебхук мекенжайлары"
+    },
+    "WebhookDelivery": {
+      "title": "Вебхук жеткізілімдері"
+    },
+    "WorkspaceKeyPolicy": {
+      "title": "Ұйымның кілт саясаты"
+    },
+    "ConsentVersion": {
+      "title": "Платформаның заңдық құжаттары"
+    },
+    "ConsentAcceptance": {
+      "title": "Келісімдерді қабылдау"
+    },
+    "PdIncident": {
+      "title": "Дербес деректермен болған инциденттер"
+    },
+    "PdIncidentEvent": {
+      "title": "Инциденттер журналы"
+    },
+    "IdempotencyInbox": {
+      "title": "Кіріс оқиғалар жәшігі"
+    },
+    "SecurityEvent": {
+      "title": "Қауіпсіздік журналы"
+    },
+    "SecurityDigest": {
+      "title": "Қауіпсіздік журналының дайджесттері"
+    },
+    "SecurityPartitionArchive": {
+      "title": "Қауіпсіздік журналының мұрағаттары"
+    },
+    "SecurityAlert": {
+      "title": "Қауіпсіздік дабылдары"
+    },
+    "VisibilityPolicy": {
+      "title": "Өрістердің көріну ережелері"
+    },
+    "VisibilityRule": {
+      "title": "Көріну ережелерінің жолдары"
+    },
+    "WorkspaceVisibilitySettings": {
+      "title": "Ұйымның көріну баптаулары"
+    },
+    "Chat": {
+      "title": "Чаттар"
+    },
+    "ChatMember": {
+      "title": "Чат қатысушылары"
+    },
+    "Message": {
+      "title": "Хабарламалар"
+    },
+    "ScheduledMessage": {
+      "title": "Кейінге қалдырылған хабарламалар"
+    },
+    "Workspace": {
+      "title": "Ұйымдар"
+    },
+    "WorkspaceMember": {
+      "title": "Ұйым мүшелері"
+    },
+    "WorkspaceInvitation": {
+      "title": "Ұйымдарға шақырулар"
+    },
+    "LegalEntity": {
+      "title": "Заңды тұлғалар"
+    },
+    "WorkspaceBankAccount": {
+      "title": "Ұйымның банк шоттары"
+    },
+    "StaffDepartment": {
+      "title": "Бөлімдер"
+    },
+    "StaffPosition": {
+      "title": "Лауазымдар"
+    },
+    "StaffBranch": {
+      "title": "Нысандар"
+    },
+    "StaffAssignment": {
+      "title": "Тағайындаулар"
+    },
+    "StaffingPosition": {
+      "title": "Штат бірліктері"
+    },
+    "StaffRate": {
+      "title": "Мөлшерлемелер"
+    },
+    "StaffDeputy": {
+      "title": "Орынбасарлар"
+    },
+    "ShiftTemplate": {
+      "title": "Ауысым үлгілері"
+    },
+    "ShiftPattern": {
+      "title": "Ротациялар"
+    },
+    "Shift": {
+      "title": "Ауысымдар"
+    },
+    "ShiftAttendance": {
+      "title": "Табель"
+    },
+    "AssetModel": {
+      "title": "Жабдық модельдері"
+    },
+    "Asset": {
+      "title": "Жабдық"
+    },
+    "AssetMove": {
+      "title": "Жабдықтың орын ауыстыруы"
+    },
+    "AssetServiceRecord": {
+      "title": "Жабдыққа қызмет көрсету журналы"
+    },
+    "Counterparty": {
+      "title": "Контрагенттер"
+    },
+    "CounterpartyContact": {
+      "title": "Контрагенттердің байланыстары"
+    },
+    "CounterpartyBankAccount": {
+      "title": "Контрагенттердің банк шоттары"
+    },
+    "DocType": {
+      "title": "Құжат түрлері"
+    },
+    "DocTypeCounter": {
+      "title": "Құжаттарды нөмірлеу"
+    },
+    "DocTemplate": {
+      "title": "Бланкілер"
+    },
+    "OrgDocument": {
+      "title": "Ұйымның құжаттары"
+    },
+    "DocCampaign": {
+      "title": "Танысу науқандары"
+    },
+    "DocCampaignTarget": {
+      "title": "Танысулар"
+    },
+    "DocTemplateLibraryInstall": {
+      "title": "Орнатылған бланкілер кітапханасы"
+    },
+    "Employment": {
+      "title": "Еңбек карталары"
+    },
+    "HrAction": {
+      "title": "Кадрлық әрекеттер"
+    },
+    "HrActionBatch": {
+      "title": "Кадрлық әрекеттер пакеттері"
+    },
+    "EsutdSubmission": {
+      "title": "ЕСУТД-ға берулер"
+    },
+    "PersonalDocRecord": {
+      "title": "Менің құжаттарым"
+    },
+    "WorkCalendarDay": {
+      "title": "Өндірістік күнтізбе"
+    },
+    "ProcessDefinition": {
+      "title": "Процестер"
+    },
+    "ProcessVersion": {
+      "title": "Процесс нұсқалары"
+    },
+    "ProcessInstance": {
+      "title": "Процесс іске қосылымдары"
+    },
+    "ProcessStepRun": {
+      "title": "Процесс қадамдары"
+    },
+    "ProcessTrigger": {
+      "title": "Процесс триггерлері"
+    },
+    "ProcessCredential": {
+      "title": "Кредтер"
+    },
+    "OfficeRoom": {
+      "title": "Кездесулер"
+    },
+    "OfficeRoomParticipant": {
+      "title": "Кездесу қатысушылары"
+    },
+    "ContactLink": {
+      "title": "Айнала байланыстары"
+    },
+    "ContactInvitation": {
+      "title": "Айналаға шақырулар"
+    },
+    "ContactBlock": {
+      "title": "Бұғаттаулар"
+    },
+    "Circle": {
+      "title": "Топтар"
+    },
+    "CircleMembership": {
+      "title": "Топ құрамы"
+    },
+    "Task": {
+      "title": "Тапсырмалар"
+    },
+    "TaskParticipant": {
+      "title": "Тапсырма қатысушылары"
+    },
+    "TaskTag": {
+      "title": "Тапсырма белгілері"
+    },
+    "CalendarEvent": {
+      "title": "Күнтізбе оқиғалары"
+    },
+    "CalendarEventReminder": {
+      "title": "Оқиғалар туралы еске салғыштар"
+    },
+    "EventParticipant": {
+      "title": "Оқиға қатысушылары"
+    },
+    "Resource": {
+      "title": "Брондауға арналған ресурстар"
+    },
+    "GoogleConnection": {
+      "title": "Google Күнтізбесіне қосылу"
+    },
+    "UserPaymentCard": {
+      "title": "Сақталған карталар"
+    },
+    "Currency": {
+      "title": "Валюталар"
+    },
+    "Account": {
+      "title": "Әмиян шоттары"
+    },
+    "LedgerTransfer": {
+      "title": "Леджер жазбалары"
+    },
+    "EscrowAgreement": {
+      "title": "Эскроу мәмілелері"
+    },
+    "EscrowHold": {
+      "title": "Эскроу бұғаттаулары"
+    },
+    "Shop": {
+      "title": "Дүкендер"
+    },
+    "Showcase": {
+      "title": "Витриналар"
+    },
+    "Listing": {
+      "title": "Тауарлар"
+    },
+    "ListingPrice": {
+      "title": "Тауар бағалары"
+    },
+    "Order": {
+      "title": "Тапсырыстар"
+    },
+    "OrderContribution": {
+      "title": "Жинауға салымдар"
+    },
+    "OrderPrice": {
+      "title": "Тапсырыс бағалары"
+    },
+    "WishItem": {
+      "title": "Тілектер тізімі"
+    },
+    "CardSkin": {
+      "title": "Карточка скиндері"
+    },
+    "CardSkinInstance": {
+      "title": "Сатып алынған скиндер"
+    },
+    "CardSkinTransfer": {
+      "title": "Скиндерге иелік ету тарихы"
+    },
+    "FinBook": {
+      "title": "Қаржы кітаптары"
+    },
+    "FinAccount": {
+      "title": "Кітап шоттары"
+    },
+    "FinTransaction": {
+      "title": "Кітап операциялары"
+    },
+    "FinBudget": {
+      "title": "Лимиттер"
+    },
+    "FinPerson": {
+      "title": "Жақындар"
+    },
+    "FinRecurringRule": {
+      "title": "Қайталанатын операциялар"
+    },
+    "FinAuditLog": {
+      "title": "Кітап өзгерістерінің журналы"
+    },
+    "DriveSpace": {
+      "title": "Дискілер"
+    },
+    "DriveNode": {
+      "title": "Диск файлдары мен қалталары"
+    },
+    "DriveNodeVersion": {
+      "title": "Диск файлдарының нұсқалары"
+    },
+    "DriveStar": {
+      "title": "Дискідегі таңдаулылар"
+    },
+    "DriveRecent": {
+      "title": "Дискіде жақында ашылғандар"
+    },
+    "DrivePhotoBucket": {
+      "title": "Фото торы"
+    },
+    "NoteSpace": {
+      "title": "Жазбалар кеңістіктері"
+    },
+    "NoteFolder": {
+      "title": "Жазбалар қалталары"
+    },
+    "Note": {
+      "title": "Жазбалар"
+    },
+    "NoteRevision": {
+      "title": "Жазбалар тарихы"
+    },
+    "NoteLink": {
+      "title": "Жазбалар байланыстары"
+    },
+    "NoteBoardItem": {
+      "title": "Тақта карточкалары"
+    },
+    "NoteChunk": {
+      "title": "Іздеуге арналған жазба үзінділері"
+    },
+    "VoiceRecording": {
+      "title": "Диктофон жазбалары"
+    }
+  },
+  "tables": {
+    "analytics_events": {
+      "title": "Аналитика оқиғалары"
+    },
+    "analytics_outbox": {
+      "title": "Аналитика фактілерінің кезегі"
+    },
+    "idem_keys": {
+      "title": "Қайталаудан қорғау кілттері"
+    },
+    "idem_responses": {
+      "title": "Қайталаулар үшін сақталған жауаптар"
+    },
+    "public__prisma_migrations": {
+      "title": "Дерекқор көшірулері"
+    }
+  },
+  "blobs": {
+    "avatar": {
+      "title": "Аватарлар"
+    },
+    "listing_image": {
+      "title": "Тауар фотолары"
+    },
+    "chat_attachment": {
+      "title": "Чат тіркемелері"
+    },
+    "voice_message": {
+      "title": "Дауыстық хабарламалар"
+    },
+    "dictaphone": {
+      "title": "Диктофон аудиосы"
+    },
+    "document": {
+      "title": "Құжат файлдары"
+    },
+    "drive_file": {
+      "title": "Диск файлдарының мазмұны"
+    },
+    "sign_subject": {
+      "title": "Қол қойылған түпнұсқалар"
+    },
+    "sign_cms": {
+      "title": "Қолтаңба контейнерлері"
+    },
+    "sign_stamped": {
+      "title": "Мөрленген көшірмелер"
+    },
+    "asset_photo": {
+      "title": "Жабдық фотолары"
+    },
+    "note_image": {
+      "title": "Жазба суреттері"
+    },
+    "audit_export": {
+      "title": "Қауіпсіздік журналының экспорттары"
+    },
+    "generic": {
+      "title": "Басқа файлдар"
+    }
+  },
+  "redis": {
+    "locks": {
+      "title": "Жоспарлағыш құлыптары"
+    },
+    "event_bus": {
+      "title": "Оқиғалар шинасы"
+    },
+    "analytics_stream": {
+      "title": "Аналитиканы қабылдау ағыны"
+    },
+    "auth_revocation": {
+      "title": "Кері қайтарылған сессиялар"
+    },
+    "auth_throttle": {
+      "title": "Кіруді қорғау"
+    },
+    "throttler": {
+      "title": "Сұраныс лимиттері"
+    },
+    "verify": {
+      "title": "Код лимиттері және растаулар"
+    },
+    "sms_outbound": {
+      "title": "SMS лимиттері"
+    },
+    "entitlement_epochs": {
+      "title": "Тариф дәуірлері"
+    },
+    "access_epochs": {
+      "title": "Қолжетімділік дәуірлері"
+    },
+    "keys_state": {
+      "title": "Кілт есептегіштері"
+    },
+    "audit_state": {
+      "title": "Қауіпсіздік журналының есептегіштері"
+    },
+    "notifications_state": {
+      "title": "Хабарландыру терезелері"
+    },
+    "platform_console": {
+      "title": "Кабинет сессиялары (кэш)"
+    },
+    "analytics_state": {
+      "title": "Аналитика есептегіштері"
+    },
+    "wallet_state": {
+      "title": "Леджерді салыстыру белгісі"
+    },
+    "office_state": {
+      "title": "Кездесулерді салыстыру белгісі"
+    },
+    "socket_adapter": {
+      "title": "Нақты уақыт арналары"
+    },
+    "lifecycle_state": {
+      "title": "Деректердің өмірлік циклінің күйі"
+    },
+    "auth_alive": {
+      "title": "«Аккаунт тірі» кэші"
+    },
+    "keys_cache": {
+      "title": "API кілттерінің кэші"
+    },
+    "analytics_watermarks": {
+      "title": "Аналитика су белгілері"
+    },
+    "access_cache": {
+      "title": "Қолжетімділік кэші"
+    },
+    "entitlement_cache": {
+      "title": "Тариф кэші"
+    },
+    "visibility_cache": {
+      "title": "Көріну кэші"
+    },
+    "user_cache": {
+      "title": "Профиль кэші"
+    },
+    "presence": {
+      "title": "Қатысу"
+    },
+    "seen_throttle": {
+      "title": "«Желіде болды» шектегіштері"
+    },
+    "consents_gate": {
+      "title": "Келісім шлюзінің кэші"
+    },
+    "org_graph": {
+      "title": "Ұйым құрылымының кэші"
+    },
+    "analytics_cache": {
+      "title": "Есептер кэші"
+    },
+    "docs_discovery": {
+      "title": "Құжат редакторының кэші"
+    },
+    "livekit": {
+      "title": "Қоңырау серверінің күйі"
+    }
+  },
+  "derived": {
+    "audit_archive": {
+      "title": "Қауіпсіздік журналының мұрағаты"
+    },
+    "audit_digests": {
+      "title": "Дайджест көшірмелері"
+    },
+    "lifecycle_archive": {
+      "title": "Журналдардың суық мұрағаты"
+    },
+    "lifecycle_exports": {
+      "title": "Деректер экспорттары"
+    },
+    "erasure_journal": {
+      "title": "Өшірулер журналы"
+    },
+    "backups": {
+      "title": "Сақтық көшірмелер"
+    },
+    "app_logs": {
+      "title": "Қолданба логтары"
+    },
+    "upload_tmp": {
+      "title": "Жүріп жатқан жүктеулер"
+    },
+    "call_egress": {
+      "title": "Сақталғанға дейінгі жазбалар"
+    }
+  }
+}

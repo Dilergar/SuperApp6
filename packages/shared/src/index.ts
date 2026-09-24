@@ -134,6 +134,8 @@ export * from './audit';
 // Правила видимости (core/visibility): реестр типов записей, маски, провод Guarded<T>, пресеты
 export * from './visibility';
 export * from './constants/visibility';
+// Жизненный цикл данных (core/lifecycle): реестр политик всех хранилищ, сроки, стирание, граф удаления
+export * from './lifecycle';
 export * from './constants/tasks';
 export * from './constants/calendar';
 export * from './constants/workspaces';

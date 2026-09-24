@@ -47,6 +47,7 @@ import { ConsentsModule } from './core/consents/consents.module';
 import { IdempotencyModule } from './core/idempotency/idempotency.module';
 import { AuditModule } from './core/audit/audit.module';
 import { VisibilityModule } from './core/visibility/visibility.module';
+import { LifecycleModule } from './core/lifecycle/lifecycle.module';
 import { VisibilityResponseGuard } from './core/visibility/visibility.response.guard';
 import { IdempotencyInterceptor } from './core/idempotency/idempotency.interceptor';
 import { ConsentGateGuard } from './shared/guards/consent-gate.guard';
@@ -134,6 +135,8 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     // шифруется платформенным KEK, псевдонимы — HMAC keystore (docs/audit_engine.md).
     AuditModule,
     VisibilityModule,
+    // Жизненный цикл данных (28-й движок): реестр политик всех хранилищ, смоук бута
+    LifecycleModule,
     WebhooksModule,
     ConsentsModule,
 

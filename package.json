@@ -13,6 +13,7 @@
     "check:analytics": "node scripts/check-analytics.cjs",
     "check:audit": "node scripts/check-audit.cjs",
     "check:visibility": "node scripts/check-visibility.cjs",
+    "check:lifecycle": "node scripts/check-lifecycle.cjs",
     "i18n:gen": "pnpm --filter @superapp/i18n gen",
     "clean": "turbo clean",
     "db:generate": "turbo db:generate",

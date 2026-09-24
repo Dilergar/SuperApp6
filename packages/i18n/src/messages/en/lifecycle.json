@@ -1,0 +1,792 @@
+{
+  "classes": {
+    "identity_pii": {
+      "title": "Identity and personal data",
+      "description": "Who a person is: name, phone, documents, devices"
+    },
+    "auth_secret": {
+      "title": "Sign-in secrets",
+      "description": "Sessions, keys and one-time codes"
+    },
+    "user_content_private": {
+      "title": "Personal content",
+      "description": "Tasks, notes, files and finances of one person"
+    },
+    "user_content_shared": {
+      "title": "Shared content",
+      "description": "Chats, shared tasks and meetings between people"
+    },
+    "tenant_record": {
+      "title": "Organization records",
+      "description": "Structure, sites, equipment, processes and their chronicle"
+    },
+    "legal_record": {
+      "title": "Records kept by law",
+      "description": "HR orders, contracts, signatures and consents"
+    },
+    "financial_record": {
+      "title": "Money",
+      "description": "Ledger, escrow, orders and payment details"
+    },
+    "security_audit": {
+      "title": "Security log",
+      "description": "Sign-ins, access and administrative actions"
+    },
+    "operational": {
+      "title": "Service records",
+      "description": "Deliveries, integration logs, invitations and queues"
+    },
+    "analytics_event": {
+      "title": "Product analytics",
+      "description": "Usage events and their aggregates"
+    },
+    "derived": {
+      "title": "Derived copies",
+      "description": "Search index, previews, caches and archives rebuilt from the source"
+    },
+    "ephemeral": {
+      "title": "Short-lived data",
+      "description": "Locks, one-time sessions and bytes in flight"
+    }
+  },
+  "citations": {
+    "kz_pd_law_art12": "Law of the RK on personal data, art. 12: storage in Kazakhstan and no longer than the purpose",
+    "kz_pd_law_art8_7": "Law of the RK on personal data, art. 8 p. 7: deletion on request within 15 working days",
+    "kz_civil_code_art41_4": "Civil Code of the RK: rights of third parties — the conversation stays with the other participants",
+    "kz_279_personnel_75y": "List of standard documents (279-NK): personnel orders and personal accounts — 75 years",
+    "kz_279_employment_contracts": "List of standard documents (279-NK): employment contracts — 75 years until a lawyer confirms the term",
+    "kz_279_timesheets_5y": "List of standard documents (279-NK): timesheets — 5 years (hazardous work — 75)",
+    "kz_279_contracts_5y": "List of standard documents (279-NK): business contracts and primary documents — 5 years after the event",
+    "kz_payments_law_art13": "Law of the RK on payments and payment systems, art. 13: payment records — 5 years",
+    "kz_aml_law_art5": "AML/CFT Law of the RK, art. 5: operation records — 5 years after the relationship ends",
+    "kz_tax_code_records": "Tax Code of the RK: accounting documents within the limitation period",
+    "kz_digital_code_art62": "Digital Code of the RK, art. 62: electronic signatures and evidence — for the life of the document",
+    "kz_et832_p38": "Unified requirements No. 832, p. 38: security logs — 3 years, at least 2 months online",
+    "kz_pd_law_consent_evidence": "Law of the RK on personal data, art. 7–8: consent and its withdrawal are evidence of processing",
+    "kz_pd_incident_rules": "Rules No. 179 on personal data incidents: incident register and notices"
+  },
+  "policies": {
+    "User": {
+      "title": "Accounts"
+    },
+    "UserRole": {
+      "title": "Roles in organizations"
+    },
+    "Session": {
+      "title": "Sign-in sessions"
+    },
+    "UserDevice": {
+      "title": "Devices of a person"
+    },
+    "VerifyChallenge": {
+      "title": "One-time code checks"
+    },
+    "RelationTuple": {
+      "title": "Access rules"
+    },
+    "NotificationEvent": {
+      "title": "Notification events"
+    },
+    "Notification": {
+      "title": "Notifications"
+    },
+    "NotificationDelivery": {
+      "title": "Notification deliveries"
+    },
+    "NotificationPreference": {
+      "title": "Notification preferences"
+    },
+    "WorkspaceNotificationPolicy": {
+      "title": "Notification policy of the organization"
+    },
+    "NotificationSubscription": {
+      "title": "Notification subscriptions"
+    },
+    "NotificationDevice": {
+      "title": "Push devices"
+    },
+    "UserNotificationSettings": {
+      "title": "Quiet hours and channels"
+    },
+    "FileObject": {
+      "title": "Files"
+    },
+    "FileLink": {
+      "title": "File places"
+    },
+    "FileVariant": {
+      "title": "File previews"
+    },
+    "VoiceTranscript": {
+      "title": "Transcripts"
+    },
+    "CallSession": {
+      "title": "Calls"
+    },
+    "CallSessionParticipant": {
+      "title": "Call participants"
+    },
+    "CallRecording": {
+      "title": "Call recordings"
+    },
+    "CallRecordingClaim": {
+      "title": "Saved call recordings"
+    },
+    "Job": {
+      "title": "Background jobs"
+    },
+    "ChatterEntry": {
+      "title": "Chronicle"
+    },
+    "SearchDocument": {
+      "title": "Search index"
+    },
+    "ShareLink": {
+      "title": "Guest links"
+    },
+    "ShareLinkVisit": {
+      "title": "Guest link visits"
+    },
+    "ShareLinkGuest": {
+      "title": "Guests of links"
+    },
+    "ApprovalRequest": {
+      "title": "Decision requests"
+    },
+    "ApprovalStep": {
+      "title": "Decision steps"
+    },
+    "ApprovalDecision": {
+      "title": "Decisions"
+    },
+    "SignRequest": {
+      "title": "Signing requests"
+    },
+    "SignAct": {
+      "title": "Signature acts"
+    },
+    "SignActEvent": {
+      "title": "Signing log"
+    },
+    "SignQrSession": {
+      "title": "QR signing sessions"
+    },
+    "Document": {
+      "title": "Office documents"
+    },
+    "DocumentVersion": {
+      "title": "Office document versions"
+    },
+    "DocumentSession": {
+      "title": "Editing sessions"
+    },
+    "Plan": {
+      "title": "Plans"
+    },
+    "PlanVersion": {
+      "title": "Plan versions"
+    },
+    "SubjectSubscription": {
+      "title": "Subscriptions"
+    },
+    "EntitlementGrant": {
+      "title": "Grants"
+    },
+    "EntitlementOverride": {
+      "title": "Overrides"
+    },
+    "QuotaCounter": {
+      "title": "Quota counters"
+    },
+    "PlatformStaff": {
+      "title": "Platform staff"
+    },
+    "PlatformStaffRole": {
+      "title": "Platform staff roles"
+    },
+    "PlatformSession": {
+      "title": "Console sessions"
+    },
+    "PlatformPolicy": {
+      "title": "Platform policy"
+    },
+    "PlatformCommandRequest": {
+      "title": "Four-eyes requests"
+    },
+    "PlatformCommandReceipt": {
+      "title": "Command receipts"
+    },
+    "AnalyticsIdentityLink": {
+      "title": "Analytics identity links"
+    },
+    "AnalyticsEventOverride": {
+      "title": "Analytics event switches"
+    },
+    "AnalyticsQuarantine": {
+      "title": "Analytics quarantine"
+    },
+    "AnalyticsRollupEventDay": {
+      "title": "Daily event totals"
+    },
+    "AnalyticsRollupActorDay": {
+      "title": "Daily activity of people"
+    },
+    "AnalyticsRollupSessionDay": {
+      "title": "Daily session totals"
+    },
+    "AnalyticsReport": {
+      "title": "Analytics reports"
+    },
+    "AnalyticsDashboard": {
+      "title": "Analytics dashboards"
+    },
+    "CryptoKey": {
+      "title": "Encryption keys"
+    },
+    "CryptoKeyVersion": {
+      "title": "Encryption key versions"
+    },
+    "Bot": {
+      "title": "Bots"
+    },
+    "ApiKey": {
+      "title": "API keys"
+    },
+    "ApiAccessLog": {
+      "title": "API key access log"
+    },
+    "WebhookEndpoint": {
+      "title": "Webhook endpoints"
+    },
+    "WebhookDelivery": {
+      "title": "Webhook deliveries"
+    },
+    "WorkspaceKeyPolicy": {
+      "title": "Key policy of the organization"
+    },
+    "ConsentVersion": {
+      "title": "Legal documents of the platform"
+    },
+    "ConsentAcceptance": {
+      "title": "Consent acceptances"
+    },
+    "PdIncident": {
+      "title": "Personal data incidents"
+    },
+    "PdIncidentEvent": {
+      "title": "Incident log"
+    },
+    "IdempotencyInbox": {
+      "title": "Incoming event inbox"
+    },
+    "SecurityEvent": {
+      "title": "Security log"
+    },
+    "SecurityDigest": {
+      "title": "Security log digests"
+    },
+    "SecurityPartitionArchive": {
+      "title": "Security log archives"
+    },
+    "SecurityAlert": {
+      "title": "Security alerts"
+    },
+    "VisibilityPolicy": {
+      "title": "Field visibility rules"
+    },
+    "VisibilityRule": {
+      "title": "Field visibility rule lines"
+    },
+    "WorkspaceVisibilitySettings": {
+      "title": "Visibility settings of the organization"
+    },
+    "Chat": {
+      "title": "Chats"
+    },
+    "ChatMember": {
+      "title": "Chat members"
+    },
+    "Message": {
+      "title": "Messages"
+    },
+    "ScheduledMessage": {
+      "title": "Scheduled messages"
+    },
+    "Workspace": {
+      "title": "Organizations"
+    },
+    "WorkspaceMember": {
+      "title": "Members of organizations"
+    },
+    "WorkspaceInvitation": {
+      "title": "Invitations to organizations"
+    },
+    "LegalEntity": {
+      "title": "Legal entities"
+    },
+    "WorkspaceBankAccount": {
+      "title": "Bank accounts of the organization"
+    },
+    "StaffDepartment": {
+      "title": "Departments"
+    },
+    "StaffPosition": {
+      "title": "Positions"
+    },
+    "StaffBranch": {
+      "title": "Sites"
+    },
+    "StaffAssignment": {
+      "title": "Assignments"
+    },
+    "StaffingPosition": {
+      "title": "Staffing units"
+    },
+    "StaffRate": {
+      "title": "Rates"
+    },
+    "StaffDeputy": {
+      "title": "Deputies"
+    },
+    "ShiftTemplate": {
+      "title": "Shift templates"
+    },
+    "ShiftPattern": {
+      "title": "Rotations"
+    },
+    "Shift": {
+      "title": "Shifts"
+    },
+    "ShiftAttendance": {
+      "title": "Timesheet"
+    },
+    "AssetModel": {
+      "title": "Equipment models"
+    },
+    "Asset": {
+      "title": "Equipment"
+    },
+    "AssetMove": {
+      "title": "Equipment moves"
+    },
+    "AssetServiceRecord": {
+      "title": "Equipment service log"
+    },
+    "Counterparty": {
+      "title": "Counterparties"
+    },
+    "CounterpartyContact": {
+      "title": "Counterparty contacts"
+    },
+    "CounterpartyBankAccount": {
+      "title": "Counterparty bank accounts"
+    },
+    "DocType": {
+      "title": "Document types"
+    },
+    "DocTypeCounter": {
+      "title": "Document numbering"
+    },
+    "DocTemplate": {
+      "title": "Forms"
+    },
+    "OrgDocument": {
+      "title": "Documents of the organization"
+    },
+    "DocCampaign": {
+      "title": "Acknowledgement campaigns"
+    },
+    "DocCampaignTarget": {
+      "title": "Acknowledgements"
+    },
+    "DocTemplateLibraryInstall": {
+      "title": "Installed form library"
+    },
+    "Employment": {
+      "title": "Employment records"
+    },
+    "HrAction": {
+      "title": "HR actions"
+    },
+    "HrActionBatch": {
+      "title": "HR action batches"
+    },
+    "EsutdSubmission": {
+      "title": "ESUTD submissions"
+    },
+    "PersonalDocRecord": {
+      "title": "My documents"
+    },
+    "WorkCalendarDay": {
+      "title": "Production calendar"
+    },
+    "ProcessDefinition": {
+      "title": "Processes"
+    },
+    "ProcessVersion": {
+      "title": "Process versions"
+    },
+    "ProcessInstance": {
+      "title": "Process runs"
+    },
+    "ProcessStepRun": {
+      "title": "Process steps"
+    },
+    "ProcessTrigger": {
+      "title": "Process triggers"
+    },
+    "ProcessCredential": {
+      "title": "Credentials"
+    },
+    "OfficeRoom": {
+      "title": "Meetings"
+    },
+    "OfficeRoomParticipant": {
+      "title": "Meeting participants"
+    },
+    "ContactLink": {
+      "title": "Circle links"
+    },
+    "ContactInvitation": {
+      "title": "Circle invitations"
+    },
+    "ContactBlock": {
+      "title": "Blocks"
+    },
+    "Circle": {
+      "title": "Groups"
+    },
+    "CircleMembership": {
+      "title": "Group members"
+    },
+    "Task": {
+      "title": "Tasks"
+    },
+    "TaskParticipant": {
+      "title": "Task participants"
+    },
+    "TaskTag": {
+      "title": "Task tags"
+    },
+    "CalendarEvent": {
+      "title": "Calendar events"
+    },
+    "CalendarEventReminder": {
+      "title": "Event reminders"
+    },
+    "EventParticipant": {
+      "title": "Event participants"
+    },
+    "Resource": {
+      "title": "Bookable resources"
+    },
+    "GoogleConnection": {
+      "title": "Google Calendar connection"
+    },
+    "UserPaymentCard": {
+      "title": "Saved cards"
+    },
+    "Currency": {
+      "title": "Currencies"
+    },
+    "Account": {
+      "title": "Wallet accounts"
+    },
+    "LedgerTransfer": {
+      "title": "Ledger transfers"
+    },
+    "EscrowAgreement": {
+      "title": "Escrow agreements"
+    },
+    "EscrowHold": {
+      "title": "Escrow holds"
+    },
+    "Shop": {
+      "title": "Shops"
+    },
+    "Showcase": {
+      "title": "Showcases"
+    },
+    "Listing": {
+      "title": "Listings"
+    },
+    "ListingPrice": {
+      "title": "Listing prices"
+    },
+    "Order": {
+      "title": "Orders"
+    },
+    "OrderContribution": {
+      "title": "Chip-ins"
+    },
+    "OrderPrice": {
+      "title": "Order prices"
+    },
+    "WishItem": {
+      "title": "Wishlist"
+    },
+    "CardSkin": {
+      "title": "Card skins"
+    },
+    "CardSkinInstance": {
+      "title": "Owned skins"
+    },
+    "CardSkinTransfer": {
+      "title": "Skin ownership history"
+    },
+    "FinBook": {
+      "title": "Finance books"
+    },
+    "FinAccount": {
+      "title": "Finance accounts"
+    },
+    "FinTransaction": {
+      "title": "Finance operations"
+    },
+    "FinBudget": {
+      "title": "Limits"
+    },
+    "FinPerson": {
+      "title": "Close people"
+    },
+    "FinRecurringRule": {
+      "title": "Recurring rules"
+    },
+    "FinAuditLog": {
+      "title": "Finance change log"
+    },
+    "DriveSpace": {
+      "title": "Drives"
+    },
+    "DriveNode": {
+      "title": "Drive files and folders"
+    },
+    "DriveNodeVersion": {
+      "title": "Drive file versions"
+    },
+    "DriveStar": {
+      "title": "Starred on Drive"
+    },
+    "DriveRecent": {
+      "title": "Recently opened on Drive"
+    },
+    "DrivePhotoBucket": {
+      "title": "Photo grid"
+    },
+    "NoteSpace": {
+      "title": "Note spaces"
+    },
+    "NoteFolder": {
+      "title": "Note folders"
+    },
+    "Note": {
+      "title": "Notes"
+    },
+    "NoteRevision": {
+      "title": "Note history"
+    },
+    "NoteLink": {
+      "title": "Note links"
+    },
+    "NoteBoardItem": {
+      "title": "Board cards"
+    },
+    "NoteChunk": {
+      "title": "Note chunks for search"
+    },
+    "VoiceRecording": {
+      "title": "Recordings"
+    }
+  },
+  "tables": {
+    "analytics_events": {
+      "title": "Analytics events"
+    },
+    "analytics_outbox": {
+      "title": "Analytics outbox"
+    },
+    "idem_keys": {
+      "title": "Repeat protection keys"
+    },
+    "idem_responses": {
+      "title": "Saved responses for repeats"
+    },
+    "public__prisma_migrations": {
+      "title": "Database migrations"
+    }
+  },
+  "blobs": {
+    "avatar": {
+      "title": "Avatars"
+    },
+    "listing_image": {
+      "title": "Listing photos"
+    },
+    "chat_attachment": {
+      "title": "Chat attachments"
+    },
+    "voice_message": {
+      "title": "Voice messages"
+    },
+    "dictaphone": {
+      "title": "Recorder audio"
+    },
+    "document": {
+      "title": "Document files"
+    },
+    "drive_file": {
+      "title": "Drive file bytes"
+    },
+    "sign_subject": {
+      "title": "Signed originals"
+    },
+    "sign_cms": {
+      "title": "Signature containers"
+    },
+    "sign_stamped": {
+      "title": "Stamped copies"
+    },
+    "asset_photo": {
+      "title": "Equipment photos"
+    },
+    "note_image": {
+      "title": "Note images"
+    },
+    "audit_export": {
+      "title": "Security log exports"
+    },
+    "generic": {
+      "title": "Other files"
+    }
+  },
+  "redis": {
+    "locks": {
+      "title": "Scheduler locks"
+    },
+    "event_bus": {
+      "title": "Event bus"
+    },
+    "analytics_stream": {
+      "title": "Analytics intake stream"
+    },
+    "auth_revocation": {
+      "title": "Revoked sessions"
+    },
+    "auth_throttle": {
+      "title": "Sign-in protection"
+    },
+    "throttler": {
+      "title": "Request limits"
+    },
+    "verify": {
+      "title": "Code limits and confirmations"
+    },
+    "sms_outbound": {
+      "title": "SMS limits"
+    },
+    "entitlement_epochs": {
+      "title": "Plan epochs"
+    },
+    "access_epochs": {
+      "title": "Access epochs"
+    },
+    "keys_state": {
+      "title": "Key counters"
+    },
+    "audit_state": {
+      "title": "Security log counters"
+    },
+    "notifications_state": {
+      "title": "Notification windows"
+    },
+    "platform_console": {
+      "title": "Console sessions (cache)"
+    },
+    "analytics_state": {
+      "title": "Analytics counters"
+    },
+    "wallet_state": {
+      "title": "Ledger reconciliation mark"
+    },
+    "office_state": {
+      "title": "Meeting reconciliation mark"
+    },
+    "socket_adapter": {
+      "title": "Real-time channels"
+    },
+    "lifecycle_state": {
+      "title": "Data lifecycle state"
+    },
+    "auth_alive": {
+      "title": "Account alive cache"
+    },
+    "keys_cache": {
+      "title": "API key cache"
+    },
+    "analytics_watermarks": {
+      "title": "Analytics watermarks"
+    },
+    "access_cache": {
+      "title": "Access cache"
+    },
+    "entitlement_cache": {
+      "title": "Plan cache"
+    },
+    "visibility_cache": {
+      "title": "Visibility cache"
+    },
+    "user_cache": {
+      "title": "Profile cache"
+    },
+    "presence": {
+      "title": "Presence"
+    },
+    "seen_throttle": {
+      "title": "Last seen throttles"
+    },
+    "consents_gate": {
+      "title": "Consent gate cache"
+    },
+    "org_graph": {
+      "title": "Structure cache"
+    },
+    "analytics_cache": {
+      "title": "Report cache"
+    },
+    "docs_discovery": {
+      "title": "Editor discovery cache"
+    },
+    "livekit": {
+      "title": "Call server state"
+    }
+  },
+  "derived": {
+    "audit_archive": {
+      "title": "Security log archive"
+    },
+    "audit_digests": {
+      "title": "Digest copies"
+    },
+    "lifecycle_archive": {
+      "title": "Cold archive of logs"
+    },
+    "lifecycle_exports": {
+      "title": "Data exports"
+    },
+    "erasure_journal": {
+      "title": "Erasure journal"
+    },
+    "backups": {
+      "title": "Backups"
+    },
+    "app_logs": {
+      "title": "Application logs"
+    },
+    "upload_tmp": {
+      "title": "Uploads in progress"
+    },
+    "call_egress": {
+      "title": "Recordings before saving"
+    }
+  }
+}

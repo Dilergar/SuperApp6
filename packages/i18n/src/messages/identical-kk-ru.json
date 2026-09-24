@@ -97,6 +97,8 @@
   "keys.service.drive",
   "keys.service.messenger",
   "keys.service.recorder",
+  "lifecycle.policies.ChatterEntry.title",
+  "lifecycle.policies.ShiftAttendance.title",
   "messenger.attachmentPreview.audio",
   "messenger.attachmentPreview.file",
   "messenger.breadcrumb",

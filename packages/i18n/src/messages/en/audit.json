@@ -649,6 +649,60 @@
         "title": "Access denied: {reason}",
         "body": "{attempts, plural, one {# attempt} other {# attempts}}"
       }
+    },
+    "lifecycle": {
+      "purge": {
+        "run": {
+          "title": "Retention run",
+          "body": "{rows} records removed by policy"
+        }
+      },
+      "partition": {
+        "dropped": {
+          "title": "Log partition dropped by retention",
+          "body": "{rows} records past their term"
+        },
+        "archived": {
+          "title": "Log partition moved to the archive",
+          "body": "{rows} records archived"
+        }
+      },
+      "hold": {
+        "created": {
+          "title": "Legal hold placed",
+          "body": "Deletion is paused for the held data"
+        },
+        "released": {
+          "title": "Legal hold released",
+          "body": "Deletion resumes by policy"
+        }
+      },
+      "erasure": {
+        "requested": {
+          "title": "Erasure requested",
+          "body": "Scheduled for {effectiveAt}"
+        },
+        "stage": {
+          "title": "Erasure stage passed",
+          "body": "{rows} records in this stage"
+        },
+        "completed": {
+          "title": "Erasure completed",
+          "body": "{rows} records erased, certificate signed"
+        }
+      },
+      "settings": {
+        "changed": {
+          "title": "Retention period changed",
+          "body": "New period takes effect on {effectiveAt}"
+        }
+      },
+      "canary": {
+        "failed": {
+          "title": "Erasure canary found leftovers",
+          "body": "{findings} traces in {stores} stores"
+        }
+      }
     }
   },
   "categories": {
@@ -666,7 +720,8 @@
     "audit": "The log itself",
     "sharing": "Access and public links",
     "files": "Files",
-    "authz": "Access denials"
+    "authz": "Access denials",
+    "lifecycle": "Data lifecycle"
   },
   "severities": {
     "info": "Info",
