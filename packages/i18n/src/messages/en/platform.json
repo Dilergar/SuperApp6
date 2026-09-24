@@ -488,6 +488,7 @@
     "credentialStuffing": "credential stuffing: most sign-ins fail",
     "massExport": "mass export of data by one actor",
     "digestMismatch": "the security log integrity is broken",
+    "digestGap": "the security log integrity chain has stopped: the database was moved into a new cluster",
     "auditDegraded": "the security log loses records",
     "idorProbing": "probing of other people’s objects by one account",
     "malwareBurst": "a series of infected uploads by one account"

@@ -27,6 +27,7 @@ export type PlatformSecurityEvent =
   | 'credentialStuffing'
   | 'massExport'
   | 'digestMismatch'
+  | 'digestGap'
   | 'auditDegraded'
   | 'idorProbing'
   | 'malwareBurst';

@@ -531,6 +531,10 @@
         "title": "Security log integrity broken",
         "body": "{events} records do not match the signed digest"
       },
+      "digest_gap": {
+        "title": "Security log integrity chain stopped",
+        "body": "The transaction counter went backwards: the database was restored into a new cluster"
+      },
       "audit_degraded": {
         "title": "Security log degraded",
         "body": "{failures} write failures in {windowMin} min"

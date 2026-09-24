@@ -1,9 +1,13 @@
 version: '3.8'
 
 services:
-  # PostgreSQL database
+  # PostgreSQL — версия ПИНОВАНА (docs/data_architecture.md): 18 даёт нативный uuidv7(),
+  # fast-path слоты локов от max_locks_per_transaction и NOT VALID FK на партиционированные
+  # таблицы. Минорная ≥ 18.6 (закрытые CVE). Прод — та же мажорная версия.
+  # У образов 18+ данные живут в /var/lib/postgresql/18/docker, а том монтируется на
+  # /var/lib/postgresql (старая точка /var/lib/postgresql/data образ 18 отвергает).
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18.6-alpine
     container_name: superapp6-db
     restart: unless-stopped
     environment:
@@ -13,16 +17,16 @@ services:
     ports:
       - '5432:5432'
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres18_data:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U superapp -d superapp6']
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # Redis for caching, sessions, pub/sub
+  # Redis — версия ПИНОВАНА: ≥ 7.4.6 (RediShell, CVSS 10); обновлять минорную осознанно.
   redis:
-    image: redis:7-alpine
+    image: redis:7.4.11-alpine
     container_name: superapp6-redis
     restart: unless-stopped
     ports:
@@ -333,6 +337,9 @@ services:
       start_period: 30s
 
 volumes:
+  postgres18_data:
+  # Том прежней мажорной версии (PG16) — ни один сервис его не монтирует; данные переносились
+  # дампом (pg_dump → pg_restore). Удалить после сверки: docker volume rm superapp6_postgres_data
   postgres_data:
   redis_data:
   seaweed_data:

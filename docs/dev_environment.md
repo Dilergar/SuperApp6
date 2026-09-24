@@ -12,7 +12,7 @@
 ## Запуск с нуля
 
 ```bash
-# 1. Инфраструктура (PostgreSQL 16 + Redis 7)
+# 1. Инфраструктура (PostgreSQL 18 + Redis 7.4 — версии пинованы в docker-compose.yml и CI)
 docker compose up -d
 
 # 2. Зависимости

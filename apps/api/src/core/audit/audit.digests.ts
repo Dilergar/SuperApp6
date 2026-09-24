@@ -207,7 +207,19 @@ export class AuditDigestService {
     const from = last?.xactTo ?? 0n;
     const [{ xmin }] = await this.db.$queryRaw<Array<{ xmin: string }>>`SELECT pg_snapshot_xmin(pg_current_snapshot())::text AS xmin`;
     const to = BigInt(xmin);
-    if (to <= from) return null;
+    if (to < from) {
+      // xmin снимка внутри ОДНОГО кластера назад не ходит. Меньше конца прошлого окна — значит,
+      // база перенесена логически (pg_dump → pg_restore) в новый кластер со свежим счётчиком:
+      // окна по xid8 больше не продолжают цепочку, и новые строки журнала молча выпадали бы из
+      // целостности. Тревога CRITICAL (одна на окно), лечение — сдвиг счётчика до открытия
+      // трафика (`pg_resetwal -x`, как делает pg_upgrade), рунбук docs/operations_backup_dr.md.
+      this.logger.error(`audit digest chain cannot continue: snapshot xmin ${to} is below the last digest end ${from} (logical restore into a new cluster?)`);
+      await this.alerts
+        .raise({ kind: 'digest_gap', severity: 'critical', dedupeKey: `xid:${from}`, finding: { events: 1, windowMin: 1 }, platformEvent: 'digestGap' })
+        .catch((err: unknown) => this.logger.error(`digest_gap alert was not raised: ${err instanceof Error ? err.message : String(err)}`));
+      return null;
+    }
+    if (to === from) return null;
     const version = AUDIT_LEAF_VERSION;
     const leaves = await this.leaves(from, to, version);
     if (!leaves.count) return null;

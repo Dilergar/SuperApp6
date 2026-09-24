@@ -24,12 +24,14 @@
   },
   "packageManager": "pnpm@9.15.0",
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.23.2 <23"
   },
   "pnpm": {
     "overrides": {
       "@types/react": "^19.2.14",
-      "@types/react-dom": "^19.2.3"
+      "@types/react-dom": "^19.2.3",
+      "multer": "2.4.0",
+      "socket.io-parser": "4.2.7"
     }
   }
 }

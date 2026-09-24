@@ -37,6 +37,7 @@ export type AuditDetectKind =
   | 'mass_export'
   | 'dormant_login'
   | 'digest_mismatch'
+  | 'digest_gap'
   | 'audit_degraded'
   | 'idor_probing'
   | 'malware_burst';
@@ -51,6 +52,7 @@ const DETECT_EVENT_KEY: Record<AuditDetectKind, AuditEventKey> = {
   mass_export: 'detect.mass_export',
   dormant_login: 'detect.dormant_login',
   digest_mismatch: 'detect.digest_mismatch',
+  digest_gap: 'detect.digest_gap',
   audit_degraded: 'detect.audit_degraded',
   idor_probing: 'detect.idor_probing',
   malware_burst: 'detect.malware_burst',

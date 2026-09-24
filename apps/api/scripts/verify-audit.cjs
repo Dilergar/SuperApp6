@@ -1151,6 +1151,36 @@ async function sectionIntegrity({ check, prisma, s1 }) {
   const guard = await prisma.$queryRawUnsafe(`SELECT tgenabled AS e FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE c.relname = '${part}' AND t.tgname = 'security_events_guard'`);
   check('the guard is ENABLE ALWAYS again after the probe', guard[0]?.e === 'A', guard[0]?.e);
 
+  // Разрыв цепочки (логический перенос базы в новый кластер: свежий счётчик транзакций ниже
+  // конца последнего окна). «Будущий» дайджест подсаживает эту картину — раннер обязан поднять
+  // тревогу digest_gap (CRITICAL), а не молча вернуть «пустое окно», как было раньше.
+  {
+    const tail = await prisma.securityDigest.findFirst({ orderBy: { xactTo: 'desc' } });
+    const [{ x }] = await prisma.$queryRawUnsafe(`SELECT pg_current_xact_id()::text AS x`);
+    const futureTo = BigInt(x) + 10_000_000_000n;
+    const fakeId = randomUUID();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO security_digests (id, xact_from, xact_to, count, merkle_root, signature, kid, leaf_version) VALUES ($1, $2::bigint, $3::bigint, 0, '\\x00'::bytea, '\\x00'::bytea, 'probe', 3)`,
+      fakeId,
+      String(tail?.xactTo ?? 0n),
+      String(futureTo),
+    );
+    let gap;
+    try {
+      gap = await call('POST', '/audit/dev/digest/run', s1.token, {});
+    } finally {
+      await prisma.$executeRawUnsafe(`ALTER TABLE security_digests DISABLE TRIGGER security_digests_guard`);
+      try {
+        await prisma.$executeRawUnsafe(`DELETE FROM security_digests WHERE id = $1`, fakeId);
+      } finally {
+        await prisma.$executeRawUnsafe(`ALTER TABLE security_digests ENABLE ALWAYS TRIGGER security_digests_guard`);
+      }
+    }
+    const gapAlert = await prisma.securityAlert.findFirst({ where: { kind: 'digest_gap', dedupeKey: `xid:${futureTo}` } });
+    check('xid regression (logical restore) → digest_gap CRITICAL alert, no digest signed', gap?.ok && gap.json?.data == null && gapAlert?.severity === 'critical', `${gap?.status} ${gapAlert?.status}`);
+    if (gapAlert) await prisma.securityAlert.update({ where: { id: gapAlert.id }, data: { status: 'closed', resolution: 'resolved', closedAt: new Date() } });
+  }
+
   // Архив закрытого месяца (посеянное событие 100 дней назад — закрытая партиция)
   const seeded = await call('POST', '/audit/dev/seed', s1.token, { key: 'account.settings_changed', daysAgo: 100, details: { sessionMaxIdleDays: 90 } });
   const at = new Date(seeded.json.data.occurredAt);

@@ -43,7 +43,13 @@ const addDays = (d, n) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000
   let s1;
   let s2;
   let s3;
-  const now = () => new Date().toISOString();
+  // Монотонное время: события одного батча, созданные в одну миллисекунду, давали воронке
+  // равные ts, а шаг воронки строго позже предыдущего — на быстрой машине шаг 2 выпадал (флак)
+  let lastMs = 0;
+  const now = () => {
+    lastMs = Math.max(Date.now(), lastMs + 1);
+    return new Date(lastMs).toISOString();
+  };
   const ev = (key, props, extra = {}) => {
     const eventId = randomUUID();
     eventIds.push(eventId);

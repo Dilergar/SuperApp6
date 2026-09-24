@@ -58,6 +58,13 @@ export const DETECT_AUDIT_EVENTS = defineAuditEvents({
   'detect.dormant_login': detect('medium'),
   /** Проверка подписанных дайджестов: строки журнала изменены или пропали */
   'detect.digest_mismatch': detect('critical'),
+  /**
+   * Цепочка дайджестов не может продолжиться: счётчик транзакций кластера меньше конца
+   * последнего окна — база перенесена ЛОГИЧЕСКИ (pg_dump → pg_restore) в новый кластер, и
+   * новые строки журнала выпадали бы из целостности молча. Лечится сдвигом счётчика до
+   * открытия трафика (`pg_resetwal -x`, как делает pg_upgrade) — рунбук резервных копий.
+   */
+  'detect.digest_gap': detect('critical'),
   /** Журнал деградировал: отказы записи best-effort сверх порога, выгрузка партиции не удалась */
   'detect.audit_degraded': {
     category: 'detect',
