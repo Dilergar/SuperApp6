@@ -60,12 +60,12 @@
     "zod-to-json-schema": "3.24.5"
   },
   "devDependencies": {
-    "@nestjs/cli": "^10.4.0",
-    "@nestjs/schematics": "^10.2.0",
+    "@nestjs/cli": "^11.0.24",
+    "@nestjs/schematics": "^11.1.0",
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.0",
     "@types/multer": "^2.2.0",
-    "@types/node": "^22.0.0",
+    "@types/node": "^24.13.6",
     "@types/qrcode": "^1.5.5",
     "@types/web-push": "^3.6.4",
     "@types/yazl": "^3.3.1",

@@ -66,12 +66,12 @@ docker-compose.yml  # PostgreSQL 18 + Redis 7.4 + опциональные пр�
 
 | Слой | Технология | Версия |
 |------|-----------|--------|
-| Runtime | Node.js | 22.x (CI; engines ≥20) |
-| Package Manager | pnpm | 9.x |
+| Runtime | Node.js | 24 LTS — пин `.nvmrc` (CI и dev), `engines` корня `>=24.21.0 <25` |
+| Package Manager | pnpm | 9.x (версия — `packageManager` корня) |
 | Monorepo | Turborepo | 2.x |
 | Backend | NestJS | 10.x |
 | ORM | Prisma | 6.x |
-| Database | PostgreSQL | 16 |
+| Database | PostgreSQL | 18 |
 | Cache/шина | Redis | 7 |
 | Web | Next.js | 15.x |
 | CSS | Tailwind CSS | 4.x |
@@ -79,7 +79,7 @@ docker-compose.yml  # PostgreSQL 18 + Redis 7.4 + опциональные пр�
 | Data Fetching | TanStack React Query | 5.x |
 | Виртуализация списков | react-virtuoso | 4.x |
 | Validation | Zod | 3.x |
-| Language | TypeScript | 5.7 |
+| Language | TypeScript | 5.9 |
 | Mobile (этап 2) | React Native + Expo | 0.76 / SDK 52 |
 
 ## Порты (dev)

@@ -75,11 +75,25 @@ function run(cmd, cmdArgs, cwd, opts = {}) {
   return execFileSync(cmd, cmdArgs, { cwd, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', ...opts });
 }
 
-// npm на Windows — это npm.cmd, а Node с 18.20 отказывается запускать .cmd/.bat
-// без shell (закрытая дыра с подстановкой аргументов). Аргументы у нас без
-// пробелов, поэтому shell здесь безопасен.
-const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const npmRun = (cmdArgs, cwd) => run(NPM, cmdArgs, cwd, process.platform === 'win32' ? { shell: true } : {});
+// npm зовём САМИМ node по его npm-cli.js, без shell: на Windows npm — это npm.cmd,
+// а .cmd Node запускает только через shell (закрытая дыра с подстановкой аргументов),
+// shell же с массивом аргументов Node 24 объявил устаревшим (DEP0190).
+function npmCli() {
+  const execPath = process.env.npm_execpath;
+  if (execPath && /npm-cli\.js$/.test(execPath) && fs.existsSync(execPath)) return execPath;
+  const nodeDir = path.dirname(process.execPath);
+  const candidates = [
+    path.join(nodeDir, 'node_modules', 'npm', 'bin', 'npm-cli.js'), // Windows-инсталлятор
+    path.join(nodeDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'), // Unix-префикс
+  ];
+  return candidates.find((p) => fs.existsSync(p)) ?? null;
+}
+const npmRun = (cmdArgs, cwd) => {
+  const cli = npmCli();
+  if (cli) return run(process.execPath, [cli, ...cmdArgs], cwd);
+  if (process.platform === 'win32') die('не найден npm-cli.js рядом с node — поставьте npm вместе с Node.js');
+  return run('npm', cmdArgs, cwd);
+};
 
 function ensureDir(p) {
   fs.mkdirSync(p, { recursive: true });

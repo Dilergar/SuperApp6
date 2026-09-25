@@ -29,7 +29,8 @@ function labelOf(hit: PlatformLookupHitDto): string {
   return hit.entity === 'user' ? `${hit.person.firstName} ${hit.person.lastName ?? ''}`.trim() : hit.name;
 }
 
-export function rememberRecent(entry: Recent): void {
+// Не экспортируется: файл страницы Next отдаёт только default и конфиг маршрута (next build падает)
+function rememberRecent(entry: Recent): void {
   try {
     const list: Recent[] = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]');
     const next = [entry, ...list.filter((r) => !(r.entity === entry.entity && r.id === entry.id))].slice(0, 8);

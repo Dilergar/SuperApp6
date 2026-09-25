@@ -12,6 +12,9 @@
 ## Запуск с нуля
 
 ```bash
+# 0. Node — версия из .nvmrc (24 LTS; engines корня >=24.21.0 <25), pnpm — из packageManager корня
+node --version
+
 # 1. Инфраструктура (PostgreSQL 18 + PgBouncer 1.26 + Redis 7.4 ×2 — версии пинованы в docker-compose.yml и CI)
 docker compose build pgbouncer   # один раз: пулер собирается из исходников с пином sha256
 docker compose up -d
@@ -22,6 +25,7 @@ pnpm install
 # 3. Общие пакеты — ПОРЯДОК НЕСУЩИЙ (api-client берёт конверт из shared;
 #    api и web не соберутся против старого dist ни того, ни другого)
 cd packages/shared && pnpm build
+cd ../i18n && pnpm build          # prebuild сам пересоберёт messages/index.ts
 cd ../api-client && pnpm build
 
 # 4. Prisma

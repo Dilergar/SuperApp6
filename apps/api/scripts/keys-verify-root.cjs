@@ -93,7 +93,8 @@ function unwrap(root, wrapped, aad) {
   const iv = wrapped.subarray(1, 13);
   const tag = wrapped.subarray(13, 29);
   const ct = wrapped.subarray(29);
-  const d = createDecipheriv('aes-256-gcm', root, iv);
+  // Тег строго 16 байт: без authTagLength GCM принял бы и усечённый тег (DEP0182)
+  const d = createDecipheriv('aes-256-gcm', root, iv, { authTagLength: 16 });
   d.setAAD(Buffer.from(aad, 'utf8'));
   d.setAuthTag(tag);
   return Buffer.concat([d.update(ct), d.final()]);
