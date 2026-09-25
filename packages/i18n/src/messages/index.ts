@@ -41,6 +41,7 @@ import m_en_lifecycle from './en/lifecycle.json';
 import m_en_visibility from './en/visibility.json';
 import m_en_platform from './en/platform.json';
 import m_en_platformData from './en/platformData.json';
+import m_en_dataExports from './en/dataExports.json';
 import m_en_analytics from './en/analytics.json';
 import m_en_templates from './en/templates.json';
 import m_en_keys from './en/keys.json';
@@ -84,6 +85,7 @@ import m_kk_lifecycle from './kk/lifecycle.json';
 import m_kk_visibility from './kk/visibility.json';
 import m_kk_platform from './kk/platform.json';
 import m_kk_platformData from './kk/platformData.json';
+import m_kk_dataExports from './kk/dataExports.json';
 import m_kk_analytics from './kk/analytics.json';
 import m_kk_templates from './kk/templates.json';
 import m_kk_keys from './kk/keys.json';
@@ -127,6 +129,7 @@ import m_ru_lifecycle from './ru/lifecycle.json';
 import m_ru_visibility from './ru/visibility.json';
 import m_ru_platform from './ru/platform.json';
 import m_ru_platformData from './ru/platformData.json';
+import m_ru_dataExports from './ru/dataExports.json';
 import m_ru_analytics from './ru/analytics.json';
 import m_ru_templates from './ru/templates.json';
 import m_ru_keys from './ru/keys.json';
@@ -176,6 +179,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "visibility": m_en_visibility,
     "platform": m_en_platform,
     "platformData": m_en_platformData,
+    "dataExports": m_en_dataExports,
     "analytics": m_en_analytics,
     "templates": m_en_templates,
     "keys": m_en_keys,
@@ -221,6 +225,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "visibility": m_kk_visibility,
     "platform": m_kk_platform,
     "platformData": m_kk_platformData,
+    "dataExports": m_kk_dataExports,
     "analytics": m_kk_analytics,
     "templates": m_kk_templates,
     "keys": m_kk_keys,
@@ -266,6 +271,7 @@ export const MESSAGES: Record<Locale, Record<Namespace, MessageTree>> = {
     "visibility": m_ru_visibility,
     "platform": m_ru_platform,
     "platformData": m_ru_platformData,
+    "dataExports": m_ru_dataExports,
     "analytics": m_ru_analytics,
     "templates": m_ru_templates,
     "keys": m_ru_keys,

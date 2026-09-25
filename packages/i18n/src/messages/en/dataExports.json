@@ -1,0 +1,41 @@
+{
+  "titleUser": "All of my data",
+  "descriptionUser": "Download an archive of everything you created and received in SuperApp6: profile, tasks, notes, calendar, files, chats and finances. It is built in the background — we will notify you when it is ready. The archive is kept for 7 days, each part can be downloaded up to 5 times, and every download asks for an SMS code.",
+  "titleWorkspace": "Organization data archive",
+  "descriptionWorkspace": "An archive of all organization data: people and structure, documents, tasks, chats, counterparties, finances and files. Fields protected by visibility rules come exactly as you see them. The archive is kept for 7 days, each part can be downloaded up to 5 times with an SMS code.",
+  "request": "Request an archive",
+  "ownerOnly": "Only the owner can request the organization archive",
+  "empty": "No archives yet",
+  "emptyText": "Request an archive — we will notify you when it is ready.",
+  "archiveOf": "Archive of {date}",
+  "requestedBy": "Requested by",
+  "status": {
+    "queued": "Queued",
+    "running": "Building",
+    "ready": "Ready",
+    "failed": "Failed",
+    "expired": "Expired"
+  },
+  "phase": {
+    "collect": "Collecting data: {done} of {total}",
+    "package": "Packing parts: {done} of {total}",
+    "finish": "Finishing"
+  },
+  "readyUntil": "{size} · available until {date}",
+  "part": "Part {n}",
+  "downloads": "{used} of {max} downloads",
+  "downloadPart": "Download part {n}",
+  "exhausted": "Download limit reached",
+  "requesterDownloads": "Only the person who requested the archive downloads it",
+  "expiredText": "The archive has expired — request a new one",
+  "errors": {
+    "owner_mismatch": "A consistency check stopped the build",
+    "too_large": "The archive is too large",
+    "quota": "The daily export limit of the plan is used up",
+    "subject_gone": "The account or organization is no longer active",
+    "internal": "Something went wrong on our side"
+  },
+  "stepUpTitle": "Confirm it’s you",
+  "stepUpBody": "The archive holds personal data. Enter your password and the code from SMS — the confirmation lasts 15 minutes.",
+  "more": "Show more"
+}

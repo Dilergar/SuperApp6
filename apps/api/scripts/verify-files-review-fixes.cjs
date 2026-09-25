@@ -89,7 +89,15 @@ async function main() {
     const delTask = await call('POST', `/tasks/${taskId}/trash`, t1, {}).then(() => call('DELETE', `/tasks/${taskId}`, t1));
     check('3: задача удалена', delTask.ok, `status ${delTask.status}`);
     const tfRow = await prisma.fileObject.findUnique({ where: { id: tf.id } });
-    check('3: вложение удалённой задачи soft-deleted', tfRow?.status === 'deleted', tfRow?.status);
+    // Вложение задачи асинхронно раскладывается на Диск загрузившего (джоб drive.ingest): успел —
+    // файл законно живёт на Диске (его место — узел Диска), не успел — осиротел и удалён.
+    // Гонка джоба с удалением — не ошибка; ошибка — связь с удалённой задачей или живой файл без мест.
+    const tfLinks = await prisma.fileLink.findMany({ where: { fileId: tf.id }, select: { refType: true } });
+    check(
+      '3: вложение удалённой задачи — удалено, либо живёт только на Диске',
+      !tfLinks.some((l) => l.refType === 'task') && (tfRow?.status === 'deleted' || (tfRow?.status === 'ready' && tfLinks.length > 0 && tfLinks.every((l) => l.refType === 'drive_node'))),
+      `${tfRow?.status} links=${tfLinks.map((l) => l.refType).join(',') || '—'}`,
+    );
     const linkedAfter = await prisma.fileLink.count({ where: { refType: 'task', refId: taskId } });
     check('3: связи вложения сняты', linkedAfter === 0, `links ${linkedAfter}`);
 

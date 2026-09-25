@@ -15,6 +15,8 @@ import type {
   LifecycleSettingsDto,
   LifecycleTenantClass,
   LifecycleWorkspaceSummaryDto,
+  LifecycleExportDto,
+  LifecycleExportLinkDto,
 } from '@superapp/shared';
 import { apiDelete, apiGet, apiPost, apiPut } from './api';
 
@@ -60,4 +62,27 @@ export function releaseWorkspaceHold(workspaceId: string, holdId: string, note?:
 /** Таймер автоудаления сообщений: 1 · 7 · 30 дней или null (выкл). */
 export function setChatTimer(chatId: string, days: number | null): Promise<ChatDetail> {
   return apiPut<ChatDetail>(`/messenger/chats/${chatId}/timer`, { days });
+}
+
+// ---- Выгрузки данных целиком (Э6): заказ и ссылка — под окном SMS-подтверждения `data_export` ----
+
+export function fetchMyExports(cursor?: string): Promise<CursorPage<LifecycleExportDto>> {
+  return apiGet<CursorPage<LifecycleExportDto>>('/lifecycle/exports', { params: cursor ? { cursor } : {} });
+}
+
+export function fetchWorkspaceExports(workspaceId: string, cursor?: string): Promise<CursorPage<LifecycleExportDto>> {
+  return apiGet<CursorPage<LifecycleExportDto>>(`/workspaces/${workspaceId}/lifecycle/exports`, { params: cursor ? { cursor } : {} });
+}
+
+export function requestMyExport(): Promise<LifecycleExportDto> {
+  return apiPost<LifecycleExportDto>('/lifecycle/exports', {});
+}
+
+export function requestWorkspaceExport(workspaceId: string): Promise<LifecycleExportDto> {
+  return apiPost<LifecycleExportDto>(`/workspaces/${workspaceId}/lifecycle/exports`, {});
+}
+
+/** Ссылка на часть готового архива — 5 минут, одна из пяти выдач части. */
+export function exportPartLink(exportId: string, part: number): Promise<LifecycleExportLinkDto> {
+  return apiPost<LifecycleExportLinkDto>(`/lifecycle/exports/${exportId}/parts/${part}/link`, {});
 }

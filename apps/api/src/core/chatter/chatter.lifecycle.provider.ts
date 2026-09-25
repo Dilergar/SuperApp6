@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../../shared/database/database.service';
+import { LifecycleExportRegistry, type LifecycleExportContext } from '../lifecycle/lifecycle.export.registry';
 import { LifecycleCanaryRegistry, LifecycleSubjectHookRegistry, type LifecycleCanaryContext, type LifecycleCanaryPlant } from '../lifecycle/lifecycle.purge.registry';
 import { ChatterService } from './chatter.service';
 
@@ -17,6 +18,7 @@ export class ChatterLifecycleProvider implements OnModuleInit {
     private readonly chatter: ChatterService,
     private readonly canary: LifecycleCanaryRegistry,
     private readonly db: DatabaseService,
+    private readonly exportsRegistry: LifecycleExportRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -30,6 +32,15 @@ export class ChatterLifecycleProvider implements OnModuleInit {
       },
     });
     this.canary.register('chatter.subject', (ctx) => this.seedCanary(ctx));
+    // Выгрузка: хроника маскируется глазами заказчика и пишется текстом его языка — общий
+    // сборщик этого не умеет (он отдал бы «было → стало» строгих полей открытым)
+    for (const side of ['user', 'workspace'] as const) {
+      this.exportsRegistry.register('ChatterEntry', side, {
+        page: (ctx: LifecycleExportContext, cursor, limit) =>
+          this.chatter.exportPage({ side: ctx.side, subjectId: ctx.subjectId, viewerId: ctx.requesterId, locale: ctx.locale, cursor, limit }),
+        verify: (ctx: LifecycleExportContext, rows) => this.chatter.exportOwned(ctx.side, ctx.subjectId, rows.map((r) => String(r.id))),
+      });
+    }
   }
 
   /**

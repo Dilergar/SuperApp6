@@ -278,7 +278,8 @@
     },
     "lifecycle_settings": {
       "retention_changed": "{actorName} изменил(а) срок хранения «{classLabel}»: {fromDays, plural, =0 {вечно} one {# день} few {# дня} many {# дней} other {# дня}} → {toDays, plural, =0 {вечно} one {# день} few {# дня} many {# дней} other {# дня}}{shortened, select, true { (с {effectiveOn})} other {}}",
-      "retention_cancelled": "{actorName} отменил(а) сокращение срока «{classLabel}»: остаётся {toDays, plural, =0 {вечно} one {# день} few {# дня} many {# дней} other {# дня}}"
+      "retention_cancelled": "{actorName} отменил(а) сокращение срока «{classLabel}»: остаётся {toDays, plural, =0 {вечно} one {# день} few {# дня} many {# дней} other {# дня}}",
+      "export_requested": "{actorName}: запрошен архив всех данных организации"
     },
     "chat": {
       "timer_set": "{actorName} включил(а) автоудаление: сообщения исчезают через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",

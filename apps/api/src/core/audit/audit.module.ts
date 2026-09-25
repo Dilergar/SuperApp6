@@ -30,6 +30,7 @@ import { AuditExportService } from './audit.export';
 import { AuditStreamService } from './audit.stream';
 import { KeysFieldRegistry } from '../keys/keys.registry';
 import { AUDIT_EVENT_ENTITY } from './audit.constants';
+import { AuditLifecycleExportProvider } from './audit.lifecycle-export.provider';
 
 /**
  * core/audit — 26-й платформенный движок: журнал аудита безопасности. ЕДИНЫЙ поток событий
@@ -50,6 +51,7 @@ import { AUDIT_EVENT_ENTITY } from './audit.constants';
     ? [AuditMeController, AuditWorkspaceController, AuditPlatformController, AuditDevController]
     : [AuditMeController, AuditWorkspaceController, AuditPlatformController],
   providers: [
+    AuditLifecycleExportProvider,
     AuditService,
     { provide: DI_TOKENS.AuditService, useExisting: AuditService },
     AuditQueryService,

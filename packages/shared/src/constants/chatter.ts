@@ -719,6 +719,8 @@ export const CHATTER_REGISTRY = {
   // ---- Сроки хранения организации (core/lifecycle; refType='lifecycle_settings', refId = организация) ----
   'lifecycle_settings.retention_changed': { icon: '🗄️', category: 'lifecycle', chatPost: false },
   'lifecycle_settings.retention_cancelled': { icon: '↩️', category: 'lifecycle', chatPost: false },
+  // Выгрузка данных организации заказана владельцем (архив целиком — событие для команды)
+  'lifecycle_settings.export_requested': { icon: '📦', category: 'lifecycle', chatPost: false },
 } as const satisfies Record<string, ChatterTypeMeta>;
 
 export type ChatterTypeKey = keyof typeof CHATTER_REGISTRY;

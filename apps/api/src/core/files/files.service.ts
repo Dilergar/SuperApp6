@@ -1285,7 +1285,11 @@ export class FilesService implements OnModuleInit {
       }
     }
     const remaining = await this.db.fileLink.count({ where: { fileId } });
-    if (remaining === 0) await this.systemSoftDelete(fileId).catch(() => undefined);
+    // Сбой уборки не валит удаление места: осиротевший файл доберёт ночной `sweepOrphanReady` —
+    // но сбой обязан быть виден (молчаливый catch прятал утечку квоты)
+    if (remaining === 0) {
+      await this.systemSoftDelete(fileId).catch((err: unknown) => this.logger.warn(`orphan reap of ${fileId} failed (the nightly sweep retries): ${err instanceof Error ? err.message : String(err)}`));
+    }
   }
 
   // ============================================================

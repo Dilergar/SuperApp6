@@ -74,6 +74,9 @@ export const lifecycleHoldsKey = (wsId: string) => ['workspaces', wsId, 'lifecyc
 export const lifecycleHoldStatusKey = (wsId: string, type: string, id: string) => ['workspaces', wsId, 'lifecycle', 'holdStatus', type, id] as const;
 /** Корень раздела — мутация сроков или заморозки инвалидирует его целиком */
 export const lifecycleRootKey = (wsId: string) => ['workspaces', wsId, 'lifecycle'] as const;
+/** Выгрузки данных целиком (core/lifecycle Э6): мои — под `lifecycle`, организации — под её корнем */
+export const myExportsKey = ['lifecycle', 'exports', 'mine'] as const;
+export const workspaceExportsKey = (wsId: string) => ['workspaces', wsId, 'lifecycle', 'exports'] as const;
 /** Корень личных согласий: приёмка/отзыв инвалидируют его целиком (pending, state, history, receipt) */
 export const consentsMineRootKey = ['consents', 'mine'] as const;
 export const consentsPendingKey = ['consents', 'mine', 'pending'] as const;

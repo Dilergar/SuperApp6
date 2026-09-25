@@ -76,16 +76,22 @@ function receiptCode(): string {
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
 
 /**
- * Объекты выгрузки: части из `parts` (только под её собственным префиксом — чужой ключ в JSON
- * строки не удаляется никогда) и манифест.
+ * Объекты выгрузки: части из `parts`, манифест и промежуточные куски сборки из `progress`
+ * (упавшая или прерванная сборка не оставляет байтов) — только под её собственным префиксом:
+ * чужой ключ в JSON строки не удаляется никогда.
  */
-export function exportObjectKeys(exportId: string, parts: unknown): string[] {
+export function exportObjectKeys(exportId: string, parts: unknown, progress?: unknown): string[] {
   const prefix = `${LIFECYCLE_EXPORT_PREFIX}${exportId}/`;
   const keys = new Set<string>([`${prefix}manifest.json`]);
+  const own = (k: unknown): k is string => typeof k === 'string' && k.startsWith(prefix) && !k.includes('..');
   if (Array.isArray(parts)) {
-    for (const p of parts as Array<Partial<LifecycleExportPart>>) {
-      if (p && typeof p.key === 'string' && p.key.startsWith(prefix) && !p.key.includes('..')) keys.add(p.key);
-    }
+    for (const p of parts as Array<Partial<LifecycleExportPart>>) if (p && own(p.key)) keys.add(p.key);
+  }
+  if (progress && typeof progress === 'object' && !Array.isArray(progress)) {
+    const pr = progress as { staged?: unknown; built?: unknown; fileManifests?: unknown };
+    if (Array.isArray(pr.staged)) for (const st of pr.staged as Array<{ key?: unknown }>) if (st && own(st.key)) keys.add(st.key);
+    if (Array.isArray(pr.built)) for (const b of pr.built as Array<{ key?: unknown }>) if (b && own(b.key)) keys.add(b.key);
+    if (Array.isArray(pr.fileManifests)) for (const k of pr.fileManifests as unknown[]) if (own(k)) keys.add(k);
   }
   return [...keys];
 }
@@ -368,6 +374,63 @@ export class LifecycleErasureService implements OnModuleInit {
     await this.runs.finish(runId, 'done', { report: { done: [...done], stepRows } });
     await this.markHotPurged(r, stepRows, orgs);
     return 'done';
+  }
+
+  /**
+   * Реплей стирания человека после восстановления арендатора (core/lifecycle Э6): строки,
+   * вернувшиеся из бэкапа, стираются так же, как стёрлись живые. Живая заявка (исполняется или
+   * уже прошла горячую фазу) — шаги плана проходят заново по ней, статус не меняется (шаги
+   * идемпотентны; корень пропускается — строку аккаунта восстановление организации не
+   * возвращает); запланированная — исполнится в срок целиком; завершённая — новая заявка.
+   * Удерживаемое заморозкой остаётся — как у обычного стирания.
+   */
+  async replayUser(userId: string): Promise<'replayed' | 'requested' | 'none'> {
+    const live = await this.db.lifecycleErasureRequest.findFirst({
+      where: { subjectType: 'user', subjectId: userId, status: { notIn: TERMINAL } },
+      orderBy: { requestedAt: 'desc' },
+    });
+    if (live) {
+      if (live.status === 'scheduled') return 'none';
+      const subjectHeld = await this.holds.custodianHeld(userId);
+      const ctx: LifecycleSubjectEraseContext = {
+        requestId: live.id,
+        runId: live.id,
+        deadline: null,
+        deletedLabel: DELETED_USER_MARKER,
+        options: { eraseMessages: (live.options as { eraseMessages?: boolean } | null)?.eraseMessages === true },
+        subjectHeld,
+        releasable: (tx, policyId, ids) => {
+          const policy = lifecyclePolicy(policyId);
+          if (!policy) throw new Error(`erasure: unknown policy ${policyId}`);
+          return releasableIds(tx, policy, ids);
+        },
+        held: () => undefined,
+      };
+      let rows = 0;
+      for (const step of lifecycleSubjectErasurePlan()) {
+        if (step.key === LIFECYCLE_SUBJECT_ROOT_HOOK) continue;
+        if (await this.holds.platformHeld(userId, step.kind === 'hook' ? step.covers : [step.policy])) continue;
+        if (step.kind === 'hook') {
+          const hook = this.subjectHooks.get(step.key);
+          if (!hook) throw new Error(`subject erasure hook "${step.key}" is not registered — replay stops here`);
+          const res = await hook.erase(userId, ctx);
+          rows += res && typeof res.rows === 'number' ? res.rows : 0;
+        } else {
+          rows += (await this.generic(step, userId, null, DELETED_USER_MARKER, ctx)).rows;
+        }
+      }
+      await this.db.$transaction((tx) => this.journal(tx, live, 'replayed', { rows }));
+      return 'replayed';
+    }
+    const last = await this.db.lifecycleErasureRequest.findFirst({
+      where: { subjectType: 'user', subjectId: userId, status: 'completed' },
+      orderBy: { requestedAt: 'desc' },
+      select: { options: true },
+    });
+    if (!last) return 'none';
+    const eraseMessages = (last.options as { eraseMessages?: boolean } | null)?.eraseMessages === true;
+    await this.db.$transaction((tx) => this.request(tx, { subject: { type: 'user', id: userId }, effectiveAt: new Date(), options: { eraseMessages } }));
+    return 'requested';
   }
 
   /** Общий шаг: строки политики по колонкам `by` пачками под общим замком заморозок. */
@@ -784,10 +847,10 @@ export class LifecycleErasureService implements OnModuleInit {
   async deleteExports(where: Prisma.LifecycleExportWhereInput): Promise<{ rows: number }> {
     let rows = 0;
     for (;;) {
-      const batch = await this.db.lifecycleExport.findMany({ where, select: { id: true, parts: true }, orderBy: { id: 'asc' }, take: 100 });
+      const batch = await this.db.lifecycleExport.findMany({ where, select: { id: true, parts: true, progress: true }, orderBy: { id: 'asc' }, take: 100 });
       if (!batch.length) return { rows };
       for (const e of batch) {
-        for (const key of exportObjectKeys(e.id, e.parts)) await this.storage.delete(key);
+        for (const key of exportObjectKeys(e.id, e.parts, e.progress)) await this.storage.delete(key);
       }
       const { count } = await this.db.lifecycleExport.deleteMany({ where: { id: { in: batch.map((e) => e.id) } } });
       rows += count;

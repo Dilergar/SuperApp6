@@ -28,4 +28,24 @@ export const LIFECYCLE_ANALYTICS_EVENTS = defineAnalyticsEvents({
     version: 1,
     status: 'live',
   },
+  /** Заказана выгрузка данных целиком: человек — своих, владелец — организации (факт сервера) */
+  'lifecycle.export.requested': {
+    service: 'lifecycle',
+    source: 'server',
+    class: 'business',
+    qualifying: true,
+    props: z.object({ subjectType: propCode(16) }).strict(),
+    version: 1,
+    status: 'live',
+  },
+  /** Выдана ссылка на часть готовой выгрузки (факт сервера): номер скачивания части */
+  'lifecycle.export.downloaded': {
+    service: 'lifecycle',
+    source: 'server',
+    class: 'business',
+    qualifying: false,
+    props: z.object({ subjectType: propCode(16), download: propCount() }).strict(),
+    version: 1,
+    status: 'live',
+  },
 });

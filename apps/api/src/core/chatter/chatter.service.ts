@@ -21,6 +21,7 @@ import {
   JournalQueryInput,
   chatterTypeKeysOf,
   lifecyclePolicy,
+  type Locale,
 } from '@superapp/shared';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -550,6 +551,52 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     const cutoff = await this.lifecycleSettings.readCutoff(lifecyclePolicy('ChatterEntry')!, workspaceId);
     if (cutoff) where.createdAt = { gte: cutoff };
     return this.page(where, q.cursor, q.limit, viewerId);
+  }
+
+  // ============================================================
+  // Выгрузка (core/lifecycle Э6)
+  // ============================================================
+
+  /**
+   * Страница хроники для архива: человек — его собственные действия вне организаций (личные
+   * задачи, события, заметки), организация — её журнал в действующем сроке. «Было → стало» под
+   * правилами видимости — глазами заказчика (маска так и уходит маской), текст — в его языке;
+   * payload с id людей не уходит (смысл несёт текст). Keyset по id записи.
+   */
+  async exportPage(q: { side: 'user' | 'workspace'; subjectId: string; viewerId: string; locale: Locale; cursor: string | null; limit: number }): Promise<{ rows: Record<string, unknown>[]; next: string | null }> {
+    const where: Prisma.ChatterEntryWhereInput = q.side === 'user' ? { workspaceId: null, actorId: q.subjectId } : { workspaceId: q.subjectId };
+    if (q.side === 'workspace') {
+      const cutoff = await this.lifecycleSettings.readCutoff(lifecyclePolicy('ChatterEntry')!, q.subjectId);
+      if (cutoff) where.createdAt = { gte: cutoff };
+    }
+    const rows = await this.db.chatterEntry.findMany({
+      where: { ...where, ...(q.cursor ? { id: { gt: BigInt(q.cursor) } } : {}) },
+      orderBy: { id: 'asc' },
+      take: q.limit,
+    });
+    const masked = await this.maskForViewer(q.viewerId, rows);
+    const dtos = this.i18n.withLocale(q.locale, () => rows.map((r, i) => this.toDto(r, masked[i])));
+    return {
+      rows: dtos.map((d) => ({
+        id: d.id,
+        refType: d.refType,
+        refId: d.refId,
+        typeKey: d.typeKey,
+        text: d.text,
+        actorId: d.actorId,
+        actorName: d.actorName,
+        changes: d.changes?.map(({ raw: _raw, ...c }) => c) ?? null,
+        createdAt: d.createdAt,
+      })),
+      next: rows.length === q.limit && rows.length ? rows[rows.length - 1]!.id.toString() : null,
+    };
+  }
+
+  /** Перепроверка владельца страницы выгрузки (независимо от выборки): все записи — стороны. */
+  async exportOwned(side: 'user' | 'workspace', subjectId: string, ids: readonly string[]): Promise<boolean> {
+    if (!ids.length) return true;
+    const rows = await this.db.chatterEntry.findMany({ where: { id: { in: ids.map((id) => BigInt(id)) } }, select: { workspaceId: true, actorId: true } });
+    return rows.length === ids.length && rows.every((r) => (side === 'user' ? r.workspaceId === null && r.actorId === subjectId : r.workspaceId === subjectId));
   }
 
   // ============================================================

@@ -10,6 +10,8 @@ import { KeysStoreService } from '../keys/keys.store.service';
 import { userScope, workspaceScope } from '../keys/keys.constants';
 import { LifecycleCanaryBusyError, LifecycleCanaryService } from './lifecycle.canary';
 import { LifecycleErasureService } from './lifecycle.erasure.service';
+import { LifecycleExportService } from './lifecycle.export.service';
+import { LifecycleRestoreService } from './lifecycle.restore.service';
 import { LifecycleHealth } from './lifecycle.health';
 import { LifecycleHoldsService } from './lifecycle.holds.service';
 import { LifecycleLooseFk } from './lifecycle.loose-fk';
@@ -19,6 +21,7 @@ import { LifecycleRuns } from './lifecycle.runs';
 import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
 
 const erasureRunSchema = z.object({ requestId: z.string().uuid(), now: z.boolean().optional() }).strict();
+const devExportSchema = z.object({ injectForeign: z.boolean().optional(), workspaceId: z.string().uuid().optional() }).strict();
 const purgeRunSchema = z.object({ policyId: z.string().min(1).max(96), dryRun: z.boolean().optional(), force: z.boolean().optional() }).strict();
 const purgeScheduleSchema = purgeRunSchema.extend({ anytime: z.boolean().optional() }).strict();
 const healthOverrideSchema = z
@@ -55,10 +58,42 @@ export class LifecycleDevController {
     private readonly keysStore: KeysStoreService,
     private readonly db: DatabaseService,
     private readonly canary: LifecycleCanaryService,
+    private readonly exports: LifecycleExportService,
+    private readonly restore: LifecycleRestoreService,
   ) {}
 
   private assertDev(): void {
     if (!isDevEnv()) throw notFound('dev.developmentOnly');
+  }
+
+  // ---- Выгрузки и восстановление (Э6) ----
+
+  @Post('exports')
+  @ApiOperation({ summary: '[dev] Order an export without the SMS window and the daily limit; injectForeign plants a foreign row' })
+  async devExport(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    this.assertDev();
+    const input = devExportSchema.parse(body ?? {});
+    return { success: true, data: await this.exports.requestDev(user.sub, input) };
+  }
+
+  @Post('exports/:id/run')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Build an export now (passes in a row instead of job snoozes)' })
+  async devExportRun(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    this.assertDev();
+    if (!isUuid(id)) throw notFound('db.notFound');
+    const dto = await this.exports.runNow(id, user.sub);
+    if (!dto) throw notFound('lifecycle.exportNotFound');
+    return { success: true, data: dto };
+  }
+
+  @Post('restores/:runId/run')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Run a tenant restore import now' })
+  async devRestoreRun(@Param('runId') runId: string) {
+    this.assertDev();
+    if (!isUuid(runId)) throw notFound('db.notFound');
+    return { success: true, data: await this.restore.runNow(runId) };
   }
 
   @Get('partitions')

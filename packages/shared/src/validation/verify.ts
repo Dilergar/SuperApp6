@@ -32,7 +32,7 @@ export const verifyStartSchema = z.object({
  */
 export const verifyStepUpSchema = z
   .object({
-    purpose: z.enum(['password_change', 'phone_change_old', 'phone_change_new', 'keys_manage', 'account_delete', 'security_confirm', 'visibility_reveal', 'visibility_manage']),
+    purpose: z.enum(['password_change', 'phone_change_old', 'phone_change_new', 'keys_manage', 'account_delete', 'security_confirm', 'visibility_reveal', 'visibility_manage', 'data_export']),
     password: z.string().min(1, 'validation.verify.passwordRequired'),
     newPhone: kzMobilePhoneSchema.optional(),
   })

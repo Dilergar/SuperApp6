@@ -12,18 +12,19 @@ import { useRequireAuth } from '@/lib/hooks/useRequireAuth';
 import { useBytes, useFormatters } from '@/lib/format';
 import { chronicleKey, fetchChronicle, lifecycleSettingsKey, lifecycleSummaryKey, workspaceKey, workspaceMembersKey } from '@/lib/queries';
 import { fetchLifecycleSettings, fetchLifecycleSummary } from '@/lib/lifecycle-api';
+import { DataExports } from './DataExports';
 import { RetentionClassCard } from './RetentionClassCard';
 import { WorkspaceHolds } from './WorkspaceHolds';
 import { useDurationLabel } from './duration';
 
-export type WorkspaceDataTab = 'retention' | 'holds' | 'history';
-export const WORKSPACE_DATA_TABS: readonly WorkspaceDataTab[] = ['retention', 'holds', 'history'];
+export type WorkspaceDataTab = 'retention' | 'holds' | 'exports' | 'history';
+export const WORKSPACE_DATA_TABS: readonly WorkspaceDataTab[] = ['retention', 'holds', 'exports', 'history'];
 
 /**
  * «Данные и сроки хранения» организации (core/lifecycle Э5, план §11.2) — владелец и админ.
  * Четыре плитки сводки, разделы по URL: сроки хранения (пресеты, последствия до действия,
- * отложенное сокращение), заморозки, история изменений. Экспорт данных — отдельный раздел
- * после движка экспорта (здесь его нет: UI несуществующих фич не показываем).
+ * отложенное сокращение), заморозки, выгрузки (архив данных организации — заказывает
+ * владелец, видят владелец и админы), история изменений.
  */
 export function WorkspaceDataPage({ workspaceId, tab }: { workspaceId: string; tab: WorkspaceDataTab }) {
   const t = useTranslations('lifecycle');
@@ -59,6 +60,7 @@ export function WorkspaceDataPage({ workspaceId, tab }: { workspaceId: string; t
   const tabs: TabItem<WorkspaceDataTab>[] = [
     { key: 'retention', label: t('data.tabs.retention'), icon: 'archive' },
     { key: 'holds', label: t('data.tabs.holds'), icon: 'lock', count: summaryQ.data?.activeHolds || undefined },
+    { key: 'exports', label: t('data.tabs.exports'), icon: 'download' },
     { key: 'history', label: t('data.tabs.history'), icon: 'history' },
   ];
 
@@ -139,6 +141,12 @@ export function WorkspaceDataPage({ workspaceId, tab }: { workspaceId: string; t
       {tab === 'holds' && (
         <BentoGrid>
           <WorkspaceHolds workspaceId={workspaceId} member={member} />
+        </BentoGrid>
+      )}
+
+      {tab === 'exports' && (
+        <BentoGrid>
+          <DataExports scope={{ kind: 'workspace', workspaceId, isOwner: wsQ.data?.myRole === 'owner', member }} />
         </BentoGrid>
       )}
 

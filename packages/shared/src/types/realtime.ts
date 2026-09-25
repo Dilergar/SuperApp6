@@ -6,6 +6,7 @@
 
 import type { MessengerClientToServerEvents, MessengerServerToClientEvents } from './messenger';
 import type { WsSecurityChanged } from './audit';
+import type { WsLifecycleExportUpdated } from '../validation/lifecycle-export';
 
 /** Новая строка ленты у адресата (relay события шины `notifications.created`). */
 export interface WsNotificationNew {
@@ -79,12 +80,21 @@ export interface VisibilityChangedBusPayload extends WsVisibilityChanged {
   userIds: string[];
 }
 
+/**
+ * `lifecycle:export.updated` — выгрузка данных собрана или упала (core/lifecycle Э6): заказчику.
+ * Страница выгрузок перечитывает список; ссылок и содержимого событие не несёт.
+ */
+export interface LifecycleServerToClientEvents {
+  'lifecycle:export.updated': (p: WsLifecycleExportUpdated) => void;
+}
+
 export type RealtimeServerToClientEvents = MessengerServerToClientEvents &
   NotificationServerToClientEvents &
   EntitlementsServerToClientEvents &
   KeysServerToClientEvents &
   SecurityServerToClientEvents &
-  VisibilityServerToClientEvents;
+  VisibilityServerToClientEvents &
+  LifecycleServerToClientEvents;
 
 /** Payload шины `entitlements.changed` (движок → relay для user; workspaces подписывается для организации). */
 export interface EntitlementsChangedBusPayload {

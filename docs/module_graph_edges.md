@@ -8,7 +8,7 @@
 | `core/analytics` | `core/entitlements`, `core/jobs`, `core/lifecycle`, `core/platform`, `core/roles` |
 | `core/approvals` | `core/access`, `core/audiences`, `core/jobs`, `core/lifecycle`, `core/notifications`, `core/rich-cards` |
 | `core/audiences` | `core/access` |
-| `core/audit` | `core/analytics`, `core/consents`, `core/entitlements`, `core/files`, `core/jobs`, `core/keys`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify`, `core/webhooks` |
+| `core/audit` | `core/analytics`, `core/consents`, `core/entitlements`, `core/files`, `core/jobs`, `core/keys`, `core/lifecycle`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify`, `core/webhooks` |
 | `core/auth` | `core/analytics`, `core/audit`, `core/consents`, `core/entitlements`, `core/jobs`, `core/keys`, `core/notifications`, `core/users`, `core/verify` |
 | `core/calls` | `core/files`, `core/idempotency`, `core/jobs`, `core/lifecycle`, `core/notifications` |
 | `core/chatter` | `core/jobs`, `core/lifecycle` |
@@ -18,7 +18,7 @@
 | `core/files` | `core/audit`, `core/entitlements`, `core/jobs`, `core/keys`, `core/lifecycle` |
 | `core/idempotency` | `core/keys`, `core/lifecycle`, `core/platform` |
 | `core/keys` | `core/analytics`, `core/audiences`, `core/audit`, `core/entitlements`, `core/jobs`, `core/lifecycle`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify` |
-| `core/lifecycle` | `core/analytics`, `core/audiences`, `core/audit`, `core/chatter`, `core/entitlements`, `core/files`, `core/jobs`, `core/keys`, `core/notifications`, `core/platform`, `core/roles`, `core/webhooks` |
+| `core/lifecycle` | `core/analytics`, `core/audiences`, `core/audit`, `core/chatter`, `core/entitlements`, `core/files`, `core/jobs`, `core/keys`, `core/notifications`, `core/platform`, `core/realtime`, `core/rich-cards`, `core/roles`, `core/verify`, `core/visibility`, `core/webhooks` |
 | `core/notifications` | `core/analytics`, `core/audiences`, `core/consents`, `core/entitlements`, `core/jobs`, `core/lifecycle`, `core/realtime`, `core/roles`, `core/verify` |
 | `core/platform` | `core/approvals`, `core/audiences`, `core/audit`, `core/keys`, `core/notifications`, `core/verify` |
 | `core/quick-actions` | `core/access` |

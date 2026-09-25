@@ -116,6 +116,10 @@ const envSchema = z
     METRICS_TOKEN: blank(z.string().min(16, 'at least 16 characters').optional()),
     // Отчёты бэкапов и учений восстановления (core/lifecycle): Bearer + ключ HMAC тела; пусто — в production 404
     LIFECYCLE_OPS_TOKEN: blank(z.string().min(32, 'at least 32 characters').optional()),
+    // Источник восстановления арендатора (core/lifecycle): кластер, поднятый из бэкапа на точку
+    // времени (PITR), роль только на чтение. Пусто — в production команды восстановления
+    // отказывают, в development источником служит основная база (сьют).
+    LIFECYCLE_RESTORE_SOURCE_URL: blank(z.string().min(1).optional()),
     // Заделы под pkcs11 (читаются провайдером при KEYS_PROVIDER=pkcs11).
     KEYS_PKCS11_MODULE: blank(z.string().min(1).optional()),
     KEYS_PKCS11_SLOT: blank(z.coerce.number().int().min(0).optional()),

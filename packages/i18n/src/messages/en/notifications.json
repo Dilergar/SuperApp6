@@ -999,6 +999,18 @@
         "body": "The organization archived on {requestedOn} is erased from all systems, and the certificate is signed. Check it with the receipt code.",
         "label": "Erasure completed"
       }
+    },
+    "export": {
+      "ready": {
+        "title": "{subjectType, select, workspace {The organization data archive is ready} other {Your data archive is ready}}",
+        "body": "{size}, {parts, plural, one {# part} other {# parts}} — download it before {expiresOn}. Each download asks for an SMS code.",
+        "label": "Data archive ready"
+      },
+      "failed": {
+        "title": "{subjectType, select, workspace {The organization data archive could not be built} other {Your data archive could not be built}}",
+        "body": "{reasonLabel}. You can request a new archive.",
+        "label": "Data archive failed"
+      }
     }
   }
 }

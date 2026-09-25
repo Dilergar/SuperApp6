@@ -16,6 +16,7 @@ import { DocsSystemListener } from './docs-system.listener';
 import { ChatCallsListener } from './chat-calls.listener';
 import { DriveModule } from '../drive/drive.module';
 import { MessengerLifecycleProvider } from './messenger.lifecycle.provider';
+import { MessengerExportProvider } from './messenger.export.provider';
 import { MessengerRetentionService } from './messenger-retention.service';
 
 @Module({
@@ -31,6 +32,7 @@ import { MessengerRetentionService } from './messenger-retention.service';
   controllers: [MessengerController],
   providers: [
     MessengerLifecycleProvider,
+    MessengerExportProvider,
     MessengerService,
     MessengerRetentionService,
     MentionsService,

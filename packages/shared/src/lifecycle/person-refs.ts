@@ -163,3 +163,18 @@ export function redactPersonRefs(payload: unknown, changes: unknown, userId: str
   }
   return { payload: nextPayload, changes: nextChanges, changed };
 }
+
+/**
+ * Копия JSON без id людей (ключи `MESSAGE_PERSON_ID_KEYS` на любой глубине): чужая системная
+ * плашка в архиве человека несёт имена, но не идентификаторы других людей.
+ */
+export function withoutPersonIds(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutPersonIds);
+  if (!value || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if ((MESSAGE_PERSON_ID_KEYS as readonly string[]).includes(k)) continue;
+    out[k] = withoutPersonIds(v);
+  }
+  return out;
+}

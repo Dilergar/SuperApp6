@@ -29,6 +29,7 @@ import type {
   SecurityPartitionDto,
   SecurityPartitionManifestDto,
   LifecycleDataBackupsDto,
+  LifecycleDataRestoresDto,
   LifecycleDataCanaryDto,
   LifecycleDataErasureDto,
   LifecycleDataOverviewDto,
@@ -66,6 +67,7 @@ export const fetchPlatformDataStorage = () => platformGet<LifecycleDataStorageDt
 export const fetchPlatformDataRetention = () => platformGet<LifecycleDataRetentionDto>('/platform/data/retention');
 export const fetchPlatformDataErasure = () => platformGet<LifecycleDataErasureDto>('/platform/data/erasure');
 export const fetchPlatformDataBackups = () => platformGet<LifecycleDataBackupsDto>('/platform/data/backups');
+export const fetchPlatformDataRestores = () => platformGet<LifecycleDataRestoresDto>('/platform/data/restores');
 export const fetchPlatformDataCanary = () => platformGet<LifecycleDataCanaryDto>('/platform/data/canary');
 
 export const fetchPlatformCommands = () => platformGet<PlatformCommandDto[]>('/platform/commands');

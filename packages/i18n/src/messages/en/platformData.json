@@ -222,5 +222,32 @@
     "tenant": "organization rows left",
     "seed": "seed failed",
     "error": "run failed"
+  },
+  "restores": {
+    "title": "Organization restore",
+    "description": "Extract one organization from a cluster restored to a point in time into a signed archive, then return its rows: ids are kept, existing rows are left as they are, people erased after the snapshot are erased again. Both steps go through a second staff member.",
+    "noSource": "The restore source is not configured (LIFECYCLE_RESTORE_SOURCE_URL): bring up a cluster from a backup to a point in time first — see the runbook.",
+    "extract": "Extract an organization",
+    "import": "Restore",
+    "empty": "No restore archives",
+    "workspace": "Organization",
+    "snapshot": "Point in time",
+    "rows": "Rows",
+    "status": "Archive",
+    "imports": "Imports",
+    "archiveStatus": {
+      "queued": "Queued",
+      "running": "Extracting",
+      "ready": "Signed",
+      "failed": "Failed",
+      "expired": "Expired"
+    },
+    "runStatus": {
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed"
+    },
+    "importSummary": "+{inserted} · already present {skipped} · rejected {failed} · erasures replayed {replayed}",
+    "missingBlobs": "{count, plural, one {# file without bytes} other {# files without bytes}}"
   }
 }

@@ -115,6 +115,27 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
       .strict(),
     ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.update },
   },
+  /**
+   * Платформа вернула организации строки из архива восстановления (после PITR): сколько таблиц,
+   * сколько строк вставлено, пропущено (уже были) и отвергнуто базой, сколько стираний людей
+   * исполнено заново. Организация видит факт в своём журнале.
+   */
+  'lifecycle.restore.imported': {
+    category: 'lifecycle',
+    status: 'live',
+    severity: 'high',
+    visibility: AUDIT_VIS.workspace,
+    details: z
+      .object({
+        tables: detailCount(),
+        inserted: detailCount(),
+        skipped: detailCount(),
+        failed: detailCount(),
+        erasuresReplayed: detailCount(),
+      })
+      .strict(),
+    ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.create },
+  },
   /** Ночная канарейка нашла след стёртого синтетического субъекта — стирание где-то протекает */
   'lifecycle.canary.failed': {
     category: 'lifecycle',

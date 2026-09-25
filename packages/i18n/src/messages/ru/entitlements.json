@@ -35,7 +35,9 @@
     "lifecycleHolds": "Заморозки данных",
     "lifecycleRetentionMessages": "Максимальный срок хранения сообщений, дней",
     "lifecycleRetentionRecords": "Максимальный срок хранения хроники записей, дней",
-    "lifecycleRetentionIntegrations": "Максимальный срок хранения журнала доставок вебхуков, дней"
+    "lifecycleRetentionIntegrations": "Максимальный срок хранения журнала доставок вебхуков, дней",
+    "lifecycleExport": "Выгрузка данных организации",
+    "lifecycleExportBytesPerDay": "Объём выгрузки данных организации в сутки"
   },
   "lock": {
     "quotaFull": "Место на Диске закончилось",

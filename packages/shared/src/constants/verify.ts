@@ -58,6 +58,9 @@ export const VERIFY_PURPOSES = [
   // Управление правилами видимости организации (core/visibility): публикация, ОСЛАБЛЯЮЩАЯ
   // строгие поля, и выдача делегирования раскрытия — пароль + код, окно 15 минут.
   'visibility_manage',
+  // Выгрузка данных целиком (core/lifecycle): заказ архива человека или организации и выдача
+  // ссылки на скачивание — пароль + код, окно 15 минут. Угнанная сессия без SIM архив не унесёт.
+  'data_export',
 ] as const;
 
 export type VerifyPurpose = (typeof VERIFY_PURPOSES)[number];
@@ -67,12 +70,13 @@ export type VerifyPurpose = (typeof VERIFY_PURPOSES)[number];
  * Одна служба окна на платформу (`core/verify/step-up.service.ts`): сюда позже встанут
  * passkeys/ЭЦП, потребители зовут только `assert(userId, purpose)`.
  */
-export const STEP_UP_WINDOW_PURPOSES = ['keys_manage', 'visibility_reveal', 'visibility_manage'] as const;
+export const STEP_UP_WINDOW_PURPOSES = ['keys_manage', 'visibility_reveal', 'visibility_manage', 'data_export'] as const;
 export type StepUpWindowPurpose = (typeof STEP_UP_WINDOW_PURPOSES)[number];
 export const STEP_UP_WINDOW_MINUTES: Record<StepUpWindowPurpose, number> = {
   keys_manage: 15,
   visibility_reveal: 15,
   visibility_manage: 15,
+  data_export: 15,
 };
 /** Ключ Redis окна: цель в ключе — окно одной цели не открывает другую. */
 export const stepUpWindowKey = (purpose: StepUpWindowPurpose, userId: string): string => `verify:stepup:${purpose}:${userId}`;
@@ -81,6 +85,7 @@ export const STEP_UP_REQUIRED_CODES: Record<StepUpWindowPurpose, string> = {
   keys_manage: 'keys.step_up_required',
   visibility_reveal: 'visibility.step_up_required',
   visibility_manage: 'visibility.step_up_required',
+  data_export: 'lifecycle.step_up_required',
 };
 
 export const VERIFY_LIMITS = {

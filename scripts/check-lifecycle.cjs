@@ -101,7 +101,7 @@ const IDS = reg.LIFECYCLE_POLICY_IDS;
 for (const p of reg.lifecycleRegistryProblems()) err(`реестр: ${p}`);
 
 // ---------- 1b. поля политики — только известные (опечатка `retentionDays` = молчаливое «хранить») ----------
-const POLICY_KEYS = new Set(['id', 'store', 'owner', 'version', 'dataClass', 'ownerKey', 'subjects', 'legalBasis', 'retention', 'onSubjectErasure', 'onTenantPurge', 'edges', 'tiers', 'enforcement', 'extraRules', 'holdAware', 'proofEvent', 'pause', 'rootEntity', 'exportable', 'personIds']);
+const POLICY_KEYS = new Set(['id', 'store', 'owner', 'version', 'dataClass', 'ownerKey', 'subjects', 'legalBasis', 'retention', 'onSubjectErasure', 'onTenantPurge', 'edges', 'tiers', 'enforcement', 'extraRules', 'holdAware', 'proofEvent', 'pause', 'rootEntity', 'exportable', 'exportScope', 'exportGuard', 'personIds']);
 const RETENTION_KEYS = new Set(['trigger', 'floorDays', 'defaultDays', 'ceilingDays', 'tenantConfigurable', 'userConfigurable', 'entitlementKey']);
 for (const id of IDS) {
   const p = POLICIES[id];
@@ -310,6 +310,18 @@ function colsOfPolicy(p) {
   const se = p.onSubjectErasure;
   if (se.kind === 'pseudonymize' || se.kind === 'redact') for (const c of se.fields) out.push([`onSubjectErasure.${se.kind}`, c]);
   if (p.onTenantPurge.kind === 'batched_delete') out.push(['onTenantPurge.column', p.onTenantPurge.column]);
+  // Выгрузка: колонки области стороны и поля под правилами видимости (`колонка.ключ` — JSON)
+  for (const side of ['user', 'workspace']) {
+    const sc = p.exportScope?.[side];
+    if (!sc) continue;
+    for (const c of sc.columns ?? []) out.push([`exportScope.${side}.columns`, c]);
+    for (const c of sc.via?.columns ?? []) out.push([`exportScope.${side}.via`, c]);
+    for (const c of Object.keys(sc.filter ?? {})) out.push([`exportScope.${side}.filter`, c]);
+  }
+  for (const g of p.exportGuard ?? []) {
+    for (const path of Object.keys(g.fields)) out.push([`exportGuard.${g.type}`, path.split('.')[0]]);
+    for (const k of ['subject', 'branch', 'stage']) if (g[k]) out.push([`exportGuard.${g.type}.${k}`, g[k]]);
+  }
   return out;
 }
 const pendingSoft = (id, col) => PENDING.softDelete[id] && ['deletedAt', 'trashedAt', 'hiddenAt'].includes(col);
@@ -321,6 +333,13 @@ for (const id of IDS) {
     for (const [where, col] of colsOfPolicy(p)) {
       if (col === 'key' || pendingSoft(id, col)) continue;
       if (!hasCol(model, col)) err(`${id}: ${where} = "${col}" — такого поля нет в модели`);
+    }
+    // Путь внутрь JSON (`params.salaryAmount`) — только у колонки Json
+    for (const g of p.exportGuard ?? []) {
+      for (const path of Object.keys(g.fields)) {
+        const [col, key] = path.split('.');
+        if (key !== undefined && hasCol(model, col) && model.fields.get(col).type !== 'Json') err(`${id}: exportGuard "${path}" — путь внутрь значения только у колонки Json (у "${col}" тип ${model.fields.get(col).type})`);
+      }
     }
     for (const e of p.edges) {
       if (!e.via) continue;

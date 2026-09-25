@@ -14,6 +14,7 @@ import {
   type LifecycleRetentionDryRunInput,
   type LifecycleRetentionOverrideInput,
   type LifecycleRetentionPauseInput,
+  type PlatformLifecycleExportLineDto,
   type PlatformUserLifecyclePanelDto,
   type PlatformWorkspaceLifecyclePanelDto,
   lifecyclePlatformHoldCreateSchema,
@@ -22,6 +23,10 @@ import {
   type LifecyclePlatformHoldCreateInput,
   type LifecyclePlatformHoldReleaseInput,
   type LifecycleWorkspacePurgeInput,
+  lifecycleRestoreExtractSchema,
+  lifecycleRestoreImportSchema,
+  type LifecycleRestoreExtractInput,
+  type LifecycleRestoreImportInput,
 } from '@superapp/shared';
 import { badRequest, conflict, notFound } from '../../shared/errors/api-error';
 import { DryRun } from '../../shared/context/dry-run.context';
@@ -30,6 +35,8 @@ import { PlatformCommandRegistry } from '../platform/platform-commands.registry'
 import { PlatformPanelRegistry } from '../platform/platform-lookup.registry';
 import { LifecycleDashboardService } from './lifecycle.dashboard.service';
 import { LifecycleErasureService } from './lifecycle.erasure.service';
+import { LifecycleExportService } from './lifecycle.export.service';
+import { LifecycleRestoreService } from './lifecycle.restore.service';
 import { LifecycleHoldsService } from './lifecycle.holds.service';
 import { LifecycleOverrides } from './lifecycle.overrides';
 import { LifecyclePurgeRunner } from './lifecycle.purge';
@@ -73,6 +80,8 @@ export class LifecyclePlatformProvider implements OnModuleInit {
     private readonly overrides: LifecycleOverrides,
     private readonly erasure: LifecycleErasureService,
     private readonly dashboard: LifecycleDashboardService,
+    private readonly exports: LifecycleExportService,
+    private readonly restore: LifecycleRestoreService,
   ) {}
 
   /** Политика реестра по id команды — либо 404 (опечатка не должна тихо ничего не делать). */
@@ -177,6 +186,80 @@ export class LifecyclePlatformProvider implements OnModuleInit {
     });
   }
 
+  /**
+   * Восстановление арендатора (Atlassian 2022): извлечь строки организации из кластера на точку
+   * времени в подписанный архив и вернуть их в живую базу — обе команды critical, через
+   * второго сотрудника; предпросмотр показывает объём ДО действия. Стёртую организацию не
+   * восстанавливает ни одна из них (стирание побеждает).
+   */
+  private registerRestoreCommands(): void {
+    this.commands.register<LifecycleRestoreExtractInput>({
+      key: 'lifecycle.restore.extract',
+      version: 1,
+      group: 'lifecycle',
+      titleKey: 'platform.commands.lifecycleRestoreExtract.title',
+      descriptionKey: 'platform.commands.lifecycleRestoreExtract.description',
+      input: lifecycleRestoreExtractSchema,
+      capability: 'lifecycle.restore.write',
+      risk: 'critical',
+      dualControl: true,
+      forbidSelfTarget: true,
+      entities: ['workspace'],
+      target: (i) => ({ type: 'workspace', id: i.workspaceId, workspaceId: i.workspaceId }),
+      preview: async (_ctx, input) => {
+        await this.restore.assertNotErased(input.workspaceId);
+        return { result: { tables: await this.restore.previewExtract(input.workspaceId) } };
+      },
+      execute: async (ctx, input, tx) => {
+        this.restore.assertSource();
+        await this.restore.assertNotErased(input.workspaceId);
+        // Восстановленный кластер своего «когда» не знает: точку PITR называет сотрудник
+        if (process.env.LIFECYCLE_RESTORE_SOURCE_URL && !input.snapshotAt) throw badRequest('lifecycle.restoreSnapshotRequired');
+        if (DryRun.active()) return { result: { preview: true } };
+        const exportId = await this.exports.requestRestoreArchive(tx, ctx.actor.userId, input.workspaceId, input.snapshotAt ? new Date(input.snapshotAt) : new Date());
+        return { result: { exportId }, afterCommit: async () => this.dashboard.invalidate() };
+      },
+    });
+
+    this.commands.register<LifecycleRestoreImportInput>({
+      key: 'lifecycle.restore.import',
+      version: 1,
+      group: 'lifecycle',
+      titleKey: 'platform.commands.lifecycleRestoreImport.title',
+      descriptionKey: 'platform.commands.lifecycleRestoreImport.description',
+      input: lifecycleRestoreImportSchema,
+      capability: 'lifecycle.restore.write',
+      risk: 'critical',
+      dualControl: true,
+      target: (i) => ({ type: 'lifecycle_export', id: i.exportId }),
+      // Предпросмотр: подпись и хэши сверены, строк в архиве и сколько из них уже есть (пропуск)
+      preview: async (_ctx, input) => ({ result: await this.restore.previewImport(input.exportId) }),
+      execute: async (_ctx, input, tx) => {
+        if (DryRun.active()) return { result: { preview: true } };
+        const res = await this.restore.startImport(tx, input.exportId);
+        return { result: res, afterCommit: async () => this.dashboard.invalidate() };
+      },
+    });
+  }
+
+  /** Последние выгрузки субъекта для карточки 360: статус и объём — без ссылок и содержимого. */
+  private async exportLines(subjectType: 'user' | 'workspace', subjectId: string): Promise<PlatformLifecycleExportLineDto[]> {
+    const rows = await this.db.lifecycleExport.findMany({
+      where: { subjectType, subjectId },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { id: true, mode: true, status: true, createdAt: true, bytes: true, downloads: true },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      mode: r.mode as PlatformLifecycleExportLineDto['mode'],
+      status: r.status as PlatformLifecycleExportLineDto['status'],
+      createdAt: r.createdAt.toISOString(),
+      bytes: Number(r.bytes),
+      downloads: r.downloads,
+    }));
+  }
+
   private registerPanels(): void {
     this.panels.register({
       key: 'user.lifecycle',
@@ -186,10 +269,11 @@ export class LifecyclePlatformProvider implements OnModuleInit {
       order: 72,
       eager: false,
       load: async (_actor, id): Promise<PlatformUserLifecyclePanelDto> => {
-        const [user, requests, custodianHolds] = await Promise.all([
+        const [user, requests, custodianHolds, exports] = await Promise.all([
           this.db.user.findUnique({ where: { id }, select: { deletionScheduledAt: true } }),
           this.db.lifecycleErasureRequest.findMany({ where: { subjectType: 'user', subjectId: id }, orderBy: { requestedAt: 'desc' }, take: 10 }),
           this.db.lifecycleHold.count({ where: { custodianUserId: id, releasedAt: null } }),
+          this.exportLines('user', id),
         ]);
         return {
           deletionScheduledAt: user?.deletionScheduledAt?.toISOString() ?? null,
@@ -201,6 +285,7 @@ export class LifecyclePlatformProvider implements OnModuleInit {
             completedAt: r.completedAt?.toISOString() ?? null,
           })),
           custodianHolds,
+          exports,
         };
       },
     });
@@ -213,11 +298,12 @@ export class LifecyclePlatformProvider implements OnModuleInit {
       eager: false,
       load: async (_actor, id): Promise<PlatformWorkspaceLifecyclePanelDto> => {
         const now = new Date();
-        const [ws, settings, activeHolds, erasure] = await Promise.all([
+        const [ws, settings, activeHolds, erasure, exports] = await Promise.all([
           this.db.workspace.findUnique({ where: { id }, select: { archivedAt: true, isActive: true } }),
           this.db.lifecycleSetting.findMany({ where: { workspaceId: id }, take: 10 }),
           this.db.lifecycleHold.count({ where: { workspaceId: id, releasedAt: null } }),
           this.db.lifecycleErasureRequest.findFirst({ where: { subjectType: 'workspace', subjectId: id, status: { not: 'cancelled' } }, orderBy: { requestedAt: 'desc' } }),
+          this.exportLines('workspace', id),
         ]);
         return {
           archivedAt: ws?.archivedAt?.toISOString() ?? null,
@@ -232,6 +318,7 @@ export class LifecyclePlatformProvider implements OnModuleInit {
           })),
           activeHolds,
           erasure: erasure ? { id: erasure.id, status: erasure.status as LifecycleErasureStatus, effectiveAt: erasure.effectiveAt.toISOString() } : null,
+          exports,
         };
       },
     });
@@ -239,6 +326,7 @@ export class LifecyclePlatformProvider implements OnModuleInit {
 
   onModuleInit(): void {
     this.registerDataCommands();
+    this.registerRestoreCommands();
     this.registerPanels();
     this.commands.register<LifecycleWorkspacePurgeInput>({
       key: 'lifecycle.workspace.purge',

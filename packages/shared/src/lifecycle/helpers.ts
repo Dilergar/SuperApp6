@@ -7,6 +7,7 @@ import {
   type LifecycleEdge,
   type LifecycleEdgeKind,
   type LifecycleEnforcement,
+  type LifecycleExportGuard,
   type LifecycleLegalBasis,
   type LifecycleOwnerKind,
   type LifecycleOwnerKey,
@@ -110,3 +111,11 @@ export const batched = (column: string, filter?: LifecycleRowFilter, handler?: s
   ...(handler ? { handler } : {}),
 });
 export const dropPartition = (column: string, period: 'day' | 'month' = 'month'): LifecycleEnforcement => ({ kind: 'drop_partition', column, period });
+
+// ---- выгрузка ----
+/** Поля строки под правилами видимости: колонка (или «колонка.ключ» JSON) → поле типа. */
+export const guard = (type: string, fields: Readonly<Record<string, string>>, ref: { subject?: string; branch?: string; stage?: string } = {}): LifecycleExportGuard => ({
+  type,
+  fields,
+  ...ref,
+});

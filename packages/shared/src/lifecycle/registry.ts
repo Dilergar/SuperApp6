@@ -7,6 +7,7 @@
 // `pnpm check:lifecycle` (он же сверяет реестр со схемой Prisma, миграциями и кодом).
 import { AUDIT_REGISTRY } from '../audit';
 import { ENTITLEMENT_REGISTRY } from '../entitlements';
+import { VISIBILITY_TYPE_KEYS, visibilityFieldEntry, visibilityFieldsOf, visibilityTypeDef } from '../visibility';
 import { CORE_LIFECYCLE } from './core';
 import { MESSENGER_LIFECYCLE } from './messenger';
 import { PERSONAL_LIFECYCLE } from './personal';
@@ -82,6 +83,24 @@ export function lifecyclePoliciesOf(kind: LifecycleStoreKind): LifecyclePolicy[]
 export function lifecycleModelPolicy(model: string): LifecyclePolicy | undefined {
   const p = lifecyclePolicy(model);
   return p?.store.kind === 'model' ? p : undefined;
+}
+
+/** Сторона выгрузки: человек (`user`) или организация (`workspace`). */
+export type LifecycleExportSide = 'user' | 'workspace';
+
+/** Политика уходит в выгрузку этой стороны. */
+export function exportsSide(p: Pick<LifecyclePolicy, 'exportable'>, side: LifecycleExportSide): boolean {
+  return p.exportable === side || p.exportable === 'both';
+}
+
+/**
+ * Политики выгрузки стороны в порядке «родители раньше детей» (обратный порядку удаления):
+ * читатель архива встречает заметку после её раздела, а импорт восстановления — вставляет
+ * родителя до ребёнка.
+ */
+export function lifecycleExportPolicies(side: LifecycleExportSide): LifecyclePolicy[] {
+  const ids = LIFECYCLE_POLICY_IDS.filter((id) => exportsSide(LIFECYCLE_POLICIES[id], side));
+  return lifecycleDeletionOrder(ids).reverse().map((id) => LIFECYCLE_POLICIES[id as LifecyclePolicyId]);
 }
 
 /**
@@ -470,9 +489,7 @@ export function lifecycleSubjectErasurePlan(): LifecycleSubjectErasureStep[] {
  * Одна правда для стража (`check:lifecycle`) и смоука бута: ключа нет здесь и нет
  * регистрации — красный CI и падение старта.
  */
-export const LIFECYCLE_PENDING_KEYS: Readonly<Record<string, { stage: string; as: 'handler' | 'hook' | 'subject_hook' }>> = {
-  'lifecycle.exports': { stage: 'E6', as: 'handler' },
-};
+export const LIFECYCLE_PENDING_KEYS: Readonly<Record<string, { stage: string; as: 'handler' | 'hook' | 'subject_hook' }>> = {};
 
 /** Ключи обработчиков purge (`batched_delete.handler`), хуков каскада организации и хуков стирания человека. */
 export function lifecycleRegistrationKeys(): { handlers: string[]; hooks: string[]; subjectHooks: string[] } {
@@ -676,6 +693,27 @@ export function lifecycleRegistryProblems(): string[] {
     if (en.kind === 'cascade' && r.trigger !== 'parent') add(at, 'cascade enforcement means the retention trigger is "parent"');
     if (r.trigger === 'parent' && en.kind !== 'cascade' && en.kind !== 'none' && !(r.floorDays !== undefined)) add(at, 'retention with the parent needs cascade enforcement');
 
+    // выгрузка: область стороны и поля под правилами видимости
+    for (const side of ['user', 'workspace'] as const) {
+      const sc = p.exportScope?.[side];
+      if (!sc) continue;
+      if (!exportsSide(p, side)) add(at, `exportScope.${side} without exportable ${side}`);
+      if (!sc.columns?.length && !sc.via) add(at, `exportScope.${side} needs columns or via`);
+      if (sc.via) {
+        const parent = lifecyclePolicy(sc.via.policy);
+        if (!parent) add(at, `exportScope.${side}.via "${sc.via.policy}" is not a registered policy`);
+        else if (!exportsSide(parent, side)) add(at, `exportScope.${side}.via "${sc.via.policy}" is not exported to ${side} — the parent must select its own rows`);
+        if (!sc.via.columns.length) add(at, `exportScope.${side}.via needs columns`);
+      }
+      for (const [col, values] of Object.entries(sc.filter ?? {})) if (!col || !Array.isArray(values) || !values.length) add(at, `exportScope.${side}.filter "${col}" needs a non-empty list`);
+    }
+    if (p.exportGuard?.length && !p.exportable) add(at, 'exportGuard without exportable');
+    for (const g of p.exportGuard ?? []) {
+      if (!visibilityTypeDef(g.type)) add(at, `exportGuard type "${g.type}" is not in the visibility registry`);
+      else for (const [col, field] of Object.entries(g.fields)) if (!visibilityFieldEntry(g.type, field)) add(at, `exportGuard ${col} → ${g.type}.${field}: no such visibility field`);
+      if (!Object.keys(g.fields).length) add(at, `exportGuard ${g.type} needs fields`);
+    }
+
     // hold
     if (HOLD_REQUIRED.has(p.dataClass) && !p.holdAware) add(at, `class "${p.dataClass}" must be hold-aware`);
 
@@ -719,6 +757,19 @@ export function lifecycleRegistryProblems(): string[] {
   for (const cls of LIFECYCLE_TENANT_CLASSES) {
     if (!LIFECYCLE_POLICY_IDS.some((id) => LIFECYCLE_POLICIES[id].dataClass === cls && LIFECYCLE_POLICIES[id].retention.tenantConfigurable)) {
       add(`class ${cls}`, 'in LIFECYCLE_TENANT_CLASSES but no policy of the class is tenantConfigurable');
+    }
+  }
+  // Поле видимости, живущее колонкой ПДн экспортируемой модели, обязано быть под защитой
+  // выгрузки: иначе архив отдал бы открытым то, что продукт показывает маской
+  for (const type of VISIBILITY_TYPE_KEYS) {
+    for (const f of visibilityFieldsOf(type)) {
+      const link = f.def.pii;
+      if (!link) continue;
+      const p = lifecycleModelPolicy(link.model);
+      if (!p?.exportable) continue;
+      // Одна колонка может нести несколько полей типа (дата рождения → день и год) — хватит одного
+      const guarded = (p.exportGuard ?? []).some((g) => g.type === type && link.field in g.fields);
+      if (!guarded) add(p.id, `exportable, but the visibility field ${type}.${f.key} (column ${link.field}) is not in exportGuard`);
     }
   }
   // Каскад организации обязан упорядочиваться: цикл шагов = удаление, которое никогда не закончится

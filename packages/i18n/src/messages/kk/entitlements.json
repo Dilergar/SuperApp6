@@ -35,7 +35,9 @@
     "lifecycleHolds": "Тоқтатулар",
     "lifecycleRetentionMessages": "Хабарламаларды сақтаудың ең ұзақ мерзімі, күн",
     "lifecycleRetentionRecords": "Жазбалар тарихын сақтаудың ең ұзақ мерзімі, күн",
-    "lifecycleRetentionIntegrations": "Вебхук жеткізу журналын сақтаудың ең ұзақ мерзімі, күн"
+    "lifecycleRetentionIntegrations": "Вебхук жеткізу журналын сақтаудың ең ұзақ мерзімі, күн",
+    "lifecycleExport": "Ұйым деректерін жүктеп алу",
+    "lifecycleExportBytesPerDay": "Тәулігіне ұйым деректерін жүктеп алу көлемі"
   },
   "lock": {
     "quotaFull": "Дискідегі орын толды",

@@ -965,7 +965,8 @@
     "tabs": {
       "retention": "Retention",
       "holds": "Legal holds",
-      "history": "History"
+      "history": "History",
+      "exports": "Exports"
     },
     "noAccess": "Only the owner and admins manage data",
     "noAccessText": "Ask them if you need to change how long the organization keeps its data.",
@@ -1005,5 +1006,37 @@
     "lawTitle": "Kept by law",
     "lawText": "These records are kept as long as the law requires; the organization can’t shorten it.",
     "lawFloor": "By law: {duration}"
+  },
+  "export": {
+    "readme": {
+      "titleUser": "SuperApp6 — archive of your data",
+      "titleWorkspace": "SuperApp6 — archive of the organization data",
+      "created": "Created: {date}",
+      "contents": "Contents: {tables, plural, one {# kind of records} other {# kinds of records}}, {rows, plural, one {# row} other {# rows}}, {files, plural, one {# file} other {# files}}.",
+      "format": "The data folder holds one JSON object per line (JSON Lines), one file per kind of records; the files folder holds the original files.",
+      "guarded": "Fields protected by visibility rules are exactly as you see them in the app: a masked value comes as an object with the masked field, a hidden one is left out.",
+      "integrity": "manifest.json lists every file with its size and SHA-256 checksum."
+    },
+    "card": {
+      "titleUser": "Archive of my data",
+      "titleWorkspace": "Archive of the organization data",
+      "size": "Size",
+      "until": "Available until",
+      "parts": "Parts"
+    },
+    "status": {
+      "queued": "Queued",
+      "running": "Building",
+      "ready": "Ready",
+      "failed": "Failed",
+      "expired": "Expired"
+    },
+    "errors": {
+      "owner_mismatch": "A consistency check stopped the build",
+      "too_large": "The archive is too large",
+      "quota": "The daily export limit of the plan is used up",
+      "subject_gone": "The account or organization is no longer active",
+      "internal": "Something went wrong on our side"
+    }
   }
 }

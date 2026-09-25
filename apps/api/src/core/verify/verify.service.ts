@@ -185,7 +185,7 @@ export class VerifyService {
    */
   async startStepUp(
     userId: string,
-    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete' | 'security_confirm' | 'visibility_reveal' | 'visibility_manage',
+    purpose: 'password_change' | 'phone_change_old' | 'phone_change_new' | 'keys_manage' | 'account_delete' | 'security_confirm' | 'visibility_reveal' | 'visibility_manage' | 'data_export',
     password: string,
     newPhone: string | undefined,
     ip?: string,

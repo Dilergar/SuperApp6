@@ -12,6 +12,7 @@ import type {
   LifecycleDataRetentionDto,
   LifecycleDataStorageDto,
   LifecycleHoldDto,
+  LifecycleRestoreArchiveDto,
   LifecycleUnusedIndexDto,
   PlatformCommandDto,
 } from '@superapp/shared';
@@ -35,7 +36,7 @@ import {
 } from '@/components/ui';
 import { CommandRunner } from '@/components/platform/CommandRunner';
 import { usePlatformAuth } from '@/lib/platform/usePlatformAuth';
-import { fetchPlatformCommands, platformCommandsKey, runPlatformCommand } from '@/lib/platform/api';
+import { fetchPlatformCommands, fetchPlatformDataRestores, platformCommandsKey, platformDataKey, runPlatformCommand } from '@/lib/platform/api';
 import { useBytes, useFormatters } from '@/lib/format';
 import { toastApiError } from '@/lib/api-errors';
 import { useDurationLabel } from '@/components/lifecycle/duration';
@@ -460,9 +461,12 @@ export function DataBackupsTab({ data }: { data: LifecycleDataBackupsDto }) {
   const bytes = useBytes();
   if (data.empty) {
     return (
-      <Card>
-        <EmptyState icon="database" title={t('backups.emptyTitle')} description={t('backups.emptyText')} />
-      </Card>
+      <BentoGrid>
+        <Card span={12}>
+          <EmptyState icon="database" title={t('backups.emptyTitle')} description={t('backups.emptyText')} />
+        </Card>
+        <RestoresCard />
+      </BentoGrid>
     );
   }
   const columns: TableColumn[] = [
@@ -559,7 +563,89 @@ export function DataBackupsTab({ data }: { data: LifecycleDataBackupsDto }) {
           </Table>
         </div>
       </Card>
+      <RestoresCard />
     </BentoGrid>
+  );
+}
+
+/**
+ * Восстановление организаций (Э6): архивы, извлечённые из кластера на точку времени, и их
+ * импорты. Действия — команды Кабинета (critical, через второго сотрудника): извлечь
+ * организацию, вернуть строки архива. Нет источника PITR в production — только пояснение.
+ */
+function RestoresCard() {
+  const t = useTranslations('platformData');
+  const fmt = useFormatters();
+  const commands = useCommands();
+  const runner = useRunner();
+  const q = useQuery({ queryKey: platformDataKey('restores'), queryFn: fetchPlatformDataRestores, refetchInterval: 30_000 });
+  const extract = commands.get('lifecycle.restore.extract');
+  const importCmd = commands.get('lifecycle.restore.import');
+  const statusTone = (s: string): Tone => (s === 'ready' || s === 'done' ? 'success' : s === 'failed' ? 'warning' : s === 'expired' ? 'neutral' : 'accent');
+  const columns: TableColumn[] = [
+    { key: 'ws', label: t('restores.workspace'), width: 'minmax(10rem, 1.2fr)' },
+    { key: 'snapshot', label: t('restores.snapshot'), width: 'max-content' },
+    { key: 'rows', label: t('restores.rows'), width: 'max-content', align: 'end', hideOnMobile: true },
+    { key: 'status', label: t('restores.status'), width: 'max-content' },
+    { key: 'imports', label: t('restores.imports'), width: 'minmax(12rem, 1.6fr)' },
+    { key: 'actions', label: '', width: 'max-content', align: 'end' },
+  ];
+  const archives: LifecycleRestoreArchiveDto[] = q.data?.archives ?? [];
+  return (
+    <Card span={12}>
+      <CardHeader
+        title={t('restores.title')}
+        actions={
+          extract ? (
+            <Button variant="primary" icon="download" disabled={!q.data?.sourceConfigured} onClick={() => runner.open(extract, {})}>
+              {t('restores.extract')}
+            </Button>
+          ) : undefined
+        }
+      />
+      <p className="body-sm" style={{ margin: '0 0 var(--spacing-3)' }}>{t(q.data && !q.data.sourceConfigured ? 'restores.noSource' : 'restores.description')}</p>
+      {archives.length === 0 ? (
+        <EmptyState icon="archive" title={t('restores.empty')} />
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <Table columns={columns} lines aria-label={t('restores.title')}>
+            <TableHeader />
+            {archives.map((a, i) => (
+              <TableRow key={a.exportId} rowIndex={i + 2}>
+                <TableCell><span style={mono}>{a.workspaceId}</span></TableCell>
+                <TableCell><span className="label-sm">{a.snapshotAt ? fmt.dateTime(a.snapshotAt) : '—'}</span></TableCell>
+                <TableCell hideOnMobile align="end"><span className="label-sm">{a.rows === null ? '—' : fmt.number(a.rows)}</span></TableCell>
+                <TableCell><Chip size="sm" tone={statusTone(a.status)}>{t(`restores.archiveStatus.${a.status}`)}</Chip></TableCell>
+                <TableCell>
+                  {a.imports.length === 0 ? (
+                    <span className="label-sm">—</span>
+                  ) : (
+                    <div className="ui-stack" style={{ gap: 4 }}>
+                      {a.imports.map((r) => {
+                        const sum = (k: 'inserted' | 'skipped' | 'failed') => r.tables.reduce((acc, x) => acc + x[k], 0);
+                        return (
+                          <div key={r.runId} style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+                            <Chip size="sm" tone={statusTone(r.status)}>{t(`restores.runStatus.${r.status}`)}</Chip>
+                            <span className="label-sm">{t('restores.importSummary', { inserted: sum('inserted'), skipped: sum('skipped'), failed: sum('failed'), replayed: r.erasuresReplayed })}</span>
+                            {r.missingBlobs > 0 && <Chip size="sm" tone="warning">{t('restores.missingBlobs', { count: r.missingBlobs })}</Chip>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </TableCell>
+                <TableCell align="end">
+                  {importCmd && a.status === 'ready' && (
+                    <Button size="sm" variant="matte" onClick={() => runner.open(importCmd, { exportId: a.exportId })}>{t('restores.import')}</Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </Table>
+        </div>
+      )}
+      {runner.ui}
+    </Card>
   );
 }
 

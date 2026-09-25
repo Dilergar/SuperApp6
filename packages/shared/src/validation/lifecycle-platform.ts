@@ -288,11 +288,23 @@ export interface LifecycleUnusedIndexDto {
 
 // ---- Панели карточки 360 ----
 
+/** Выгрузка в панели карточки 360: вид, статус, когда и сколько (без ссылок и содержимого). */
+export interface PlatformLifecycleExportLineDto {
+  id: string;
+  mode: 'portable' | 'restore';
+  status: 'queued' | 'running' | 'ready' | 'failed' | 'expired';
+  createdAt: string;
+  bytes: number;
+  downloads: number;
+}
+
 export interface PlatformUserLifecyclePanelDto {
   deletionScheduledAt: string | null;
   erasure: Array<{ id: string; status: LifecycleErasureStatus; requestedAt: string; effectiveAt: string; completedAt: string | null }>;
   /** Действующие заморозки, где человек — хранитель */
   custodianHolds: number;
+  /** Последние выгрузки его данных (Э6) */
+  exports: PlatformLifecycleExportLineDto[];
 }
 
 export interface PlatformWorkspaceLifecyclePanelDto {
@@ -301,4 +313,6 @@ export interface PlatformWorkspaceLifecyclePanelDto {
   settings: Array<{ dataClass: string; days: LifecycleDuration; pending: { days: LifecycleDuration; effectiveAt: string } | null }>;
   activeHolds: number;
   erasure: { id: string; status: LifecycleErasureStatus; effectiveAt: string } | null;
+  /** Последние выгрузки и архивы восстановления организации (Э6) */
+  exports: PlatformLifecycleExportLineDto[];
 }

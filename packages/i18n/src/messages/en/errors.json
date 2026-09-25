@@ -1634,6 +1634,19 @@
     "erasureFinished": "This erasure is already finished",
     "backupReportInvalid": "The backup report is not valid",
     "opsTokenInvalid": "Invalid operations token",
-    "opsSignatureInvalid": "The report signature is missing, expired or does not match"
+    "opsSignatureInvalid": "The report signature is missing, expired or does not match",
+    "step_up_required": "Confirm with your password and an SMS code to export data",
+    "exportTooSoon": "A new archive can be requested once a day — try again later",
+    "exportNotFound": "Data archive not found",
+    "exportNotReady": "The archive is not ready yet",
+    "exportExpired": "The archive has expired — request a new one",
+    "exportDownloadsExhausted": "This part has already been downloaded {max, plural, one {# time} other {# times}} — request a new archive",
+    "exportOwnerOnly": "Only the owner can export the organization’s data",
+    "restoreSourceMissing": "The restore source is not configured: a database cluster restored to a point in time",
+    "restoreSnapshotRequired": "Specify the point in time the source cluster was restored to",
+    "restoreErased": "The organization has been erased — its data can’t be restored",
+    "restoreSignatureInvalid": "The restore archive signature or contents don’t match",
+    "restoreRunning": "A restore of this organization is already running",
+    "restoreRunNotFound": "Restore run not found"
   }
 }

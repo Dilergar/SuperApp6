@@ -702,6 +702,12 @@
           "title": "Erasure canary found leftovers",
           "body": "{findings} traces in {stores} stores"
         }
+      },
+      "restore": {
+        "imported": {
+          "title": "Data restored from a backup",
+          "body": "Rows returned: {inserted}, already present: {skipped}, rejected: {failed}; erasures replayed: {erasuresReplayed}"
+        }
       }
     }
   },

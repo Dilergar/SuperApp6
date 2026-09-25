@@ -261,6 +261,8 @@ export interface LifecycleExportPart {
   key: string;
   bytes: number;
   sha256: string;
+  /** Выдано ссылок на скачивание этой части (≤ `maxDownloadsPerPart`) */
+  downloads?: number;
 }
 export const LIFECYCLE_EXPORT_PREFIX = 'exports/';
 

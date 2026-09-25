@@ -6304,8 +6304,22 @@ model LifecycleExport {
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   readyAt       DateTime? @map("ready_at") @db.Timestamptz(3)
   expiresAt     DateTime? @map("expires_at") @db.Timestamptz(3)
+  /// portable (человеку и организации) | restore (восстановление арендатора, только Кабинет)
+  mode          String    @default("portable")
+  /// Строк в архиве (известно после сборки)
+  rows          Int?
+  /// Ход сборки по фазам: { phase, policy, cursor, chunk, staged[], plan[], partsDone, … }
+  progress      Json      @default("{}")
+  /// Опции заявки (дев: injectForeign — подсадка чужой строки для стража владельца)
+  options       Json      @default("{}")
+  /// Момент данных источника (restore: время снимка кластера после PITR)
+  snapshotAt    DateTime? @map("snapshot_at") @db.Timestamptz(3)
+  /// Заходов сборки (снуз бюджета и ретраи) — дашборд видит зависшую сборку
+  attempts      Int       @default(0)
 
   @@index([subjectType, subjectId, createdAt(sort: Desc)])
+  // Частичные индексы lifecycle_exports_live_idx (status ∈ queued|running) и
+  // lifecycle_exports_expires_idx (status = ready) — руками в миграции lifecycle_exports_build
   @@map("lifecycle_exports")
 }
 

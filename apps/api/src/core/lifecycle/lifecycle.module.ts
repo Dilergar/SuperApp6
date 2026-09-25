@@ -20,6 +20,11 @@ import { LifecycleSettings } from './lifecycle.settings';
 import { LifecycleOverrides } from './lifecycle.overrides';
 import { LifecycleDashboardService } from './lifecycle.dashboard.service';
 import { LifecycleDashboardController, LifecycleOpsController } from './lifecycle.dashboard.controller';
+import { LifecycleExportCollector } from './lifecycle.export.collector';
+import { LifecycleExportController } from './lifecycle.export.controller';
+import { LifecycleExportRegistry } from './lifecycle.export.registry';
+import { LifecycleExportService } from './lifecycle.export.service';
+import { LifecycleRestoreService } from './lifecycle.restore.service';
 import { LifecycleSettingsService } from './lifecycle.settings.service';
 import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
 import { lifecycleTableOf, lifecycleTenantScopeSql } from './lifecycle.sql';
@@ -49,7 +54,7 @@ import { lifecycleTableOf, lifecycleTenantScopeSql } from './lifecycle.sql';
  */
 @Global()
 @Module({
-  controllers: [LifecycleController, LifecycleDevController, LifecycleDashboardController, LifecycleOpsController],
+  controllers: [LifecycleController, LifecycleExportController, LifecycleDevController, LifecycleDashboardController, LifecycleOpsController],
   providers: [
     LifecycleMetrics,
     LifecyclePartitions,
@@ -63,8 +68,12 @@ import { lifecycleTableOf, lifecycleTenantScopeSql } from './lifecycle.sql';
     LifecycleTenantHookRegistry,
     LifecycleSubjectHookRegistry,
     LifecycleCanaryRegistry,
+    LifecycleExportRegistry,
     LifecycleHoldsService,
     LifecycleErasureService,
+    LifecycleExportCollector,
+    LifecycleExportService,
+    LifecycleRestoreService,
     LifecycleCanaryService,
     LifecyclePurgeRunner,
     LifecycleTenantPurgeService,
@@ -78,6 +87,8 @@ import { lifecycleTableOf, lifecycleTenantScopeSql } from './lifecycle.sql';
     LifecycleTenantHookRegistry,
     LifecycleSubjectHookRegistry,
     LifecycleCanaryRegistry,
+    LifecycleExportRegistry,
+    LifecycleExportService,
     LifecycleTenantPurgeService,
     LifecyclePurgeRunner,
     LifecycleRuns,

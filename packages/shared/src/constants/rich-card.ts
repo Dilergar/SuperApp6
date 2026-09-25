@@ -17,7 +17,10 @@
 // counterparty — карточка справочника «Контрагенты»: название, БИН/ИИН, подписант,
 // ссылка «Открыть». БЕЗ action-ключей (тот же довод, что у drive_node/org_document:
 // права считает предикат сервиса по роли, а не can() движка).
-export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month', 'office_room', 'drive_node', 'approval_request', 'org_document', 'counterparty', 'branch', 'shift', 'note'] as const;
+// lifecycle_export — выгрузка данных (core/lifecycle): статус сборки, срок, скачивания; ссылка на
+// страницу выгрузок. Действий нет: скачивание — только со страницы (5-минутная ссылка на каждое
+// нажатие под окном SMS-подтверждения), кнопка в чате обходила бы подтверждение.
+export const RICH_CARD_REF_TYPES = ['order', 'listing', 'crowdfunding', 'task', 'event', 'fin_transaction', 'fin_month', 'office_room', 'drive_node', 'approval_request', 'org_document', 'counterparty', 'branch', 'shift', 'note', 'lifecycle_export'] as const;
 
 // Button visual styles.
 export const RICH_CARD_ACTION_STYLES = ['primary', 'danger', 'default'] as const;

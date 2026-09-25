@@ -35,7 +35,9 @@
     "lifecycleHolds": "Legal holds",
     "lifecycleRetentionMessages": "Longest retention of chat messages, days",
     "lifecycleRetentionRecords": "Longest retention of record history, days",
-    "lifecycleRetentionIntegrations": "Longest retention of the webhook delivery log, days"
+    "lifecycleRetentionIntegrations": "Longest retention of the webhook delivery log, days",
+    "lifecycleExport": "Organization data export",
+    "lifecycleExportBytesPerDay": "Organization data export per day"
   },
   "lock": {
     "quotaFull": "Storage is full",

@@ -278,7 +278,8 @@
     },
     "lifecycle_settings": {
       "retention_changed": "{actorName} «{classLabel}» сақтау мерзімін өзгертті: {fromDays, plural, =0 {мәңгі} one {# күн} other {# күн}} → {toDays, plural, =0 {мәңгі} one {# күн} other {# күн}}{shortened, select, true { ({effectiveOn} бастап)} other {}}",
-      "retention_cancelled": "{actorName} «{classLabel}» мерзімін қысқартудан бас тартты: {toDays, plural, =0 {мәңгі} one {# күн} other {# күн}} болып қалады"
+      "retention_cancelled": "{actorName} «{classLabel}» мерзімін қысқартудан бас тартты: {toDays, plural, =0 {мәңгі} one {# күн} other {# күн}} болып қалады",
+      "export_requested": "{actorName}: ұйымның барлық деректерінің мұрағаты сұралды"
     },
     "chat": {
       "timer_set": "{actorName} автоматты жоюды қосты: хабарламалар {days, plural, one {# күннен} other {# күннен}} кейін жойылады",

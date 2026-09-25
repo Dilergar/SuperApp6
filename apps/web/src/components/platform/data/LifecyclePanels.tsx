@@ -1,9 +1,9 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
-import type { LifecycleErasureStatus, PlatformUserLifecyclePanelDto, PlatformWorkspaceLifecyclePanelDto } from '@superapp/shared';
+import type { LifecycleErasureStatus, PlatformLifecycleExportLineDto, PlatformUserLifecyclePanelDto, PlatformWorkspaceLifecyclePanelDto } from '@superapp/shared';
 import { Chip, type Tone } from '@/components/ui';
-import { useFormatters } from '@/lib/format';
+import { useBytes, useFormatters } from '@/lib/format';
 import { useDurationLabel } from '@/components/lifecycle/duration';
 import { Fact } from './data-ui';
 
@@ -15,7 +15,32 @@ export function erasureTone(status: LifecycleErasureStatus): Tone {
   return 'accent';
 }
 
-/** Панель «Данные» карточки человека: удаление аккаунта, заявки на стирание, заморозки хранителя. */
+const EXPORT_TONE: Record<PlatformLifecycleExportLineDto['status'], Tone> = { queued: 'waiting', running: 'accent', ready: 'success', failed: 'warning', expired: 'neutral' };
+
+/** Выгрузки субъекта (Э6): вид (переносимая / восстановление), статус, объём, выдачи ссылок. */
+function ExportLines({ items }: { items: PlatformLifecycleExportLineDto[] }) {
+  const t = useTranslations('platform');
+  const fmt = useFormatters();
+  const bytes = useBytes();
+  return (
+    <>
+      <span className="label-caps" style={{ marginTop: 'var(--spacing-2)' }}>{t('data.panel.exports')}</span>
+      {items.length === 0 ? (
+        <span className="label-sm">{t('data.panel.noExports')}</span>
+      ) : (
+        items.map((e) => (
+          <div key={e.id} style={{ display: 'flex', gap: 'var(--spacing-2)', alignItems: 'center', flexWrap: 'wrap' }}>
+            <Chip size="sm" tone={EXPORT_TONE[e.status]}>{t(`data.exportStatus.${e.status}`)}</Chip>
+            {e.mode === 'restore' && <Chip size="sm" tone="neutral" icon="archive">{t('data.panel.restoreArchive')}</Chip>}
+            <span className="label-sm">{t('data.panel.exportLine', { date: fmt.date(e.createdAt), size: bytes(e.bytes), downloads: e.downloads })}</span>
+          </div>
+        ))
+      )}
+    </>
+  );
+}
+
+/** Панель «Данные» карточки человека: удаление аккаунта, заявки на стирание, заморозки хранителя, выгрузки. */
 export function UserLifecyclePanel({ data }: { data: PlatformUserLifecyclePanelDto }) {
   const t = useTranslations('platform');
   const fmt = useFormatters();
@@ -38,11 +63,12 @@ export function UserLifecyclePanel({ data }: { data: PlatformUserLifecyclePanelD
           </div>
         ))
       )}
+      <ExportLines items={data.exports} />
     </div>
   );
 }
 
-/** Панель «Данные» карточки организации: архив и окончательное удаление, сроки хранения, заморозки. */
+/** Панель «Данные» карточки организации: архив и окончательное удаление, сроки хранения, заморозки, выгрузки. */
 export function WorkspaceLifecyclePanel({ data }: { data: PlatformWorkspaceLifecyclePanelDto }) {
   const t = useTranslations('platform');
   const tl = useTranslations('lifecycle');
@@ -71,6 +97,7 @@ export function WorkspaceLifecyclePanel({ data }: { data: PlatformWorkspaceLifec
           </div>
         ))
       )}
+      <ExportLines items={data.exports} />
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   eraseHook,
   forDays,
   global,
+  guard,
   interest,
   keep,
   law,
@@ -146,6 +147,12 @@ export const CORE_LIFECYCLE = {
     holdAware: true,
     proofEvent: 'account.anonymized',
     exportable: 'user',
+    // Строка аккаунта — сам человек; реквизиты («для договоров») — глазами самого (ЗоПД ст. 24)
+    exportScope: { user: { columns: ['id'] } },
+    exportGuard: [
+      guard('staff.member', { iin: 'iin', residentialAddress: 'residentialAddress', idDocNumber: 'idDocNumber', idDocIssuedBy: 'idDocIssuedBy', idDocIssuedAt: 'idDocIssuedAt' }, { subject: 'id' }),
+      guard('user.card', { phone: 'phone', email: 'email', dateOfBirth: 'birthYear' }, { subject: 'id' }),
+    ],
   },
   UserRole: {
     owner: 'core/roles',

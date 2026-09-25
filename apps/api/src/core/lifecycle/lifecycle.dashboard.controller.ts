@@ -9,6 +9,7 @@ import {
   type LifecycleDataErasureDto,
   type LifecycleDataOverviewDto,
   type LifecycleDataRetentionDto,
+  type LifecycleDataRestoresDto,
   type LifecycleDataStorageDto,
   type LifecycleHealthLevel,
 } from '@superapp/shared';
@@ -19,6 +20,7 @@ import { Public } from '../../shared/decorators/public.decorator';
 import { badRequest, notFound, unauthorized } from '../../shared/errors/api-error';
 import { PlatformRateService } from '../platform/platform-rate.service';
 import { LifecycleDashboardService } from './lifecycle.dashboard.service';
+import { LifecycleRestoreService } from './lifecycle.restore.service';
 
 /** Запросов в минуту к вкладкам дашборда на сотрудника (обновление 30 с — с запасом). */
 const TABS_PER_MINUTE = 60;
@@ -39,6 +41,7 @@ export class LifecycleDashboardController {
   constructor(
     private readonly dash: LifecycleDashboardService,
     private readonly rate: PlatformRateService,
+    private readonly restore: LifecycleRestoreService,
   ) {}
 
   private budget(actor: PlatformActor): Promise<void> {
@@ -91,6 +94,14 @@ export class LifecycleDashboardController {
   async backups(@CurrentPlatformActor() actor: PlatformActor): Promise<{ success: true; data: LifecycleDataBackupsDto }> {
     await this.budget(actor);
     return { success: true, data: await this.dash.backups() };
+  }
+
+  @PlatformCapability('data.read')
+  @Get('restores')
+  @ApiOperation({ summary: 'Tenant restore archives (signed, from the PITR cluster) and their import runs' })
+  async restores(@CurrentPlatformActor() actor: PlatformActor): Promise<{ success: true; data: LifecycleDataRestoresDto }> {
+    await this.budget(actor);
+    return { success: true, data: { sourceConfigured: this.restore.sourceConfigured(), archives: await this.restore.archives() } };
   }
 
   @PlatformCapability('data.read')

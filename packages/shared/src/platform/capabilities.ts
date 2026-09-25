@@ -72,6 +72,10 @@ export const PLATFORM_CAPABILITIES = [
   'lifecycle.retention.write',
   'lifecycle.retention.approve',
   'lifecycle.erasure.write',
+  // Восстановление арендатора из архива (после PITR): извлечь строки организации и вернуть их —
+  // всегда через второго сотрудника
+  'lifecycle.restore.write',
+  'lifecycle.restore.approve',
 ] as const;
 
 export type PlatformCapability = (typeof PLATFORM_CAPABILITIES)[number];

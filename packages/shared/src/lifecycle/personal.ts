@@ -291,6 +291,8 @@ export const PERSONAL_LIFECYCLE = {
     enforcement: notEnforced('ledger accounts are append-only history'),
     holdAware: true,
     exportable: 'both',
+    // Счета владельца: человек — свои, организация — свои (системные счета — ничьи)
+    exportScope: { user: { columns: ['ownerId'], filter: { ownerType: ['user'] } }, workspace: { columns: ['ownerId'], filter: { ownerType: ['workspace'] } } },
   },
   LedgerTransfer: {
     owner: 'wallet',
@@ -306,6 +308,11 @@ export const PERSONAL_LIFECYCLE = {
     enforcement: notEnforced('append-only ledger (trigger ENABLE ALWAYS + owner role)'),
     holdAware: true,
     exportable: 'both',
+    // Проводки, где счёт субъекта — по любую сторону
+    exportScope: {
+      user: { via: { policy: 'Account', columns: ['debitAccountId', 'creditAccountId'] } },
+      workspace: { via: { policy: 'Account', columns: ['debitAccountId', 'creditAccountId'] } },
+    },
   },
   EscrowAgreement: {
     owner: 'wallet',
@@ -409,6 +416,11 @@ export const PERSONAL_LIFECYCLE = {
     enforcement: batched('closedAt', { status: ['settled', 'rejected', 'cancelled', 'refunded'] }),
     holdAware: true,
     exportable: 'both',
+    // Человеку — его покупки и продажи его магазина; организации — заказы её магазина
+    exportScope: {
+      user: { columns: ['buyerId'], via: { policy: 'Shop', columns: ['shopId'] } },
+      workspace: { via: { policy: 'Shop', columns: ['shopId'] } },
+    },
   },
   OrderContribution: {
     owner: 'shop',

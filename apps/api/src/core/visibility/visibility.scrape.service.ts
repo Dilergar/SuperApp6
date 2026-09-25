@@ -48,7 +48,9 @@ export class VisibilityScrapeDetector {
     this.metrics.scrape.inc({ record_type: recordType });
     await this.audit.recordOnce(
       null,
-      `vis:scrape:${userId}:${bucket}`,
+      // Тревога адресована ОРГАНИЗАЦИИ: дедуп на (человек, организация, окно) — иначе скрейпинг
+      // в двух организациях за час доносил тревогу только первой
+      `vis:scrape:${userId}:${workspaceId ?? '-'}:${bucket}`,
       {
         key: 'detect.pii_scrape',
         workspaceId,

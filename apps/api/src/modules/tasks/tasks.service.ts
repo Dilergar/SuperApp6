@@ -1375,7 +1375,7 @@ export class TasksService implements OnModuleInit {
     });
     if (!deleted) return false;
     for (const id of ids) {
-      await this.files.unlinkAllForRef('task', id).catch(() => undefined);
+      await this.files.unlinkAllForRef('task', id).catch((err: unknown) => this.logger.warn(`attachments of deleted task ${id} not unlinked (the nightly orphan sweep retries): ${err instanceof Error ? err.message : String(err)}`));
       await this.accessProjection.taskDeleted(id);
       await this.messenger.deleteTaskChat(id);
     }

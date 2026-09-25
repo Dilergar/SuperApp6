@@ -7,6 +7,8 @@
 //    тумблеры отзывных (`marketing`, `analytics`); согласие на обработку ПДн отзывается
 //    только удалением аккаунта — вторая дверь к мастеру удаления.
 //  - Кому передавались мои данные: лента учёта действий с ПДн (`PdActionRecord`).
+//  - Мои данные целиком (core/lifecycle Э6): архив всех данных — заказ и каждое скачивание
+//    под SMS-подтверждением, 7 дней, до 5 скачиваний части (ЗоПД ст. 24, переносимость).
 // ============================================================
 
 import { useState } from 'react';
@@ -14,6 +16,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useLocale, useTranslations } from 'next-intl';
 import type { ConsentAcceptResultDto, ConsentDocumentKey, ConsentReceiptDto, ConsentStateItemDto, CursorPage, Locale, PdTransferDto, SecurityMyDataExportDto } from '@superapp/shared';
 import { Alert, Button, Card, Chip, EmptyState, LoadingBlock, Modal, Toggle, type Tone } from '@/components/ui';
+import { DataExports } from '@/components/lifecycle/DataExports';
 import { ErasureReceiptLookup } from '@/components/lifecycle/ErasureReceiptLookup';
 import { ConsentDocumentModal } from '@/components/consents/ConsentDocumentModal';
 import { analytics } from '@/lib/analytics';
@@ -116,6 +119,10 @@ export default function MyDataPage() {
             </Card>
           );
         })}
+      </div>
+
+      <div style={{ marginBottom: 'var(--spacing-8)' }}>
+        <DataExports scope={{ kind: 'user' }} />
       </div>
 
       <TransfersSection />

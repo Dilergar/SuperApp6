@@ -19,6 +19,7 @@ import {
   eraseHook,
   forDays,
   global,
+  guard,
   keep,
   law,
   legalFloor,
@@ -135,6 +136,7 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: batched('archivedAt', undefined, 'workspaces.purge'),
     holdAware: true,
     exportable: 'workspace',
+    exportGuard: [guard('workspace.card', { contactEmail: 'contactEmail', contactPhone: 'contactPhone' })],
   },
   WorkspaceMember: {
     owner: 'workspaces',
@@ -195,6 +197,7 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: CASCADE,
     holdAware: true,
     exportable: 'workspace',
+    exportGuard: [guard('workspace.card', { iban: 'iban' })],
   },
 
   // ================= Штат и оргструктура =================
@@ -320,6 +323,8 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: CASCADE,
     holdAware: true,
     exportable: 'workspace',
+    // Ставка — деньги штатки: план (единица) и факт (назначение) решает один паспорт; строже — план
+    exportGuard: [guard('objects.staffing', { amount: 'plannedRate' })],
   },
   StaffDeputy: {
     owner: 'staff',
@@ -397,6 +402,11 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: batched('localDate'),
     holdAware: true,
     exportable: 'both',
+    // Человеку — его отметки; поля факта — глазами заказчика (сам видит своё)
+    exportScope: { user: { columns: ['userId'] } },
+    exportGuard: [
+      guard('objects.shift', { outcome: 'outcome', lateMin: 'lateMin', actualStartAt: 'actualStartAt', actualEndAt: 'actualEndAt', note: 'attendanceNote' }, { subject: 'userId', branch: 'branchId' }),
+    ],
   },
 
   // ================= Оборудование =================
@@ -482,6 +492,7 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: notEnforced('reference book of the organisation (archived, not deleted)'),
     holdAware: true,
     exportable: 'workspace',
+    exportGuard: [guard('counterparty', { phone: 'phone', email: 'email' })],
   },
   CounterpartyContact: {
     owner: 'counterparties',
@@ -497,6 +508,7 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: CASCADE,
     holdAware: true,
     exportable: 'workspace',
+    exportGuard: [guard('counterparty', { phone: 'contactPhone', email: 'contactEmail' })],
   },
   CounterpartyBankAccount: {
     owner: 'counterparties',
@@ -512,6 +524,7 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: CASCADE,
     holdAware: true,
     exportable: 'workspace',
+    exportGuard: [guard('counterparty', { iban: 'iban' })],
   },
 
   // ================= Документооборот =================
@@ -574,6 +587,8 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: notEnforced('legal records are archived, never purged while the organisation lives'),
     holdAware: true,
     exportable: 'both',
+    // Человеку — кадровые документы о нём (приказ, договор, ознакомление)
+    exportScope: { user: { columns: ['subjectUserId'] } },
   },
   DocCampaign: {
     owner: 'hr',
@@ -604,6 +619,7 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: CASCADE,
     holdAware: true,
     exportable: 'both',
+    exportScope: { user: { columns: ['userId'] } },
   },
   DocTemplateLibraryInstall: {
     owner: 'documents',
@@ -635,6 +651,28 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: notEnforced('personnel records: 75 years after employment ends (279-NK)'),
     holdAware: true,
     exportable: 'both',
+    // Человеку — его трудовые карточки (оклад сам видит всегда, ТК ст. 113); организации — глазами владельца
+    exportScope: { user: { columns: ['userId'] } },
+    exportGuard: [
+      guard(
+        'hr.employment',
+        {
+          hiredAt: 'hiredAt',
+          firedAt: 'firedAt',
+          contractNumber: 'contractNumber',
+          contractDate: 'contractDate',
+          contractType: 'contractType',
+          contractEndAt: 'contractEndAt',
+          probationUntil: 'probationUntil',
+          workRate: 'workRate',
+          workSchedule: 'workSchedule',
+          personnelNumber: 'personnelNumber',
+          dismissalGround: 'dismissalGround',
+          salaryAmount: 'salaryAmount',
+        },
+        { subject: 'userId', branch: 'legalBranchId', stage: 'status' },
+      ),
+    ],
   },
   HrAction: {
     owner: 'hr',
@@ -650,6 +688,9 @@ export const WORKSPACES_LIFECYCLE = {
     enforcement: notEnforced('personnel orders: 75 years (279-NK)'),
     holdAware: true,
     exportable: 'both',
+    // Оклад и основание увольнения живут в параметрах действия (JSON) — путь «колонка.ключ»
+    exportScope: { user: { columns: ['userId'] } },
+    exportGuard: [guard('hr.employment', { 'params.salaryAmount': 'salaryAmount', 'params.ground': 'dismissalGround' }, { subject: 'userId' })],
   },
   HrActionBatch: {
     owner: 'hr',

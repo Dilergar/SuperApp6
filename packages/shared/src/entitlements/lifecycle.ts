@@ -53,4 +53,30 @@ export const LIFECYCLE_ENTITLEMENTS = defineEntitlements({
     service: 'lifecycle',
     labelKey: 'entitlements.keys.lifecycleRetentionIntegrations',
   },
+  /**
+   * Выгрузка данных организации целиком (владелец) — на всех планах: свои данные организация
+   * забирает всегда (Notion, Google Workspace); ключ — рубильник Кабинета против злоупотреблений.
+   * Выгрузка человека своих данных от тарифа не зависит никогда (право субъекта ПДн).
+   */
+  'lifecycle.export': {
+    kind: 'feature',
+    carrier: 'container',
+    subjects: ['workspace'],
+    defaultFree: true,
+    hasUsage: false,
+    service: 'lifecycle',
+    labelKey: 'entitlements.keys.lifecycleExport',
+  },
+  /** Объём выгрузок организации в сутки (байты архива): free 5 ГБ, платные — множителем ступени */
+  'lifecycle.export.bytesPerDay': {
+    kind: 'quota',
+    carrier: 'container',
+    subjects: ['workspace'],
+    unit: 'bytes',
+    period: 'day',
+    defaultFree: 5 * 1024 ** 3,
+    hasUsage: true,
+    service: 'lifecycle',
+    labelKey: 'entitlements.keys.lifecycleExportBytesPerDay',
+  },
 });

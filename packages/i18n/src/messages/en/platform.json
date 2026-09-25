@@ -284,6 +284,14 @@
     "lifecycleIndexesReport": {
       "title": "Report unused indexes",
       "description": "Lists non-unique indexes with zero scans since statistics were reset, largest first. The result is not stored in the command log."
+    },
+    "lifecycleRestoreExtract": {
+      "title": "Extract an organization for restore",
+      "description": "Copies all rows of the organization from the cluster restored to a point in time (PITR) into a signed restore archive. Nothing changes in the live database. The preview shows rows per table."
+    },
+    "lifecycleRestoreImport": {
+      "title": "Restore an organization from an archive",
+      "description": "Returns the rows of a signed restore archive to the live database, parents first: ids are kept, existing rows are left as they are. People erased after the snapshot are erased again. The preview shows rows to return and rows already present."
     }
   },
   "fields": {
@@ -772,7 +780,18 @@
       "activeHolds": "Active holds",
       "settings": "Retention settings",
       "defaults": "Platform defaults",
-      "pending": "→ {duration} from {date}"
+      "pending": "→ {duration} from {date}",
+      "exports": "Data exports",
+      "noExports": "No exports",
+      "restoreArchive": "Restore archive",
+      "exportLine": "{date} · {size} · links issued: {downloads}"
+    },
+    "exportStatus": {
+      "queued": "Queued",
+      "running": "Building",
+      "ready": "Ready",
+      "failed": "Failed",
+      "expired": "Expired"
     }
   }
 }

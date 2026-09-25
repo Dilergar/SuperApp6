@@ -761,6 +761,16 @@
           "title": "Chat auto-delete set",
           "description": "A member turned on, changed or turned off the auto-delete timer of a chat"
         }
+      },
+      "export": {
+        "requested": {
+          "title": "Data export requested",
+          "description": "A person ordered an archive of all their data, or an owner — of the organization"
+        },
+        "downloaded": {
+          "title": "Data archive downloaded",
+          "description": "A download link was issued for a part of a ready archive (which download of the part)"
+        }
       }
     }
   }

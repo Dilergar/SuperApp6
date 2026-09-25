@@ -599,3 +599,91 @@ export function deleteByPkSql(t: LifecycleTable, ids: readonly string[]): Prisma
   if (t.pk.length !== 1) throw new Error(`lifecycle sql: ${t.name} has no single-column key`);
   return Prisma.sql`DELETE FROM ${t.ident} t WHERE ${pkAnySql(t, ids)}`;
 }
+
+// ============================================================
+// Выгрузка: «строка субъекта» стороны (человек / организация)
+// ============================================================
+
+/** Родитель политики по ключу владельца `via` и колонка ребёнка, что на него указывает. */
+function viaParentOf(policy: LifecyclePolicy): { parent: LifecyclePolicy; column: string } | null {
+  const ok = policy.ownerKey;
+  if (ok.kind === 'global' || ok.kind === 'polymorphic' || ok.kind === 'scoped' || !('via' in ok)) return null;
+  const parent = lifecyclePolicy(ok.via);
+  const edge = parent?.edges.find((e) => e.to === policy.id && !!e.via);
+  return parent && edge?.via ? { parent, column: edge.via } : null;
+}
+
+/** Колонки строк-родителей субъекта: `col IN (SELECT pk FROM parent WHERE <область родителя>)`. */
+function viaSql(parent: LifecyclePolicy, columns: readonly string[], t: LifecycleTable, side: 'user' | 'workspace', subjectId: string, alias: string, depth: number): Prisma.Sql | null {
+  const pt = lifecycleTableOf(parent);
+  if (!pt || pt.pk.length !== 1) return null;
+  const pAlias = `p${depth}`;
+  const parentScope = exportScopeSql(parent, pt, side, subjectId, pAlias, depth + 1);
+  if (!parentScope) return null;
+  const sub = Prisma.sql`SELECT ${Prisma.raw(`${pAlias}.${q(pt.pk[0])}`)} FROM ${pt.ident} ${Prisma.raw(pAlias)} WHERE ${parentScope}`;
+  return Prisma.sql`(${Prisma.join(columns.map((c) => Prisma.sql`${colSql(t, c, alias)} IN (${sub})`), ' OR ')})`;
+}
+
+/**
+ * Строки стороны выгрузки: явная область реестра (`exportScope`) либо ключ владельца (человек,
+ * полиморфный владелец, организация с человеком, беседа организации, родитель по `via` —
+ * область родителя своя, по его ключу). `null` — сторона этой политики так не отбирается
+ * (нужен провайдер модуля). Глубина цепочки родителей ограничена — цикл реестра не повесит сборку.
+ */
+export function exportScopeSql(policy: LifecyclePolicy, t: LifecycleTable, side: 'user' | 'workspace', subjectId: string, alias = 't', depth = 0): Prisma.Sql | null {
+  if (depth > 4) return null;
+  const sc = policy.exportScope?.[side];
+  if (sc) {
+    const any: Prisma.Sql[] = [];
+    for (const c of sc.columns ?? []) any.push(eqSql(t, c, subjectId, alias));
+    if (sc.via) {
+      const parent = lifecyclePolicy(sc.via.policy);
+      const v = parent ? viaSql(parent, sc.via.columns, t, side, subjectId, alias, depth) : null;
+      if (!v) return null;
+      any.push(v);
+    }
+    if (!any.length) return null;
+    const parts: Prisma.Sql[] = [Prisma.sql`(${Prisma.join(any, ' OR ')})`];
+    if (sc.filter) parts.push(filterSql(t, sc.filter, alias));
+    if (sc.personalOnly) parts.push(personalSql(policy, t, alias));
+    return Prisma.join(parts, ' AND ');
+  }
+  const own = side === 'user' ? userOwnedSql(policy, t, subjectId, alias) : workspaceOwnedSql(policy, t, subjectId, alias);
+  if (own) return own;
+  const via = viaParentOf(policy);
+  return via ? viaSql(via.parent, [via.column], t, side, subjectId, alias, depth) : null;
+}
+
+/** Колонки «удалено / в корзине» модели: строка с непустой уходит мимо выгрузки. */
+export function exportLiveSql(t: LifecycleTable, alias = 't'): Prisma.Sql {
+  const cols = ['deletedAt', 'trashedAt'].filter((f) => t.fields.has(f));
+  return cols.length ? Prisma.raw(cols.map((f) => `${colText(t, f, alias)} IS NULL`).join(' AND ')) : Prisma.sql`TRUE`;
+}
+
+/** Страница id выгрузки по первичному ключу (keyset): `pk > курсор` в порядке ключа. */
+export function exportIdsSql(t: LifecycleTable, where: Prisma.Sql, after: string | null, limit: number): Prisma.Sql {
+  if (t.pk.length !== 1) throw new Error(`lifecycle sql: ${t.name} has no single-column key`);
+  const pkField = [...t.fields.values()].find((x) => x.column === t.pk[0]);
+  const col = Prisma.raw(`t.${q(t.pk[0])}`);
+  const cursor = after === null ? Prisma.sql`TRUE` : pkField?.native === 'Uuid' ? Prisma.sql`${col} > ${after}::uuid` : pkField?.type === 'BigInt' ? Prisma.sql`${col} > ${after}::bigint` : Prisma.sql`${col} > ${after}`;
+  return Prisma.sql`SELECT ${col}::text AS id FROM ${t.ident} t WHERE ${where} AND ${cursor} ORDER BY ${col} LIMIT ${limit}`;
+}
+
+/** Id родителей из списка, которые принадлежат субъекту стороны (перепроверка владельца строк по `via`). */
+export function exportOwnedIdsSql(policy: LifecyclePolicy, t: LifecycleTable, side: 'user' | 'workspace', subjectId: string, ids: readonly string[]): Prisma.Sql | null {
+  const scope = exportScopeSql(policy, t, side, subjectId);
+  if (!scope || t.pk.length !== 1) return null;
+  return Prisma.sql`SELECT ${Prisma.raw(`t.${q(t.pk[0])}`)}::text AS id FROM ${t.ident} t WHERE ${pkAnySql(t, ids)} AND ${scope}`;
+}
+
+/** Имя поля модели по колонке первичного ключа (Prisma-делегат читает по имени поля). */
+export function pkFieldOf(t: LifecycleTable): { name: string; type: string } | null {
+  if (t.pk.length !== 1) return null;
+  const f = [...t.fields.values()].find((x) => x.column === t.pk[0]);
+  return f ? { name: f.name, type: f.type } : null;
+}
+
+/** Поля модели (имя, тип) — сборщик выгрузки знает, что Bytes и что дата. */
+export function modelFieldsOf(t: LifecycleTable): ReadonlyArray<{ name: string; type: string; list: boolean }> {
+  return [...t.fields.values()].map((f) => ({ name: f.name, type: f.type, list: f.list }));
+}
