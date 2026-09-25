@@ -1,0 +1,53 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap">
+<style>
+body{background:#eae6de;font-family:Manrope,sans-serif;margin:0;padding:16px;color:#1d1b1d}
+.row{display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:nowrap}
+.b{background:#fafbf8;border-radius:20px;padding:14px;display:flex;align-items:center;justify-content:center}
+.d{background:#1d1b1d}.p{background:#588cd3}
+svg{display:block}.t{font-size:12px;width:40px;font-weight:700}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+ <symbol id="B2" viewBox="0 0 64 64">
+  <path d="M7 13 A6 6 0 0 1 13 7 H51 A6 6 0 0 1 57 13 V18 A6 6 0 0 1 51 24 H29 A4 4 0 0 0 25 28 V51 A6 6 0 0 1 19 57 H13 A6 6 0 0 1 7 51 Z" fill="currentColor"/>
+  <circle cx="42.75" cy="42.75" r="14.6" fill="var(--dot,#588cd3)"/>
+ </symbol>
+ <symbol id="B4" viewBox="0 0 64 64">
+  <path d="M7 15 A8 8 0 0 1 15 7 H49 A8 8 0 0 1 57 15 V16 A8 8 0 0 1 49 24 H29 A4 4 0 0 0 25 28 V49 A8 8 0 0 1 17 57 H15 A8 8 0 0 1 7 49 Z" fill="currentColor"/>
+  <circle cx="42.75" cy="42.75" r="14.6" fill="var(--dot,#588cd3)"/>
+ </symbol>
+ <symbol id="C3" viewBox="0 0 64 64">
+  <g id="rays3" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"></g>
+  <circle cx="32" cy="32" r="16" fill="none" stroke="var(--dot,#588cd3)" stroke-width="5.5"/>
+  <g stroke="currentColor" stroke-width="3.6" stroke-linecap="butt">
+   <line x1="26.5" y1="17" x2="26.5" y2="47"/><line x1="37.5" y1="17" x2="37.5" y2="47"/>
+   <line x1="17" y1="26.5" x2="47" y2="26.5"/><line x1="17" y1="37.5" x2="47" y2="37.5"/>
+  </g>
+  <circle cx="32" cy="32" r="16" fill="none" stroke="var(--dot,#588cd3)" stroke-width="5.5"/>
+ </symbol>
+ <symbol id="C4" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="21" fill="none" stroke="var(--dot,#588cd3)" stroke-width="7"/>
+  <g stroke="currentColor" stroke-width="5" stroke-linecap="butt">
+   <line x1="25" y1="13" x2="25" y2="51"/><line x1="39" y1="13" x2="39" y2="51"/>
+   <line x1="13" y1="25" x2="51" y2="25"/><line x1="13" y1="39" x2="51" y2="39"/>
+  </g>
+  <circle cx="32" cy="32" r="21" fill="none" stroke="var(--dot,#588cd3)" stroke-width="7"/>
+ </symbol>
+</defs></svg>
+<div id="out"></div>
+<script>
+const rays=document.getElementById('rays3');
+for(let i=0;i<12;i++){const a=(i+0.5)/12*Math.PI*2;const r1=23,r2=29;
+ const l=document.createElementNS('http://www.w3.org/2000/svg','line');
+ l.setAttribute('x1',32+r1*Math.cos(a));l.setAttribute('y1',32+r1*Math.sin(a));
+ l.setAttribute('x2',32+r2*Math.cos(a));l.setAttribute('y2',32+r2*Math.sin(a));rays.appendChild(l);}
+const out=document.getElementById('out');
+for(const id of ['B2','B4','C3','C4']){
+ out.insertAdjacentHTML('beforeend',`<div class="row"><span class="t">${id}</span>
+ <div class="b"><svg width="96" height="96" style="color:#1d1b1d"><use href="#${id}"/></svg></div>
+ <div class="b d" style="--hole:#1d1b1d"><svg width="56" height="56" style="color:#fafbf8"><use href="#${id}"/></svg></div>
+ <div class="b p" style="--dot:#1d1b1d;--hole:#588cd3"><svg width="56" height="56" style="color:#fafbf8"><use href="#${id}"/></svg></div>
+ <div class="b"><svg width="32" height="32" style="color:#1d1b1d"><use href="#${id}"/></svg>&nbsp;&nbsp;<svg width="16" height="16" style="color:#1d1b1d"><use href="#${id}"/></svg></div>
+ <div class="b" style="gap:10px"><svg width="36" height="36" style="color:#1d1b1d"><use href="#${id}"/></svg><span style="font-weight:800;font-size:24px;letter-spacing:-0.03em">SuperApp<span style="color:#588cd3">6</span></span></div>
+ </div>`);}
+</script></body></html>

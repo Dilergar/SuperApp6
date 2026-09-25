@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="№6">
+<g fill="#1d1b1d">
+<path d="M19 218V68H53L123 175.14V68H151V218H117L47 110.86V218Z"/>
+<path fill-rule="evenodd" d="M189 127.71 A48 48 0 0 1 213 38.14 A48 48 0 0 1 237 44.57 L237 64.98 A32 32 0 0 0 182.17 77.58 A32 32 0 1 1 189 127.71Z M221 100 A16 16 0 1 0 189 100 A16 16 0 1 0 221 100Z"/>
+<rect x="173" y="148" width="64" height="14"/>
+</g>
+</svg>
