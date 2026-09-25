@@ -106,4 +106,21 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withNextIntl(nextConfig);
+// next-intl 3 под Turbopack кладёт алиас `next-intl/config` в `experimental.turbo`, а Next 15.3+
+// объявил этот ключ устаревшим (предупреждение на каждом старте dev) — переносим его в
+// `turbopack`. Уйдёт с переходом на next-intl 4, который пишет `turbopack` сам.
+function withTurbopackKey(config: NextConfig): NextConfig {
+  const { turbo, ...experimental } = (config.experimental ?? {}) as NextConfig['experimental'] & { turbo?: NextConfig['turbopack'] };
+  if (!turbo) return config;
+  return {
+    ...config,
+    experimental,
+    turbopack: {
+      ...config.turbopack,
+      ...turbo,
+      resolveAlias: { ...config.turbopack?.resolveAlias, ...turbo.resolveAlias },
+    },
+  };
+}
+
+export default withTurbopackKey(withNextIntl(nextConfig));
