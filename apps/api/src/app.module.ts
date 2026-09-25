@@ -8,6 +8,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from './shared/database/database.module';
 import { RedisModule } from './shared/redis/redis.module';
 import { MetricsModule } from './shared/metrics/metrics.module';
+import { HealthModule } from './shared/health/health.module';
 import { SessionValidatorModule } from './shared/auth/session-validator.module';
 import { EventBusModule } from './shared/events/event-bus.module';
 import { WorkspaceContextModule } from './shared/context/workspace-context.module';
@@ -114,6 +115,8 @@ import { RedisThrottlerStorage } from './shared/throttler/redis-throttler.storag
     DatabaseModule,
     RedisModule,
     MetricsModule,
+    // Пробы /health/live|ready + реестр проверок готовности движков
+    HealthModule,
     // Живость/отзыв сессии — общая проверка для HTTP (JwtStrategy) и рукопожатия сокета.
     // Ядро шлюза согласий — ДО валидатора сессий: он держит его для рукопожатия сокета
     ConsentsGateModule,

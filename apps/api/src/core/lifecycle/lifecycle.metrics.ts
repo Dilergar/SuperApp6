@@ -3,6 +3,39 @@ import type { Counter, Gauge, Histogram } from 'prom-client';
 import { MetricsService } from '../../shared/metrics/metrics.service';
 
 /**
+ * Сторожевые сигналы БД (`LifecycleDbWatch`, раз в 5 минут КАЖДЫЙ инстанс — правила берут
+ * `max without(instance)`). Пороги → действие — infra/prometheus/alerts.yml.
+ */
+const DB_SIGNALS = {
+  xid_age: ['lifecycle_db_xid_age', 'Age of datfrozenxid of the database (transactions; warn 500M, page 1B)'],
+  mxid_age: ['lifecycle_db_mxid_age', 'Age of datminmxid of the database (multixacts)'],
+  relfrozenxid_age: ['lifecycle_db_oldest_relfrozenxid_age', 'Largest age(relfrozenxid) among tables'],
+  size_bytes: ['lifecycle_db_size_bytes', 'Database size'],
+  connections: ['lifecycle_db_connections', 'Client backends of the database'],
+  connections_active: ['lifecycle_db_connections_active', 'Client backends running a query'],
+  connections_idle_tx: ['lifecycle_db_connections_idle_in_transaction', 'Client backends idle inside a transaction'],
+  max_connections: ['lifecycle_db_max_connections', 'max_connections setting'],
+  lock_waiters: ['lifecycle_db_lock_waiters', 'Backends waiting for a heavyweight lock'],
+  lockmanager_waits: ['lifecycle_db_lwlock_lockmanager_waits', 'Backends waiting on LWLock:LockManager (fast-path slots exhausted)'],
+  replicas: ['lifecycle_db_replicas', 'Streaming replicas attached'],
+  replay_lag_seconds: ['lifecycle_db_replay_lag_seconds', 'Largest replay lag among replicas (warn 1s, page 10s)'],
+  invalid_indexes: ['lifecycle_db_invalid_indexes', 'Invalid indexes (failed CONCURRENTLY builds)'],
+  detach_pending: ['lifecycle_db_detach_pending', 'Partitions stuck in «detach pending»'],
+  cache_hit_ratio: ['lifecycle_db_cache_hit_ratio', 'Share of block reads served by shared buffers (alert < 0.99)'],
+  temp_bytes: ['lifecycle_db_temp_bytes', 'Cumulative bytes written to temporary files'],
+  temp_files: ['lifecycle_db_temp_files', 'Cumulative temporary files created'],
+  deadlocks: ['lifecycle_db_deadlocks', 'Cumulative deadlocks detected'],
+  checkpoints_requested_ratio: ['lifecycle_db_checkpoints_requested_ratio', 'Share of checkpoints requested (not timed); alert > 0.1 — max_wal_size too small'],
+  slot_retained_wal_bytes: ['lifecycle_db_slot_retained_wal_bytes', 'WAL retained by the most lagging replication slot'],
+  slot_wal_cap_bytes: ['lifecycle_db_slot_wal_cap_bytes', 'max_slot_wal_keep_size in bytes (-1 = unlimited)'],
+  slots_inactive: ['lifecycle_db_slots_inactive', 'Replication slots with no consumer attached'],
+  archive_failed: ['lifecycle_db_archive_failed', 'Cumulative failed WAL archive attempts'],
+  archive_last_success_seconds: ['lifecycle_db_archive_last_success_seconds', 'Unix time of the last archived WAL segment (0 = never)'],
+  longest_tx_seconds: ['lifecycle_db_longest_transaction_seconds', 'Age of the oldest open client transaction'],
+} as const;
+export type LifecycleDbSignal = keyof typeof DB_SIGNALS;
+
+/**
  * Метрики движка жизненного цикла (`/metrics`). Метки — только имена родителей и коды
  * операций: ни id записей, ни организаций.
  *
@@ -42,6 +75,12 @@ export class LifecycleMetrics {
   private readonly canaryFailures: Counter<string>;
   private readonly canaryLastOk: Gauge<string>;
   private readonly canaryUnseeded: Gauge<string>;
+  private readonly dbSignals: Record<LifecycleDbSignal, Gauge<string>>;
+  private readonly backupLastOk: Gauge<string>;
+  private readonly drillLastOk: Gauge<string>;
+  private readonly retentionLagging: Gauge<string>;
+  private readonly retentionMaxLag: Gauge<string>;
+  private readonly watchLastOk: Gauge<string>;
 
   constructor(metrics: MetricsService) {
     this.ahead = metrics.gauge('lifecycle_partitions_ahead', 'Partitions from the current period onwards (current + future)', ['parent']);
@@ -67,6 +106,34 @@ export class LifecycleMetrics {
     this.canaryFailures = metrics.counter('lifecycle_canary_failures_total', 'Canary runs that found a trace of an erased synthetic subject', ['store']);
     this.canaryLastOk = metrics.gauge('lifecycle_canary_last_success_seconds', 'Unix time of the last clean canary run');
     this.canaryUnseeded = metrics.gauge('lifecycle_canary_unseeded_policies', 'Stores of the erasure plan the last canary run did not seed (not verified)');
+    this.dbSignals = Object.fromEntries(
+      (Object.keys(DB_SIGNALS) as LifecycleDbSignal[]).map((k) => [k, metrics.gauge(DB_SIGNALS[k][0], DB_SIGNALS[k][1])]),
+    ) as Record<LifecycleDbSignal, Gauge<string>>;
+    this.backupLastOk = metrics.gauge('lifecycle_backup_last_success_seconds', 'Unix time of the last successful full/incr/diff backup per repository (alert on ABSENCE, not on error mail)', ['repo']);
+    this.drillLastOk = metrics.gauge('lifecycle_backup_last_drill_success_seconds', 'Unix time of the last successful restore/PITR/DR drill (0 = never)');
+    this.retentionLagging = metrics.gauge('lifecycle_retention_lagging_policies', 'Policies whose oldest row is older than retention + tolerance');
+    this.retentionMaxLag = metrics.gauge('lifecycle_retention_max_lag_days', 'Largest retention lag among policies, days');
+    this.watchLastOk = metrics.gauge('lifecycle_db_watch_last_success_seconds', 'Unix time of the last successful database watch (alert when stale: silent metrics = Stripe 2019)');
+  }
+
+  dbSignal(values: Partial<Record<LifecycleDbSignal, number | null>>): void {
+    for (const [k, v] of Object.entries(values) as Array<[LifecycleDbSignal, number | null]>) {
+      if (v !== null && v !== undefined && Number.isFinite(v)) this.dbSignals[k].set(v);
+    }
+  }
+
+  backupFreshness(repos: ReadonlyArray<{ repo: string; lastSuccessAt: string | null }>, lastDrillOkAt: string | null): void {
+    for (const r of repos) this.backupLastOk.set({ repo: r.repo }, r.lastSuccessAt ? Math.floor(new Date(r.lastSuccessAt).getTime() / 1000) : 0);
+    this.drillLastOk.set(lastDrillOkAt ? Math.floor(new Date(lastDrillOkAt).getTime() / 1000) : 0);
+  }
+
+  retentionLag(lagging: number, maxLagDays: number): void {
+    this.retentionLagging.set(lagging);
+    this.retentionMaxLag.set(maxLagDays);
+  }
+
+  dbWatchOk(at: Date): void {
+    this.watchLastOk.set(Math.floor(at.getTime() / 1000));
   }
 
   health(parent: string, h: { ahead: number; detachPending: number; leaves: number }): void {

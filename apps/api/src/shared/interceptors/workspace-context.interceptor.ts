@@ -16,6 +16,7 @@ import { DEFER_WORKSPACE_CHECK_KEY } from '../decorators/defer-workspace-check.d
 import { ANALYTICS_HEADERS, CONSENT_ERROR_CODES, KEYS_ERROR_CODES, LOCALE_HEADER, WORKSPACE_ROLE_RANK } from '@superapp/shared';
 import { countryFromHeaders, negotiateLocale } from '@superapp/i18n';
 import { buildRequestContext, type RequestContext } from '../context/request-context';
+import { AUDIT_REDIS } from '../../core/audit/audit.constants';
 import { AuditService } from '../../core/audit/audit.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -156,7 +157,8 @@ export class WorkspaceContextInterceptor implements NestInterceptor {
   private firstSeen(workspaceId: string, userId: string, ctx: RequestContext | undefined, familyId: string | undefined): void {
     const device = ctx?.deviceId ?? familyId;
     if (!device) return;
-    const key = `ws:seen:${workspaceId}:${userId}:${device}`;
+    // Одноразовая отметка на 30 дней — СОСТОЯНИЕ аудита: вытеснение повторило бы «впервые с устройства»
+    const key = AUDIT_REDIS.wsSeen(workspaceId, userId, device);
     const now = Date.now();
     const hit = this.seen.get(key);
     if (hit && now - hit < 60_000) return;

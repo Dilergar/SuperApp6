@@ -221,7 +221,7 @@ export class UsersService implements OnModuleInit {
 
   private async readProfileCache(userId: string): Promise<UserProfile | null> {
     try {
-      const stored = await this.redis.get(`user:${userId}:profile`);
+      const stored = await this.redis.cache.get(`user:${userId}:profile`);
       if (!stored || !this.keysEnvelope.isEnvelope(stored)) return null; // в т.ч. запись прошлого формата (открытый JSON)
       const dec = await this.keysEnvelope.tryDecrypt({ type: 'user', id: userId }, this.profileCacheCtx(userId), stored);
       return dec.ok ? (JSON.parse(dec.value) as UserProfile) : null;
@@ -234,7 +234,7 @@ export class UsersService implements OnModuleInit {
   private async writeProfileCache(userId: string, profile: UserProfile): Promise<void> {
     try {
       const stored = await this.keysEnvelope.encrypt({ type: 'user', id: userId }, this.profileCacheCtx(userId), JSON.stringify(profile));
-      await this.redis.set(`user:${userId}:profile`, stored, 300);
+      await this.redis.cache.set(`user:${userId}:profile`, stored, 300);
     } catch {
       /* best-effort: без кэша профиль читается из БД */
     }
@@ -401,7 +401,7 @@ export class UsersService implements OnModuleInit {
     await this.db.platformSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     await this.redis.invalidateUserProfile(userId);
     // JWT-guard кэширует «аккаунт жив» на 60с — удаление обязано сбросить кэш сразу.
-    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
+    await this.redis.cache.forget(authAliveKey(userId));
     await this.consentsGate.forgetUser(userId);
     // Эффекты отзыва согласий вне базы (отзыв токена у Google) — после коммита, best-effort
     await (consentsAfterCommit as (() => Promise<void>) | null)?.().catch(() => undefined);
@@ -624,7 +624,7 @@ export class UsersService implements OnModuleInit {
    */
   async eraseAccount(userId: string, ctx: LifecycleSubjectEraseContext): Promise<{ rows: number }> {
     // JWT-guard кэширует «жив» — терминальное удаление чистит кэш первым делом.
-    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
+    await this.redis.cache.forget(authAliveKey(userId));
     const hidden = await this.db.user.updateMany({
       where: { id: userId, deletedAt: null, deletionScheduledAt: { not: null } },
       data: { deletedAt: new Date(), tokenEpoch: { increment: 1 } },
@@ -765,7 +765,7 @@ export class UsersService implements OnModuleInit {
 
     // Bust caches for the anonymized user and every former contact.
     await this.redis.invalidateUserProfile(userId);
-    await this.redis.del(`user:${userId}:roles`);
+    await this.redis.cache.forget(`user:${userId}:roles`);
     await Promise.all(
       [...others].map((id) => this.redis.invalidateUserProfile(id)),
     );

@@ -18,21 +18,68 @@ services:
       - '5432:5432'
     volumes:
       - postgres18_data:/var/lib/postgresql
+      # Настройки SuperApp6 (infra/postgres/superapp6.conf) — подключаются строкой include_if_exists;
+      # новый том подключает init-скрипт, готовый — команда из docs/dev_environment.md
+      - ./infra/postgres/superapp6.conf:/etc/postgresql/superapp6.conf:ro
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U superapp -d superapp6']
       interval: 5s
       timeout: 5s
       retries: 5
 
+  # PgBouncer 1.26.0 (режим транзакций) — пул приложения: DATABASE_URL → :6432. Миграции,
+  # онлайн-DDL и обслуживание — мимо него по DIRECT_URL (:5432). Собирается из исходников с
+  # пином sha256: docker compose build pgbouncer
+  pgbouncer:
+    build: ./infra/pgbouncer
+    image: superapp6/pgbouncer:1.26.0
+    container_name: superapp6-pgbouncer
+    restart: unless-stopped
+    command: ['/etc/pgbouncer/pgbouncer.dev.ini']
+    ports:
+      - '6432:6432'
+    volumes:
+      - ./infra/pgbouncer/pgbouncer.common.ini:/etc/pgbouncer/pgbouncer.common.ini:ro
+      - ./infra/pgbouncer/pgbouncer.dev.ini:/etc/pgbouncer/pgbouncer.dev.ini:ro
+      - ./infra/pgbouncer/userlist.dev.txt:/etc/pgbouncer/userlist.dev.txt:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Redis — версия ПИНОВАНА: ≥ 7.4.6 (RediShell, CVSS 10); обновлять минорную осознанно.
+  # Две роли (docs/data_architecture.md): здесь СОСТОЯНИЕ (noeviction + AOF, REDIS_URL), кэш —
+  # отдельный redis-cache ниже (allkeys-lfu, REDIS_CACHE_URL). Приложение входит пользователем
+  # sa6_app с прод-ограничениями ACL (infra/redis/users.dev.acl).
   redis:
     image: redis:7.4.11-alpine
     container_name: superapp6-redis
     restart: unless-stopped
+    # protected-mode off только в dev: dev-пользователь default без пароля (LiveKit), а
+    # защищённый режим рвёт такие подключения с хоста; в проде default выключен ACL
+    command: ['redis-server', '/usr/local/etc/redis/redis.conf', '--protected-mode', 'no']
     ports:
       - '6379:6379'
     volumes:
       - redis_data:/data
+      - ./infra/redis/state.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./infra/redis/users.dev.acl:/usr/local/etc/redis/users.acl:ro
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis-cache:
+    image: redis:7.4.11-alpine
+    container_name: superapp6-redis-cache
+    restart: unless-stopped
+    command: ['redis-server', '/usr/local/etc/redis/redis.conf', '--protected-mode', 'no']
+    ports:
+      - '6380:6379'
+    volumes:
+      - ./infra/redis/cache.conf:/usr/local/etc/redis/redis.conf:ro
+      - ./infra/redis/users.dev.acl:/usr/local/etc/redis/users.acl:ro
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s

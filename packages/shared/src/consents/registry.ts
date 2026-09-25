@@ -131,9 +131,8 @@ export const CONSENT_LIMITS = {
   pendingWorkspacesMax: 100,
 } as const;
 
+/** Ключи Redis шлюза — роль КЭШ (эпоха G считается из опубликованных версий в базе, не хранится в Redis). */
 export const CONSENT_REDIS = {
-  /** Глобальная эпоха согласий: растёт при активации существенной версии */
-  globalEpoch: 'consents:epoch',
   /** Кэш флага «у человека есть непринятые блокирующие документы»: `consents:gate:<userId>` */
   gate: (userId: string) => `consents:gate:${userId}`,
   /** Кэш мягкого шлюза организации: `consents:wsgate:<workspaceId>` */

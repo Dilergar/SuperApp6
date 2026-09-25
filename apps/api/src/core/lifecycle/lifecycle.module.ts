@@ -8,6 +8,8 @@ import { LifecycleDevController } from './lifecycle.dev.controller';
 import { LifecycleHealth } from './lifecycle.health';
 import { LifecycleLooseFk } from './lifecycle.loose-fk';
 import { LifecycleMetrics } from './lifecycle.metrics';
+import { LifecycleDbWatch } from './lifecycle.db-watch';
+import { LifecycleReadinessProvider } from './lifecycle.readiness.provider';
 import { LifecyclePartitions } from './lifecycle.partitions';
 import { LifecyclePlatformProvider } from './lifecycle.platform.provider';
 import { LifecyclePurgeRunner } from './lifecycle.purge';
@@ -79,6 +81,8 @@ import { lifecycleTableOf, lifecycleTenantScopeSql } from './lifecycle.sql';
     LifecycleTenantPurgeService,
     LifecycleLooseFk,
     LifecycleCron,
+    LifecycleDbWatch,
+    LifecycleReadinessProvider,
     LifecyclePlatformProvider,
   ],
   exports: [

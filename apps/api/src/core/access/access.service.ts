@@ -78,11 +78,13 @@ export class AccessService {
   async check(subject: Principal, relation: string, resource: ResourceRef): Promise<boolean> {
     const epoch = await this.epochFor(resource.type, resource.id);
     const key = `acl:chk:${epoch}:${subject.type}:${subject.id}:${relation}:${resource.type}:${resource.id}`;
-    const cached = await this.redis.get(key);
+    // Ключ несёт эпоху (СОСТОЯНИЕ): запись после сброса ложится под старую эпоху и не читается.
+    // Кэш недоступен — решает резолвер
+    const cached = await this.redis.cache.get(key).catch(() => null);
     if (cached !== null) return cached === '1';
 
     const result = await this.resolver.check(subject, relation, resource);
-    await this.redis.set(key, result ? '1' : '0', CACHE_TTL_SECONDS);
+    await this.redis.cache.set(key, result ? '1' : '0', CACHE_TTL_SECONDS).catch(() => undefined);
     return result;
   }
 

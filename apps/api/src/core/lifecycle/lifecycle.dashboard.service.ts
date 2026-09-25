@@ -348,6 +348,20 @@ export class LifecycleDashboardService {
     return this.cached('retention', () => this.retentionRows(new Date()));
   }
 
+  /** Отставание сроков для метрик — тот же допуск, что у плитки обзора. */
+  async retentionLag(): Promise<{ lagging: number; maxLagDays: number }> {
+    const r = await this.retention();
+    const lagging = r.rows.filter((x) => (x.lagDays ?? 0) > LAG_TOLERANCE_DAYS);
+    return { lagging: lagging.length, maxLagDays: lagging.reduce((a, x) => Math.max(a, x.lagDays ?? 0), 0) };
+  }
+
+  /** Свежесть бэкапов для метрик: последний успех по репозиторию и последнее успешное учение. */
+  async backupFreshness(): Promise<{ repos: Array<{ repo: string; lastSuccessAt: string | null }>; lastDrillOkAt: string | null }> {
+    const s = await this.backupsState(new Date());
+    const b = await this.backups();
+    return { repos: s.repos, lastDrillOkAt: b.drills.find((d) => d.status === 'ok')?.startedAt ?? null };
+  }
+
   private async retentionRows(now: Date): Promise<LifecycleDataRetentionDto> {
     const overrides = await this.overrides.all();
     const lastDay = await this.db.lifecycleStorageDaily.findFirst({ orderBy: { day: 'desc' }, select: { day: true } });

@@ -110,7 +110,7 @@ export class VisibilityDevController {
   async policyCache(@Query() q: unknown) {
     this.assertDev();
     const { ownerKind, ownerId, recordType } = cacheQuery.parse(q ?? {});
-    const raw = await this.redis.get(VISIBILITY_REDIS.policy(ownerKind, ownerId, recordType));
+    const raw = await this.redis.cache.get(VISIBILITY_REDIS.policy(ownerKind, ownerId, recordType));
     return { success: true, data: raw ? JSON.parse(raw) : null };
   }
 }

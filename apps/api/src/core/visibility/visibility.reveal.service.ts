@@ -10,6 +10,7 @@ import {
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { ApiError, forbidden, notFound } from '../../shared/errors/api-error';
+import { incrWindow } from '../../shared/redis/incr-window';
 import { RedisService } from '../../shared/redis/redis.service';
 import { AuditService } from '../audit/audit.service';
 import { AnalyticsService } from '../analytics/analytics.service';
@@ -159,12 +160,10 @@ export class VisibilityRevealService {
    */
   private async detect(userId: string, workspaceId: string | null): Promise<void> {
     try {
-      const key = VISIBILITY_REDIS.revealWindow(userId);
       const client = this.redis.getClient();
-      const n = await client.incr(key);
-      if (n === 1) await client.expire(key, VISIBILITY_LIMITS.massRevealWindowMin * 60);
-      // «≥», а не «===»: окно, пережившее сбой между INCR и EXPIRE, иначе проскочило бы порог
-      // навсегда; пауза уже стоит — повторно не ставим и тревогу не дублируем
+      // Одним MULTI (`incrWindow`): ключ окна не остаётся без срока при сбое между INCR и EXPIRE.
+      // «≥», а не «===»: пауза уже стоит — повторно не ставим и тревогу не дублируем
+      const n = await incrWindow(client, VISIBILITY_REDIS.revealWindow(userId), VISIBILITY_LIMITS.massRevealWindowMin * 60);
       if (n < VISIBILITY_LIMITS.massRevealThreshold) return;
       const armed = await client.set(VISIBILITY_REDIS.revealPause(userId), '1', 'EX', VISIBILITY_LIMITS.massRevealPauseMin * 60, 'NX');
       if (armed !== 'OK') return;

@@ -774,6 +774,9 @@
     "entitlement_cache": {
       "title": "Plan cache"
     },
+    "visibility_state": {
+      "title": "Visibility detections"
+    },
     "visibility_cache": {
       "title": "Visibility cache"
     },
@@ -784,7 +787,7 @@
       "title": "Presence"
     },
     "seen_throttle": {
-      "title": "Last seen throttles"
+      "title": "Session activity throttle"
     },
     "consents_gate": {
       "title": "Consent gate cache"

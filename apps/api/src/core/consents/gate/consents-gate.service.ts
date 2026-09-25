@@ -180,7 +180,7 @@ export class ConsentsGateService {
     if (g === 0) return false;
     const key = CONSENT_REDIS.gate(userId);
     try {
-      const cached = await this.redis.get(key);
+      const cached = await this.redis.cache.get(key);
       if (cached) {
         const [cg, flag] = cached.split(':');
         if (Number(cg) === g) return flag === '1';
@@ -193,7 +193,7 @@ export class ConsentsGateService {
     if (!blocked) await this.catchUp(userId, g);
     try {
       // «Заблокирован» держим коротко: человек принимает документы в эту же минуту
-      await this.redis.set(key, `${g}:${blocked ? 1 : 0}`, blocked ? 30 : CONSENT_LIMITS.pendingCacheSec);
+      await this.redis.cache.set(key, `${g}:${blocked ? 1 : 0}`, blocked ? 30 : CONSENT_LIMITS.pendingCacheSec);
     } catch {
       /* кэш — best-effort */
     }
@@ -204,17 +204,16 @@ export class ConsentsGateService {
   async catchUp(userId: string, g?: number, client: Pick<DatabaseService, 'user'> = this.db): Promise<void> {
     const epoch = g ?? (await this.globalEpoch());
     const { count } = await client.user.updateMany({ where: { id: userId, consentEpoch: { lt: epoch } }, data: { consentEpoch: epoch } });
-    if (count > 0) await this.redis.del(`auth:alive:${userId}`).catch(() => undefined);
+    if (count > 0) await this.redis.cache.forget(`auth:alive:${userId}`);
   }
 
   /** Сбросить кэши шлюза человека (после приёмки/отзыва). Зовётся ПОСЛЕ коммита. */
   async forgetUser(userId: string): Promise<void> {
-    await this.redis.del(CONSENT_REDIS.gate(userId)).catch(() => undefined);
-    await this.redis.del(`auth:alive:${userId}`).catch(() => undefined);
+    await this.redis.cache.forget(CONSENT_REDIS.gate(userId), `auth:alive:${userId}`);
   }
 
   async forgetWorkspace(workspaceId: string): Promise<void> {
-    await this.redis.del(CONSENT_REDIS.workspaceGate(workspaceId)).catch(() => undefined);
+    await this.redis.cache.forget(CONSENT_REDIS.workspaceGate(workspaceId));
   }
 
   /** Мягкий шлюз организации: есть непринятые вступившие условия. */
@@ -223,7 +222,7 @@ export class ConsentsGateService {
     if (g === 0) return false;
     const key = CONSENT_REDIS.workspaceGate(workspaceId);
     try {
-      const cached = await this.redis.get(key);
+      const cached = await this.redis.cache.get(key);
       if (cached) {
         const [cg, flag] = cached.split(':');
         if (Number(cg) === g) return flag === '1';
@@ -234,7 +233,7 @@ export class ConsentsGateService {
     const { blocking } = await this.pendingOf('workspace', workspaceId);
     const blocked = blocking.length > 0;
     try {
-      await this.redis.set(key, `${g}:${blocked ? 1 : 0}`, blocked ? 30 : CONSENT_LIMITS.pendingCacheSec);
+      await this.redis.cache.set(key, `${g}:${blocked ? 1 : 0}`, blocked ? 30 : CONSENT_LIMITS.pendingCacheSec);
     } catch {
       /* кэш — best-effort */
     }

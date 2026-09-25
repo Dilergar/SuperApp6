@@ -39,6 +39,8 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://superapp:superapp@localhost:5432/superapp6
+      # Пулера в CI нет: прямой адрес = адрес пула (миграции идут по directUrl схемы)
+      DIRECT_URL: postgresql://superapp:superapp@localhost:5432/superapp6
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-only-secret-0123456789abcdef0123456789
       NODE_ENV: test
@@ -174,6 +176,7 @@ jobs:
         run: |
           {
             echo "DATABASE_URL=$DATABASE_URL"
+            echo "DIRECT_URL=$DIRECT_URL"
             echo "REDIS_URL=$REDIS_URL"
             echo "JWT_SECRET=$JWT_SECRET"
             echo "NODE_ENV=test"

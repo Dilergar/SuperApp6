@@ -66,10 +66,11 @@ export class SessionValidatorService {
     const key = authAliveKey(payload.sub);
     const tokenEpoch = payload.epoch ?? 0;
     // Семейство мягко завершено («Завершить сессию», «Это не я», забытое устройство): его
-    // access-токены гаснут СРАЗУ, а не доживают свои 15 минут. Одним MGET с кэшем «жив».
+    // access-токены гаснут СРАЗУ, а не доживают свои 15 минут. Отметка отзыва — СОСТОЯНИЕ
+    // (не вытесняется), «жив» — КЭШ: два инстанса, два параллельных чтения; сбой любого — в базу.
     const famKey = payload.fam ? authFamilyRevokedKey(payload.fam) : null;
     try {
-      const [cached, famRevoked] = famKey ? await this.redis.getClient().mget(key, famKey) : [await this.redis.get(key), null];
+      const [cached, famRevoked] = await Promise.all([this.redis.cache.get(key), famKey ? this.redis.get(famKey) : Promise.resolve(null)]);
       if (famRevoked !== null && famRevoked !== undefined) throw unauthorized('auth.sessionExpired');
       if (cached !== null && cached !== undefined) {
         const parsed = this.parseCached(cached);
@@ -100,7 +101,7 @@ export class SessionValidatorService {
     }
 
     try {
-      await this.redis.set(key, `${user.tokenEpoch}:${user.consentEpoch}`, ALIVE_TTL_SECONDS);
+      await this.redis.cache.set(key, `${user.tokenEpoch}:${user.consentEpoch}`, ALIVE_TTL_SECONDS);
     } catch {
       /* кэш — best-effort */
     }
@@ -162,7 +163,7 @@ export class SessionValidatorService {
    */
   async cachedEpoch(userId: string): Promise<number | null> {
     try {
-      const cached = await this.redis.get(authAliveKey(userId));
+      const cached = await this.redis.cache.get(authAliveKey(userId));
       return cached === null ? null : this.parseCached(cached).tokenEpoch;
     } catch {
       return null;

@@ -8,7 +8,9 @@ import { Subject, filter, Observable } from 'rxjs';
 import type Redis from 'ioredis';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { MetricsService } from '../metrics/metrics.service';
 import { RedisService } from '../redis/redis.service';
+import { StreamLagGauges } from '../redis/stream-lag';
 
 /**
  * Cross-module event bus, backed by a Redis Stream + consumer group.
@@ -65,7 +67,14 @@ export class EventBusService
   private running = false;
   private loop: Promise<void> | null = null;
 
-  constructor(private readonly redis: RedisService) {}
+  private readonly lagGauges: StreamLagGauges;
+
+  constructor(
+    private readonly redis: RedisService,
+    metrics: MetricsService,
+  ) {
+    this.lagGauges = new StreamLagGauges(metrics);
+  }
 
   // Start consuming only AFTER every module's onModuleInit ran, so all
   // on()/onPattern() listeners are already subscribed and no early event is
@@ -74,9 +83,7 @@ export class EventBusService
     // Dedicated connection: XREADGROUP blocks, so it must not share the
     // connection used for normal commands. maxRetriesPerRequest=null is the
     // recommended setting for blocking reads.
-    this.consumer = this.redis.getClient().duplicate({
-      maxRetriesPerRequest: null,
-    });
+    this.consumer = this.redis.duplicateForBlocking('event-bus');
     this.running = true;
     await this.ensureGroup();
     this.loop = this.consumeLoop();
@@ -205,17 +212,12 @@ export class EventBusService
     const now = Date.now();
     if (now - this.lastLagCheck < LAG_CHECK_INTERVAL_MS) return;
     this.lastLagCheck = now;
-    try {
-      const pendingRes = (await this.c.xpending(STREAM, GROUP)) as [number, ...unknown[]] | null;
-      const pending = pendingRes?.[0] ?? 0;
-      const streamLen = (await this.c.xlen(STREAM)) as number;
-      if (pending >= LAG_WARN_THRESHOLD || streamLen >= MAXLEN * 0.8) {
-        this.logger.warn(
-          `EventBus lag: pending=${pending}, stream len=${streamLen}/${MAXLEN} — consumers falling behind, tail loss possible at cap`,
-        );
-      }
-    } catch {
-      /* диагностика — не критично */
+    // Метрики лага (sa6_stream_*): тревога — на lag > MAXLEN/2, пока хвост ещё не обрезан
+    const s = await this.lagGauges.sample(this.c, STREAM, GROUP, MAXLEN);
+    if (s && (s.pending >= LAG_WARN_THRESHOLD || s.lag >= MAXLEN / 2 || s.length >= MAXLEN * 0.8)) {
+      this.logger.warn(
+        `EventBus lag: lag=${s.lag}, pending=${s.pending}, stream len=${s.length}/${MAXLEN} — consumers falling behind, tail loss possible at cap`,
+      );
     }
   }
 

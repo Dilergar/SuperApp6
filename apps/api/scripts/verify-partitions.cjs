@@ -61,9 +61,12 @@ async function inRollback(prisma, sql) {
   return err;
 }
 
-/** Отдельный клиент с ОДНИМ соединением: SET сессии держится между запросами. */
+/**
+ * Отдельный клиент с ОДНИМ соединением: SET сессии держится между запросами. Прямой адрес
+ * (`DIRECT_URL`): пулер в режиме транзакций отдал бы следующий запрос другому соединению.
+ */
 function singleConnectionClient() {
-  const url = new URL(process.env.DATABASE_URL);
+  const url = new URL(process.env.DIRECT_URL || process.env.DATABASE_URL);
   url.searchParams.set('connection_limit', '1');
   return new PrismaClient({ datasources: { db: { url: url.toString() } } });
 }
@@ -97,7 +100,8 @@ async function teardownProbe(prisma) {
 }
 
 async function main() {
-  const prisma = new PrismaClient();
+  // DDL пробного родителя и снимки держателя — мимо пулера (docs/data_architecture.md)
+  const prisma = new PrismaClient({ datasources: { db: { url: process.env.DIRECT_URL || process.env.DATABASE_URL } } });
   const solo = singleConnectionClient();
   let probeReady = false;
   try {

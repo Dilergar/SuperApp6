@@ -858,12 +858,16 @@ export class LifecycleErasureService implements OnModuleInit {
     }
   }
 
-  /** Ключи Redis человека: шаблоны семейств реестра (`subjectPattern` с `{user}`) → SCAN → DEL. */
+  /**
+   * Ключи Redis человека: шаблоны семейств реестра (`subjectPattern` с `{user}`) → SCAN → DEL —
+   * в инстансе РОЛИ семейства (состояние / кэш): обход одного инстанса оставил бы ключи другого.
+   */
   private async eraseRedis(userId: string): Promise<{ rows: number }> {
-    const client = this.redis.getClient();
     let rows = 0;
     for (const p of lifecyclePoliciesOf('redis')) {
       if (p.store.kind !== 'redis' || !p.store.subjectPattern || p.onSubjectErasure.kind !== 'hard_delete') continue;
+      const client = this.redis.clientFor(p.store.role);
+      if (!client) continue;
       const match = p.store.subjectPattern.replace('{user}', userId);
       let cursor = '0';
       do {

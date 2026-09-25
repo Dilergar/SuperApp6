@@ -774,6 +774,9 @@
     "entitlement_cache": {
       "title": "Тариф кэші"
     },
+    "visibility_state": {
+      "title": "Көріну анықтаулары"
+    },
     "visibility_cache": {
       "title": "Көріну кэші"
     },
@@ -784,7 +787,7 @@
       "title": "Қатысу"
     },
     "seen_throttle": {
-      "title": "«Желіде болды» шектегіштері"
+      "title": "Сессия белсенділігінің шектегіші"
     },
     "consents_gate": {
       "title": "Келісім шлюзінің кэші"

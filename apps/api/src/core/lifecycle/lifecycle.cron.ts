@@ -8,6 +8,7 @@ import { LifecyclePartitions } from './lifecycle.partitions';
 import { LifecyclePurgeRunner } from './lifecycle.purge';
 import { LifecycleSettingsService } from './lifecycle.settings.service';
 import { LifecycleDashboardService } from './lifecycle.dashboard.service';
+import { LifecycleDbWatch } from './lifecycle.db-watch';
 
 /**
  * Ночное обслуживание движка — в окне массового ретеншна 01:00–06:00 по Алматы (plan §6.1):
@@ -33,6 +34,7 @@ export class LifecycleCron {
     private readonly canary: LifecycleCanaryService,
     private readonly settings: LifecycleSettingsService,
     private readonly dashboard: LifecycleDashboardService,
+    private readonly dbWatch: LifecycleDbWatch,
   ) {}
 
   /**
@@ -113,6 +115,15 @@ export class LifecycleCron {
     } catch (err) {
       this.logger.warn(`erasure canary was not queued: ${err instanceof Error ? err.message : err}`);
     }
+  }
+
+  /**
+   * Сторожевые метрики БД — КАЖДЫЙ инстанс без замка: сигнал есть у любого живого процесса
+   * (замок оставил бы метрику у одного, и его смерть = тишина). Правила — `max without(instance)`.
+   */
+  @Cron('*/5 * * * *')
+  async dbWatchTick(): Promise<void> {
+    await this.dbWatch.refresh();
   }
 
   /** Loose FK: проход по учёту удалений (один живой джоб на кластер — uniqueKey) + метрика хвоста. */

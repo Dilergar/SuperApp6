@@ -4,8 +4,11 @@
 
 ## Ядро
 
-- `DATABASE_URL` — PostgreSQL (обязательна)
-- `REDIS_URL` — Redis; в production обязательна (без неё тихий фолбэк на localhost = отказ троттлинга/шины/локов)
+- `DATABASE_URL` — пул приложения (обязательна). В production — PgBouncer в режиме транзакций (`:6432`, dev — тоже через `docker compose` сервис `pgbouncer`); Prisma без `pgbouncer=true` (подготовленные выражения держит пулер). Размер пула процесса ставит код (`connection_limit` в `shared/database/database-url.ts`)
+- `DIRECT_URL` — мимо пулера (`:5432`): `prisma migrate` (`directUrl` схемы), онлайн-DDL (`db-online-ddl.cjs`), обслуживающее подключение приложения (REINDEX CONCURRENTLY очереди, суточный роллап аналитики — `DatabaseMaintenance`: 2 соединения, потолки роли сняты параметром `options`). В production обязательна; пусто — тот же `DATABASE_URL` (CI без пулера)
+- `DATABASE_POOL_SIZE` — соединений на процесс (1…200; пусто — 2 × ядра в пределах 5…50). Сумма по инстансам — бюджет пула PgBouncer, а не `max_connections` базы
+- `REDIS_URL` — Redis в роли СОСТОЯНИЯ (noeviction + AOF: шина, локи, лимиты, эпохи, надгробия, сокет-адаптер); в production обязательна (без неё тихий фолбэк на localhost = отказ троттлинга/шины/локов). Dev — пользователь `sa6_app` с прод-ограничениями ACL (`redis://sa6_app:sa6-dev-redis@localhost:6379`)
+- `REDIS_CACHE_URL` — Redis в роли КЭША (allkeys-lfu, без персистентности: профили, роли, проверки прав, снимки тарифов, видимость, присутствие, кэши отчётов). Пусто — кэш живёт в `REDIS_URL` (разработка без второго инстанса); в production обязательна и ≠ `REDIS_URL` (бут отказан: вытеснение кэша съело бы состояние)
 - `JWT_SECRET` — устарел: только legacy-окно HS256 (читается как `JWT_SECRET_LEGACY`, если тот пуст). Подпись токенов — Ed25519 движка ключей, см. раздел «Движок ключей» ниже
 - `JWT_EXPIRES_IN` (дефолт `15m`) / `JWT_REFRESH_EXPIRES_IN` (дефолт `30d`) — запись jsonwebtoken/ms (`15m`, `30d`, `2 days`); дефолты в `apps/api/src/core/auth/auth.module.ts` и `auth.service.ts`
 - `PORT` (3001) · `NODE_ENV` — только `development | test | production`, иначе бут отказан (пусто = production)

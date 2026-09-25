@@ -218,13 +218,16 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap {
       const hasBi = !!(f.bi && f.biAlt && f.index);
       const scopeCols = def.scopeFields.map((s) => Prisma.raw(`"${col(s)}" AS "${s}"`));
       const scopeSelect = scopeCols.length ? Prisma.sql`, ${Prisma.join(scopeCols)}` : Prisma.empty;
-      let cursor = '';
+      // Ключи моделей ПДн — нативный uuid: курсор и UPDATE сравнивают колонку без приведения
+      // (`"id"::text = …` отключало индекс — каждый UPDATE сканировал таблицу целиком, O(n²))
+      let cursor: string | null = null;
       for (;;) {
-        const rows = await this.db.$queryRaw<Array<Record<string, unknown> & { id: string; plain: unknown }>>`
+        const rows: Array<Record<string, unknown> & { id: string; plain: unknown }> = await this.db.$queryRaw`
           SELECT "id"::text AS id, ${plain} AS plain${scopeSelect} FROM ${t}
-          WHERE ${plain} IS NOT NULL AND ${enc} IS NULL AND "id"::text > ${cursor}
-          ORDER BY "id"::text LIMIT ${KEYS_LIMITS.rewrapBatch}`;
+          WHERE ${plain} IS NOT NULL AND ${enc} IS NULL AND (${cursor}::uuid IS NULL OR ${t}."id" > ${cursor}::uuid)
+          ORDER BY ${t}."id" LIMIT ${KEYS_LIMITS.rewrapBatch}`;
         if (!rows.length) break;
+        const updates: Prisma.Sql[] = [];
         for (const row of rows) {
           const scope = def.scope(row);
           if (!scope) continue;
@@ -245,11 +248,17 @@ export class KeysPiiService implements OnModuleInit, OnApplicationBootstrap {
             const norm = f.normalize ? f.normalize(value) : value;
             const cur = Prisma.raw(`"${col(plan.slot === 0 ? f.bi! : f.biAlt!)}"`);
             const other = Prisma.raw(`"${col(plan.slot === 0 ? f.biAlt! : f.bi!)}"`);
-            await this.db.$executeRaw`UPDATE ${t} SET ${enc} = ${encValue}, ${cur} = ${plan.value(f.index!, norm)}, ${other} = ${plan.pendingValue(f.index!, norm)} WHERE "id"::text = ${row.id} AND ${enc} IS NULL`;
+            updates.push(Prisma.sql`UPDATE ${t} SET ${enc} = ${encValue}, ${cur} = ${plan.value(f.index!, norm)}, ${other} = ${plan.pendingValue(f.index!, norm)} WHERE "id" = ${row.id}::uuid AND ${enc} IS NULL`);
           } else {
-            await this.db.$executeRaw`UPDATE ${t} SET ${enc} = ${encValue} WHERE "id"::text = ${row.id} AND ${enc} IS NULL`;
+            updates.push(Prisma.sql`UPDATE ${t} SET ${enc} = ${encValue} WHERE "id" = ${row.id}::uuid AND ${enc} IS NULL`);
           }
-          total++;
+        }
+        // Страница — одной транзакцией (коммит на строку = fsync WAL на каждую)
+        if (updates.length) {
+          await this.db.$transaction(async (tx) => {
+            for (const u of updates) await tx.$executeRaw(u);
+          }, { timeout: 60_000 });
+          total += updates.length;
         }
         cursor = rows[rows.length - 1]!.id;
         if (rows.length < KEYS_LIMITS.rewrapBatch) break;

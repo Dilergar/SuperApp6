@@ -68,8 +68,8 @@ export class AuditAccountService {
 
   /** После коммита отзыва: кэш «жив», отметки отозванных семейств, живые сокеты. */
   async afterAccessRevoked(userId: string, families: string[]): Promise<void> {
-    await this.redis.del(authAliveKey(userId)).catch(() => undefined);
-    await this.redis.delPattern(`user:${userId}:*`).catch(() => undefined);
+    await this.redis.cache.forget(authAliveKey(userId));
+    await this.redis.cache.delPattern(`user:${userId}:*`).catch(() => undefined);
     await this.sessions.markFamiliesRevoked(families);
     // Окна «сильного подтверждения» (ключи, раскрытие строгих полей) — вместе с сессиями: после
     // «выйти везде», смены пароля или «Это не я» раскрыть ИИН без нового SMS нельзя
@@ -211,7 +211,7 @@ export class AuditAccountService {
       return { result, families: revoked.families, googleAfter: google.afterCommit };
     });
     await this.sessions.markFamiliesRevoked(out.families);
-    await this.redis.delPattern(`user:${user.sub}:*`).catch(() => undefined);
+    await this.redis.cache.delPattern(`user:${user.sub}:*`).catch(() => undefined);
     this.events.emit('auth.sessions.revoked', { userId: user.sub }, 'audit');
     await out.googleAfter().catch((err: unknown) => this.logger.warn(`google disconnect after "not me" failed: ${err instanceof Error ? err.message : String(err)}`));
     return out.result;

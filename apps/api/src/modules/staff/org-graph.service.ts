@@ -35,14 +35,14 @@ export class OrgGraphService {
 
     let data: OrgSnapshotData | null = null;
     try {
-      data = await this.redis.getJson<OrgSnapshotData>(REDIS_KEY(workspaceId));
+      data = await this.redis.cache.getJson<OrgSnapshotData>(REDIS_KEY(workspaceId));
     } catch (e) {
       this.logger.warn(`org graph redis read: ${(e as Error).message}`);
     }
     if (!data) {
       data = await this.snapshot(workspaceId);
       try {
-        await this.redis.set(REDIS_KEY(workspaceId), JSON.stringify(data), REDIS_TTL_SECONDS);
+        await this.redis.cache.set(REDIS_KEY(workspaceId), JSON.stringify(data), REDIS_TTL_SECONDS);
       } catch (e) {
         this.logger.warn(`org graph redis write: ${(e as Error).message}`);
       }
@@ -59,11 +59,7 @@ export class OrgGraphService {
 
   async invalidate(workspaceId: string): Promise<void> {
     this.local.delete(workspaceId);
-    try {
-      await this.redis.del(REDIS_KEY(workspaceId));
-    } catch (e) {
-      this.logger.warn(`org graph redis del: ${(e as Error).message}`);
-    }
+    await this.redis.cache.forget(REDIS_KEY(workspaceId));
   }
 
   private async snapshot(workspaceId: string): Promise<OrgSnapshotData> {

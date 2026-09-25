@@ -77,7 +77,7 @@ export class RolesService {
    * writes role rows inside its own $transaction (for atomicity) and then busts here.
    */
   async invalidateUserCache(userId: string) {
-    await this.redis.del(`user:${userId}:roles`);
+    await this.redis.cache.forget(`user:${userId}:roles`);
     await this.redis.invalidateUserProfile(userId);
     // Phase 1: single chokepoint for ALL role changes (RolesService + WorkspacesService
     // transactional writes both call this) → keep the access engine's workspace-role
@@ -89,12 +89,14 @@ export class RolesService {
    * Получить все активные роли пользователя.
    */
   async getUserRoles(userId: string) {
-    // Try cache
-    const cached = await this.redis.getJson<Array<{
-      role: string;
-      context: string;
-      tenantId: string | null;
-    }>>(`user:${userId}:roles`);
+    // Кэш (5 мин); недоступен — роли из базы: сбой кэша не роняет каждую проверку прав
+    const cached = await this.redis.cache
+      .getJson<Array<{
+        role: string;
+        context: string;
+        tenantId: string | null;
+      }>>(`user:${userId}:roles`)
+      .catch(() => null);
 
     if (cached) return cached;
 
@@ -110,8 +112,8 @@ export class RolesService {
       orderBy: { grantedAt: 'asc' },
     });
 
-    // Cache for 5 minutes
-    await this.redis.setJson(`user:${userId}:roles`, roles, 300);
+    // Кэш на 5 минут, best-effort
+    await this.redis.cache.setJson(`user:${userId}:roles`, roles, 300).catch(() => undefined);
 
     return roles;
   }

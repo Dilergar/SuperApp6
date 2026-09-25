@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { WorkspaceContextService } from '../context/workspace-context.service';
 import { piiExtension } from './pii-extension';
 import { beforeOperation, wrapTransaction } from '../idempotency/binding';
+import { appDatabaseUrl } from './database-url';
 
 // Models owned by a workspace (B2B tenant). Auto-scoped by the chokepoint when an
 // active workspace is set. Task carries a nullable workspaceId (null = personal).
@@ -31,6 +32,9 @@ const SCOPED_FILTER_OPS = new Set<string>([
  */
 export function buildScopedPrismaClient(wsContext: WorkspaceContextService) {
   const client = new PrismaClient({
+    // Пул процесса — явного размера (`DATABASE_POOL_SIZE`, иначе 2 × ядра): N инстансов за
+    // PgBouncer не должны молча съедать `max_connections` (docs/data_architecture.md)
+    datasourceUrl: appDatabaseUrl(),
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   });
 

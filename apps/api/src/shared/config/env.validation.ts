@@ -89,6 +89,13 @@ const envSchema = z
         .default('development'),
     ),
     DATABASE_URL: blank(z.string({ required_error: 'is required (PostgreSQL connection string)' }).min(1)),
+    // Прямое подключение мимо PgBouncer: `prisma migrate` (`directUrl` схемы), онлайн-DDL,
+    // обслуживающие операции (REINDEX CONCURRENTLY, долгие роллапы). В production обязательно
+    // (пул приложения там — PgBouncer, docs/data_architecture.md).
+    DIRECT_URL: blank(z.string().min(1).optional()),
+    // Соединений на процесс (Prisma `connection_limit`); пусто — 2 × ядра (5…50). Сумма по
+    // инстансам — бюджет пула PgBouncer, а не `max_connections` базы.
+    DATABASE_POOL_SIZE: blank(z.coerce.number().int().min(1).max(200).optional()),
     // --- Движок ключей (core/keys) ---
     // Провайдер корня доверия: `software` — файл с правами 0600 (KEYS_ROOT_KEY_FILE),
     // `pkcs11` — HSM/сертифицированная СКЗИ (слот, реализация — по заключению юриста).
@@ -132,6 +139,10 @@ const envSchema = z
     JWT_EXPIRES_IN: blank(z.string().min(1).optional()),
     JWT_REFRESH_EXPIRES_IN: blank(z.string().min(1).optional()),
     REDIS_URL: blank(z.string().min(1).optional()),
+    // Redis в роли КЭША (allkeys-lfu, без персистентности): кэши профилей, ролей, прав,
+    // видимости, присутствие — только то, что можно потерять. Пусто — кэш живёт в `REDIS_URL`
+    // (разработка); в production обязателен и ≠ `REDIS_URL` (состояние — noeviction + AOF).
+    REDIS_CACHE_URL: blank(z.string().min(1).optional()),
     PORT: blank(z.coerce.number().int().positive().optional()),
     // Базовый адрес веба: редирект после OAuth, PostMessageOrigin редактора документов
     // и адрес гостевой ссылки `${WEB_URL}/s/<токен>` (core/share-links).
@@ -423,6 +434,29 @@ const envSchema = z
           code: z.ZodIssueCode.custom,
           path: ['REDIS_URL'],
           message: 'is required in production (without it there is a silent fallback to localhost — throttling, the bus and locks all fail)',
+        });
+      }
+      // Две роли Redis: кэш вытесняет ключи под давлением памяти — в одном инстансе с
+      // состоянием (локи, лимиты, шина, паузы детекций) вытеснение съело бы и состояние
+      if (!env.REDIS_CACHE_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['REDIS_CACHE_URL'],
+          message: 'is required in production (the cache instance evicts keys; state must never live there)',
+        });
+      } else if (env.REDIS_URL && env.REDIS_CACHE_URL === env.REDIS_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['REDIS_CACHE_URL'],
+          message: 'must point to a separate instance from REDIS_URL (allkeys-lfu cache vs noeviction state)',
+        });
+      }
+      // Миграции и обслуживание — мимо пулера транзакций (сессия, CONCURRENTLY)
+      if (!env.DIRECT_URL) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['DIRECT_URL'],
+          message: 'is required in production (migrations and maintenance bypass PgBouncer)',
         });
       }
       // Движок ключей: корень доверия в production называется явно и лежит в файле с

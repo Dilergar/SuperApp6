@@ -13,6 +13,7 @@ import { LifecycleErasureService } from './lifecycle.erasure.service';
 import { LifecycleExportService } from './lifecycle.export.service';
 import { LifecycleRestoreService } from './lifecycle.restore.service';
 import { LifecycleHealth } from './lifecycle.health';
+import { LifecycleDbWatch } from './lifecycle.db-watch';
 import { LifecycleHoldsService } from './lifecycle.holds.service';
 import { LifecycleLooseFk } from './lifecycle.loose-fk';
 import { LifecyclePartitions } from './lifecycle.partitions';
@@ -60,6 +61,7 @@ export class LifecycleDevController {
     private readonly canary: LifecycleCanaryService,
     private readonly exports: LifecycleExportService,
     private readonly restore: LifecycleRestoreService,
+    private readonly dbWatch: LifecycleDbWatch,
   ) {}
 
   private assertDev(): void {
@@ -179,6 +181,14 @@ export class LifecycleDevController {
     this.assertDev();
     this.health.override(healthOverrideSchema.parse(body ?? {}));
     return { success: true };
+  }
+
+  @Post('db-watch')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Refresh the database watch metrics now (instead of the 5-minute tick)' })
+  async dbWatchNow() {
+    this.assertDev();
+    return { success: true, data: { ok: await this.dbWatch.refresh() } };
   }
 
   @Post('loose-fk/run')

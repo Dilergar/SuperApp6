@@ -129,11 +129,15 @@ export class ApiKeyAuthService {
     // внутри транзакции гонится с чтением, которое вернуло бы в кэш ещё не отозванную строку.
     let cacheable = true;
     try {
-      const found = await this.redis.getClient().mget(...hashes.map((h) => KEYS_REDIS.apiKeyTombstone(h)), ...hashes.map((h) => KEYS_REDIS.apiKey(h)));
-      if (found.slice(0, hashes.length).some((t) => t !== null)) {
+      // Надгробие — СОСТОЯНИЕ (вытеснение вернуло бы снимок отозванного ключа), снимок — КЭШ
+      const [tombs, snaps] = await Promise.all([
+        this.redis.getClient().mget(...hashes.map((h) => KEYS_REDIS.apiKeyTombstone(h))),
+        this.redis.cache.mget(hashes.map((h) => KEYS_REDIS.apiKey(h))),
+      ]);
+      if (tombs.some((t) => t !== null)) {
         cacheable = false;
       } else {
-        const hit = found.slice(hashes.length).find((c) => c !== null);
+        const hit = snaps.find((c) => c !== null);
         if (hit) return JSON.parse(hit) as KeySnapshot;
       }
     } catch {
@@ -177,7 +181,7 @@ export class ApiKeyAuthService {
     // Мёртвый ключ не кэшируем (redкий путь; отзыв должен читаться из БД)
     if (cacheable && keyIsLive(row) && snap.botStatus !== 'frozen') {
       try {
-        await this.redis.setJson(KEYS_REDIS.apiKey(row.hash), snap, KEYS_LIMITS.keyCacheSec);
+        await this.redis.cache.setJson(KEYS_REDIS.apiKey(row.hash), snap, KEYS_LIMITS.keyCacheSec);
       } catch {
         /* best-effort */
       }
@@ -193,9 +197,8 @@ export class ApiKeyAuthService {
    */
   async invalidateByHash(hash: string): Promise<void> {
     try {
-      const client = this.redis.getClient();
-      await client.set(KEYS_REDIS.apiKeyTombstone(hash), '1', 'EX', KEYS_LIMITS.keyCacheTombstoneSec);
-      await client.del(KEYS_REDIS.apiKey(hash));
+      await this.redis.getClient().set(KEYS_REDIS.apiKeyTombstone(hash), '1', 'EX', KEYS_LIMITS.keyCacheTombstoneSec);
+      await this.redis.cache.del(KEYS_REDIS.apiKey(hash));
     } catch (err) {
       this.logger.warn(`api key cache invalidation failed (snapshot expires in ${KEYS_LIMITS.keyCacheSec}s): ${(err as Error).message}`);
     }

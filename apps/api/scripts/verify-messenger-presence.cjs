@@ -88,7 +88,7 @@ async function main() {
   // section deterministic regardless of prior runs, we (1) use a UNIQUE event title,
   // (2) clear the target's ctx cache before each presence read, (3) set the SHARE FIRST.
   const evTitle = 'Тренировка-' + Date.now();
-  const delCtx = async () => { const c = new (require('ioredis'))(process.env.REDIS_URL || 'redis://localhost:6379'); try { await c.del(`presence:${t2.id}:ctx`); } finally { c.disconnect(); } };
+  const delCtx = async () => { const c = new (require('ioredis'))(process.env.REDIS_CACHE_URL || process.env.REDIS_URL || 'redis://localhost:6379'); try { await c.del(`presence:${t2.id}:ctx`); } finally { c.disconnect(); } };
   const now = new Date();
   const ev = await http('POST', '/calendar/events', {
     token: t2.token,

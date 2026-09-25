@@ -1,10 +1,9 @@
 import { Controller, Get, Headers, Res } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
-import { timingSafeEqual } from 'node:crypto';
 import type { Response } from 'express';
-import { isProdEnv } from '../config/env.validation';
 import { Public } from '../decorators/public.decorator';
 import { notFound } from '../errors/api-error';
+import { metricsAccessGranted } from './metrics-token';
 import { MetricsService } from './metrics.service';
 
 /**
@@ -22,15 +21,7 @@ export class MetricsController {
   @Public()
   @Get()
   async scrape(@Headers('authorization') authorization: string | undefined, @Res() res: Response): Promise<void> {
-    const token = process.env.METRICS_TOKEN || null;
-    if (token) {
-      const got = /^Bearer\s+(.+)$/i.exec((authorization ?? '').trim())?.[1]?.trim() ?? '';
-      const a = Buffer.from(got);
-      const b = Buffer.from(token);
-      if (a.length !== b.length || !timingSafeEqual(a, b)) throw notFound('http.notFound');
-    } else if (isProdEnv()) {
-      throw notFound('http.notFound');
-    }
+    if (!metricsAccessGranted(authorization)) throw notFound('http.notFound');
     res.setHeader('Content-Type', this.metrics.contentType);
     res.setHeader('Cache-Control', 'no-store');
     res.send(await this.metrics.render());

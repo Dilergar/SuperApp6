@@ -185,6 +185,19 @@ async function main() {
     check('SMS без opt-in: skipped pref_off', smsOff?.status === 'skipped' && smsOff?.skipReason === 'pref_off', JSON.stringify(smsOff));
     r = await call('PUT', '/notifications/preferences', s2.token, { context: 'personal', overrides: [{ subjectKind: 'type', subjectKey: 'auth.password.changed', channel: 'sms', enabled: true }] });
     check('SMS opt-in принят', r.ok && r.json?.data?.critical?.some((c) => c.type === 'auth.password.changed' && c.smsOptIn === true));
+    // Суточный анти-абьюз-потолок SMS на человека (10/сутки) выжигают прошлые прогоны сьютов
+    // того же дня — окно СВОЕГО аккаунта сьюта сбрасывается (как квитанции в verify-lifecycle)
+    {
+      const Redis = require('ioredis');
+      const st = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+      let cur = '0';
+      do {
+        const [next, keys] = await st.scan(cur, 'MATCH', `ntf:sms:u:${s2.id}:*`, 'COUNT', 1000);
+        cur = next;
+        if (keys.length) await st.del(...keys);
+      } while (cur !== '0');
+      await st.quit();
+    }
     r = await send(s1, { type: 'auth.password.changed', to: [s2.id], payload: { tag: `${tag}-crit2` }, includeActor: true });
     const evCrit2 = r.json?.data?.eventId; cleanupIds.events.push(evCrit2);
     const smsOn = await waitFor(async () => {

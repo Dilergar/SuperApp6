@@ -136,7 +136,8 @@ export class EntitlementsCache {
         );
         const cat = epochs[0] ?? '0';
         pending.forEach((s, i) => redisKeys.set(this.subjectKey(s), ENTITLEMENT_REDIS.snapshot(cat, s.type, s.id, epochs[i + 1] ?? '0')));
-        const cached = await client.mget(...pending.map((s) => redisKeys.get(this.subjectKey(s)) as string));
+        // Эпохи — СОСТОЯНИЕ, снимки под ними — КЭШ
+        const cached = await this.redis.cache.mget(pending.map((s) => redisKeys.get(this.subjectKey(s)) as string));
         const stillMissing: EntitlementSubjectRef[] = [];
         pending.forEach((s, i) => {
           const key = this.subjectKey(s);
@@ -187,8 +188,7 @@ export class EntitlementsCache {
 
   private async writeMany(entries: [string, RawSnapshot][]): Promise<void> {
     try {
-      const client = this.redis.getClient();
-      const pipeline = client.pipeline();
+      const pipeline = this.redis.cache.client.pipeline();
       for (const [key, snap] of entries) {
         const ttl = this.ttlFor(snap);
         if (ttl > 0) pipeline.set(key, JSON.stringify(snap), 'EX', ttl);
@@ -212,7 +212,7 @@ export class EntitlementsCache {
       const client = this.redis.getClient();
       const [cat, ep] = await client.mget(ENTITLEMENT_REDIS.catalogEpoch, ENTITLEMENT_REDIS.subjectEpoch(subject.type, subject.id));
       key = ENTITLEMENT_REDIS.snapshot(cat ?? '0', subject.type, subject.id, ep ?? '0');
-      const cached = await client.get(key);
+      const cached = await this.redis.cache.get(key);
       const parsed = cached ? this.parse(cached) : null;
       if (parsed) return parsed;
     } catch (err) {
@@ -222,7 +222,7 @@ export class EntitlementsCache {
     if (key) {
       try {
         const ttl = this.ttlFor(snap);
-        if (ttl > 0) await this.redis.getClient().set(key, JSON.stringify(snap), 'EX', ttl);
+        if (ttl > 0) await this.redis.cache.set(key, JSON.stringify(snap), ttl);
       } catch (err) {
         this.logger.debug(`cache write skipped: ${(err as Error).message}`);
       }

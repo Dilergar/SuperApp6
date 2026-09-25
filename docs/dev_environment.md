@@ -12,7 +12,8 @@
 ## Запуск с нуля
 
 ```bash
-# 1. Инфраструктура (PostgreSQL 18 + Redis 7.4 — версии пинованы в docker-compose.yml и CI)
+# 1. Инфраструктура (PostgreSQL 18 + PgBouncer 1.26 + Redis 7.4 ×2 — версии пинованы в docker-compose.yml и CI)
+docker compose build pgbouncer   # один раз: пулер собирается из исходников с пином sha256
 docker compose up -d
 
 # 2. Зависимости
@@ -27,8 +28,10 @@ cd ../api-client && pnpm build
 cd apps/api && pnpm db:generate && npx prisma migrate deploy
 #    Изменил схему в разработке → pnpm db:migrate (создаёт+применяет миграцию).
 #    db push НЕ ИСПОЛЬЗОВАТЬ — разойдётся с историей миграций.
-#    Прод/стейдж: ПОСЛЕ migrate deploy — роли журнала безопасности (владелец ≠ роль приложения):
+#    migrate ходит по DIRECT_URL (мимо PgBouncer). ПОСЛЕ migrate deploy — роли (владельцы журналов
+#    ≠ роль приложения, потолки роли, вход пулера) — и в dev тоже (dev-роль приложения = superapp):
 #    psql "$ADMIN_DATABASE_URL" -v app_role=<роль приложения> -f apps/api/scripts/db-roles.sql
+#    dev: docker exec -i superapp6-db psql -U superapp -d superapp6 -v app_role=superapp -f - < apps/api/scripts/db-roles.sql
 
 # 5. Всё сразу
 pnpm dev
@@ -44,6 +47,18 @@ powershell -Command "cd apps/web; npx next dev"             # Web → http://loc
 - Prisma Studio: `cd apps/api && pnpm db:studio`
 - Прямой SQL: `docker exec -it superapp6-db psql -U superapp -d superapp6` (PostgreSQL MCP удалён — пакет deprecated)
 - Веб-dev на Turbopack; запасной путь: `pnpm --filter ./apps/web dev:webpack`
+
+## Слой данных в dev: PgBouncer, два Redis, настройки PostgreSQL
+
+Схема и правила — `docs/data_architecture.md`; здесь — как это живёт в `docker compose`.
+
+- **PgBouncer** (`superapp6-pgbouncer`, `:6432`, режим транзакций) — `DATABASE_URL` приложения. Конфиги: `infra/pgbouncer/pgbouncer.common.ini` (общие ключи БЕЗ заголовка секции — повторный `[pgbouncer]` после `%include` сбрасывает прочитанное), `pgbouncer.ini` (прод: `auth_query`, TLS), `pgbouncer.dev.ini` (dev: пароль в `userlist.dev.txt`, без TLS). Миграции, онлайн-DDL и сьюты с сессионным `SET` (`verify-partitions.cjs`) — по `DIRECT_URL` (`:5432`).
+- **Redis-состояние** (`superapp6-redis`, `:6379`, `infra/redis/state.conf`: noeviction + AOF) и **Redis-кэш** (`superapp6-redis-cache`, `:6380`, `cache.conf`: allkeys-lfu без персистентности). ACL — `infra/redis/users.dev.acl`: приложение входит `sa6_app` с прод-ограничениями (KEYS/CONFIG/DEBUG/RESTORE закрыты — dev ловит закрытую команду до деплоя), `default` без пароля оставлен сторонним dev-компонентам (LiveKit). `protected-mode no` — только флагом compose (dev-`default` без пароля); прод-конфиг держит `yes`. Формат ACL-файла комментариев не допускает — пояснения в `state.conf`.
+- **Переход с одного Redis на два**: включить AOF на ЖИВОМ инстансе ДО рестарта с конфигом (`docker exec superapp6-redis redis-cli CONFIG SET appendonly yes`, дождаться `aof_rewrite_in_progress:0`) — иначе старт с `appendonly yes` поднимет пустой AOF и потеряет данные; затем `docker compose up -d redis redis-cache` и уборка кэш-ключей из инстанса состояния `node apps/api/scripts/redis-split-roles.cjs --apply` (без флага — сухой прогон).
+- **Настройки PostgreSQL** — `infra/postgres/superapp6.conf` (UTC, `max_locks_per_transaction 256`, lz4/zstd, `pg_stat_statements` + `auto_explain`, логи без значений параметров, autovacuum). Новый том подключает init-скрипт; готовый — одной строкой и рестартом: `docker exec superapp6-db sh -c "echo \"include_if_exists = '/etc/postgresql/superapp6.conf'\" >> \$PGDATA/postgresql.conf" && docker restart superapp6-db`. Архив WAL (`infra/pgbackrest/postgresql.archive.conf`) в dev НЕ подключать — WAL копился бы без конца.
+- **Пробы и метрики**: `GET /health/live`, `GET /health/ready` (у корня, вне `/api`; разбивка проверок — держателю `METRICS_TOKEN`, в dev без токена открыта), `GET /metrics`. Сторожевой опрос БД раз в 5 минут; сразу — `POST /api/lifecycle/dev/db-watch`. Сьют — `verify-health.cjs`.
+- **Учение восстановления в dev**: `node apps/api/scripts/lifecycle-restore-drill.cjs --dev-clone --report` — логическая копия в `superapp6_drill` того же контейнера, сверки (строки, Σ=0 леджера, дайджесты журнала безопасности, журнал стираний) и отчёт в дашборд «Данные»; `--keep` оставляет копию (проверка сверок на срабатывание — порча копии и прогон с `DRILL_RESTORED_URL`).
+- **Смоук S3-кандидата**: `node apps/api/scripts/s3-conformance.cjs [--require-versioning --require-object-lock]`. Dev-SeaweedFS (`--profile s3`) работает без аутентификации — проверки подписей на нём честно падают: это смоук кандидата-провайдера, не dev-хранилища.
 
 ## Ключи (`core/keys`) — корень и учение
 

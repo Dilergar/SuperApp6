@@ -45,7 +45,6 @@ import { WorkspaceContextService } from '../../shared/context/workspace-context.
 import { USER_PHONE_INVITATIONS_JOB } from '../users/user-jobs';
 import type { AuthTokens } from '@superapp/shared';
 import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
-import { authAliveKey } from '../../shared/auth/session-validator.service';
 import { isReservedPersonName } from '@superapp/i18n';
 
 @Injectable()

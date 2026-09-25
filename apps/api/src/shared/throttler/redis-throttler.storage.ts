@@ -58,7 +58,9 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     throttlerName: string,
   ): Promise<ThrottlerStorageRecord> {
     const client = this.redis.getClient();
-    const hitKey = `throttle:${throttlerName}:${key}`;
+    // Хэш-тег `{…}`: оба ключа скрипта в одном слоте — Redis Cluster исполняет Lua только
+    // над ключами одного шарда (иначе CROSSSLOT); на одиночном инстансе тег ничего не меняет
+    const hitKey = `throttle:{${throttlerName}:${key}}`;
     const blockKey = `${hitKey}:blocked`;
 
     const res = (await client.eval(

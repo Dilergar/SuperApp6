@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
+import { VISIBILITY_REDIS } from '@superapp/shared';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { notFound, tooMany } from '../../shared/errors/api-error';
+import { incrWindow } from '../../shared/redis/incr-window';
 import { RedisService } from '../../shared/redis/redis.service';
 import { VisibilityPersonalGraphRegistry } from './visibility.registry';
 
@@ -77,11 +79,9 @@ export class VisibilityDiscoverabilityService {
    * ботнетом сотрудников одной организации (WhatsApp 2025 — 3,5 млрд без лимита).
    */
   async throttleWorkspaceLookup(workspaceId: string): Promise<void> {
-    const key = `vis:lookup:ws:${workspaceId}:${Math.floor(Date.now() / 3_600_000)}`;
+    const key = VISIBILITY_REDIS.workspaceLookups(workspaceId, Math.floor(Date.now() / 3_600_000));
     try {
-      const client = this.redis.getClient();
-      const n = await client.incr(key);
-      if (n === 1) await client.expire(key, 3600);
+      const n = await incrWindow(this.redis.getClient(), key, 3600);
       if (n > WORKSPACE_LOOKUPS_PER_HOUR) throw tooMany('visibility.lookup_rate', undefined, { code: 'visibility.lookup_rate' });
     } catch (err) {
       if ((err as { getStatus?: () => number }).getStatus?.() === 429) throw err;

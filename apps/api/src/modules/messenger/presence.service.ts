@@ -82,7 +82,7 @@ export class PresenceService {
   /** A socket connected: bump the connection count and (re)arm the TTL. */
   async onConnect(userId: string): Promise<void> {
     try {
-      const c = this.redis.getClient();
+      const c = this.redis.cache.client;
       await c.multi().incr(this.key(userId)).expire(this.key(userId), PRESENCE.PRESENCE_TTL_SECONDS).exec();
     } catch (e) {
       this.logger.error(`onConnect ${userId} failed`, e as Error);
@@ -92,7 +92,7 @@ export class PresenceService {
   /** Heartbeat: refresh the TTL; if the key has expired/been lost, recreate it. */
   async heartbeat(userId: string): Promise<void> {
     try {
-      const c = this.redis.getClient();
+      const c = this.redis.cache.client;
       const ok = await c.expire(this.key(userId), PRESENCE.PRESENCE_TTL_SECONDS);
       // ioredis EXPIRE returns 1 if the key existed, 0 if it did not.
       if (ok === 0) {
@@ -106,7 +106,7 @@ export class PresenceService {
   /** A socket disconnected: decrement; on reaching zero, drop the key + record last-seen. */
   async onDisconnect(userId: string): Promise<void> {
     try {
-      const c = this.redis.getClient();
+      const c = this.redis.cache.client;
       const n = await c.decr(this.key(userId));
       if (n <= 0) {
         await c.del(this.key(userId)); // also clears a stray negative
@@ -126,7 +126,7 @@ export class PresenceService {
   // Reads
   // ============================================================
   async isOnline(userId: string): Promise<boolean> {
-    const v = await this.redis.get(this.key(userId));
+    const v = await this.redis.cache.get(this.key(userId));
     return !!v && Number(v) > 0;
   }
 
@@ -134,7 +134,7 @@ export class PresenceService {
   async onlineOf(userIds: string[]): Promise<Set<string>> {
     const ids = [...new Set(userIds)];
     if (!ids.length) return new Set();
-    const values = await this.redis.getClient().mget(ids.map((id) => this.key(id)));
+    const values = await this.redis.cache.mget(ids.map((id) => this.key(id)));
     const out = new Set<string>();
     values.forEach((v, i) => {
       if (v && Number(v) > 0) out.add(ids[i]);
@@ -143,7 +143,7 @@ export class PresenceService {
   }
 
   async getLastSeen(userId: string): Promise<string | null> {
-    return this.redis.get(this.lastSeenKey(userId));
+    return this.redis.cache.get(this.lastSeenKey(userId));
   }
 
   /**
@@ -161,7 +161,7 @@ export class PresenceService {
     // = 100–200 round-trip'ов к Redis ≈ 50–150мс латентности — перф-ревью 2026-07-18).
     let presenceVals: (string | null)[] = [];
     try {
-      presenceVals = await this.redis.getClient().mget([...targets.map((id) => this.key(id)), ...targets.map((id) => this.lastSeenKey(id))]);
+      presenceVals = await this.redis.cache.mget([...targets.map((id) => this.key(id)), ...targets.map((id) => this.lastSeenKey(id))]);
     } catch {
       presenceVals = new Array(targets.length * 2).fill(null);
     }
@@ -241,7 +241,7 @@ export class PresenceService {
 
   /** The target's current event, cached in Redis (CONTEXT_TTL). 'none' is cached too. */
   private async currentEventCached(targetId: string): Promise<{ title: string; endTime: string } | null> {
-    const cached = await this.redis.getJson<CtxSnapshot | 'none'>(this.ctxKey(targetId));
+    const cached = await this.redis.cache.getJson<CtxSnapshot | 'none'>(this.ctxKey(targetId));
     if (cached !== null && cached !== undefined) {
       return cached === 'none' ? null : (cached as { title: string; endTime: string });
     }
@@ -256,7 +256,7 @@ export class PresenceService {
         snap = null;
       }
     }
-    await this.redis.setJson(this.ctxKey(targetId), snap ?? 'none', PRESENCE.CONTEXT_TTL_SECONDS);
+    await this.redis.cache.setJson(this.ctxKey(targetId), snap ?? 'none', PRESENCE.CONTEXT_TTL_SECONDS);
     return snap;
   }
 

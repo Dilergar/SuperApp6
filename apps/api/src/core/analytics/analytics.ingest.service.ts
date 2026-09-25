@@ -14,7 +14,9 @@ import {
   type AnalyticsEventDef,
   type AnalyticsQuarantineReason, uuidv7 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { MetricsService } from '../../shared/metrics/metrics.service';
 import { RedisService } from '../../shared/redis/redis.service';
+import { StreamLagGauges } from '../../shared/redis/stream-lag';
 import { utcTs } from '../../shared/database/sql-time';
 import { EntitlementsService } from '../entitlements/entitlements.service';
 import { RolesService } from '../roles/roles.service';
@@ -156,7 +158,22 @@ export class AnalyticsIngestService implements OnApplicationBootstrap, OnModuleD
     private readonly roles: RolesService,
     private readonly partitions: AnalyticsPartitions,
     private readonly analytics: AnalyticsService,
-  ) {}
+    metrics: MetricsService,
+  ) {
+    this.lagGauges = new StreamLagGauges(metrics);
+  }
+
+  private readonly lagGauges: StreamLagGauges;
+  private lastLagCheck = 0;
+
+  /** Лаг потока раз в 5 минут — метрики `sa6_stream_*` (тревога lag > MAXLEN/2: хвост ещё цел). */
+  private async maybeSampleLag(): Promise<void> {
+    if (Date.now() - this.lastLagCheck < 5 * 60_000) return;
+    this.lastLagCheck = Date.now();
+    const maxLen = analyticsEnv().streamMaxLen;
+    const s = await this.lagGauges.sample(this.c, ANALYTICS_STREAM, ANALYTICS_GROUP, maxLen);
+    if (s && s.lag >= maxLen / 2) this.logger.warn(`analytics stream lag ${s.lag}/${maxLen} — the consumer falls behind; the tail is trimmed at the cap`);
+  }
 
   async onApplicationBootstrap(): Promise<void> {
     const env = analyticsEnv();
@@ -164,7 +181,7 @@ export class AnalyticsIngestService implements OnApplicationBootstrap, OnModuleD
       this.logger.log('analytics consumer is disabled (ANALYTICS_ENABLED / ANALYTICS_CONSUMER_ENABLED)');
       return;
     }
-    this.consumer = this.redis.getClient().duplicate({ maxRetriesPerRequest: null });
+    this.consumer = this.redis.duplicateForBlocking('analytics-consumer');
     this.running = true;
     await this.ensureGroup();
     this.loop = this.consumeLoop();
@@ -203,6 +220,7 @@ export class AnalyticsIngestService implements OnApplicationBootstrap, OnModuleD
           await this.drainOutbox();
         }
         await this.reclaimStale();
+        await this.maybeSampleLag();
         const res = (await this.c.xreadgroup(
           'GROUP',
           ANALYTICS_GROUP,
@@ -525,6 +543,11 @@ export class AnalyticsIngestService implements OnApplicationBootstrap, OnModuleD
    * Prisma отдаёт массив из одних NULL как `integer[]`, и приведение к `uuid[]` падает.
    */
   private async insertRows(client: Client, rows: Row[]): Promise<number> {
+    // Асинхронный коммит пачки (docs/data_architecture.md): сбой сервера теряет не больше
+    // ~0,6 с событий — целиком по транзакции, атомарность цела, — зато пачка не ждёт сброса WAL
+    // и синхронной реплики. `SET LOCAL` живёт только в транзакции: вне outbox — своя короткая
+    if (client === this.db) return this.db.$transaction((tx) => this.insertRows(tx, rows));
+    await client.$executeRaw`SELECT set_config('synchronous_commit', 'off', true)`;
     const records = rows.map((r) => ({
       event_id: r.eventId,
       ts: r.ts.toISOString(),

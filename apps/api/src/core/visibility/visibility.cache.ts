@@ -103,7 +103,7 @@ export class VisibilityCache {
     const keys = need.map((id) => VISIBILITY_REDIS.policy(ownerKind, id, recordType));
     let cached: (string | null)[] = [];
     try {
-      cached = await this.redis.getClient().mget(...keys);
+      cached = await this.redis.cache.mget(keys);
     } catch (err) {
       this.logger.warn(`visibility policy cache read failed: ${(err as Error).message}`);
       cached = need.map(() => null);
@@ -133,7 +133,7 @@ export class VisibilityCache {
       select: { ownerId: true, version: true, rules: { select: RULE_SELECT, orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }] } },
     });
     const byOwner = new Map(rows.map((r) => [r.ownerId, r]));
-    const pipe = this.redis.getClient().pipeline();
+    const pipe = this.redis.cache.client.pipeline();
     for (const id of misses) {
       const row = byOwner.get(id);
       const p: CompiledPolicy = row ? { pv: row.version, rules: compileRules(recordType, row.rules) } : { pv: 0, rules: [] };
@@ -149,11 +149,8 @@ export class VisibilityCache {
   async invalidate(ownerKind: 'workspace' | 'user', ownerId: string, recordTypes: readonly string[]): Promise<void> {
     const memo = this.memoFor();
     for (const t of recordTypes) memo?.delete(`${ownerKind}:${ownerId}:${t}`);
-    try {
-      if (recordTypes.length) await this.redis.getClient().del(...recordTypes.map((t) => VISIBILITY_REDIS.policy(ownerKind, ownerId, t)));
-    } catch (err) {
-      // Не стёрли — ключ доживёт TTL (`policyL2TtlSec`). Логируем громко: это окно устаревшей политики
-      this.logger.error(`visibility policy cache invalidation failed (${ownerKind}:${ownerId}): ${(err as Error).message}`);
-    }
+    // Двойной сброс (`forget`): заполнение, прочитавшее базу до публикации, не переживёт второй DEL.
+    // Не стёрли — ключ доживёт TTL (`policyL2TtlSec`); `forget` логирует громко
+    if (recordTypes.length) await this.redis.cache.forget(...recordTypes.map((t) => VISIBILITY_REDIS.policy(ownerKind, ownerId, t)));
   }
 }

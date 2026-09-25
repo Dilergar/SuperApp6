@@ -85,18 +85,24 @@ export const VISIBILITY_LIMITS = {
   versionsPageSize: 50,
 } as const;
 
-/** Ключи Redis движка. */
+/**
+ * Ключи Redis движка — в ДВУХ ролях (реестр `core/lifecycle`): `vis:policy:*` и `vis:facts:*` — КЭШ
+ * (пересобирается из базы, вытеснение законно); `vis:det:*` — СОСТОЯНИЕ детекций (окна, паузы):
+ * вытеснение сняло бы паузу раскрытий и обнулило окно скрейпинга.
+ */
 export const VISIBILITY_REDIS = {
   /** Скомпилированная политика владельца по типу (JSON {pv, rules}) */
   policy: (ownerKind: string, ownerId: string, recordType: string) => `vis:policy:${ownerKind}:${ownerId}:${recordType}`,
   /** Факты о зрителе (L2): принципалы оргструктуры под эпохой прав `core/access` (роль в ключе не живёт — читается свежей) */
   facts: (workspaceId: string | null, userId: string, epoch: string) => `vis:facts:${workspaceId ?? '-'}:${userId}:${epoch}`,
   /** Счётчик раскрытий человека в окне детекции */
-  revealWindow: (actorId: string) => `vis:reveal:win:${actorId}`,
+  revealWindow: (actorId: string) => `vis:det:win:${actorId}`,
   /** Раскрытия человеку приостановлены детекцией */
-  revealPause: (actorId: string) => `vis:reveal:pause:${actorId}`,
+  revealPause: (actorId: string) => `vis:det:pause:${actorId}`,
   /** Часовое окно чужих строк с полями ≥ contact, ушедшими целиком (детекция скрейпинга) */
-  personalRows: (actorId: string, hourBucket: number) => `vis:rows:${actorId}:${hourBucket}`,
+  personalRows: (actorId: string, hourBucket: number) => `vis:det:rows:${actorId}:${hourBucket}`,
+  /** Часовое окно поисков по номеру ОРГАНИЗАЦИИ (перебор базы номеров ботнетом сотрудников) */
+  workspaceLookups: (workspaceId: string, hourBucket: number) => `vis:det:lookup:ws:${workspaceId}:${hourBucket}`,
 } as const;
 
 /** Событие шины и сокета: политика владельца сменилась (клиент сбрасывает свои RQ-ключи). */

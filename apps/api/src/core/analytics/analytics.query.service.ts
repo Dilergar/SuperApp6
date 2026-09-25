@@ -136,7 +136,7 @@ export class AnalyticsQueryService implements OnModuleInit {
     const days = analyticsRangeDays(q.range);
     const hash = createHash('sha256').update(JSON.stringify({ v: 1, q, tz: ctx.tz, k: ctx.k })).digest('hex').slice(0, 40);
 
-    const hit = await this.redis.getJson<AnalyticsQueryResultDto>(ANALYTICS_REDIS.query(hash)).catch(() => null);
+    const hit = await this.redis.cache.getJson<AnalyticsQueryResultDto>(ANALYTICS_REDIS.query(hash)).catch(() => null);
     if (hit) return { status: 'ready', result: hit, meta: await this.meta(q, ctx, true) };
 
     if (q.type === 'journeys' && days > ANALYTICS_LIMITS.journeysMaxDays) {
@@ -154,7 +154,7 @@ export class AnalyticsQueryService implements OnModuleInit {
     // ФОНОВОГО расчёта (минуты работы БД) — час: минутный кэш заставил бы плитку
     // ставить тот же джоб заново на каждом поллинге, пока дашборд открыт.
     const ttl = q.range.to >= ctx.today ? (opts.background ? 3600 : 60) : 86_400;
-    await this.redis.setJson(ANALYTICS_REDIS.query(hash), result, ttl).catch(() => undefined);
+    await this.redis.cache.setJson(ANALYTICS_REDIS.query(hash), result, ttl).catch(() => undefined);
     return { status: 'ready', result, meta: await this.meta(q, ctx, false) };
   }
 

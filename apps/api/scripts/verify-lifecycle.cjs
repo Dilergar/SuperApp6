@@ -72,7 +72,7 @@ const CANARY_STORES = [
   'redis:access_epochs', 'redis:keys_state', 'redis:audit_state', 'redis:notifications_state',
   'redis:platform_console', 'redis:analytics_state', 'redis:analytics_watermarks', 'redis:wallet_state',
   'redis:office_state', 'redis:socket_adapter', 'redis:lifecycle_state', 'redis:auth_alive',
-  'redis:keys_cache', 'redis:access_cache', 'redis:entitlement_cache', 'redis:visibility_cache',
+  'redis:keys_cache', 'redis:access_cache', 'redis:entitlement_cache', 'redis:visibility_cache', 'redis:visibility_state',
   'redis:user_cache', 'redis:presence', 'redis:seen_throttle', 'redis:consents_gate', 'redis:org_graph',
   'redis:analytics_cache', 'redis:docs_discovery', 'redis:livekit', 'derived:audit_archive',
   'derived:audit_digests', 'derived:lifecycle_archive', 'derived:lifecycle_exports',
@@ -123,6 +123,18 @@ async function deleteAccount(acc, body = {}) {
 }
 
 // ---------------------------------------------------------------- 4. заморозка на всех путях
+/** SCAN вместо KEYS: KEYS блокирует Redis и закрыт ACL приложения (infra/redis/users.acl). */
+async function scanKeys(client, pattern) {
+  const out = [];
+  let cursor = '0';
+  do {
+    const [next, keys] = await client.scan(cursor, 'MATCH', pattern, 'COUNT', 1000);
+    cursor = next;
+    out.push(...keys);
+  } while (cursor !== '0');
+  return out;
+}
+
 async function holdsOnEveryPath(prisma, redis, s1) {
   console.log('\n-- 4. заморозка держит каждый путь удаления --');
   const t1 = s1.token;
@@ -230,7 +242,7 @@ async function holdsOnEveryPath(prisma, redis, s1) {
     const orgTask = await call('POST', '/tasks', t1, { title: `Сьют org ${rnd()}` }, WSH);
     const orgTaskId = orgTask.json?.data?.id;
     // Суточный бюджет SMS-квитанций suite1 выжигают архивы остальных сьютов — окно сбрасывается
-    for (const k of await redis.keys(`smsout:receipt:${s1.id}:*`)) await redis.del(k);
+    for (const k of await scanKeys(redis, `smsout:receipt:${s1.id}:*`)) await redis.del(k);
     const archivedAt = new Date();
     const arch = await call('DELETE', `/workspaces/${wsId}`, t1);
     check('архив организации: код квитанции стирания выдан один раз (26 знаков base32)', arch.ok && /^[a-z2-7]{26}$/.test(String(arch.json?.data?.receipt ?? '')), `${arch.status} ${arch.code ?? ''}`);
@@ -663,32 +675,50 @@ async function main() {
     }
     check(`каждый FK базы (${fks.length}) объявлен ребром удаления нужного вида`, badFk.length === 0, badFk.slice(0, 6).join('; '));
 
-    // ---- 3. каждый ключ живого Redis принадлежит семейству; «вечных» ключей в семействах с TTL нет ----
+    // ---- 3. каждый ключ живого Redis принадлежит семейству, лежит в инстансе СВОЕЙ роли, срок в потолке ----
+    // Два инстанса (docs/data_architecture.md): состояние (`REDIS_URL`, noeviction) и кэш (`REDIS_CACHE_URL`,
+    // allkeys-lfu). Ключ состояния в кэше вытеснится под давлением памяти (снятая пауза, забытое
+    // надгробие); ключ кэша в состоянии съест память, которую никто не вытеснит.
     const families = LIFECYCLE_POLICY_IDS.map((id) => LIFECYCLE_POLICIES[id]).filter((p) => p.store.kind === 'redis');
     const matchers = families.flatMap((p) => p.store.patterns.map((g) => ({ re: globRe(g), p })));
     const unknown = new Map();
     const immortal = new Map();
+    const overTtl = new Map();
+    const misplaced = new Map();
+    const bump = (m, k) => m.set(k, (m.get(k) ?? 0) + 1);
     let scanned = 0;
-    let cursor = '0';
-    do {
-      const [next, keys] = await redis.scan(cursor, 'COUNT', 1000);
-      cursor = next;
-      const withTtl = keys.length ? await redis.pipeline(keys.map((k) => ['ttl', k])).exec() : [];
-      keys.forEach((k, i) => {
-        scanned++;
-        const hit = matchers.find((m) => m.re.test(k));
-        const shape = k.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, '<uuid>').replace(/\d{3,}/g, '<n>').split(':').slice(0, 3).join(':');
-        if (!hit) {
-          unknown.set(shape, (unknown.get(shape) ?? 0) + 1);
-          return;
-        }
-        const ttl = withTtl[i]?.[1];
-        const max = hit.p.store.maxTtlSeconds;
-        if (max !== null && hit.p.store.role !== 'external' && ttl === -1) immortal.set(`${hit.p.id} ${shape}`, (immortal.get(`${hit.p.id} ${shape}`) ?? 0) + 1);
-      });
-    } while (cursor !== '0');
-    check(`каждый ключ живого Redis (${scanned}) принадлежит семейству реестра`, unknown.size === 0, [...unknown].slice(0, 8).map(([s, n]) => `${s}×${n}`).join(', '));
+    const cacheSeparate = !!process.env.REDIS_CACHE_URL && process.env.REDIS_CACHE_URL !== process.env.REDIS_URL;
+    const instances = [{ role: 'state', client: redis }];
+    if (cacheSeparate) instances.push({ role: 'cache', client: new Redis(process.env.REDIS_CACHE_URL, { maxRetriesPerRequest: 3 }) });
+    for (const inst of instances) {
+      let cursor = '0';
+      do {
+        const [next, keys] = await inst.client.scan(cursor, 'COUNT', 1000);
+        cursor = next;
+        const withTtl = keys.length ? await inst.client.pipeline(keys.map((k) => ['ttl', k])).exec() : [];
+        keys.forEach((k, i) => {
+          scanned++;
+          const hit = matchers.find((m) => m.re.test(k));
+          const shape = k.replace(/[0-9a-f]{8}-[0-9a-f-]{27}/g, '<uuid>').replace(/\d{3,}/g, '<n>').split(':').slice(0, 3).join(':');
+          if (!hit) return bump(unknown, `${inst.role} ${shape}`);
+          const role = hit.p.store.role;
+          // Чужие компоненты (LiveKit) — только в dev-инстансе состояния; в проде у них свой Redis
+          if (cacheSeparate && (role === 'external' ? inst.role !== 'state' : role !== inst.role)) bump(misplaced, `${hit.p.id}(${role}) в ${inst.role}: ${shape}`);
+          const ttl = withTtl[i]?.[1];
+          const max = hit.p.store.maxTtlSeconds;
+          if (max === null || role === 'external') return;
+          if (ttl === -1) bump(immortal, `${hit.p.id} ${shape}`);
+          // Срок больше потолка реестра — реестр лжёт о семействе (стирание, объём, ПДн считаются по потолку)
+          else if (ttl > max + 60) bump(overTtl, `${hit.p.id} ${shape} ttl=${ttl}>${max}`);
+        });
+      } while (cursor !== '0');
+    }
+    for (const inst of instances.slice(1)) inst.client.disconnect();
+    check(`каждый ключ живого Redis (${scanned}, инстансов: ${instances.length}) принадлежит семейству реестра`, unknown.size === 0, [...unknown].slice(0, 8).map(([s, n]) => `${s}×${n}`).join(', '));
     check('у семейств с потолком TTL нет ключей без срока (кэш без TTL = утечка навсегда)', immortal.size === 0, [...immortal].slice(0, 8).map(([s, n]) => `${s}×${n}`).join(', '));
+    check('срок ключа не выше потолка его семейства в реестре', overTtl.size === 0, [...overTtl].slice(0, 8).map(([s, n]) => `${s}×${n}`).join(', '));
+    if (cacheSeparate) check('каждый ключ лежит в инстансе роли своего семейства (состояние ≠ кэш)', misplaced.size === 0, [...misplaced].slice(0, 8).map(([s, n]) => `${s}×${n}`).join(', '));
+    else console.log('  · REDIS_CACHE_URL не задан — размещение по ролям не проверяется (один инстанс)');
 
     // ---- CHECK-ограничения таблиц движка = перечисления shared (статус в коде без CHECK в базе — 500 на пути стирания) ----
     const shared = require('@superapp/shared');

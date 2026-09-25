@@ -774,6 +774,9 @@
     "entitlement_cache": {
       "title": "Кэш тарифов"
     },
+    "visibility_state": {
+      "title": "Детекции видимости"
+    },
     "visibility_cache": {
       "title": "Кэш видимости"
     },
@@ -784,7 +787,7 @@
       "title": "Присутствие"
     },
     "seen_throttle": {
-      "title": "Ограничители «был в сети»"
+      "title": "Ограничитель активности сессий"
     },
     "consents_gate": {
       "title": "Кэш шлюза согласий"

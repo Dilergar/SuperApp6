@@ -158,13 +158,20 @@ export class KeysUsageCron {
       .filter((r): r is NonNullable<typeof r> => !!r);
     if (!rows.length) return 0;
     const data = rows.map((r) => ({ keyId: r.keyId, method: r.method, route: r.route, status: r.status, ip: r.ip, at: new Date(r.at) }));
+    // Журнал использования — асинхронный коммит пачки (docs/data_architecture.md): сбой сервера
+    // теряет не больше ~0,6 с строк целиком, пачка не ждёт сброса WAL и синхронной реплики
+    const insert = () =>
+      this.db.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('synchronous_commit', 'off', true)`;
+        await tx.apiAccessLog.createMany({ data });
+      });
     try {
-      await this.db.apiAccessLog.createMany({ data });
+      await insert();
     } catch (err) {
       // Месяц без партиции (крон не успел) — завести и повторить один раз
       if (!LifecyclePartitions.isMissingPartition(err)) throw err;
       for (const r of data) await this.partitions.ensureFor(r.at);
-      await this.db.apiAccessLog.createMany({ data });
+      await insert();
     }
     return rows.length;
   }

@@ -283,8 +283,7 @@ export class AuditSessionsService {
   touch(userId: string, familyId: string | undefined): void {
     if (!familyId) return;
     void (async () => {
-      const won = await this.redis
-        .getClient()
+      const won = await this.redis.cache.client
         .set(AUDIT_REDIS.sessionSeen(familyId), '1', 'EX', AUDIT_LIMITS.lastSeenEveryMin * 60, 'NX')
         .catch(() => null);
       if (won !== 'OK') return;

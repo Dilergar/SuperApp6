@@ -286,10 +286,12 @@ export class LifecycleCanaryService implements OnModuleInit {
     plants.push({ policy: 'LifecycleExport', id: exportId, expect: 'gone' });
     plants.push({ policy: 'derived:lifecycle_exports', id: partKey, expect: 'gone' });
     plants.push({ policy: 'derived:lifecycle_exports', id: manifestKey, expect: 'gone' });
-    // Ключ на семейство: шаблон субъекта с id человека, звёздочка — маркер (ключ остаётся в своём семействе)
-    const client = this.redis.getClient();
+    // Ключ на семейство: шаблон субъекта с id человека, звёздочка — маркер (ключ остаётся в своём
+    // семействе и в инстансе его роли)
     for (const p of lifecyclePoliciesOf('redis')) {
       if (p.store.kind !== 'redis' || !p.store.subjectPattern || p.onSubjectErasure.kind !== 'hard_delete') continue;
+      const client = this.redis.clientFor(p.store.role);
+      if (!client) continue;
       const key = p.store.subjectPattern.replace('{user}', ctx.userId).replace(/\*/g, 'canary');
       const ttl = Math.min(900, p.store.maxTtlSeconds ?? 900);
       await client.set(key, ctx.marker, 'EX', ttl);
@@ -303,7 +305,7 @@ export class LifecycleCanaryService implements OnModuleInit {
     if (leak === 'redis') {
       const p = lifecyclePoliciesOf('redis').find((x) => x.store.kind === 'redis' && !!x.store.subjectPattern);
       if (p?.store.kind !== 'redis' || !p.store.subjectPattern) throw new Error('canary: no redis family with a subject pattern');
-      await this.redis.getClient().set(p.store.subjectPattern.replace('{user}', ctx.userId).replace(/\*/g, 'leak'), ctx.marker, 'EX', 900);
+      await (this.redis.clientFor(p.store.role) ?? this.redis.getClient()).set(p.store.subjectPattern.replace('{user}', ctx.userId).replace(/\*/g, 'leak'), ctx.marker, 'EX', 900);
       return;
     }
     const seed = this.registry.get('tasks.subject');
@@ -381,16 +383,18 @@ export class LifecycleCanaryService implements OnModuleInit {
     // Redis: один проход по ключам с id человека, раскладка по семействам с шаблоном субъекта
     const families = lifecyclePoliciesOf('redis').filter((p) => p.store.kind === 'redis' && !!p.store.subjectPattern && p.onSubjectErasure.kind === 'hard_delete');
     const matchers = families.map((p) => ({ id: p.id, re: globRe((p.store as { subjectPattern: string }).subjectPattern.replace('{user}', ctx.userId)) }));
-    const client = this.redis.getClient();
-    let cursor = '0';
-    do {
-      const [next, keys] = await client.scan(cursor, 'MATCH', `*${ctx.userId}*`, 'COUNT', 1000);
-      cursor = next;
-      for (const k of keys) {
-        const hit = matchers.find((m) => m.re.test(k));
-        if (hit) add(hit.id, 'redis', 1);
-      }
-    } while (cursor !== '0');
+    // Оба инстанса (состояние и кэш): утечка в любом — находка
+    for (const client of this.redis.instances()) {
+      let cursor = '0';
+      do {
+        const [next, keys] = await client.scan(cursor, 'MATCH', `*${ctx.userId}*`, 'COUNT', 1000);
+        cursor = next;
+        for (const k of keys) {
+          const hit = matchers.find((m) => m.re.test(k));
+          if (hit) add(hit.id, 'redis', 1);
+        }
+      } while (cursor !== '0');
+    }
 
     // Ключи скоупа человека: ни одной живой версии (стирание ставит их на уничтожение)
     const live = await this.db.cryptoKeyVersion.count({ where: { key: { scope: userScope(ctx.userId) }, state: { in: ['active', 'pending', 'disabled'] } } });
@@ -425,7 +429,6 @@ export class LifecycleCanaryService implements OnModuleInit {
     const out = new Map<string, { text: string | null }>();
     const byPolicy = new Map<string, string[]>();
     for (const p of plants) byPolicy.set(p.policy, [...(byPolicy.get(p.policy) ?? []), p.id]);
-    const client = this.redis.getClient();
     for (const [policyId, ids] of byPolicy) {
       const policy = lifecyclePolicy(policyId);
       if (!policy) continue;
@@ -443,7 +446,9 @@ export class LifecycleCanaryService implements OnModuleInit {
         for (const r of rows) out.set(`${policyId}\u0000${r.id}`, { text: r.j });
       } else if (kind === 'blob' || kind === 'derived') {
         for (const key of ids) if ((await this.storage.size(key)) !== null) out.set(`${policyId}\u0000${key}`, { text: null });
-      } else if (kind === 'redis') {
+      } else if (policy.store.kind === 'redis') {
+        const client = this.redis.clientFor(policy.store.role);
+        if (!client) continue;
         for (const key of ids) if ((await client.exists(key)) > 0) out.set(`${policyId}\u0000${key}`, { text: await client.get(key).catch(() => null) });
       }
     }
@@ -505,7 +510,7 @@ export class LifecycleCanaryService implements OnModuleInit {
       } else if (policy.store.kind === 'blob' || policy.store.kind === 'derived') {
         for (const key of ids) await this.storage.delete(key).catch(() => undefined);
       } else if (policy.store.kind === 'redis') {
-        await this.redis.getClient().del(...ids).catch(() => 0);
+        await this.redis.clientFor(policy.store.role)?.del(...ids).catch(() => 0);
       }
     }
     await this.purgeLeftovers([subjects.userId, subjects.peerId]);
@@ -531,14 +536,15 @@ export class LifecycleCanaryService implements OnModuleInit {
         await this.db.$executeRaw(Prisma.sql`DELETE FROM ${t.ident} t WHERE ${owned}`).catch((err: unknown) => this.logger.warn(`canary leftovers of ${id}: ${err instanceof Error ? err.message : err}`));
       }
     }
-    const client = this.redis.getClient();
-    for (const uid of userIds) {
-      let cursor = '0';
-      do {
-        const [next, keys] = await client.scan(cursor, 'MATCH', `*${uid}*`, 'COUNT', 1000);
-        cursor = next;
-        if (keys.length) await client.del(...keys);
-      } while (cursor !== '0');
+    for (const client of this.redis.instances()) {
+      for (const uid of userIds) {
+        let cursor = '0';
+        do {
+          const [next, keys] = await client.scan(cursor, 'MATCH', `*${uid}*`, 'COUNT', 1000);
+          cursor = next;
+          if (keys.length) await client.del(...keys);
+        } while (cursor !== '0');
+      }
     }
   }
 

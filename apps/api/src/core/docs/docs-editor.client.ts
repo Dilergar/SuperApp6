@@ -48,7 +48,7 @@ export class DocsEditorClient {
 
   private async discovery(base: string): Promise<DiscoveryMap> {
     const key = `docs:discovery:${base}`;
-    const cached = await this.redis.getJson<DiscoveryMap>(key).catch(() => null);
+    const cached = await this.redis.cache.getJson<DiscoveryMap>(key).catch(() => null);
     if (cached && Object.keys(cached).length) return cached;
 
     const xml = await this.fetchDiscovery(base);
@@ -56,7 +56,7 @@ export class DocsEditorClient {
     if (!Object.keys(map).length) {
       throw new ApiError(HttpStatus.SERVICE_UNAVAILABLE, { code: 'docs.emptyDiscovery' });
     }
-    await this.redis.setJson(key, map, DOCS_LIMITS.discoveryCacheSec).catch(() => undefined);
+    await this.redis.cache.setJson(key, map, DOCS_LIMITS.discoveryCacheSec).catch(() => undefined);
     return map;
   }
 

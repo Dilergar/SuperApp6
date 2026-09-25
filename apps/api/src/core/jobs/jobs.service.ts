@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { JOB_LIMITS, JobStatsDto, JobStatus, lifecyclePolicy } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { utcTs } from '../../shared/database/sql-time';
+import { DatabaseMaintenance } from '../../shared/database/database-maintenance.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { conflict } from '../../shared/errors/api-error';
 import { JobDiscardError, JobSnoozeError, JobsRegistry, JobTypeDef } from './jobs.registry';
@@ -85,6 +86,7 @@ export class JobsService {
     private readonly db: DatabaseService,
     private readonly registry: JobsRegistry,
     private readonly events: EventBusService,
+    private readonly maintenance: DatabaseMaintenance,
   ) {}
 
   setNudger(fn: (queue: string) => void): void {
@@ -529,15 +531,18 @@ export class JobsService {
    */
   async reindexQueue(): Promise<void> {
     const started = Date.now();
-    const leftovers = await this.db.$queryRaw<Array<{ name: string }>>`
+    // Обслуживающее подключение: прямое (REINDEX CONCURRENTLY — вне транзакции и мимо пулера) и
+    // без `statement_timeout` роли приложения — перестройка большой очереди длится минуты
+    const db = this.maintenance.db;
+    const leftovers = await db.$queryRaw<Array<{ name: string }>>`
       SELECT c.relname AS name FROM pg_index i
       JOIN pg_class c ON c.oid = i.indexrelid
       WHERE i.indrelid = 'jobs'::regclass AND NOT i.indisvalid AND c.relname ~ '_ccnew[0-9]*$'`;
     for (const l of leftovers) {
       if (!/^[a-z0-9_]+$/.test(l.name)) continue;
-      await this.db.$executeRawUnsafe(`DROP INDEX CONCURRENTLY IF EXISTS "${l.name}"`);
+      await db.$executeRawUnsafe(`DROP INDEX CONCURRENTLY IF EXISTS "${l.name}"`);
     }
-    await this.db.$executeRawUnsafe('REINDEX TABLE CONCURRENTLY "jobs"');
+    await db.$executeRawUnsafe('REINDEX TABLE CONCURRENTLY "jobs"');
     this.logger.log(`jobs queue reindexed concurrently in ${Math.round((Date.now() - started) / 1000)}s (${leftovers.length} leftover index(es) dropped)`);
   }
 

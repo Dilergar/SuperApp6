@@ -115,21 +115,48 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
   }
 
   /** Курсор пачек по id: числовой у целых id (индекс работает), иначе — по тексту. */
-  private idCursor(def: EncryptedColumnDef) {
+  private readonly idTypes = new Map<string, 'bigint' | 'uuid' | 'text'>();
+
+  /**
+   * Курсор и равенство по НАСТОЯЩЕМУ типу ключа (из каталога): приведение колонки к тексту
+   * (`"id"::text = $1`) отключало индекс — перешивка шла сканом таблицы (партиций) на каждую
+   * строку: `idem.responses` — 5,5 мс на строку, десятки минут на скоуп.
+   */
+  private async idCursor(def: EncryptedColumnDef) {
     const idCol = Prisma.raw(`"${def.idColumn}"`);
-    return def.idNumeric
-      ? {
-          start: '0',
-          gt: (cursor: string) => Prisma.sql`${idCol} > ${cursor}::bigint`,
-          order: Prisma.sql`${idCol}`,
-          eq: (id: string) => Prisma.sql`${idCol} = ${id}::bigint`,
-        }
-      : {
-          start: '',
-          gt: (cursor: string) => Prisma.sql`${idCol}::text > ${cursor}`,
-          order: Prisma.sql`${idCol}::text`,
-          eq: (id: string) => Prisma.sql`${idCol}::text = ${id}`,
-        };
+    // Сортировка — по колонке ТАБЛИЦЫ: голое имя совпало бы с псевдонимом вывода `id` (текст)
+    const ordered = Prisma.sql`${qualifiedTable(def)}.${idCol}`;
+    const cacheKey = `${def.schema ?? 'public'}.${def.table}.${def.idColumn}`;
+    let type = def.idNumeric ? 'bigint' : this.idTypes.get(cacheKey);
+    if (!type) {
+      const [row] = await this.db.$queryRaw<Array<{ t: string | null }>>`
+        SELECT format_type(a.atttypid, a.atttypmod) AS t FROM pg_attribute a
+         WHERE a.attrelid = to_regclass(${`"${def.schema ?? 'public'}"."${def.table}"`}) AND a.attname = ${def.idColumn} AND NOT a.attisdropped`;
+      type = row?.t === 'uuid' ? 'uuid' : row?.t === 'bigint' || row?.t === 'integer' ? 'bigint' : 'text';
+      this.idTypes.set(cacheKey, type);
+    }
+    if (type === 'bigint') {
+      return {
+        start: '0',
+        gt: (cursor: string) => Prisma.sql`${idCol} > ${cursor}::bigint`,
+        order: ordered,
+        eq: (id: string) => Prisma.sql`${idCol} = ${id}::bigint`,
+      };
+    }
+    if (type === 'uuid') {
+      return {
+        start: '00000000-0000-0000-0000-000000000000',
+        gt: (cursor: string) => Prisma.sql`${idCol} > ${cursor}::uuid`,
+        order: ordered,
+        eq: (id: string) => Prisma.sql`${idCol} = ${id}::uuid`,
+      };
+    }
+    return {
+      start: '',
+      gt: (cursor: string) => Prisma.sql`${idCol} > ${cursor}`,
+      order: ordered,
+      eq: (id: string) => Prisma.sql`${idCol} = ${id}`,
+    };
   }
 
   private async reencryptColumn(def: EncryptedColumnDef): Promise<number> {
@@ -137,7 +164,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
     const col = Prisma.raw(`"${def.column}"`);
     const idCol = Prisma.raw(`"${def.idColumn}"`);
     const scopeCol = def.scopeColumn ? Prisma.raw(`"${def.scopeColumn}"`) : null;
-    const ids = this.idCursor(def);
+    const ids = await this.idCursor(def);
     let cursor = ids.start;
     let total = 0;
     for (;;) {
@@ -146,6 +173,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
         WHERE ${col} IS NOT NULL AND ${col} <> '' AND ${col} NOT LIKE 'sa6e:%' AND ${this.discriminatorWhere(def)} AND ${ids.gt(cursor)}
         ORDER BY ${ids.order} LIMIT ${KEYS_LIMITS.rewrapBatch}`;
       if (!rows.length) break;
+      const updates: Array<{ id: string; prev: string; next: string }> = [];
       for (const row of rows) {
         const plain = def.legacyDecrypt!(row.value);
         if (plain === null) continue;
@@ -159,9 +187,15 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
           this.logger.warn(`legacy re-encrypt ${def.table}.${def.column} ${row.id}: ${(err as Error).message}`);
           continue;
         }
-        // Только если строка не изменилась с момента чтения (параллельная запись уже envelope)
-        await this.db.$executeRaw`UPDATE ${table} SET ${col} = ${next} WHERE ${ids.eq(row.id)} AND ${col} = ${row.value}`;
-        total++;
+        updates.push({ id: row.id, prev: row.value, next });
+      }
+      // Страница — одной транзакцией (коммит на строку = fsync WAL на каждую).
+      // Только если строка не изменилась с момента чтения (параллельная запись уже envelope)
+      if (updates.length) {
+        await this.db.$transaction(async (tx) => {
+          for (const u of updates) await tx.$executeRaw`UPDATE ${table} SET ${col} = ${u.next} WHERE ${ids.eq(u.id)} AND ${col} = ${u.prev}`;
+        }, { timeout: 60_000 });
+        total += updates.length;
       }
       cursor = rows[rows.length - 1]!.id;
       if (rows.length < KEYS_LIMITS.rewrapBatch) break;
@@ -295,7 +329,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
     const col = Prisma.raw(`"${def.column}"`);
     const idCol = Prisma.raw(`"${def.idColumn}"`);
     const ctx = { entity: def.entity, field: def.field, ownerType: scope.type, ownerId: scope.type === 'platform' ? 'platform' : scope.id };
-    const ids = this.idCursor(def);
+    const ids = await this.idCursor(def);
     let cursor = ids.start;
     let rewrapped = 0;
     let broken = 0;
@@ -306,6 +340,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
           AND ${ids.gt(cursor)}
         ORDER BY ${ids.order} LIMIT ${KEYS_LIMITS.rewrapBatch}`;
       if (!rows.length) break;
+      const updates: Array<{ id: string; prev: string; next: string }> = [];
       for (const row of rows) {
         // Исход расшифровки различает «строка бита» (повтор не вылечит) и «ключ недоступен» (повтор нужен)
         const dec = await this.envelope.tryDecrypt(scope, ctx, row.value);
@@ -323,9 +358,17 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
           this.logger.warn(`rewrap ${def.table}.${def.column} ${row.id}: ${(err as Error).message}`);
           continue;
         }
-        // Только если строка не изменилась с момента чтения (иначе новая запись уже под primary)
-        await this.db.$executeRaw`UPDATE ${table} SET ${col} = ${next} WHERE ${ids.eq(row.id)} AND ${col} = ${row.value}`;
-        rewrapped++;
+        updates.push({ id: row.id, prev: row.value, next });
+      }
+      // Страница — ОДНОЙ транзакцией: коммит на строку (fsync WAL на каждую) делал перешивку
+      // большого скоупа часами. Синхронно, без асинхронного коммита: после перешивки старая
+      // версия KEK уходит на уничтожение — потерянный коммит оставил бы строку под мёртвым ключом.
+      // Только если строка не изменилась с момента чтения (иначе новая запись уже под primary)
+      if (updates.length) {
+        await this.db.$transaction(async (tx) => {
+          for (const u of updates) await tx.$executeRaw`UPDATE ${table} SET ${col} = ${u.next} WHERE ${ids.eq(u.id)} AND ${col} = ${u.prev}`;
+        }, { timeout: 60_000 });
+        rewrapped += updates.length;
       }
       cursor = rows[rows.length - 1]!.id;
       if (rows.length < KEYS_LIMITS.rewrapBatch) break;
@@ -439,7 +482,7 @@ export class KeysRotationJobs implements OnModuleInit, OnApplicationBootstrap, O
       const slotCol = this.slotColumn(def, target);
       const idCol = Prisma.raw(`"${def.idColumn}"`);
       const scopeCol = def.scopeColumn ? Prisma.raw(`"${def.scopeColumn}"`) : null;
-      const ids = this.idCursor(def);
+      const ids = await this.idCursor(def);
       let cursor = ids.start;
       for (;;) {
         if (Date.now() > deadline) return { ...out, timedOut: true };

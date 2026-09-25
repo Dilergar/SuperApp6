@@ -326,7 +326,9 @@ export const REDIS_LIFECYCLE = {
     reason: 'keystore epoch, API key usage counters, auth throttles and revocation tombstones',
   }),
   'redis:audit_state': redis('audit_state', {
-    patterns: ['audit:*'],
+    // `ws:seen:*` — одноразовая отметка «впервые в организации с устройства» (30 дней): вытеснение
+    // повторило бы тревогу `org.session.first_seen` организации
+    patterns: ['audit:*', 'ws:seen:*'],
     role: 'state',
     maxTtlSeconds: 31 * D,
     owner: 'core/audit',
@@ -393,6 +395,15 @@ export const REDIS_LIFECYCLE = {
     dataClass: 'ephemeral',
     reason: 'pub/sub channels of the socket.io adapter (no stored keys)',
   }),
+  'redis:visibility_state': redis('visibility_state', {
+    patterns: ['vis:det:*'],
+    role: 'state',
+    maxTtlSeconds: H + 60,
+    owner: 'core/visibility',
+    dataClass: 'security_audit',
+    subjectPattern: 'vis:det:*:{user}*',
+    reason: 'detection windows and pauses of field reveals, PII scraping and number lookups (eviction would lift a pause)',
+  }),
   'redis:lifecycle_state': redis('lifecycle_state', {
     patterns: ['lifecycle:*'],
     role: 'state',
@@ -437,12 +448,12 @@ export const REDIS_LIFECYCLE = {
     reason: 'plan snapshots (versioned by entitlement epochs)',
   }),
   'redis:visibility_cache': redis('visibility_cache', {
-    patterns: ['vis:*'],
+    patterns: ['vis:policy:*', 'vis:facts:*'],
     role: 'cache',
     maxTtlSeconds: H,
     owner: 'core/visibility',
     dataClass: 'derived',
-    subjectPattern: 'vis:*:{user}*',
+    subjectPattern: 'vis:facts:*:{user}:*',
     reason: 'field visibility policy and fact caches',
   }),
   'redis:user_cache': redis('user_cache', {
@@ -457,19 +468,20 @@ export const REDIS_LIFECYCLE = {
   'redis:presence': redis('presence', {
     patterns: ['presence:*'],
     role: 'cache',
-    maxTtlSeconds: 7 * D,
+    // «Был в сети» живёт 30 дней (`PRESENCE.LAST_SEEN_TTL_SECONDS`); счётчик соединений — минуты
+    maxTtlSeconds: 31 * D,
     owner: 'messenger',
     dataClass: 'ephemeral',
     subjectPattern: 'presence:{user}:*',
     reason: 'last-seen presence of a person',
   }),
   'redis:seen_throttle': redis('seen_throttle', {
-    patterns: ['ws:seen:*', 'sess:seen:*'],
+    patterns: ['sess:seen:*'],
     role: 'cache',
     maxTtlSeconds: 10 * 60,
-    owner: 'core/users',
+    owner: 'core/audit',
     dataClass: 'ephemeral',
-    reason: 'write throttles of last-seen columns',
+    reason: 'write throttle of the session last-seen column (eviction costs one extra UPDATE)',
   }),
   'redis:consents_gate': redis('consents_gate', {
     patterns: ['consents:*'],
@@ -490,7 +502,8 @@ export const REDIS_LIFECYCLE = {
   'redis:analytics_cache': redis('analytics_cache', {
     patterns: ['analytics:q:*'],
     role: 'cache',
-    maxTtlSeconds: H,
+    // Результат за закрытый диапазон живёт сутки (данные прошлого не меняются до роллапа)
+    maxTtlSeconds: D,
     owner: 'core/analytics',
     dataClass: 'derived',
     reason: 'cached analytics report results (k-anonymous aggregates)',

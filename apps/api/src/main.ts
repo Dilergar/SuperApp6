@@ -11,6 +11,8 @@ import { DocsTokenService } from './core/docs/docs-token.service';
 import { isAllowedWebOrigin, webOrigins } from './shared/config/web-origins';
 import { AUDIT_HEADERS, IDEMPOTENCY_EXPOSED_HEADERS, IDEMPOTENCY_KEY_HEADER, IDEMPOTENCY_KEY_RE } from '@superapp/shared';
 import { requestContextMiddleware } from './shared/context/request-context';
+import { httpMetricsMiddleware } from './shared/metrics/http-metrics.middleware';
+import { MetricsService } from './shared/metrics/metrics.service';
 
 // Защитная сеть: одна «забытая» асинхронная ошибка (unhandled rejection) в новых
 // версиях Node роняет ВЕСЬ процесс. Логируем и продолжаем работать — сервер не падает
@@ -86,6 +88,8 @@ async function bootstrap() {
   // Контекст запроса (core/audit): request-id (эхо в ответе), IP, устройство, страна — в
   // `req.ctx` ДО гардов и парсеров тела. Журнал безопасности и конверт ошибки читают его.
   app.use(requestContextMiddleware);
+  // Длительность HTTP по шаблону маршрута (shared/metrics) — до всех прочих обработчиков
+  app.use(httpMetricsMiddleware(app.get(MetricsService)));
 
   // Вебхук LiveKit (core/calls): подпись проверяется по СЫРОМУ телу (WebhookReceiver),
   // поэтому точечный raw-парсер только на этот путь — глобальный json Nest вешает позже
@@ -143,8 +147,9 @@ async function bootstrap() {
   // Global prefix
   // JWKS платформы (core/keys) живёт по стандартному адресу вне префикса: внешние
   // верификаторы ищут `/.well-known/jwks.json` у корня хоста (RFC 8615).
-  // Метрики Prometheus — тоже у корня (`/metrics`, гейт METRICS_TOKEN, shared/metrics).
-  app.setGlobalPrefix('api', { exclude: ['.well-known/jwks.json', 'metrics'] });
+  // Метрики Prometheus — тоже у корня (`/metrics`, гейт METRICS_TOKEN, shared/metrics);
+  // пробы балансировщика — `/health/live|ready` (shared/health).
+  app.setGlobalPrefix('api', { exclude: ['.well-known/jwks.json', 'metrics', 'health/live', 'health/ready'] });
 
   // CORS — веб и мобильный клиент. Список — общий с сокетом и frame-ancestors
   // (shared/config/web-origins.ts); прод-адрес приходит из WEB_URL.

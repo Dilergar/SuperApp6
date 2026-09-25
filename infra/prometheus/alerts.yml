@@ -1,0 +1,268 @@
+# ============================================================
+# Prometheus — правила тревог слоя данных SuperApp6 (docs/data_architecture.md «Наблюдаемость»)
+# ============================================================
+# Порог → действие. Сторожевые сигналы БД считает КАЖДЫЙ инстанс API раз в 5 минут
+# (`LifecycleDbWatch`) — правила берут `max without(instance)`. Главное правило — на ОТСУТСТВИЕ:
+# тишина метрик (Stripe 2019) и тишина бэкапов (GitLab 2017) — тоже авария.
+# severity: page — будить дежурного; warn — в рабочее время; ticket — в очередь.
+groups:
+  - name: sa6-signals-alive
+    rules:
+      - alert: DatabaseWatchSilent
+        expr: time() - max without(instance) (lifecycle_db_watch_last_success_seconds) > 900 or absent(lifecycle_db_watch_last_success_seconds)
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "Database watch has not reported for 15+ minutes — every database alert below is blind"
+          action: "Check API instances (/health/ready) and the monitor functions (lifecycle_db_overview / lifecycle_db_metrics)"
+
+  - name: sa6-database
+    rules:
+      - alert: XidAgeWarning
+        expr: max without(instance) (lifecycle_db_xid_age) > 500e6
+        for: 30m
+        labels: { severity: warn }
+        annotations:
+          summary: "Transaction ID age above 500M"
+          action: "Find what blocks VACUUM FREEZE (long transactions, stale slots) and run it"
+      - alert: XidAgePage
+        expr: max without(instance) (lifecycle_db_xid_age) > 1e9
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "Transaction ID age above 1B — wraparound shutdown approaches (Sentry 2015, Mandrill 2019)"
+          action: "Emergency VACUUM FREEZE of the oldest relations"
+      - alert: MultixactAgeHigh
+        expr: max without(instance) (lifecycle_db_mxid_age) > 400e6
+        for: 30m
+        labels: { severity: warn }
+        annotations:
+          summary: "Multixact age high (Metronome 2025)"
+          action: "VACUUM the tables with the oldest relminmxid"
+      - alert: ReplicaLagWarning
+        expr: max without(instance) (lifecycle_db_replay_lag_seconds) > 1
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: "Replica replay lag above 1s"
+      - alert: ReplicaLagPage
+        expr: max without(instance) (lifecycle_db_replay_lag_seconds) > 10
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "Replica replay lag above 10s — failover would lose data"
+          action: "Check replica IO/CPU and long queries on the standby"
+      - alert: ReplicationSlotRetainsWal
+        expr: max without(instance) (lifecycle_db_slot_retained_wal_bytes) > 0.5 * max without(instance) (lifecycle_db_slot_wal_cap_bytes) and max without(instance) (lifecycle_db_slot_wal_cap_bytes) > 0
+        for: 15m
+        labels: { severity: page }
+        annotations:
+          summary: "A replication slot retains more than half of max_slot_wal_keep_size"
+          action: "Revive or drop the lagging consumer before the slot is invalidated"
+      - alert: LockManagerContention
+        expr: max without(instance) (lifecycle_db_lwlock_lockmanager_waits) > 5
+        for: 10m
+        labels: { severity: warn }
+        annotations:
+          summary: "Waits on LWLock:LockManager (fast-path lock slots exhausted)"
+          action: "Check partition pruning of hot queries; plan_cache_mode = force_custom_plan for the role"
+      - alert: InvalidIndexes
+        expr: max without(instance) (lifecycle_db_invalid_indexes) > 0
+        for: 1h
+        labels: { severity: ticket }
+        annotations:
+          summary: "Invalid indexes left by failed CONCURRENTLY builds"
+          action: "Rebuild with apps/api/scripts/db-online-ddl.cjs"
+      - alert: DetachPending
+        expr: max without(instance) (lifecycle_db_detach_pending) > 0
+        for: 24h
+        labels: { severity: warn }
+        annotations:
+          summary: "A partition is stuck in «detach pending»"
+          action: "The nightly maintenance runs FINALIZE; check lifecycle_partition_maintenance_errors_total"
+      - alert: CacheHitRatioLow
+        expr: max without(instance) (lifecycle_db_cache_hit_ratio) < 0.99
+        for: 1h
+        labels: { severity: ticket }
+        annotations:
+          summary: "Shared buffers hit ratio below 99%"
+          action: "Review shared_buffers and the hottest queries (pg_stat_statements)"
+      - alert: CheckpointsRequested
+        expr: max without(instance) (lifecycle_db_checkpoints_requested_ratio) > 0.1
+        for: 1h
+        labels: { severity: ticket }
+        annotations:
+          summary: "More than 10% of checkpoints are requested (WAL-driven)"
+          action: "Raise max_wal_size"
+      - alert: TempFilesGrowing
+        expr: rate(lifecycle_db_temp_bytes[1h]) > 50e6
+        for: 1h
+        labels: { severity: ticket }
+        annotations:
+          summary: "Temporary files grow faster than 50 MB/s over an hour"
+          action: "Find the sorting/hashing queries (log_temp_files) and index or raise work_mem for them"
+      - alert: ConnectionsHigh
+        expr: max without(instance) (lifecycle_db_connections) > 0.8 * max without(instance) (lifecycle_db_max_connections)
+        for: 10m
+        labels: { severity: page }
+        annotations:
+          summary: "Client connections above 80% of max_connections"
+          action: "Check PgBouncer pool budget and connection leaks"
+      - alert: IdleInTransaction
+        expr: max without(instance) (lifecycle_db_connections_idle_in_transaction) > 10
+        for: 10m
+        labels: { severity: warn }
+        annotations:
+          summary: "Many sessions idle inside a transaction (they hold locks and block VACUUM)"
+      - alert: LongTransaction
+        expr: max without(instance) (lifecycle_db_longest_transaction_seconds) > 600
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: "A client transaction is open for more than 10 minutes (blocks VACUUM, grows XID age)"
+      - alert: WalArchiveFailing
+        expr: increase(lifecycle_db_archive_failed[30m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "WAL archiving fails — point-in-time recovery window is shrinking"
+          action: "Check pgBackRest archive-push and repository reachability"
+      - alert: WalArchiveStale
+        expr: time() - max without(instance) (lifecycle_db_archive_last_success_seconds) > 600 and max without(instance) (lifecycle_db_archive_last_success_seconds) > 0
+        for: 5m
+        labels: { severity: page }
+        annotations:
+          summary: "No WAL segment archived for 10 minutes (archive_timeout is 60s)"
+
+  - name: sa6-backups
+    rules:
+      - alert: BackupMissing
+        expr: time() - max without(instance) (lifecycle_backup_last_success_seconds) > 26 * 3600 or absent(lifecycle_backup_last_success_seconds)
+        for: 15m
+        labels: { severity: page }
+        annotations:
+          summary: "No successful backup reported for 26+ hours (alert on ABSENCE — GitLab 2017)"
+          action: "Check the backup timer on the database host and the report delivery (infra/pgbackrest/backup.sh)"
+      - alert: RestoreDrillMissing
+        expr: time() - max without(instance) (lifecycle_backup_last_drill_success_seconds) > 2 * 86400
+        for: 1h
+        labels: { severity: warn }
+        annotations:
+          summary: "No successful restore drill for 2 days — a backup nobody restored is a hope, not a backup"
+
+  - name: sa6-lifecycle
+    rules:
+      - alert: PartitionRunwayLow
+        expr: min without(instance) (lifecycle_partitions_ahead) < 2
+        for: 1h
+        labels: { severity: warn }
+        annotations:
+          summary: "Fewer than 2 partitions ahead for a journal (inserts fail when it hits 0)"
+          action: "Run lifecycle.partitions maintenance; check lifecycle_partition_maintenance_errors_total"
+      - alert: PartitionRunwayExhausted
+        expr: min without(instance) (lifecycle_partitions_ahead) < 1
+        labels: { severity: page }
+        annotations:
+          summary: "No partition for the current period — journal inserts fail"
+      - alert: RetentionLag
+        expr: max without(instance) (lifecycle_retention_max_lag_days) > 7
+        for: 6h
+        labels: { severity: warn }
+        annotations:
+          summary: "A retention policy lags more than 7 days behind its term"
+          action: "Dashboard «Data» → Retention; check purge runs and holds"
+      - alert: PurgeHalted
+        expr: increase(lifecycle_purge_halted_total[1d]) > 0
+        labels: { severity: warn }
+        annotations:
+          summary: "A purge run was stopped by the blast-radius cap — a human checks before the next night"
+      - alert: ErasureStuck
+        expr: max without(instance) (lifecycle_erasure_stuck) > 0
+        for: 1h
+        labels: { severity: page }
+        annotations:
+          summary: "An erasure request has no progress beyond its SLO (legal deadline)"
+      - alert: ErasureFailed
+        expr: max without(instance) (lifecycle_erasure_failed) > 0
+        for: 30m
+        labels: { severity: warn }
+        annotations:
+          summary: "An erasure stopped with an error and will not continue by itself"
+          action: "Platform console → retry the erasure"
+      - alert: CanaryFailed
+        expr: increase(lifecycle_canary_failures_total[1d]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "The erasure canary found a trace of an erased synthetic person — erasure leaks somewhere"
+      - alert: CanarySilent
+        expr: time() - max without(instance) (lifecycle_canary_last_success_seconds) > 2 * 86400
+        for: 1h
+        labels: { severity: warn }
+        annotations:
+          summary: "No clean erasure canary run for 2 days"
+
+  - name: sa6-service
+    rules:
+      - alert: InstanceNotReady
+        expr: min by (check) (health_check_status{check=~"database|redis_state"}) < 1
+        for: 2m
+        labels: { severity: page }
+        annotations:
+          summary: "A critical readiness check fails on some instance ({{ $labels.check }})"
+      - alert: CacheInstanceDown
+        expr: min without(instance) (health_check_status{check="redis_cache"}) < 1
+        for: 10m
+        labels: { severity: warn }
+        annotations:
+          summary: "Redis cache instance unreachable — every read goes to the database (degraded, not down)"
+      - alert: HttpErrorRate
+        expr: sum(rate(http_request_duration_seconds_count{status="5xx"}[5m])) / sum(rate(http_request_duration_seconds_count[5m])) > 0.02
+        for: 10m
+        labels: { severity: page }
+        annotations:
+          summary: "More than 2% of HTTP requests end in 5xx"
+      - alert: HttpLatencyP99
+        expr: histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{route!~"/metrics|/health/.*"}[5m]))) > 2
+        for: 15m
+        labels: { severity: warn }
+        annotations:
+          summary: "HTTP p99 latency above 2s"
+
+  # Экспортёры инфраструктуры (redis_exporter, pgbouncer_exporter) — стандартные имена метрик
+  - name: sa6-infra-exporters
+    rules:
+      - alert: RedisStateEvicting
+        expr: increase(redis_evicted_keys_total{role="state"}[10m]) > 0
+        labels: { severity: page }
+        annotations:
+          summary: "The STATE Redis evicts keys — it must be noeviction (locks, limits and tombstones are being lost)"
+      - alert: RedisStateMemoryHigh
+        expr: redis_memory_used_bytes{role="state"} / redis_memory_max_bytes{role="state"} > 0.8
+        for: 10m
+        labels: { severity: page }
+        annotations:
+          summary: "STATE Redis above 80% of maxmemory — writes fail with OOM at 100% (noeviction)"
+      - alert: PgBouncerClientsWaiting
+        expr: max(pgbouncer_pools_client_maxwait_seconds) > 1
+        for: 5m
+        labels: { severity: warn }
+        annotations:
+          summary: "Clients wait for a server connection in PgBouncer for more than 1s — pool budget exhausted"
+
+  - name: sa6-streams
+    rules:
+      - alert: StreamLagHigh
+        expr: max by (stream) (sa6_stream_lag) > 0.5 * max by (stream) (sa6_stream_maxlen)
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "A Redis stream consumer lags above half of MAXLEN ({{ $labels.stream }}) - XADD trimming will drop unread entries"
+          action: "Scale the consumers or find the stuck handler; the bus is at-most-once, analytics loses events at the cap"
+      - alert: ActiveConnectionsAboveCores
+        expr: max without(instance) (lifecycle_db_connections_active) > 2 * count(node_cpu_seconds_total{job="postgres-node", mode="idle"})
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Active database backends exceed 2x CPU cores of the database host - queries queue on CPU"
+          action: "Lower PgBouncer default_pool_size or find the slow queries (pg_stat_statements); job label of the host node_exporter is postgres-node"

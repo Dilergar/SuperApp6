@@ -258,7 +258,7 @@ export class VisibilityService {
       return l1;
     }
     try {
-      const raw = await this.redis.get(key);
+      const raw = await this.redis.cache.get(key);
       if (raw) {
         const v = JSON.parse(raw) as ViewerFactsCached;
         if (Array.isArray(v?.principals)) {
@@ -278,7 +278,7 @@ export class VisibilityService {
         .map((p) => `${p.subjectType}:${p.subjectId}`),
     };
     this.factsL1.set(key, v);
-    void this.redis.set(key, JSON.stringify(v), VISIBILITY_LIMITS.planL2TtlSec).catch(() => undefined);
+    void this.redis.cache.set(key, JSON.stringify(v), VISIBILITY_LIMITS.planL2TtlSec).catch(() => undefined);
     return v;
   }
 

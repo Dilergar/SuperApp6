@@ -227,6 +227,10 @@ GRANT EXECUTE ON FUNCTION lifecycle_health_signals(regclass) TO :"app_role";
 ALTER FUNCTION lifecycle_db_overview() OWNER TO sa6_monitor;
 REVOKE ALL ON FUNCTION lifecycle_db_overview() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lifecycle_db_overview() TO :"app_role";
+-- Сторожевые метрики (Э7): кэш, временные файлы, чекпойнты, слоты WAL, архиватор — числа
+ALTER FUNCTION lifecycle_db_metrics() OWNER TO sa6_monitor;
+REVOKE ALL ON FUNCTION lifecycle_db_metrics() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lifecycle_db_metrics() TO :"app_role";
 
 -- ---- Событийный триггер: DROP защищённой таблицы — только роли владельца ----
 -- Срабатывает на sql_drop (DROP TABLE, DROP SCHEMA … CASCADE, DROP OWNED, DROP COLUMN) ДО
@@ -290,3 +294,43 @@ BEGIN
     RAISE EXCEPTION 'db-roles: not owned by sa6_data_owner: %', bad;
   END IF;
 END $$;
+
+-- ============================================================
+-- Часть 3. Потолки ролей и вход пулера (docs/data_architecture.md)
+-- ============================================================
+-- Потолки — на РОЛИ, не глобально: миграции (sa6_migrate, заголовок SET в файле), бэкап и
+-- обслуживающее подключение приложения (параметры запуска `options` старше ALTER ROLE SET:
+-- REINDEX CONCURRENTLY очереди, суточный роллап) живут со своими. Долгое законное внутри
+-- транзакции поднимает `SET LOCAL statement_timeout` само (запросы Кабинета, раннер сроков).
+ALTER ROLE :"app_role" SET statement_timeout = '30s';
+ALTER ROLE :"app_role" SET idle_in_transaction_session_timeout = '60s';
+ALTER ROLE :"app_role" SET transaction_timeout = '5min';
+-- Отчёты и поддержка: только чтение, короткий потолок (тяжёлое — на отчётную реплику)
+ALTER ROLE sa6_readonly SET statement_timeout = '5s';
+ALTER ROLE sa6_readonly SET default_transaction_read_only = on;
+
+-- ---- PgBouncer: пароли в пулере не хранятся (auth_query) ----
+-- Пулер входит ролью sa6_pgbouncer_auth (единственная строка его userlist) и спрашивает хеш
+-- SCRAM входящей роли у SECURITY DEFINER-функции. Через пулер не входят: суперпользователи,
+-- роли миграций и бэкапа (они ходят по DIRECT_URL), роли с REPLICATION, сам sa6_pgbouncer_auth.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sa6_pgbouncer_auth') THEN
+    CREATE ROLE sa6_pgbouncer_auth NOLOGIN;
+  END IF;
+END $$;
+CREATE SCHEMA IF NOT EXISTS pgbouncer;
+REVOKE ALL ON SCHEMA pgbouncer FROM PUBLIC;
+GRANT USAGE ON SCHEMA pgbouncer TO sa6_pgbouncer_auth;
+CREATE OR REPLACE FUNCTION pgbouncer.get_auth(p_usename text)
+RETURNS TABLE (usename name, passwd text)
+LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $$
+  SELECT s.usename, s.passwd
+    FROM pg_catalog.pg_shadow s
+    JOIN pg_catalog.pg_roles r ON r.rolname = s.usename
+   WHERE s.usename = p_usename
+     AND NOT r.rolsuper AND NOT r.rolreplication AND r.rolcanlogin
+     AND s.usename NOT IN ('sa6_pgbouncer_auth', 'sa6_migrate', 'sa6_backup')
+$$;
+REVOKE ALL ON FUNCTION pgbouncer.get_auth(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION pgbouncer.get_auth(text) TO sa6_pgbouncer_auth;

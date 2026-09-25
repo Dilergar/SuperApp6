@@ -327,6 +327,8 @@ async function sectionMembership({ check, prisma, s1 }) {
   if (!W) return;
   const Redis = require('ioredis');
   const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+  // Кэш ролей — инстанс роли «кэш» (без REDIS_CACHE_URL — тот же, что состояние)
+  const cache = new Redis(process.env.REDIS_CACHE_URL || process.env.REDIS_URL || 'redis://localhost:6379');
   const join = async () => {
     const inv = await call('POST', `/workspaces/${W}/invitations`, s1.token, { phone: SUITE.p2 });
     const incoming = await call('GET', '/workspaces/invitations/incoming', s2.token);
@@ -354,7 +356,7 @@ async function sectionMembership({ check, prisma, s1 }) {
     // а не упирается в 404 «не член»
     check('M2: suite2 joined again', await join());
     await prisma.userRole.updateMany({ where: { userId: s2.id, context: 'workspace', tenantId: W }, data: { isActive: false } });
-    await redis.del(`user:${s2.id}:roles`);
+    await cache.del(`user:${s2.id}:roles`);
     t0 = new Date();
     const orphan = await call('DELETE', `/workspaces/${W}/members/${s2.id}`, s1.token);
     st = await state();
@@ -415,6 +417,7 @@ async function sectionMembership({ check, prisma, s1 }) {
     check('M6: a manager cannot start a batch of dismissals with membership removal → 403', batch.status === 403 && batch.code === 'workspace.manageForbidden', `${batch.status} ${batch.code}`);
   } finally {
     redis.disconnect();
+    cache.disconnect();
   }
 }
 

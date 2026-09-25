@@ -1,0 +1,2 @@
+user default on nopass ~* &* +@all
+user sa6_app on #c2c6e3fd3f7376dad184d625f9a71338c9a2652c8480cdcdd354e14b044fea27 ~* &* +@all -@dangerous +info -keys -config -debug -restore -restore-asking -migrate -module -monitor -shutdown -failover -replicaof -slaveof

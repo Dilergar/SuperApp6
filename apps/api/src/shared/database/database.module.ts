@@ -4,6 +4,7 @@ import {
   buildScopedPrismaClient,
 } from './database.service';
 import { WorkspaceContextService } from '../context/workspace-context.service';
+import { DatabaseMaintenance } from './database-maintenance.service';
 
 /**
  * Страж часового пояса сессии БД. Все колонки времени — `timestamp` БЕЗ пояса, и
@@ -52,7 +53,8 @@ async function assertUtcSession(
         return client;
       },
     },
+    DatabaseMaintenance,
   ],
-  exports: [DatabaseService],
+  exports: [DatabaseService, DatabaseMaintenance],
 })
 export class DatabaseModule {}

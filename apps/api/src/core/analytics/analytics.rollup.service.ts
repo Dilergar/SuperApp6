@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ANALYTICS_LIMITS, ANALYTICS_QUALIFYING_KEYS } from '@superapp/shared';
-import { DatabaseService } from '../../shared/database/database.service';
+import { DatabaseMaintenance } from '../../shared/database/database-maintenance.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { ANALYTICS_JOBS, ANALYTICS_QUEUE, ANALYTICS_REDIS, analyticsEnv } from './analytics.constants';
@@ -19,9 +19,9 @@ export class AnalyticsRollupService implements OnModuleInit {
   private readonly logger = new Logger(AnalyticsRollupService.name);
 
   constructor(
-    private readonly db: DatabaseService,
     private readonly redis: RedisService,
     private readonly registry: JobsRegistry,
+    private readonly maintenance: DatabaseMaintenance,
   ) {}
 
   onModuleInit(): void {
@@ -41,7 +41,9 @@ export class AnalyticsRollupService implements OnModuleInit {
   async rollupDay(day: string): Promise<{ events: number; actors: number; sessions: number }> {
     const tz = analyticsEnv().timezone;
     const started = Date.now();
-    const out = await this.db.$transaction(
+    // Обслуживающее подключение: суточный роллап — законно долгая транзакция (минуты), таймауты
+    // роли приложения (`statement_timeout 30s`, `transaction_timeout 5min`) её бы оборвали
+    const out = await this.maintenance.db.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`analytics-rollup:${day}`}))::text AS locked`;
         await tx.$executeRawUnsafe(`
