@@ -31,6 +31,7 @@ RealtimeService.emitToUsers(userIds, name, payload) / emitToRooms(rooms, name, p
 - Сбой хука соединения (presence мессенджера ходит в Redis) ловится ПО-ХУКУ: рвать из-за него сокет значило бы оставить человека и без ленты сообщений, и без уведомлений.
 - Origin'ы — общий список с HTTP-CORS и `frame-ancestors` (`shared/config/web-origins.ts`), и берутся ФУНКЦИЕЙ: декоратор gateway вычисляется при импорте файла, массив зафиксировал бы только адреса разработки, без `WEB_URL`.
 - Сокет авторизуется только на рукопожатии → отзыв сессии рвёт живые сокеты (`disconnectSockets` уходит через Redis-адаптер на все инстансы), а повторное рукопожатие отозванным токеном отбивается `tokenEpoch`.
+- Адаптер — sharded Pub/Sub (`createShardedAdapter`, `redis-io.adapter.ts`, инстанс Redis «состояние»): у каждой комнаты свой канал, событие `user:<id>` получает только инстанс, где у человека открыт сокет (многокомнатная рассылка и `disconnectSockets` идут общим каналом). Pub/Sub ничего не хранит — пропущенное за разрыв клиент добирает через API в `onReconnect` ([data_architecture.md](data_architecture.md)).
 
 ## Проверка
 
