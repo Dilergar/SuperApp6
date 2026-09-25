@@ -5,6 +5,7 @@ import { AccessService } from '../../core/access/access.service';
 import { fullName, fullNameOrNull } from '../../shared/utils/user-name';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { parseMentions, MENTION_LIMITS, type MentionCandidate, type MentionSourceType } from '@superapp/shared';
+import { MessengerRetentionService } from './messenger-retention.service';
 
 const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true } as const;
 
@@ -26,6 +27,7 @@ export class MentionsService {
     private notifications: NotificationsService,
     private access: AccessService,
     private i18n: I18nService,
+    private retention: MessengerRetentionService,
   ) {}
 
   /** Ключ идемпотентности упоминания в источнике */
@@ -62,10 +64,12 @@ export class MentionsService {
 
       const [author, chat] = await Promise.all([
         this.db.user.findUnique({ where: { id: authorId }, select: USER_LITE }),
-        this.db.chat.findUnique({ where: { id: chatId }, select: { workspaceId: true } }),
+        this.db.chat.findUnique({ where: { id: chatId }, select: { id: true, type: true, workspaceId: true, messageTtlDays: true } }),
       ]);
       const mentionerName = fullNameOrNull(author);
-      const snippet = content.slice(0, MENTION_LIMITS.snippetLength);
+      // Сообщение с коротким сроком (таймер, срок организации) не переживает себя в ленте
+      // уведомлений: такое упоминание уходит без текста
+      const snippet = chat && !(await this.retention.snippetAllowed(chat)) ? '' : content.slice(0, MENTION_LIMITS.snippetLength);
       for (const userId of keptIds) {
         await this.notifications
           .send(null, {

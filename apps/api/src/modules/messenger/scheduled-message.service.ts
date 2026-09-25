@@ -128,6 +128,8 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
       if (!parent || parent.chatId !== chatId) {
         throw badRequest('chat.quoteSameChat');
       }
+      // Вне срока чата (таймер, срок организации) сообщение уже не показывается — не цитируется
+      if (!(await this.messenger.isQuotable(chatId, replyToId))) throw notFound('chat.messageNotFound');
     }
 
     const pending = await this.db.scheduledMessage.count({
@@ -234,11 +236,14 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
     if (claimed.count === 0) return;
 
     try {
+      // Цитата, истёкшая к отправке (таймер чата, срок организации) или удалённая, отбрасывается:
+      // сообщение уходит без неё, а не отменяется молча
+      const replyTo = row.replyToId && (await this.messenger.isQuotable(row.chatId, row.replyToId)) ? row.replyToId : undefined;
       const msg = await this.messenger.sendMessage(
         row.authorId,
         row.chatId,
         row.content,
-        row.replyToId ?? undefined,
+        replyTo,
       );
       await this.db.scheduledMessage.update({
         where: { id },
@@ -248,7 +253,8 @@ export class ScheduledMessageService implements OnModuleInit, OnApplicationBoots
         await this.notifications.send(null, {
           type: 'messenger.scheduled.sent',
           to: [{ userId: row.authorId }],
-          payload: { snippet: row.content.slice(0, 140), chatId: row.chatId, messageId: msg.id },
+          // Сообщение с коротким сроком не переживает себя в ленте уведомлений — тогда без текста
+          payload: { snippet: await this.messenger.notificationSnippet(row.chatId, row.content.slice(0, 140)), chatId: row.chatId, messageId: msg.id },
           ref: { type: 'chat_message', id: msg.id },
           reason: 'owner',
           actionUrl: `/messenger?chat=${row.chatId}&msg=${msg.id}`,

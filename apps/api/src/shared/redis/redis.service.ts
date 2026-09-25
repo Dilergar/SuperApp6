@@ -131,6 +131,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
             });
           });
     await Promise.all([ready(this.client, 'state'), this.cacheClient === this.client ? null : ready(this.cacheClient, 'cache')]);
+    await this.warnIfUnbounded(this.client, 'state');
+    if (this.cacheClient !== this.client) await this.warnIfUnbounded(this.cacheClient, 'cache');
+  }
+
+  /**
+   * `maxmemory` живёт не в файле конфига, а во флаге запуска (dev — docker-compose, прод — ≈ 50 %
+   * RAM у состояния): забытый флаг = состояние растёт до OOM хоста, кэш ничего не вытесняет.
+   * Громко на старте (INFO доступен пользователю приложения), а не молча в аварию.
+   */
+  private async warnIfUnbounded(client: Redis, role: 'state' | 'cache'): Promise<void> {
+    try {
+      const max = Number(/maxmemory:(\d+)/.exec(await client.info('memory'))?.[1] ?? 0);
+      if (max === 0) this.logger.warn(`Redis (${role}) has no maxmemory limit — start it with --maxmemory (docs/data_architecture.md, Redis section)`);
+    } catch (err) {
+      this.logger.warn(`Redis (${role}) maxmemory check skipped: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   async onModuleDestroy() {

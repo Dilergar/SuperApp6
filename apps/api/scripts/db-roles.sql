@@ -103,9 +103,12 @@ END $$;
 --   сбрасывает ТОЛЬКО SECURITY DEFINER-функция владельца (`lifecycle_ensure_partition`,
 --   `lifecycle_drop_partition` — пол срока, архив, заморозки, необработанная очередь
 --   проверяются базой). Роль приложения не владелец → ни DROP, ни DETACH, ни ALTER.
--- sa6_migrate — роль миграций (DIRECT_URL, мимо пулера); член sa6_data_owner: ALTER таблиц
---   владельца можно, а DROP защищённой таблицы режет событийный триггер (ниже) — удалить её
---   можно только осознанно, `SET ROLE sa6_data_owner`.
+-- sa6_migrate — роль миграций (DIRECT_URL, мимо пулера); член sa6_data_owner и sa6_audit_owner
+--   БЕЗ наследования (INHERIT FALSE, SET TRUE): изменить защищённое (ALTER/DROP/DISABLE TRIGGER
+--   таблиц владельца, их функции, листы) миграция может только после явного
+--   `SET LOCAL ROLE sa6_data_owner` / `sa6_audit_owner` — страж check:migrations его требует.
+--   Случайный DISABLE TRIGGER на леджере или DETACH листа под ролью миграций невозможен;
+--   DROP защищённого дополнительно режет событийный триггер (ниже).
 -- sa6_readonly — чтение для поддержки и отчётов (pg_read_all_data, без записи).
 -- sa6_backup — pgBackRest и логические выгрузки (чтение + функции резервного копирования).
 -- sa6_monitor — владелец функций-сводок `lifecycle_health_signals` (сигналы здоровья раннера
@@ -128,7 +131,8 @@ BEGIN
 END $$;
 
 GRANT USAGE, CREATE ON SCHEMA public, analytics, idem TO sa6_data_owner;
-GRANT sa6_data_owner TO sa6_migrate;
+GRANT sa6_data_owner TO sa6_migrate WITH INHERIT FALSE, SET TRUE;
+GRANT sa6_audit_owner TO sa6_migrate WITH INHERIT FALSE, SET TRUE;
 GRANT USAGE, CREATE ON SCHEMA public, analytics, idem TO sa6_migrate;
 -- Лист с внешним ключом клонирует FK при ATTACH — владельцу нужен REFERENCES на цель
 GRANT REFERENCES ON "notification_events", "webhook_endpoints" TO sa6_data_owner;
@@ -238,8 +242,10 @@ GRANT EXECUTE ON FUNCTION lifecycle_db_metrics() TO :"app_role";
 -- (current_user = sa6_data_owner / sa6_audit_owner) и проходят; миграция, скрипт или
 -- человек под другой ролью — нет. TRUNCATE событием не является — его режут построчные
 -- стражи и BEFORE TRUNCATE-триггеры миграций.
+-- Путь поиска без public: триггер исполняется под ролью, выполняющей DROP (миграции, человек), —
+-- функция из public с «лучшим совпадением типов» исполнилась бы от неё.
 CREATE OR REPLACE FUNCTION lifecycle_guard_drop() RETURNS event_trigger
-LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $$
 DECLARE
   obj record;
   sch text;
@@ -260,7 +266,7 @@ BEGIN
                                     'lifecycle_partition_specs', 'lifecycle_partition_archives')
                             OR tbl ~ '^security_events_[0-9]{4}_[0-9]{2}$'))
        OR EXISTS (
-         SELECT 1 FROM lifecycle_partition_specs s
+         SELECT 1 FROM public.lifecycle_partition_specs s
          WHERE split_part(s.parent, '.', 1) = sch
            AND (split_part(s.parent, '.', 2) = tbl OR tbl ~ ('^' || split_part(s.parent, '.', 2) || '_[0-9]{4}_[0-9]{2}(_[0-9]{2})?$'))
        )
@@ -273,6 +279,33 @@ END;
 $$;
 DROP EVENT TRIGGER IF EXISTS lifecycle_guard_drop;
 CREATE EVENT TRIGGER lifecycle_guard_drop ON sql_drop EXECUTE FUNCTION lifecycle_guard_drop();
+
+-- ---- Самопроверка: SECURITY DEFINER только с путём поиска без схем, открытых на запись ----
+-- Функция владельца с `public` в пути исполнила бы от его имени функцию, подложенную в public
+-- ролью приложения («лучшее совпадение типов» выигрывает у pg_catalog: format(text, text, text)
+-- точнее VARIADIC "any"). Путь — `pg_catalog, pg_temp`, объекты public — с явной схемой.
+DO $$
+DECLARE
+  bad text;
+BEGIN
+  SELECT string_agg(n.nspname || '.' || p.proname, ', ') INTO bad
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE p.prosecdef AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+    AND NOT EXISTS (
+      SELECT 1 FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) cfg
+      WHERE cfg LIKE 'search_path=%' AND cfg !~ '(^search_path=|,\s*)("?\$user"?|public)(\s*,|$)'
+    );
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'db-roles: SECURITY DEFINER without a safe search_path (pg_catalog, pg_temp): %', bad;
+  END IF;
+END $$;
+
+-- ---- Роль миграций: таблицы, которые она заведёт, доступны приложению ----
+-- Без умолчаний таблица новой миграции (владелец — sa6_migrate) была бы закрыта роли приложения
+-- до ручного GRANT: первый деплой с новой таблицей = отказ сервиса. Защищённые таблицы этот файл
+-- после миграции сужает сам (REVOKE ALL + точечные GRANT выше).
+ALTER DEFAULT PRIVILEGES FOR ROLE sa6_migrate IN SCHEMA public, analytics, idem GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app_role";
+ALTER DEFAULT PRIVILEGES FOR ROLE sa6_migrate IN SCHEMA public, analytics, idem GRANT USAGE, SELECT ON SEQUENCES TO :"app_role";
 
 -- ---- Самопроверка: защищённое принадлежит владельцу данных ----
 DO $$

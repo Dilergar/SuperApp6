@@ -134,7 +134,7 @@ export function WorkspaceHolds({ workspaceId, member }: { workspaceId: string; m
                   )}
                 </TableCell>
                 <TableCell align="end">
-                  {!h.releasedAt && (
+                  {!h.releasedAt && h.canRelease && (
                     <Button size="sm" variant="matte" tone="danger" onClick={() => release(h)}>{t('holds.release')}</Button>
                   )}
                 </TableCell>

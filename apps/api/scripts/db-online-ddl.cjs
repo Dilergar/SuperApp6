@@ -51,17 +51,28 @@ function splitStatements(sql) {
     .filter(Boolean);
 }
 
+/**
+ * Невалидный индекс с именем из `CREATE INDEX CONCURRENTLY` (след упавшей попытки — этой или
+ * прошлого запуска раннера) сносится ДО попытки: иначе `IF NOT EXISTS` молча пропустил бы
+ * создание, и раннер отчитался бы «✓» при индексе, который пишется на каждую вставку, но не
+ * читается никогда. Имя — со схемой из каталога (листья analytics/idem не в search_path).
+ */
 async function invalidIndexCleanup(db, stmt) {
   const m = stmt.match(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+CONCURRENTLY\s+(?:IF\s+NOT\s+EXISTS\s+)?"?(\w+)"?/i);
   if (!m) return;
-  const rows = await db.$queryRawUnsafe(`SELECT NOT i.indisvalid AS invalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE c.relname = $1`, m[1]);
-  if (rows[0]?.invalid) {
-    console.log(`    ↺ невалидный индекс ${m[1]} после сбоя — снимаю перед повтором`);
-    await db.$executeRawUnsafe(`DROP INDEX CONCURRENTLY IF EXISTS "${m[1]}"`);
+  const rows = await db.$queryRawUnsafe(
+    `SELECT n.nspname AS schema FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relname = $1 AND NOT i.indisvalid`,
+    m[1],
+  );
+  for (const r of rows) {
+    if (!IDENT.test(r.schema)) continue;
+    console.log(`    ↺ невалидный индекс ${r.schema}.${m[1]} (след упавшей попытки) — снимаю`);
+    await db.$executeRawUnsafe(`DROP INDEX CONCURRENTLY IF EXISTS "${r.schema}"."${m[1]}"`);
   }
 }
 
 async function runOne(db, stmt) {
+  await invalidIndexCleanup(db, stmt);
   for (let attempt = 1; ; attempt++) {
     const started = Date.now();
     try {

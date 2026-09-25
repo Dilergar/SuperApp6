@@ -63,7 +63,8 @@ services:
     restart: unless-stopped
     # protected-mode off только в dev: dev-пользователь default без пароля (LiveKit), а
     # защищённый режим рвёт такие подключения с хоста; в проде default выключен ACL
-    command: ['redis-server', '/usr/local/etc/redis/redis.conf', '--protected-mode', 'no']
+    # maxmemory — флагом, не в файле: файл общий с продом (там ≈ 50 % RAM)
+    command: ['redis-server', '/usr/local/etc/redis/redis.conf', '--protected-mode', 'no', '--maxmemory', '512mb']
     ports:
       - '6379:6379'
     tmpfs:
@@ -82,7 +83,7 @@ services:
     image: redis:8.10.2-alpine
     container_name: superapp6-redis-cache
     restart: unless-stopped
-    command: ['redis-server', '/usr/local/etc/redis/redis.conf', '--protected-mode', 'no']
+    command: ['redis-server', '/usr/local/etc/redis/redis.conf', '--protected-mode', 'no', '--maxmemory', '256mb']
     ports:
       - '6380:6379'
     tmpfs:

@@ -222,12 +222,19 @@ for (const { op, m } of DDL) {
     DROPPED.add(key);
   }
 }
-/** Индексы из сырого SQL: таблица → [ведущая колонка] */
+/** Индексы из сырого SQL: таблица → [ведущая колонка]; таблица → [[колонки индекса]] (b-tree) */
 const SQL_INDEX_LEAD = new Map();
-for (const m of sqlAll.matchAll(/CREATE (?:UNIQUE )?INDEX(?: CONCURRENTLY)?(?: IF NOT EXISTS)?\s+"?\w+"?\s+ON\s+(?:ONLY\s+)?((?:"?\w+"?\.)?"?\w+"?)(?:\s+USING\s+\w+)?\s*\(\s*"?(\w+)"?/gi)) {
+const SQL_INDEX_COLS = new Map();
+for (const m of sqlAll.matchAll(/CREATE (?:UNIQUE )?INDEX(?: CONCURRENTLY)?(?: IF NOT EXISTS)?\s+"?\w+"?\s+ON\s+(?:ONLY\s+)?((?:"?\w+"?\.)?"?\w+"?)(\s+USING\s+\w+)?\s*\(\s*"?(\w+)"?([^;]*)/gi)) {
   const key = tableKey(m[1]);
   if (!SQL_INDEX_LEAD.has(key)) SQL_INDEX_LEAD.set(key, new Set());
-  SQL_INDEX_LEAD.get(key).add(m[2]);
+  SQL_INDEX_LEAD.get(key).add(m[3]);
+  // Порядок строк даёт только b-tree: BRIN/GIN пути «старейшие первыми» не задают
+  if (m[2] && !/btree/i.test(m[2])) continue;
+  const rest = m[4].split(')')[0];
+  const cols = [m[3], ...rest.split(',').slice(1).map((c) => c.trim().replace(/"/g, '').split(/\s+/)[0]).filter(Boolean)];
+  if (!SQL_INDEX_COLS.has(key)) SQL_INDEX_COLS.set(key, []);
+  SQL_INDEX_COLS.get(key).push(cols);
 }
 const PRISMA_TABLES = new Set([...MODELS.values()].map((m) => `${m.schema}.${m.table}`));
 const PARTITION_CHILD = /_(\d{4}_\d{2}|\d{4}_\d{2}_\d{2}|\d{8}|p\d+|default)$/;
@@ -475,6 +482,22 @@ for (const id of IDS) {
     ownerCols.push(...Object.keys(en.filter ?? {}));
     for (const c of ownerCols) want.push(model ? fieldToDb(model, c) : c);
     if (!want.some((c) => leads.has(c))) err(`${id}: batched_delete без индекса, ведущего колонкой времени "${want[0]}" или владельца (${want.slice(1).join(', ') || '—'})`);
+    // Общая пачка раннера (без шага модуля) по КОНЕЧНОМУ правилу — `WHERE col < срок ORDER BY col
+    // LIMIT n`: порядок даёт только b-tree, ведущий колонкой срока (или второй после колонки
+    // фильтра / статуса — одно значение фильтра даёт порядок, PG18 skip scan — остальное). Индекс
+    // владельца тут не помогает: каждая пачка читала бы таблицу целиком и сортировала её.
+    if (!en.handler) {
+      const btrees = [...(model ? model.indexes.filter((ix) => !ix.brin).map((ix) => ix.fields.map((f) => fieldToDb(model, f))) : []), ...(SQL_INDEX_COLS.get(tKey) ?? [])];
+      const rules = [];
+      if (typeof p.retention.defaultDays === 'number') rules.push({ column: en.column, filter: en.filter });
+      for (const r of p.extraRules ?? []) rules.push({ column: r.column ?? en.column, filter: r.filter });
+      for (const r of rules) {
+        const col = model ? fieldToDb(model, r.column) : r.column;
+        const filterCols = Object.keys(r.filter ?? {}).map((c) => (model ? fieldToDb(model, c) : c));
+        const ordered = btrees.some((cols) => cols[0] === col || (cols[1] === col && (filterCols.includes(cols[0]) || cols[0] === 'status')));
+        if (!ordered) err(`${id}: общая пачка по "${col}" без b-tree индекса, ведущего этой колонкой (или (фильтр|status, ${col})) — каждая пачка раннера читала бы и сортировала таблицу целиком`);
+      }
+    }
   }
   // Люди в JSON строки: функция объявлена миграцией, по ней стоит GIN-индекс, аргументы — поля модели
   if (p.personIds) {
@@ -583,6 +606,28 @@ for (const [k, kind] of declared) {
   if (!isPending(k, kind) && !registered(k, kind)) err(`${kind} "${k}" объявлен в реестре, но не зарегистрирован в apps/api/src (this.${KIND_REGISTRY[kind]}.register('${k}', …))`);
 }
 for (const [k, v] of Object.entries(PENDING_KEYS)) if (!declared.some(([dk, kind]) => dk === k && kind === v.as)) err(`LIFECYCLE_PENDING_KEYS "${k}" (${v.as}) — такого ключа этого вида нет в реестре, строку убрать`);
+
+// ---------- 10b. одна дверь принуждения: своих кронов удаления «по сроку» нет ----------
+// Срок политики принуждает только раннер core/lifecycle (общая пачка или шаг модуля): у крона
+// модуля нет ни пола закона, ни заморозок, ни кэпа радиуса, ни журнала прогона — и срок в нём
+// расходится с реестром (так закрытые тревоги удалялись через год при поле закона 3 года).
+// Эвристика: метод класса с `@Cron(`, где есть удаление (deleteMany / DELETE FROM) и сравнение со
+// временем (`lt:` / `lte:` / `< now()` / cutoff). Исключение — пометка `lifecycle-allow: <причина>`.
+{
+  const DELETE_RE = /\.deleteMany\(|DELETE\s+FROM\b/;
+  const TIME_RE = /\blte?\s*:|<\s*\(?\s*now\(\)|\bcutoff\b|Date\.now\(\)\s*-/;
+  for (const f of API_FILES) {
+    const src = read(f);
+    if (!/@Cron\(/.test(src) || f.includes(`${path.sep}core${path.sep}lifecycle${path.sep}`)) continue;
+    const starts = [...src.matchAll(/\n\s*(?:private\s+|public\s+|protected\s+)?async\s+(\w+)\s*\(/g)];
+    starts.forEach((m, i) => {
+      const body = src.slice(m.index, i + 1 < starts.length ? starts[i + 1].index : src.length);
+      if (!DELETE_RE.test(body) || !TIME_RE.test(body) || /lifecycle-allow:\s*\S/.test(body)) return;
+      const rel = path.relative(ROOT, f).replace(/\\/g, '/');
+      err(`${rel}#${m[1]}: удаление по сроку в модуле с @Cron — срок принуждает только раннер core/lifecycle (политика реестра: batched_delete / extraRules / шаг модуля)`);
+    });
+  }
+}
 
 // ---------- 11. манифест канареечного сьюта ----------
 if (!fs.existsSync(SUITE)) err(`нет сьюта ${path.relative(ROOT, SUITE)} (манифест CANARY_STORES)`);

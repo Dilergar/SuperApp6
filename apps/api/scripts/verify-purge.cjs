@@ -279,8 +279,16 @@ async function main() {
       const prev = await call('POST', '/platform/commands/lifecycle.workspace.purge/preview', ct, { input: { workspaceId: foreignId } });
       check('предпросмотр: план каскада с числом строк по шагам, без пропусков', prev.ok && Array.isArray(prev.json?.data?.result?.steps) && prev.json.data.result.steps.length === steps.length && prev.json.data.result.missing.length === 0 && prev.json.data.result.held === false, `${prev.status} ${prev.code ?? ''}`);
       check('предпросмотр ничего не поставил', (await prisma.lifecycleRun.count({ where: { kind: 'tenant_purge', subjectId: foreignId } })) === 0);
-      const ex = await call('POST', '/platform/commands/lifecycle.workspace.purge', ct, { input: { workspaceId: foreignId }, idempotencyKey: crypto.randomUUID(), reason: 'suite: purge archived organisation' });
-      check('исполнение поставило каскад джобом', ex.ok && ex.json?.data?.status === 'ok' && ex.json?.data?.result?.queued === true, `${ex.status} ${ex.code ?? ''} ${JSON.stringify(ex.json?.data?.result ?? null)}`);
+      // Два исполнения разом (ретеншн архива и оркестратор стирания ставят каскад одновременно):
+      // постановка идёт под замком строки организации — один прогон, один джоб, без сирот «running»
+      const [ex, ex2] = await Promise.all([
+        call('POST', '/platform/commands/lifecycle.workspace.purge', ct, { input: { workspaceId: foreignId }, idempotencyKey: crypto.randomUUID(), reason: 'suite: purge archived organisation' }),
+        call('POST', '/platform/commands/lifecycle.workspace.purge', ct, { input: { workspaceId: foreignId }, idempotencyKey: crypto.randomUUID(), reason: 'suite: purge archived organisation (race)' }),
+      ]);
+      const queuedBoth = [ex, ex2].filter((x) => x.ok && x.json?.data?.result?.queued === true).length;
+      check('исполнение поставило каскад джобом', (ex.ok || ex2.ok) && queuedBoth === 1, `${ex.status}/${ex2.status} ${ex.code ?? ''}${ex2.code ?? ''} queued=${queuedBoth}`);
+      const tenantRuns = await prisma.lifecycleRun.count({ where: { kind: 'tenant_purge', subjectId: foreignId } });
+      check('параллельная постановка — одна строка прогона (без сироты «running» без джоба)', tenantRuns === 1, tenantRuns);
       let gone = false;
       for (let i = 0; i < 60 && !gone; i++) {
         await sleep(500);
@@ -288,6 +296,46 @@ async function main() {
       }
       check('джоб каскада удалил организацию', gone);
     }
+
+    // ============================================================
+    console.log('\n-- 13. заморозка организации держит её данные с владельцем через родителя --');
+    // Заметка организации принадлежит ей через пространство (ownerKey via NoteSpace): заморозка
+    // организации (с её workspace_id) обязана держать и такую строку — корзину раннера и «навсегда»
+    const hw = await createSuiteWorkspace(t1, 'Сьют-Purge-Заморозка');
+    const hwId = hw.json?.data?.id;
+    const para = (text) => ({ type: 'paragraph', content: [{ type: 'text', text }] });
+    const orgNote = (await call('POST', '/notes', t1, { workspaceId: hwId, content: { type: 'doc', content: [para(`Сьют заморозка через родителя ${rnd4()}`)] } })).json?.data;
+    check('заметка организации создана', !!orgNote?.id && orgNote.ownerType === 'workspace', JSON.stringify(orgNote ?? null).slice(0, 120));
+    if (orgNote?.id) {
+      await call('POST', `/notes/${orgNote.id}/trash`, t1);
+      await prisma.note.update({ where: { id: orgNote.id }, data: { deletedAt: new Date(Date.now() - 400 * DAY) } });
+      const hOrg = await prisma.lifecycleHold.create({ data: { scope: 'space', workspaceId: hwId, spaceType: 'workspace', spaceId: hwId, reasonCode: 'suite', createdById: u1 } });
+      holds.push(hOrg.id);
+      const forever = await call('DELETE', `/notes/${orgNote.id}`, t1);
+      check('«удалить навсегда» заметку организации под её заморозкой → 409 lifecycle.held', forever.status === 409 && forever.code === 'lifecycle.held', `${forever.status} ${forever.code}`);
+      r = await run('Note');
+      check('корзина раннера: заметка организации под её заморозкой остаётся', r.ok && (await prisma.note.count({ where: { id: orgNote.id } })) === 1, `${r.status} ${r.json?.data?.status}`);
+      await release(hOrg.id);
+      r = await run('Note');
+      check('после снятия — корзина раннера удаляет её', r.ok && (await prisma.note.count({ where: { id: orgNote.id } })) === 0, `${r.status} ${r.json?.data?.status}`);
+    }
+    if (hwId) await call('DELETE', `/workspaces/${hwId}`, t1);
+
+    // ============================================================
+    console.log('\n-- 14. одна дверь: сроки модулей принуждает раннер --');
+    r = await call('GET', '/lifecycle/dev/plan', t1);
+    const enforced2 = new Map((r.json?.data?.enforced ?? []).map((p) => [p.id, p.mode]));
+    check('роллап «субъект × день» — шаг модуля (срок сырья), карантин / визиты / цепочки SMS / тревоги — общая пачка', enforced2.get('AnalyticsRollupActorDay') === 'handler' && ['AnalyticsQuarantine', 'ShareLinkVisit', 'VerifyChallenge', 'SecurityAlert', 'PlatformSession', 'UserDevice'].every((id) => enforced2.get(id) === 'generic'));
+    // Забытое устройство — год после отметки (раньше — свой крон core/audit мимо реестра)
+    const devRecent = await prisma.userDevice.create({ data: { userId: u1, deviceId: crypto.randomUUID(), label: 'suite purge forgotten', lastSeenAt: new Date(), forgottenAt: new Date(Date.now() - 400 * DAY) } });
+    const devKept = await prisma.userDevice.create({ data: { userId: u1, deviceId: crypto.randomUUID(), label: 'suite purge kept', lastSeenAt: new Date(), forgottenAt: new Date(Date.now() - 10 * DAY) } });
+    r = await run('UserDevice');
+    check('забытое больше года назад устройство удалено раннером; забытое недавно — на месте', r.ok && (await prisma.userDevice.count({ where: { id: devRecent.id } })) === 0 && (await prisma.userDevice.count({ where: { id: devKept.id } })) === 1, `${r.status} ${r.json?.data?.status}`);
+    await prisma.userDevice.delete({ where: { id: devKept.id } }).catch(() => undefined);
+    // Отозванная сессия Кабинета — сутки после отзыва (правило revokedAt), даже если срок жизни впереди
+    const ps = await prisma.platformSession.create({ data: { userId: u1, expiresAt: new Date(Date.now() + 3_600_000), revokedAt: new Date(Date.now() - 2 * DAY), userAgent: 'suite purge' } });
+    r = await run('PlatformSession');
+    check('отозванная двое суток назад сессия Кабинета удалена раннером', r.ok && (await prisma.platformSession.count({ where: { id: ps.id } })) === 0, `${r.status} ${r.json?.data?.status}`);
   } finally {
     await call('POST', '/lifecycle/dev/health', t1, {}).catch(() => undefined);
     for (const id of holds) await prisma.lifecycleHold.updateMany({ where: { id, releasedAt: null }, data: { releasedAt: new Date(), releasedById: u1 } }).catch(() => undefined);

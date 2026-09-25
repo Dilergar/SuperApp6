@@ -673,6 +673,12 @@ export class WorkspacesService implements OnModuleInit {
     // Потолок проверяем и здесь (в транзакции, под локом тарифа): иначе восстановлением
     // можно обойти лимит createWorkspace.
     const restored = await this.db.$transaction(async (tx) => {
+      // Точка невозврата: окончательное удаление уже началось (заявка стирания пошла в работу или
+      // идёт каскад — ретеншн архива, команда Кабинета). Вернуть такую организацию — получить
+      // живую, у которой идущий заход каскада дочищает данные. Замок строки организации — тот
+      // же, под которым оркестратор стирания переводит заявку в работу (гонки нет)
+      await tx.$queryRaw`SELECT 1 AS locked FROM "workspaces" WHERE id = ${workspaceId}::uuid FOR UPDATE`;
+      if (await this.erasure.purgeStarted(tx, workspaceId)) throw conflict('workspace.purgeInProgress');
       await this.entitlements.assertCanCreate(tx, { type: 'user', id: userId }, 'workspaces.maxOwned');
       // Status-guarded: проверка выше — чтение ДО транзакции, два параллельных возврата
       // прошли бы её оба и записали бы событие дважды

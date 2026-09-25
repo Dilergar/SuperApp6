@@ -148,6 +148,17 @@ export class LifecycleErasureService implements OnModuleInit {
         if (id) await this.fail(id, info.error);
       },
     });
+    // Реплей журнала стираний после восстановления базы (команда Кабинета `lifecycle.erasure.replay`)
+    this.jobsRegistry.register(LIFECYCLE_JOBS.erasureReplay, (payload) => this.handleReplay(payload as { runId?: string }), {
+      queue: LIFECYCLE_QUEUE,
+      queueConcurrency: 1,
+      leaseMs: LIFECYCLE_LIMITS.erasure.budgetMs + 120_000,
+      maxAttempts: 25,
+      onDiscard: async (payload, info) => {
+        const runId = String((payload as Record<string, unknown>).runId ?? '');
+        if (runId) await this.runs.finish(runId, 'failed', { report: { error: info.error.slice(0, 500) } });
+      },
+    });
     this.tenant.onPurged((workspaceId, info) => this.markWorkspacePurged(workspaceId, info));
     // Шаги движка в плане стирания человека: ключи Redis с id человека и его выгрузки
     this.subjectHooks.register('lifecycle.redis', { erase: (userId) => this.eraseRedis(userId) });
@@ -237,6 +248,17 @@ export class LifecycleErasureService implements OnModuleInit {
       await this.stageEvent(tx, r, 'cancelled', 0, 0);
     }
     return n;
+  }
+
+  /**
+   * Окончательное удаление организации уже началось — точка невозврата для возврата из архива:
+   * заявка стирания в работе или дальше, либо идёт каскад (ретеншн архива, команда Кабинета).
+   * В транзакции вызывающего, который держит замок строки организации.
+   */
+  async purgeStarted(tx: Tx, workspaceId: string): Promise<boolean> {
+    const req = await tx.lifecycleErasureRequest.count({ where: { subjectType: 'workspace', subjectId: workspaceId, status: { in: ['running', 'hot_purged', 'keys_destroyed', 'completed'] } } });
+    if (req > 0) return true;
+    return (await tx.lifecycleRun.count({ where: { kind: 'tenant_purge', subjectId: workspaceId, status: 'running' } })) > 0;
   }
 
   /** Живая заявка субъекта (для мастеров и дашборда). */
@@ -343,7 +365,10 @@ export class LifecycleErasureService implements OnModuleInit {
         const hook = this.subjectHooks.get(step.key);
         // Незарегистрированный шаг — стоп (fail-closed): данные модуля пережили бы человека
         if (!hook) throw new Error(`subject erasure hook "${step.key}" is not registered — erasure stops here`);
-        const res = await hook.erase(userId, ctx);
+        // Корень скрывает аккаунт ВСЕГДА (заморозка держит данные, не доступ), но его ПДн держит
+        // и заморозка платформы на политиках корня (класс, запись) — как хранителя: скрыть, не стереть
+        const rootHeld = step.key === LIFECYCLE_SUBJECT_ROOT_HOOK && !subjectHeld && (await this.holds.platformHeld(userId, step.covers));
+        const res = await hook.erase(userId, rootHeld ? { ...ctx, subjectHeld: true } : ctx);
         rows = res && typeof res.rows === 'number' ? res.rows : 0;
         finished = !(res && res.done === false);
       } else {
@@ -355,6 +380,8 @@ export class LifecycleErasureService implements OnModuleInit {
         stepRows[step.key] = (stepRows[step.key] ?? 0) + rows;
         await this.runs.progress(null, runId, rows, 1);
         this.metrics.erasureStepRows(step.key, rows);
+        // Движение есть — SLO «> 7 дней без прогресса» не звенит на крупном, но идущем стирании
+        await this.db.lifecycleErasureRequest.updateMany({ where: { id: r.id, status: 'running' }, data: { lastProgressAt: new Date() } });
       }
       if (step.key === LIFECYCLE_SUBJECT_ROOT_HOOK && !r.hiddenAt) await this.markHidden(r);
       if (!finished) {
@@ -479,9 +506,18 @@ export class LifecycleErasureService implements OnModuleInit {
       await this.db.lifecycleErasureRequest.updateMany({ where: { id: r.id, status: { in: ['scheduled', 'running'] } }, data: { status: 'held', errorCode: 'held' } });
       return 'held';
     }
-    await this.db.lifecycleErasureRequest.updateMany({ where: { id: r.id, status: { in: ['scheduled', 'held'] } }, data: { status: 'running', attempts: { increment: 1 } } });
-    await this.tenant.schedule(wsId);
-    return 'wait';
+    // Точка невозврата — под замком строки организации: возврат из архива (`restoreWorkspace`)
+    // берёт тот же замок и после «running» отказывает; до — отменяет заявку, и каскад не ставится
+    const started = await this.db.$transaction(async (tx) => {
+      const [w] = await tx.$queryRaw<Array<{ active: boolean }>>`SELECT is_active AS active FROM "workspaces" WHERE id = ${wsId}::uuid FOR UPDATE`;
+      if (!w || w.active) return false;
+      await tx.lifecycleErasureRequest.updateMany({ where: { id: r.id, status: { in: ['scheduled', 'held'] } }, data: { status: 'running', attempts: { increment: 1 }, lastProgressAt: new Date() } });
+      const cur = await tx.lifecycleErasureRequest.findUnique({ where: { id: r.id }, select: { status: true } });
+      if (cur?.status !== 'running') return false;
+      await this.tenant.schedule(wsId, tx);
+      return true;
+    });
+    return started ? 'wait' : 'done';
   }
 
   // ============================================================
@@ -596,9 +632,23 @@ export class LifecycleErasureService implements OnModuleInit {
       const res = await this.jobs.enqueue(null, { type: LIFECYCLE_JOBS.erasure, payload: { requestId: r.id }, uniqueKey: `erasure:${r.id}` });
       if (res.inserted) requeued++;
     }
-    // Ключи скоупа уничтожены (все версии destroyed) → keys_destroyed
-    for (const r of await this.db.lifecycleErasureRequest.findMany({ where: { status: 'hot_purged' }, take: 200 })) {
+    // Ключи скоупа уничтожены (все версии destroyed) → keys_destroyed. Готовность решает SQL:
+    // заявки ждут уничтожения ключей 30 дней (KEYS_LIMITS.destroyDelayDays), и при > 200
+    // ожидающих выборка «первые 200 hot_purged» перечитывала бы одних и тех же неготовых,
+    // а готовые за ними не доходили бы до сертификата никогда (голодание стадии)
+    const ready = await this.db.$queryRaw<Array<{ id: string }>>`
+      SELECT r."id"::text AS id
+        FROM "lifecycle_erasure_requests" r
+       WHERE r."status" = 'hot_purged'
+         AND NOT EXISTS (
+           SELECT 1 FROM "crypto_key_versions" v JOIN "crypto_keys" k ON k."id" = v."key_id"
+            WHERE k."scope" = (CASE WHEN r."subject_type" = 'user' THEN 'user:' ELSE 'workspace:' END) || r."subject_id"::text
+              AND v."state" <> 'destroyed')
+       ORDER BY r."hot_purged_at" NULLS FIRST, r."id"
+       LIMIT 200`;
+    for (const r of ready.length ? await this.db.lifecycleErasureRequest.findMany({ where: { id: { in: ready.map((x) => x.id) } } }) : []) {
       const scope = r.subjectType === 'user' ? userScope(r.subjectId) : workspaceScope(r.subjectId);
+      // Перепроверка перед переходом: версия могла появиться между выборкой и записью
       const live = await this.db.cryptoKeyVersion.count({ where: { key: { scope }, state: { not: 'destroyed' } } });
       if (live > 0) continue;
       const keyIds = (await this.db.cryptoKey.findMany({ where: { scope }, select: { id: true } })).map((k) => k.id);
@@ -810,29 +860,121 @@ export class LifecycleErasureService implements OnModuleInit {
   }
 
   /**
-   * Реплей журнала после восстановления бэкапа (рунбук, ДО открытия трафика): псевдонимы
-   * стёртых людей сверяются с восстановленными аккаунтами всеми живыми версиями ключа
-   * `lifecycle`; найденный живым — стирается заново без грейса. Возвращает число повторов.
+   * Реплей журнала стираний после восстановления базы из бэкапа (рунбук PITR, ДО открытия
+   * трафика; Dropbox 2017: «карантин» вернул удалённое). Команда Кабинета
+   * `lifecycle.erasure.replay` (критично, «четыре глаза») кладёт псевдонимы из NDJSON журнала
+   * объектного хранилища в строку прогона и ставит джоб В своей транзакции.
    */
-  async replayJournal(pseudonyms: ReadonlySet<string>): Promise<number> {
-    if (!pseudonyms.size) return 0;
-    let replays = 0;
-    let after: string | undefined;
-    for (;;) {
-      const users = await this.db.user.findMany({ where: { phone: { not: { startsWith: 'deleted:' } }, ...(after ? { id: { gt: after } } : {}) }, select: { id: true }, orderBy: { id: 'asc' }, take: 1000 });
-      if (!users.length) break;
-      for (const u of users) {
-        const tags = await this.mac.taggedAll('lifecycle', `user:${u.id}`);
-        if (!tags.some((tag) => pseudonyms.has(tag))) continue;
-        await this.db.$transaction(async (tx) => {
-          await tx.user.updateMany({ where: { id: u.id, deletionScheduledAt: null }, data: { deletionScheduledAt: new Date() } });
-          await this.request(tx, { subject: { type: 'user', id: u.id }, effectiveAt: new Date() });
-        });
-        replays++;
+  async startJournalReplay(tx: Tx, pseudonyms: readonly string[]): Promise<{ runId: string; pseudonyms: number }> {
+    const unique = [...new Set(pseudonyms)];
+    const runId = await this.runs.start(tx, { kind: 'erasure_replay', report: { pseudonyms: unique, phase: 'users', after: null, users: 0, workspaces: 0 } });
+    await this.jobs.enqueue(tx, { type: LIFECYCLE_JOBS.erasureReplay, payload: { runId }, uniqueKey: `erasure-replay:${runId}` });
+    return { runId, pseudonyms: unique.length };
+  }
+
+  /** Заход под замком прогона: протухшая аренда джоба и новый воркер не сверяют одно вдвоём (счётчики разошлись бы). */
+  private async handleReplay(payload: { runId?: string }): Promise<void> {
+    if (!payload?.runId) throw new JobDiscardError('lifecycle.erasure-replay: runId is required');
+    const runId = payload.runId;
+    const out = await this.redis.withLock(`lifecycle:replay-lease:${runId}`, LIFECYCLE_LIMITS.erasure.budgetMs + 120_000, () =>
+      this.replayJournal(runId, Date.now() + LIFECYCLE_LIMITS.erasure.budgetMs),
+    );
+    if (out === null) throw new JobSnoozeError(30_000, 'another pass of this replay is running');
+    if (out === 'continue') throw new JobSnoozeError(LIFECYCLE_LIMITS.continueDelayMs, 'budget spent, continuing');
+  }
+
+  /**
+   * Заход реплея: псевдонимы прогона сверяются с восстановленными живыми аккаунтами, затем с
+   * организациями — всеми живыми версиями ключа `lifecycle` (псевдоним, записанный прежней
+   * версией, находится своим `kid`). Найденный — стирается заново без грейса. Keyset-курсор и
+   * счётчики — в прогоне: снуз продолжает с места, повтор идемпотентен (уже скрытый не
+   * находится). `deadline: null` — без бюджета.
+   */
+  async replayJournal(runId: string, deadline: number | null): Promise<'done' | 'continue'> {
+    const run = await this.runs.get(runId);
+    if (!run || run.kind !== 'erasure_replay' || run.status !== 'running') return 'done';
+    const st = run.report as { pseudonyms?: unknown; phase?: string; after?: string | null; users?: number; workspaces?: number };
+    const pseudonyms = new Set(Array.isArray(st.pseudonyms) ? (st.pseudonyms as unknown[]).filter((p): p is string => typeof p === 'string') : []);
+    let phase = st.phase === 'workspaces' ? 'workspaces' : 'users';
+    let after = typeof st.after === 'string' ? st.after : null;
+    let users = Number(st.users ?? 0);
+    let workspaces = Number(st.workspaces ?? 0);
+    const matches = async (kind: 'user' | 'workspace', id: string) => (await this.mac.taggedAll('lifecycle', `${kind}:${id}`)).some((tag) => pseudonyms.has(tag));
+
+    if (pseudonyms.size && phase === 'users') {
+      for (;;) {
+        if (deadline !== null && Date.now() > deadline) {
+          await this.runs.saveState(runId, { phase, after, users });
+          return 'continue';
+        }
+        // Стёртые (скрытые) уже не кандидаты: повтор захода идемпотентен
+        const page = await this.db.user.findMany({ where: { deletedAt: null, ...(after ? { id: { gt: after } } : {}) }, select: { id: true }, orderBy: { id: 'asc' }, take: 1000 });
+        if (!page.length) break;
+        for (const u of page) if ((await matches('user', u.id)) && (await this.replayUserErasure(u.id))) users++;
+        after = page[page.length - 1]!.id;
+        await this.runs.saveState(runId, { phase, after, users });
       }
-      after = users[users.length - 1]!.id;
+      phase = 'workspaces';
+      after = null;
+      await this.runs.saveState(runId, { phase, after, users });
     }
-    return replays;
+    if (pseudonyms.size && phase === 'workspaces') {
+      for (;;) {
+        if (deadline !== null && Date.now() > deadline) {
+          await this.runs.saveState(runId, { phase, after, workspaces });
+          return 'continue';
+        }
+        const page = await this.db.workspace.findMany({ where: after ? { id: { gt: after } } : {}, select: { id: true }, orderBy: { id: 'asc' }, take: 1000 });
+        if (!page.length) break;
+        for (const w of page) if ((await matches('workspace', w.id)) && (await this.replayWorkspaceErasure(w.id))) workspaces++;
+        after = page[page.length - 1]!.id;
+        await this.runs.saveState(runId, { phase, after, workspaces });
+      }
+    }
+    await this.runs.progress(null, runId, users + workspaces, 1);
+    await this.runs.finish(runId, 'done', { report: { phase: 'done', users, workspaces } });
+    if (users || workspaces) this.logger.warn(`erasure replay ${runId}: ${users} person(s) and ${workspaces} organisation(s) came back with the backup — erased again`);
+    return 'done';
+  }
+
+  /**
+   * Воскресший из бэкапа стёртый человек: СКРЫТ сразу (вход закрыт, токены гаснут — иначе вход
+   * «в грейс» вернул бы аккаунт), стирание — без грейса. Живая заявка из снимка ускоряется
+   * (новую рядом завести нельзя — одна живая на человека), иначе — новая заявка.
+   */
+  private async replayUserErasure(userId: string): Promise<boolean> {
+    return this.db.$transaction(async (tx) => {
+      const now = new Date();
+      const { count } = await tx.user.updateMany({ where: { id: userId, deletedAt: null }, data: { deletedAt: now, deletionScheduledAt: now, tokenEpoch: { increment: 1 } } });
+      if (!count) return false;
+      const live = await tx.lifecycleErasureRequest.findFirst({ where: { subjectType: 'user', subjectId: userId, status: { notIn: TERMINAL } }, orderBy: { requestedAt: 'desc' } });
+      if (live) {
+        if (live.status === 'scheduled' || live.status === 'held') {
+          await tx.lifecycleErasureRequest.updateMany({ where: { id: live.id, status: { in: ['scheduled', 'held'] } }, data: { effectiveAt: now, lastProgressAt: now } });
+          await this.jobs.cancelByUniqueKey(tx, LIFECYCLE_JOBS.erasure, `erasure:${live.id}`);
+          await this.jobs.enqueue(tx, { type: LIFECYCLE_JOBS.erasure, payload: { requestId: live.id }, uniqueKey: `erasure:${live.id}` });
+        }
+        await this.journal(tx, live, 'replayed');
+      } else {
+        await this.request(tx, { subject: { type: 'user', id: userId }, effectiveAt: now, hiddenAt: now });
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Воскресшая из бэкапа стёртая организация: в архив (скрыта) и на каскад сейчас — под замком
+   * её строки (как у возврата из архива). Уже удаляемая (заявка в работе и дальше) — не трогается.
+   */
+  private async replayWorkspaceErasure(workspaceId: string): Promise<boolean> {
+    return this.db.$transaction(async (tx) => {
+      const [w] = await tx.$queryRaw<Array<{ active: boolean }>>`SELECT is_active AS active FROM "workspaces" WHERE id = ${workspaceId}::uuid FOR UPDATE`;
+      if (!w || (await this.purgeStarted(tx, workspaceId))) return false;
+      const now = new Date();
+      if (w.active) await tx.workspace.updateMany({ where: { id: workspaceId, isActive: true }, data: { isActive: false, archivedAt: now } });
+      await this.request(tx, { subject: { type: 'workspace', id: workspaceId }, effectiveAt: now, hiddenAt: now });
+      return true;
+    });
   }
 
   // ============================================================

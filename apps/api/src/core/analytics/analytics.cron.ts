@@ -1,29 +1,25 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { DatabaseService } from '../../shared/database/database.service';
 import { RedisService } from '../../shared/redis/redis.service';
 import { JobsService } from '../jobs/jobs.service';
 import { ANALYTICS_JOBS, ANALYTICS_REDIS, analyticsEnv } from './analytics.constants';
 import { addDays, dayInZone } from './analytics.enrich';
 
-/** Карантин живёт столько дней с последнего срабатывания */
-const QUARANTINE_TTL_DAYS = 30;
 /** Ночной пересчёт: столько последних дней (второй ремень к «грязным» дням) */
 const NIGHTLY_REBUILD_DAYS = 7;
-const RETENTION_BATCH = 5000;
 
 /**
  * Кроны движка (лок Redis — исполняет один инстанс; `null` от withLock = лок занят, не результат):
  *  - каждые 10 минут — роллапы «сегодня» и «грязных» дней (куда легли новые события);
- *  - ночью — ретенция `rollup_actor_day`, уборка карантина, пересчёт последних 7 дней.
- * Партиции сырья (вперёд на буте и ночью, сброс по сроку) обслуживает core/lifecycle.
+ *  - ночью — пересчёт последних 7 дней.
+ * Сроки (роллап «субъект × день» — шаг `analytics.actor-days`, карантин, склейки, партиции
+ * сырья) принуждает раннер core/lifecycle — своего крона удаления по сроку здесь нет.
  */
 @Injectable()
 export class AnalyticsCron {
   private readonly logger = new Logger(AnalyticsCron.name);
 
   constructor(
-    private readonly db: DatabaseService,
     private readonly redis: RedisService,
     private readonly jobs: JobsService,
   ) {}
@@ -51,32 +47,13 @@ export class AnalyticsCron {
   @Cron('10 2 * * *')
   async nightly(): Promise<void> {
     await this.redis.withLock('cron:analytics-nightly', 30 * 60_000, async () => {
-      const actorRows = await this.pruneActorDays();
-      const quarantine = await this.db.analyticsQuarantine.deleteMany({
-        where: { lastSeenAt: { lt: new Date(Date.now() - QUARANTINE_TTL_DAYS * 86_400_000) } },
-      });
       const today = dayInZone(new Date(), analyticsEnv().timezone);
       for (let i = 1; i <= NIGHTLY_REBUILD_DAYS; i++) await this.enqueueRollup(addDays(today, -i));
-      this.logger.log(
-        `analytics nightly: actor-day rows pruned ${actorRows}, quarantine rows removed ${quarantine.count}`,
-      );
+      this.logger.log(`analytics nightly: last ${NIGHTLY_REBUILD_DAYS} days queued for a rebuild`);
     });
   }
 
   enqueueRollup(day: string): Promise<{ inserted: boolean }> {
     return this.jobs.enqueue(null, { type: ANALYTICS_JOBS.rollupDay, payload: { day }, uniqueKey: `rollup:${day}` });
-  }
-
-  /** Роллап «субъект × день» живёт столько же, сколько сырьё (это данные по человеку). */
-  private async pruneActorDays(): Promise<number> {
-    const cutoff = addDays(dayInZone(new Date(), analyticsEnv().timezone), -analyticsEnv().retentionDays);
-    let total = 0;
-    for (;;) {
-      const n = await this.db.$executeRaw`
-        DELETE FROM analytics_rollup_actor_day
-        WHERE id IN (SELECT id FROM analytics_rollup_actor_day WHERE day < ${cutoff}::date LIMIT ${RETENTION_BATCH})`;
-      total += n;
-      if (n < RETENTION_BATCH) return total;
-    }
   }
 }

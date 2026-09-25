@@ -32,6 +32,22 @@ const BIG_TABLES = new Set([
   'security_events', 'sessions', 'webhook_deliveries', 'api_access_log', 'lifecycle_deleted_rows', 'events', 'keys', 'responses',
 ]);
 const GH = !!process.env.GITHUB_ACTIONS;
+/**
+ * Защищённое (владелец `sa6_data_owner` / `sa6_audit_owner`, db-roles.sql). У роли миграций
+ * членство в ролях-владельцах БЕЗ наследования: миграция, которая меняет такие таблицы, их
+ * функции или листы, обязана взять роль явно — `SET LOCAL ROLE …` (транзакция миграции).
+ * Миграции с именем ≤ ROLE_CUTOFF исполнял суперпользователь (прода ещё не было).
+ */
+const ROLE_CUTOFF = '20261002000000_lifecycle_holds_platform_kind';
+const DATA_OWNED = new Set([
+  'ledger_transfers', 'escrow_agreements', 'escrow_holds', 'card_skin_transfers', 'fin_audit_logs',
+  'lifecycle_holds', 'lifecycle_erasure_journal', 'lifecycle_hold_store', 'lifecycle_hold_extractions',
+  'lifecycle_partition_specs', 'lifecycle_partition_archives', 'api_access_log', 'notification_deliveries', 'webhook_deliveries', 'lifecycle_deleted_rows',
+]);
+const AUDIT_OWNED = new Set(['security_events', 'security_digests', 'security_partition_archives', 'platform_command_receipts']);
+const DATA_FN = /\b(?:CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION|ALTER\s+FUNCTION|DROP\s+FUNCTION(?:\s+IF\s+EXISTS)?)\s+(?:"?public"?\.)?"?lifecycle_\w+/i;
+const AUDIT_FN = /\b(?:CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION|ALTER\s+FUNCTION|DROP\s+FUNCTION(?:\s+IF\s+EXISTS)?)\s+(?:"?public"?\.)?"?(?:audit_|security_)\w+/i;
+const TABLE_DDL = /^(?:ALTER\s+TABLE|DROP\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+INDEX|CREATE\s+(?:OR\s+REPLACE\s+)?TRIGGER|ALTER\s+TRIGGER|DROP\s+TRIGGER|COMMENT\s+ON\s+(?:TABLE|COLUMN))\b/i;
 
 let errors = 0;
 const err = (file, msg) => {
@@ -76,9 +92,33 @@ for (const dir of dirs) {
   if (!((isSet(first, 'lock_timeout') && isSet(second, 'statement_timeout')) || (isSet(first, 'statement_timeout') && isSet(second, 'lock_timeout')))) {
     err(file, 'нет заголовка SET lock_timeout / SET statement_timeout первыми операторами');
   }
+  // Защищённое — только под ролью владельца (у роли миграций членство без наследования)
+  if (dir > ROLE_CUTOFF) {
+    const needs = { sa6_data_owner: [], sa6_audit_owner: [] };
+    for (const s of stmts) {
+      const t = tableOf(s);
+      const table = TABLE_DDL.test(s) ? t : null;
+      const dataTable = table && (DATA_OWNED.has(table) || /\banalytics\s*\.\s*"?events"?\b|\bidem\s*\.\s*"?responses"?\b/i.test(s));
+      if (dataTable || DATA_FN.test(s)) needs.sa6_data_owner.push(s);
+      if ((table && AUDIT_OWNED.has(table)) || AUDIT_FN.test(s)) needs.sa6_audit_owner.push(s);
+    }
+    const setRole = (role) => stmts.some((s) => new RegExp(`^SET\\s+(LOCAL\\s+)?ROLE\\s+"?${role}"?$`, 'i').test(s));
+    for (const [role, hits] of Object.entries(needs)) {
+      if (hits.length && !setRole(role)) err(file, `меняет защищённое (${role}) без SET LOCAL ROLE ${role}: ${hits[0].slice(0, 90)}`);
+    }
+    const plainSetRole = stmts.some((s) => /^SET\s+ROLE\b/i.test(s));
+    if (plainSetRole && !stmts.some((s) => /^RESET\s+ROLE$/i.test(s))) err(file, 'SET ROLE без RESET ROLE в конце (или SET LOCAL ROLE — роль живёт только в транзакции миграции)');
+  }
   for (const s of stmts) {
     const t = tableOf(s);
     const big = t && BIG_TABLES.has(t);
+    // SECURITY DEFINER: путь поиска только `pg_catalog, pg_temp` — схема public открыта на запись
+    // роли приложения, а функция из public с «лучшим совпадением типов» (format(text, text, text)
+    // против VARIADIC "any") исполнилась бы от ВЛАДЕЛЬЦА данных
+    if (/\bSECURITY\s+DEFINER\b/i.test(s)) {
+      const sp = (s.match(/\bSET\s+search_path\s*(?:=|TO)\s*([^;]*?)(?=\s+(?:SET|AS|LANGUAGE|IMMUTABLE|STABLE|VOLATILE|STRICT|PARALLEL|COST|RETURNS|SECURITY)\b|$)/i) || [])[1];
+      if (!sp || !/^pg_catalog\s*,\s*pg_temp$/i.test(sp.trim())) err(file, `SECURITY DEFINER без SET search_path = pg_catalog, pg_temp (объекты public — с явной схемой): ${s.slice(0, 90)}`);
+    }
     if (/\bCREATE\s+TABLE\b[\s\S]*\bPARTITION\s+OF\b/i.test(s)) err(file, `CREATE TABLE … PARTITION OF — лист только функцией владельца lifecycle_ensure_partition (ATTACH без ACCESS EXCLUSIVE): ${s.slice(0, 90)}`);
     if (/\bPARTITION\s+OF\b[\s\S]*\bDEFAULT\b|\bATTACH\s+PARTITION\b[\s\S]*\bDEFAULT\b/i.test(s)) err(file, `DEFAULT-партиция запрещена (ловит строки мимо срока): ${s.slice(0, 90)}`);
     if (/\b(SERIAL|SMALLSERIAL)\b/i.test(s) || /\b(INTEGER|INT4|INT)\b[^,]*\bPRIMARY\s+KEY\b/i.test(s)) err(file, `int4-ключ запрещён (bigint / uuid): ${s.slice(0, 90)}`);

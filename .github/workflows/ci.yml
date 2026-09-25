@@ -61,7 +61,7 @@ jobs:
               --tmpfs /usr/local/lib/redis/modules:ro,size=4k \
               -v "$PWD/infra/redis/$role.conf:/usr/local/etc/redis/redis.conf:ro" \
               -v "$PWD/infra/redis/users.dev.acl:/usr/local/etc/redis-acl/users.acl:ro" \
-              "$image" redis-server /usr/local/etc/redis/redis.conf --protected-mode no
+              "$image" redis-server /usr/local/etc/redis/redis.conf --protected-mode no --maxmemory 256mb
           done
           for role in state cache; do
             for i in $(seq 1 30); do
@@ -152,6 +152,13 @@ jobs:
         run: |
           npx prisma generate
           npx prisma migrate deploy
+
+      # Роли и владельцы БД — как в проде и в dev: владелец журналов и денег sa6_data_owner,
+      # функции монитора под sa6_monitor, событийный триггер против DROP, потолки роли приложения
+      # (statement 30s / transaction 5min / idle-in-tx 60s). Без этого шага сьюты partitions/health
+      # проверяли бы другую базу, чем прод (verify-health требует потолки роли безусловно).
+      - name: Database roles (db-roles.sql)
+        run: psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -v app_role=superapp -q -f apps/api/scripts/db-roles.sql
 
       - name: Build API
         working-directory: apps/api

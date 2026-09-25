@@ -215,6 +215,22 @@ async function workspaceArchive(prisma, s1, s2, ct) {
   check('IBAN — маской, как в продукте (не открытым)', !!bank && typeof bank.iban === 'object' && bank.iban?.masked && !JSON.stringify(zip.data).includes(iban), JSON.stringify(bank?.iban));
   check('задача организации в архиве', (zip.data.Task ?? []).some((t) => t.id === orgTask.json?.data?.id));
   check('манифест называет поля под защитой видимости', Array.isArray(zip.manifest?.guarded?.WorkspaceBankAccount));
+  // Ревью Б: качать архив организации заказчик может, ПОКА он её владелец — передал владение или
+  // понижен → ссылки нет (иначе бывший владелец неделю качал бы данные организации). Роль гасится
+  // строкой на время проверки (передача владения тащила бы тарифы и уведомления)
+  const ownerRole = await prisma.userRole.findFirst({ where: { userId: O.id, context: 'workspace', tenantId: wsId, role: 'owner', isActive: true }, select: { id: true } });
+  check('роль владельца найдена', !!ownerRole);
+  if (ownerRole) {
+    await prisma.userRole.update({ where: { id: ownerRole.id }, data: { isActive: false } });
+    try {
+      r = await call('POST', `/lifecycle/exports/${id}/parts/1/link`, O.token);
+      check('бывший владелец ссылку на архив организации не получает (403 lifecycle.exportOwnerOnly)', r.status === 403 && r.code === 'lifecycle.exportOwnerOnly', `${r.status} ${r.code}`);
+    } finally {
+      await prisma.userRole.update({ where: { id: ownerRole.id }, data: { isActive: true } });
+    }
+    const back = await call('GET', `/workspaces/${wsId}/lifecycle/exports`, O.token);
+    check('владелец снова качает: canDownload в списке', back.ok && (back.json?.data?.items ?? []).find((e) => e.id === id)?.canDownload === true, `${back.status}`);
+  }
   const list = await call('GET', `/workspaces/${wsId}/lifecycle/exports`, M.token);
   check('список выгрузок организации — не владельцу/админу 404', list.status === 404, `${list.status}`);
   const chr = await prisma.chatterEntry.count({ where: { refType: 'lifecycle_settings', refId: wsId, typeKey: 'lifecycle_settings.export_requested' } });

@@ -195,6 +195,8 @@ export const CORE_LIFECYCLE = {
     onTenantPurge: NOT_TENANT,
     edges: [],
     enforcement: batched('lastSeenAt'),
+    // Забытое устройство (человек «забыл» его сам или год без входа) — год после отметки
+    extraRules: [{ filter: {}, days: 365, column: 'forgottenAt' }],
     holdAware: false,
     exportable: 'user',
   },
@@ -843,6 +845,8 @@ export const CORE_LIFECYCLE = {
     onTenantPurge: NOT_TENANT,
     edges: [],
     enforcement: batched('expiresAt'),
+    // Отозванная раньше срока (выход, «четыре глаза», блокировка сотрудника) — сутки после отзыва
+    extraRules: [{ filter: {}, days: 1, column: 'revokedAt' }],
     holdAware: false,
   },
   PlatformPolicy: {
@@ -956,7 +960,8 @@ export const CORE_LIFECYCLE = {
     onSubjectErasure: eraseHook('analytics.subject'),
     onTenantPurge: tenantHook('analytics.workspace'),
     edges: [],
-    enforcement: batched('day'),
+    // Срок — как у сырья (`ANALYTICS_RAW_RETENTION_DAYS`, умолчание = реестр): шаг модуля, не общая пачка
+    enforcement: batched('day', undefined, 'analytics.actor-days'),
     holdAware: false,
   },
   AnalyticsRollupSessionDay: {
@@ -1095,8 +1100,10 @@ export const CORE_LIFECYCLE = {
     ownerKey: via('workspace', 'WebhookEndpoint'),
     subjects: [],
     legalBasis: CONTRACT,
-    // 30 дней (Stripe); после 7 дней тело заменяется хешем — минимизация ПДн в копии
-    retention: { trigger: 'created', defaultDays: 30, floorDays: 7, tenantConfigurable: true, entitlementKey: 'lifecycle.retention.operational.ceilingDays' },
+    // 30 дней (Stripe); после 7 дней тело заменяется хешем — минимизация ПДн в копии.
+    // Потолок = умолчание: организация может только СОКРАЩАТЬ (лист партиции уходит целиком на
+    // 30-й день — выбор длиннее одной организации держал бы доставки всех остальных)
+    retention: { trigger: 'created', defaultDays: 30, floorDays: 7, ceilingDays: 30, tenantConfigurable: true, entitlementKey: 'lifecycle.retention.operational.ceilingDays' },
     onSubjectErasure: noSubject('bodies become a hash after 7 days — inside the erasure window'),
     onTenantPurge: CASCADE_FK,
     edges: [],

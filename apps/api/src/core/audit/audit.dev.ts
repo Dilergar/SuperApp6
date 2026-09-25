@@ -15,7 +15,6 @@ import { AuditViewedService } from './audit.viewed';
 import { AuditDigestService } from './audit.digests';
 import { AuditArchiveService } from './audit.archive';
 import { AuditDetections } from './audit.detections';
-import { AuditCron } from './audit.cron';
 import { AuditSettingsCheck } from './audit.settings';
 
 const seedBody = z
@@ -62,7 +61,6 @@ export class AuditDevController {
     private readonly digests: AuditDigestService,
     private readonly archive: AuditArchiveService,
     private readonly detections: AuditDetections,
-    private readonly cron: AuditCron,
     private readonly settings: AuditSettingsCheck,
   ) {}
 
@@ -190,15 +188,6 @@ export class AuditDevController {
       if (saved === undefined) delete process.env.AUDIT_ARCHIVE_ENABLED;
       else process.env.AUDIT_ARCHIVE_ENABLED = saved;
     }
-  }
-
-  /** Чистка закрытых тревог старше срока сейчас (ночной крон). */
-  @Post('alerts/purge')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: '[dev] Purge closed security alerts past retention now' })
-  async alertsPurge() {
-    this.assertDev();
-    return { success: true, data: { purged: await this.cron.alertsNow() } };
   }
 
   /** Синтетическое событие в прошлом (окна зрителей: 365 дней человека, окно тарифа организации). */

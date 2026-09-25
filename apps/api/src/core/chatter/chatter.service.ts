@@ -596,7 +596,9 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
   async exportOwned(side: 'user' | 'workspace', subjectId: string, ids: readonly string[]): Promise<boolean> {
     if (!ids.length) return true;
     const rows = await this.db.chatterEntry.findMany({ where: { id: { in: ids.map((id) => BigInt(id)) } }, select: { workspaceId: true, actorId: true } });
-    return rows.length === ids.length && rows.every((r) => (side === 'user' ? r.workspaceId === null && r.actorId === subjectId : r.workspaceId === subjectId));
+    // «Чужого нет», а не «ничего не изменилось»: запись, удалённая между страницей и проверкой
+    // (ушла вместе со своей сущностью), не чужая — иначе выгрузка живой организации падала бы
+    return rows.every((r) => (side === 'user' ? r.workspaceId === null && r.actorId === subjectId : r.workspaceId === subjectId));
   }
 
   // ============================================================

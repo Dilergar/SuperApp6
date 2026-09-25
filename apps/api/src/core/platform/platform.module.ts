@@ -25,7 +25,6 @@ import {
 } from './platform.controllers';
 import { PlatformNotifier } from './platform.notifications';
 import { PlatformProvider } from './platform.provider';
-import { PlatformCron } from './platform.cron';
 import { PlatformDevController } from './platform.dev';
 import { isDevEnv } from '../../shared/config/env.validation';
 
@@ -66,7 +65,6 @@ import { isDevEnv } from '../../shared/config/env.validation';
     PlatformRequestsService,
     PlatformLookupService,
     PlatformProvider,
-    PlatformCron,
   ],
   exports: [
     PlatformCommandRegistry,

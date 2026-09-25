@@ -103,6 +103,8 @@ export const LIFECYCLE_JOBS = {
   export: 'lifecycle.export',
   /** Импорт архива восстановления арендатора (`{ exportId, runId }`; родители → дети, затем реплей стираний) */
   restore: 'lifecycle.restore',
+  /** Реплей журнала стираний после восстановления базы из бэкапа (`{ runId }`; псевдонимы — в прогоне) */
+  erasureReplay: 'lifecycle.erasure-replay',
 } as const;
 
 export const LIFECYCLE_QUEUE = 'lifecycle';
@@ -116,5 +118,5 @@ export const LIFECYCLE_STOP_REASONS = ['paused', 'blast_radius', 'overrun', 'max
 export type LifecycleStopReason = (typeof LIFECYCLE_STOP_REASONS)[number];
 
 /** Виды прогонов `lifecycle_runs.kind`. */
-export const LIFECYCLE_RUN_KINDS = ['purge', 'tenant_purge', 'loose_fk', 'erasure', 'canary', 'restore'] as const;
+export const LIFECYCLE_RUN_KINDS = ['purge', 'tenant_purge', 'loose_fk', 'erasure', 'canary', 'restore', 'erasure_replay'] as const;
 export type LifecycleRunKind = (typeof LIFECYCLE_RUN_KINDS)[number];

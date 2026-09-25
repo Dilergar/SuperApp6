@@ -1699,6 +1699,8 @@ model ShiftAttendance {
   //    второй выход.
   @@index([workspaceId, branchId, localDate])
   @@index([userId, localDate])
+  // Раннер сроков: табель старше срока (core/lifecycle)
+  @@index([localDate])
   @@map("shift_attendance")
 }
 
@@ -2157,6 +2159,8 @@ model Order {
   @@index([sellerId, status])
   @@index([listingId])
   @@index([taskId])
+  // Раннер сроков: закрытые заказы старше срока (core/lifecycle)
+  @@index([closedAt])
   @@map("orders")
 }
 
@@ -2388,6 +2392,8 @@ model ScheduledMessage {
   // Cron scan: due pending rows.
   @@index([status, sendAt])
   @@index([chatId, authorId])
+  // Раннер сроков: отправленные/отменённые (три статуса фильтра — порядок по updated_at)
+  @@index([updatedAt])
   @@map("scheduled_messages")
 }
 
@@ -3652,6 +3658,8 @@ model DriveRecent {
   @@unique([userId, nodeId])
   @@index([userId, openedAt])
   @@index([nodeId])
+  // Раннер сроков: «недавние» старше срока по всей платформе (core/lifecycle)
+  @@index([openedAt])
   @@map("drive_recents")
 }
 
@@ -3754,6 +3762,8 @@ model ShareLink {
   // КОНТЕКСТ, в котором личный объект может быть роздан по работе, и такие строки
   // обязаны попадать в организационный вид.
   @@index([workspaceId, createdAt])
+  // Раннер сроков: общая пачка «старейшие отозванные первыми» (core/lifecycle)
+  @@index([revokedAt])
   @@map("share_links")
 }
 
@@ -3809,6 +3819,8 @@ model ShareLinkGuest {
   @@unique([ownerType, ownerId, phone])
   @@unique([ownerType, ownerId, phoneBi])
   @@unique([ownerType, ownerId, phoneBiAlt])
+  // Раннер сроков: гости без подтверждения дольше срока (core/lifecycle)
+  @@index([lastVerifiedAt])
   @@map("share_link_guests")
 }
 
@@ -5199,6 +5211,8 @@ model PlatformSession {
 
   @@index([userId])
   @@index([expiresAt])
+  // Раннер сроков: отозванные сессии Кабинета (правило revokedAt, core/lifecycle)
+  @@index([revokedAt])
   @@map("platform_sessions")
 }
 
@@ -5272,6 +5286,8 @@ model AnalyticsIdentityLink {
   source      String // identify | login
 
   @@index([userId])
+  // Раннер сроков: склейки старше срока (core/lifecycle)
+  @@index([linkedAt])
   @@map("analytics_identity_links")
 }
 
@@ -5553,6 +5569,8 @@ model ApiKey {
   @@index([userId, workspaceId])
   @@index([workspaceId, revokedAt])
   @@index([expiresAt])
+  // Раннер сроков: отозванные ключи старше срока (core/lifecycle)
+  @@index([revokedAt])
   @@map("api_keys")
 }
 
@@ -6065,6 +6083,8 @@ model SecurityAlert {
 
   @@index([status, openedAt])
   @@index([subjectUserId])
+  // Раннер сроков: закрытые тревоги (фильтр status = closed, порядок updated_at; core/lifecycle)
+  @@index([status, updatedAt])
   @@map("security_alerts")
 }
 
@@ -6215,6 +6235,9 @@ model LifecycleHold {
   @@index([custodianUserId, releasedAt])
   @@index([recordType, recordId])
   @@index([spaceType, spaceId])
+  // Частичный индекс живых заморозок `(scope, data_class) WHERE released_at IS NULL` (миграция
+  // lifecycle_live_holds_idx, руками): условие «строка не под заморозкой» — коррелированный
+  // подзапрос на КАЖДУЮ строку-кандидат пачки; без него он читал бы всю историю заморозок
   @@map("lifecycle_holds")
 }
 
@@ -6267,6 +6290,8 @@ model LifecycleErasureRequest {
 
   @@index([status, effectiveAt])
   @@index([subjectType, subjectId])
+  // Раннер сроков: завершённые заявки (три статуса фильтра — порядок только по completed_at)
+  @@index([completedAt])
   @@map("lifecycle_erasure_requests")
 }
 

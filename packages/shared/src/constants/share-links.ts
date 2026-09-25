@@ -96,9 +96,6 @@ export const SHARE_LINK_LIMITS = {
   /** Страница журнала визитов */
   visitsPageSize: 50,
   maxVisitsPageSize: 200,
-  /** Сколько хранится журнал визитов, дальше крон удаляет батчами */
-  visitRetentionDays: 365,
-  visitRetentionBatch: 5000,
   /** Обрезка User-Agent: заголовок задаёт клиент, и он бывает километровым */
   visitUserAgentMaxLength: 256,
   /** Имя, которым гость называет себя при подтверждении номера */

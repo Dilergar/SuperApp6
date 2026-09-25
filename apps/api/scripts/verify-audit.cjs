@@ -1362,18 +1362,24 @@ async function sectionStream({ check, prisma, s1 }) {
     const massNote = await waitRow(() => prisma.notification.findFirst({ where: { type: 'security.org.massExport', userId: s1.id, createdAt: { gte: since } }, include: { event: { select: { refType: true, refId: true } } } }), 20_000);
     check('mass export inside an organization notifies its owner (link to the event of the organization log)', orgSeed.ok && !!massNote && massNote.event?.refType === 'security_org_event' && String(massNote.event?.refId ?? '').startsWith(`${W}:`), JSON.stringify({ seed: orgSeed.json?.data?.alert?.status, ref: massNote?.event }));
     if (orgSeed.json?.data?.alert) await prisma.securityAlert.update({ where: { id: orgSeed.json.data.alert.id }, data: { status: 'closed', resolution: 'resolved', closedAt: new Date() } });
-    // Очередь тревог: закрытая старше года удаляется, свежая закрытая и старая открытая — нет
-    const old = new Date(Date.now() - 400 * 86_400_000);
+    // Очередь тревог: срок принуждает раннер core/lifecycle по реестру (SecurityAlert — пол закона
+    // 3 года, ЕТ № 832 п. 38): закрытая старше трёх лет удаляется; закрытая год назад и открытая — нет
     const tag = `suite-purge-${Date.now()}`;
-    const [aOld, aRecent, aOpen] = await Promise.all([
-      prisma.securityAlert.create({ data: { kind: 'bruteforce_ip', severity: 'high', dedupeKey: `${tag}:old`, status: 'closed', resolution: 'resolved', openedAt: old, closedAt: old } }),
-      prisma.securityAlert.create({ data: { kind: 'bruteforce_ip', severity: 'high', dedupeKey: `${tag}:recent`, status: 'closed', resolution: 'resolved', openedAt: old, closedAt: new Date() } }),
-      prisma.securityAlert.create({ data: { kind: 'bruteforce_ip', severity: 'high', dedupeKey: `${tag}:open`, status: 'open', openedAt: old } }),
+    const [aOld, aYear, aOpen] = await Promise.all([
+      prisma.securityAlert.create({ data: { kind: 'bruteforce_ip', severity: 'high', dedupeKey: `${tag}:old`, status: 'closed', resolution: 'resolved', openedAt: new Date(), closedAt: new Date() } }),
+      prisma.securityAlert.create({ data: { kind: 'bruteforce_ip', severity: 'high', dedupeKey: `${tag}:year`, status: 'closed', resolution: 'resolved', openedAt: new Date(), closedAt: new Date() } }),
+      prisma.securityAlert.create({ data: { kind: 'bruteforce_ip', severity: 'high', dedupeKey: `${tag}:open`, status: 'open', openedAt: new Date() } }),
     ]);
-    const purge = await call('POST', '/audit/dev/alerts/purge', s1.token, {});
-    const left = await prisma.securityAlert.findMany({ where: { id: { in: [aOld.id, aRecent.id, aOpen.id] } }, select: { id: true } });
-    check('closed alerts past a year are purged; recent closed and open ones stay', purge.ok && purge.json.data.purged >= 1 && !left.some((a) => a.id === aOld.id) && left.length === 2, `${purge.status} ${JSON.stringify(purge.json?.data)} left=${left.length}`);
-    await prisma.securityAlert.deleteMany({ where: { id: { in: [aRecent.id, aOpen.id] } } });
+    // Время строки — сырым UPDATE (updated_at ставит Prisma сама)
+    await prisma.$executeRawUnsafe(`UPDATE security_alerts SET updated_at = (now() AT TIME ZONE 'UTC') - interval '1100 days', closed_at = (now() AT TIME ZONE 'UTC') - interval '1100 days' WHERE id = $1::uuid`, aOld.id);
+    await prisma.$executeRawUnsafe(`UPDATE security_alerts SET updated_at = (now() AT TIME ZONE 'UTC') - interval '400 days', closed_at = (now() AT TIME ZONE 'UTC') - interval '400 days' WHERE id = $1::uuid`, aYear.id);
+    await prisma.$executeRawUnsafe(`UPDATE security_alerts SET updated_at = (now() AT TIME ZONE 'UTC') - interval '1100 days' WHERE id = $1::uuid`, aOpen.id);
+    const purge = await call('POST', '/lifecycle/dev/purge/run', s1.token, { policyId: 'SecurityAlert' });
+    const left = await prisma.securityAlert.findMany({ where: { id: { in: [aOld.id, aYear.id, aOpen.id] } }, select: { id: true } });
+    check('closed alerts past the 3-year legal floor are purged by the retention runner; a year-old closed and an open one stay', purge.ok && purge.json?.data?.rows >= 1 && !left.some((a) => a.id === aOld.id) && left.length === 2, `${purge.status} ${JSON.stringify({ rows: purge.json?.data?.rows, outcome: purge.json?.data?.outcome })} left=${left.length}`);
+    const legacy = await call('POST', '/audit/dev/alerts/purge', s1.token, {});
+    check('no own retention route in core/audit (one door: the lifecycle runner)', legacy.status === 404, legacy.status);
+    await prisma.securityAlert.deleteMany({ where: { id: { in: [aYear.id, aOpen.id] } } });
     const { consoleLogin } = require('./_lib.cjs');
     const ct = (await consoleLogin(SUITE.p1)).token;
     if (ct) {

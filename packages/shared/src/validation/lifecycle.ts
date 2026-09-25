@@ -26,6 +26,13 @@ export type LifecycleHoldSpaceType = (typeof LIFECYCLE_HOLD_SPACE_TYPES)[number]
 
 export const LIFECYCLE_HOLD_SCOPE_KINDS = ['custodian', 'space', 'record', 'class'] as const;
 
+/**
+ * Кто поставил заморозку: человек организации или сотрудник Кабинета (команда платформы).
+ * Одна правда для кода и CHECK базы `lifecycle_holds_kind_check` (сверка — verify-lifecycle.cjs).
+ */
+export const LIFECYCLE_HOLD_CREATOR_KINDS = ['user', 'platform'] as const;
+export type LifecycleHoldCreatorKind = (typeof LIFECYCLE_HOLD_CREATOR_KINDS)[number];
+
 /** Поля цели по области: у каждой области — ровно свои, чужие поля — ошибка. */
 const HOLD_TARGET_FIELDS: Record<(typeof LIFECYCLE_HOLD_SCOPE_KINDS)[number], readonly string[]> = {
   custodian: ['custodianUserId'],
@@ -122,6 +129,8 @@ export interface LifecycleHoldDto {
   releasedAt: string | null;
   releasedById: string | null;
   releaseNote: string | null;
+  /** Зритель может снять: владелец организации — любую её заморозку, админ — только поставленную им; Кабинет — способностью */
+  canRelease: boolean;
 }
 
 // ============================================================

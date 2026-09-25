@@ -97,8 +97,8 @@ export class LifecycleRuns {
   }
 
   /** Незаконченный прогон того же вида и субъекта (каскад организации не ставится дважды). */
-  async findRunning(kind: LifecycleRunKind, where: { policyId?: string; subjectId?: string }): Promise<LifecycleRunRow | null> {
-    const r = await this.db.lifecycleRun.findFirst({
+  async findRunning(kind: LifecycleRunKind, where: { policyId?: string; subjectId?: string }, tx?: Tx): Promise<LifecycleRunRow | null> {
+    const r = await (tx ?? this.db).lifecycleRun.findFirst({
       where: { kind, status: 'running', ...(where.policyId ? { policyId: where.policyId } : {}), ...(where.subjectId ? { subjectId: where.subjectId } : {}) },
       orderBy: { startedAt: 'desc' },
     });

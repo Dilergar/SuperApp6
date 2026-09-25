@@ -51,8 +51,9 @@ import { lifecycleTableOf, lifecycleTenantScopeSql } from './lifecycle.sql';
  *
  * Смоук на бутстрапе: реестр нарушает правила (длительность не сутками, «по закону» без
  * нормы, hold выключен у юридических записей, хранилище недостижимо от корней графа
- * удаления, цикл в каскаде организации) или объявленный в нём шаг/хук не зарегистрирован
- * модулем — старт падает. docs/lifecycle_engine.md.
+ * удаления, цикл в каскаде организации или в плане стирания), объявленный в нём шаг/хук не
+ * зарегистрирован модулем или у партиционированной таблицы есть DEFAULT-партиция — старт
+ * падает. docs/lifecycle_engine.md.
  */
 @Global()
 @Module({
@@ -132,6 +133,7 @@ export class LifecycleModule implements OnModuleInit, OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     const problems = lifecycleRegistryProblems();
     problems.push(...(await this.personIdsProblems()));
+    problems.push(...(await this.defaultPartitionProblems()));
     // Срок, выбранный организацией, раннер режет только по условию «строка организации»: без
     // него правило организации срезало бы строки всех — политика без условия (и без своего
     // шага purge) не может быть настраиваемой
@@ -156,6 +158,22 @@ export class LifecycleModule implements OnModuleInit, OnApplicationBootstrap {
       throw new Error(msg);
     }
     this.logger.log(`lifecycle registry: ${LIFECYCLE_POLICY_IDS.length} policies, ${handlers.length} purge handlers, ${hooks.length} tenant hooks, ${subjectHooks.length} subject erasure hooks`);
+  }
+
+  /**
+   * DEFAULT-партиция запрещена (plan §5.3): строки мимо периода ложатся в неё и не сбрасываются
+   * никаким сроком, а функция владельца отказывает заводить листья, пока она есть (ATTACH
+   * сканировал бы её) — вставки нового периода падали бы. Страж миграций её не пропустит; руками
+   * заведённую ловит старт API.
+   */
+  private async defaultPartitionProblems(): Promise<string[]> {
+    const rows = await this.db.$queryRaw<Array<{ parent: string }>>`
+      SELECT n.nspname || '.' || p.relname AS parent
+        FROM pg_partitioned_table pt
+        JOIN pg_class p ON p.oid = pt.partrelid
+        JOIN pg_namespace n ON n.oid = p.relnamespace
+       WHERE pt.partdefid <> 0 AND n.nspname IN ('public', 'analytics', 'idem')`;
+    return rows.map((r) => `${r.parent}: has a DEFAULT partition — forbidden (its rows outlive every retention term; new periods cannot be attached)`);
   }
 
   /**

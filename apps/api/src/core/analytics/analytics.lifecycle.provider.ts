@@ -4,11 +4,14 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseService } from '../../shared/database/database.service';
 import {
   LifecycleCanaryRegistry,
+  LifecyclePurgeHandlerRegistry,
   LifecycleSubjectHookRegistry,
   LifecycleTenantHookRegistry,
   type LifecycleCanaryContext,
   type LifecycleCanaryPlant,
 } from '../lifecycle/lifecycle.purge.registry';
+import { analyticsEnv } from './analytics.constants';
+import { addDays, dayInZone } from './analytics.enrich';
 import { AnalyticsEraseJobs } from './analytics.jobs';
 import { AnalyticsService } from './analytics.service';
 
@@ -20,11 +23,15 @@ import { AnalyticsService } from './analytics.service';
  *  - `analytics.subject` — стирание человека (политики `AnalyticsIdentityLink`,
  *    `AnalyticsRollupActorDay`, `analytics.events`): первый проход — СРАЗУ в шаге (сырьё его
  *    и анонимных id, роллапы, очередь приёма, склейки), второй — джобом через паузу:
- *    события, ещё летевшие в очереди приёма, догоняются.
+ *    события, ещё летевшие в очереди приёма, догоняются;
+ *  - `analytics.actor-days` — срок роллапа «субъект × день» (данные по человеку): живёт
+ *    столько же, сколько сырьё (`ANALYTICS_RAW_RETENTION_DAYS`, умолчание = реестр), пачками
+ *    раннера сроков — единственная дверь (свой ночной крон удаления снят).
  */
 @Injectable()
 export class AnalyticsLifecycleProvider implements OnModuleInit {
   constructor(
+    private readonly handlers: LifecyclePurgeHandlerRegistry,
     private readonly tenantHooks: LifecycleTenantHookRegistry,
     private readonly subjectHooks: LifecycleSubjectHookRegistry,
     private readonly analytics: AnalyticsService,
@@ -34,6 +41,15 @@ export class AnalyticsLifecycleProvider implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
+    this.handlers.register('analytics.actor-days', {
+      purgeBatch: async ({ limit }) => {
+        const n = await this.db.$executeRaw`
+          DELETE FROM analytics_rollup_actor_day
+           WHERE id IN (SELECT id FROM analytics_rollup_actor_day WHERE day < ${this.actorDayCutoff()}::date ORDER BY day LIMIT ${limit})`;
+        return { rows: n, more: n >= limit };
+      },
+      estimate: async () => this.db.analyticsRollupActorDay.count({ where: { day: { lt: new Date(`${this.actorDayCutoff()}T00:00:00Z`) } } }),
+    });
     this.tenantHooks.register('analytics.workspace', {
       purge: (workspaceId, ctx) => this.analytics.forgetWorkspace(workspaceId, ctx.deadline),
       estimate: async (workspaceId) =>
@@ -49,6 +65,11 @@ export class AnalyticsLifecycleProvider implements OnModuleInit {
       },
     });
     this.canary.register('analytics.subject', (ctx) => this.seedCanary(ctx));
+  }
+
+  /** Первый день, который роллап «субъект × день» ещё хранит (как сырьё), `YYYY-MM-DD` в поясе аналитики. */
+  private actorDayCutoff(): string {
+    return addDays(dayInZone(new Date(), analyticsEnv().timezone), -analyticsEnv().retentionDays);
   }
 
   /**

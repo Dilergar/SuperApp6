@@ -3,7 +3,6 @@ import { VerifyService } from './verify.service';
 import { VerifySmsService } from './verify.sms';
 import { SmsOutboundService } from './sms-outbound.service';
 import { VerifyController } from './verify.controller';
-import { VerifyCron } from './verify.cron';
 import { StepUpService } from './step-up.service';
 
 /**
@@ -21,7 +20,7 @@ import { StepUpService } from './step-up.service';
   // SmsOutboundService — служебные SMS (доставка ссылок наружу): зародыш
   // канального движка уведомлений, живёт рядом с драйвером, пока канал один.
   // StepUpService — окно «сильного подтверждения» по цели (ключи, правила видимости)
-  providers: [VerifyService, VerifySmsService, SmsOutboundService, VerifyCron, StepUpService],
+  providers: [VerifyService, VerifySmsService, SmsOutboundService, StepUpService],
   exports: [VerifyService, VerifySmsService, SmsOutboundService, StepUpService],
 })
 export class VerifyModule {}

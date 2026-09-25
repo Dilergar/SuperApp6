@@ -176,7 +176,8 @@ export class LifecycleSettingsService implements OnModuleInit {
       if (row?.pendingSet && row.pendingEffectiveAt && row.pendingEffectiveAt > now) earlier({ dataClass, at: row.pendingEffectiveAt.toISOString(), reason: 'pending' });
       if (older) earlier({ dataClass, at: nightly.toISOString(), reason: 'nightly' });
     }
-    const activeHolds = await this.db.lifecycleHold.count({ where: { workspaceId, releasedAt: null } });
+    // Как список раздела: заморозки платформы и свои (хранитель) админ не видит и не считает
+    const activeHolds = await this.holds.countActiveForWorkspace(userId, workspaceId);
     return { storage: { usedBytes: storage.used, limitBytes: storage.limit }, counts, nextDeletion: next, activeHolds };
   }
 

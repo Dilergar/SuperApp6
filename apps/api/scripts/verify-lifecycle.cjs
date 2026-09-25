@@ -341,6 +341,70 @@ async function erasureEndToEnd(prisma, s1) {
   }
 }
 
+// ---------------------------------------------------------------- 5б. реплей журнала после восстановления базы (ревью Б)
+// Рунбук PITR, шаг 3: восстановленная база не знает о стираниях после точки восстановления —
+// их знает журнал в объектном хранилище. Раньше функция реплея была, но звать её было нечем
+// (ни команды, ни скрипта). «Восстановление» моделируется откатом заявки и отметки удаления у
+// одноразового человека и возвратом архивной организации сьюта в строй.
+async function erasureReplay(prisma, s1) {
+  console.log('\n-- 5б. реплей журнала стираний после восстановления базы (команда Кабинета) --');
+  const acc = await registerThrowaway(`Лцр${rnd()}`);
+  await acceptAllPending(BASE, acc.token);
+  const del = await deleteAccount(acc);
+  const uReq = await prisma.lifecycleErasureRequest.findFirst({ where: { subjectType: 'user', subjectId: acc.id }, orderBy: { requestedAt: 'desc' } });
+  check('реплей: заявка человека заведена (псевдоним есть)', del.ok && !!uReq?.pseudonym, `${del.status}`);
+  // Организация сьюта в архив — заявка организации; «бэкап до архива»: снова живая, заявки нет
+  const s2 = await login(SUITE.p2);
+  const ws = await createSuiteWorkspace(s2.token, 'Сьют-Реплей');
+  const wsId = ws.json?.data?.id;
+  await call('DELETE', `/workspaces/${wsId}`, s2.token);
+  const wReq = await prisma.lifecycleErasureRequest.findFirst({ where: { subjectType: 'workspace', subjectId: wsId }, orderBy: { requestedAt: 'desc' } });
+  check('реплей: заявка организации заведена архивом', !!wReq?.pseudonym, wReq?.status);
+  if (!uReq || !wReq) return;
+  const back = new Date();
+  await prisma.lifecycleErasureRequest.updateMany({ where: { id: { in: [uReq.id, wReq.id] } }, data: { status: 'cancelled', completedAt: back, errorCode: 'suite_restore' } });
+  await prisma.user.update({ where: { id: acc.id }, data: { deletionScheduledAt: null } });
+  await prisma.workspace.update({ where: { id: wsId }, data: { isActive: true, archivedAt: null } });
+  const epoch0 = (await prisma.user.findUnique({ where: { id: acc.id }, select: { tokenEpoch: true } }))?.tokenEpoch ?? 0;
+
+  const c = await consoleLogin(SUITE.p1);
+  const ct = c.token;
+  await consoleSudo(ct);
+  const pseudonyms = [uReq.pseudonym, wReq.pseudonym, uReq.pseudonym];
+  let r = await call('POST', '/platform/commands/lifecycle.erasure.replay/preview', ct, { input: { pseudonyms } });
+  check('реплей: предпросмотр считает уникальные псевдонимы', r.ok && r.json?.data?.result?.pseudonyms === 2, `${r.status} ${r.code ?? ''} ${JSON.stringify(r.json?.data?.result ?? null)}`);
+  r = await call('POST', '/platform/commands/lifecycle.erasure.replay', ct, { input: { pseudonyms: ['не псевдоним'] }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: bad input' });
+  check('реплей: кривой псевдоним → 400', r.status === 400, `${r.status} ${r.code}`);
+  r = await call('POST', '/platform/commands/lifecycle.erasure.replay', ct, { input: { pseudonyms }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: erasure journal replay after a restore' });
+  const runId = r.json?.data?.result?.runId;
+  check('реплей: команда ставит прогон джобом', r.ok && !!runId, `${r.status} ${r.code ?? ''}`);
+  let run = null;
+  for (let i = 0; i < 240 && runId; i++) {
+    run = await prisma.lifecycleRun.findUnique({ where: { id: runId }, select: { status: true, report: true } });
+    if (run && run.status !== 'running') break;
+    await new Promise((res) => setTimeout(res, 500));
+  }
+  check('реплей: прогон завершён — человек и организация найдены по псевдониму', run?.status === 'done' && run?.report?.users === 1 && run?.report?.workspaces === 1, JSON.stringify({ status: run?.status, users: run?.report?.users, workspaces: run?.report?.workspaces }));
+  const u = await prisma.user.findUnique({ where: { id: acc.id }, select: { deletedAt: true, tokenEpoch: true } });
+  const uLive = await prisma.lifecycleErasureRequest.findFirst({ where: { subjectType: 'user', subjectId: acc.id, status: { notIn: ['cancelled', 'failed'] } }, orderBy: { requestedAt: 'desc' } });
+  check('воскресший человек скрыт СРАЗУ (вход закрыт, токены погашены), стирание без грейса', !!u?.deletedAt && (u?.tokenEpoch ?? 0) > epoch0 && !!uLive && uLive.effectiveAt <= new Date(), JSON.stringify({ deletedAt: u?.deletedAt, epoch: u?.tokenEpoch, req: uLive?.status }));
+  const login2 = await call('POST', '/auth/login', null, { phone: acc.phone, password: PW });
+  check('воскресший человек войти не может (вход не возвращает аккаунт «в грейс»)', !login2.ok, `${login2.status} ${login2.code}`);
+  const w = await prisma.workspace.findUnique({ where: { id: wsId }, select: { isActive: true } });
+  const wLive = await prisma.lifecycleErasureRequest.findFirst({ where: { subjectType: 'workspace', subjectId: wsId, status: { notIn: ['cancelled', 'failed'] } }, orderBy: { requestedAt: 'desc' } });
+  check('воскресшая организация — в архиве и на каскаде сейчас', (!w || w.isActive === false) && !!wLive && wLive.effectiveAt <= new Date(), JSON.stringify({ active: w?.isActive, req: wLive?.status }));
+  // Повтор той же пачки идемпотентен: скрытый не находится, удаляемая не трогается
+  r = await call('POST', '/platform/commands/lifecycle.erasure.replay', ct, { input: { pseudonyms }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: replay again' });
+  const run2Id = r.json?.data?.result?.runId;
+  let run2 = null;
+  for (let i = 0; i < 240 && run2Id; i++) {
+    run2 = await prisma.lifecycleRun.findUnique({ where: { id: run2Id }, select: { status: true, report: true } });
+    if (run2 && run2.status !== 'running') break;
+    await new Promise((res) => setTimeout(res, 500));
+  }
+  check('повтор реплея — ноль повторов (идемпотентно)', run2?.status === 'done' && run2?.report?.users === 0 && run2?.report?.workspaces === 0, JSON.stringify({ status: run2?.status, users: run2?.report?.users, workspaces: run2?.report?.workspaces }));
+}
+
 // ---------------------------------------------------------------- 6. канарейка
 async function canary(prisma, s1) {
   console.log('\n-- 6. канарейка стирания --');
@@ -495,7 +559,58 @@ async function retentionSettings(prisma, s1) {
   const selfHidden = r.ok && r.json?.data?.held === false;
   r = await st(tO, 'user', s3.id);
   check('хранитель-админ о своей заморозке не узнаёт, владелец видит', hAdm.ok && selfHidden && r.json?.data?.held === true, `${hAdm.status} self=${selfHidden} owner=${r.json?.data?.held}`);
-  if (hAdm.json?.data?.id) await call('POST', `${base}/holds/${hAdm.json.data.id}/release`, tO, {});
+
+  // Ревью Б: заморозка ПЛАТФОРМЫ «от имени организации» (команда Кабинета; «четыре глаза» в
+  // разработке выключены политикой) — ставится (CHECK автора заморозки разрешал только
+  // 'platform_staff' — команда падала 23514), организации не видна и ею не снимается; свою
+  // заморозку админ-хранитель не видит ни в списке, ни в сводке и не снимает (иначе снял бы её
+  // с себя и удалил улики). Хранитель заморозки платформы — админ suite3 (сотрудник — suite1)
+  const ph = await call('POST', '/platform/commands/lifecycle.hold.create', ct, {
+    input: { scope: 'custodian', custodianUserId: s3.id, workspaceId: wsId, reasonCode: 'audit' },
+    idempotencyKey: nodeCrypto.randomUUID(),
+    reason: 'suite: platform hold on behalf of the organisation',
+  });
+  const pHold = { id: ph.json?.data?.result?.holdId };
+  check('заморозка платформы командой Кабинета ставится (автор — platform)', ph.ok && !!pHold.id && (await prisma.lifecycleHold.findUnique({ where: { id: pHold.id } }))?.createdByKind === 'platform', `${ph.status} ${ph.code ?? ''}`);
+  const pEv = pHold.id
+    ? await prisma.securityEvent.findFirst({ where: { eventKey: 'lifecycle.hold.created', occurredAt: { gte: t2h }, targetType: 'lifecycle_hold', targetId: pHold.id }, select: { visWorkspace: true, workspaceId: true } })
+    : null;
+  check('журнал безопасности: заморозка платформы — только платформе (в журнале организации её нет)', !!pEv && pEv.visWorkspace === false && pEv.workspaceId === null, JSON.stringify(pEv));
+  const hAdmId = hAdm.json?.data?.id;
+  const idsOf = (res) => new Set((res.json?.data?.items ?? []).map((h) => h.id));
+  r = await call('GET', `${base}/holds`, tO);
+  const ownerSees = idsOf(r);
+  check('список заморозок организации: заморозки платформы в нём нет', r.ok && !ownerSees.has(pHold.id) && ownerSees.has(hAdmId), `${r.status} platform=${ownerSees.has(pHold.id)}`);
+  r = await call('GET', `${base}/holds`, s3.token);
+  const adminSees = idsOf(r);
+  check('список заморозок: админ-хранитель своей не видит, чужую — видит', r.ok && !adminSees.has(hAdmId) && adminSees.has(hold.json?.data?.id), `${r.status} own=${adminSees.has(hAdmId)}`);
+  const sO = await call('GET', `${base}/summary`, tO);
+  const sA = await call('GET', `${base}/summary`, s3.token);
+  check('сводка «Заморозок: N» — без платформы и без своей у хранителя', sO.json?.data?.activeHolds === 2 && sA.json?.data?.activeHolds === 1, `owner=${sO.json?.data?.activeHolds} admin=${sA.json?.data?.activeHolds}`);
+  r = await call('POST', `${base}/holds/${pHold.id}/release`, tO, {});
+  check('заморозку платформы организация не снимает (404, не оракул)', r.status === 404 && r.code === 'lifecycle.holdNotFound' && !(await prisma.lifecycleHold.findUnique({ where: { id: pHold.id } }))?.releasedAt, `${r.status} ${r.code}`);
+  r = await call('POST', `${base}/holds/${hAdmId}/release`, s3.token, {});
+  check('админ-хранитель свою заморозку не снимает (404)', r.status === 404 && r.code === 'lifecycle.holdNotFound' && !(await prisma.lifecycleHold.findUnique({ where: { id: hAdmId } }))?.releasedAt, `${r.status} ${r.code}`);
+  // Решение продукта: заморозку организации снимает владелец (любую) или её автор. `hold` поставил
+  // владелец — админ s3 (не автор) снять не может (403, заморозка ему видна — не оракул), в его
+  // списке `canRelease=false`, у владельца — `true`; свою заморозку админ-автор снимает
+  const holdId = hold.json?.data?.id;
+  r = await call('POST', `${base}/holds/${holdId}/release`, s3.token, {});
+  check('заморозку владельца админ (не автор) не снимает — 403 lifecycle.holdReleaseOwnerOnly', r.status === 403 && r.code === 'lifecycle.holdReleaseOwnerOnly' && !(await prisma.lifecycleHold.findUnique({ where: { id: holdId } }))?.releasedAt, `${r.status} ${r.code}`);
+  const flagOf = (res, id) => (res.json?.data?.items ?? []).find((h) => h.id === id)?.canRelease;
+  const listA = await call('GET', `${base}/holds`, s3.token);
+  const listO = await call('GET', `${base}/holds`, tO);
+  check('canRelease: у админа чужая заморозка без права снять, у владельца — с правом', flagOf(listA, holdId) === false && flagOf(listO, holdId) === true, `admin=${flagOf(listA, holdId)} owner=${flagOf(listO, holdId)}`);
+  const hByAdmin = await call('POST', `${base}/holds`, s3.token, { scope: 'custodian', custodianUserId: member.id, reasonCode: 'audit' });
+  const hByAdminId = hByAdmin.json?.data?.id;
+  const listA2 = await call('GET', `${base}/holds`, s3.token);
+  r = await call('POST', `${base}/holds/${hByAdminId}/release`, s3.token, {});
+  check('свою заморозку админ-автор снимает (canRelease=true → 200)', hByAdmin.ok && flagOf(listA2, hByAdminId) === true && r.ok && !!(await prisma.lifecycleHold.findUnique({ where: { id: hByAdminId } }))?.releasedAt, `${hByAdmin.status} flag=${flagOf(listA2, hByAdminId)} ${r.status} ${r.code ?? ''}`);
+  if (hAdmId) await call('POST', `${base}/holds/${hAdmId}/release`, tO, {});
+  r = await st(tO, 'user', s3.id);
+  check('статус заморозки: заморозка платформы на хранителе организации не видна', r.ok && r.json?.data?.held === false, `${r.status} ${JSON.stringify(r.json?.data)}`);
+  r = await call('POST', '/platform/commands/lifecycle.hold.release', ct, { input: { holdId: pHold.id }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: release the platform hold' });
+  check('заморозка платформы снимается командой Кабинета', r.ok && !!(await prisma.lifecycleHold.findUnique({ where: { id: pHold.id } }))?.releasedAt, `${r.status} ${r.code ?? ''}`);
   r = await st(tO, 'user', member.id, nodeCrypto.randomUUID());
   check('статус заморозки в чужой организации → 404 (не оракул)', r.status === 404, `${r.status} ${r.code}`);
   r = await st(tO, 'OrgDocument', nodeCrypto.randomUUID());
@@ -516,6 +631,22 @@ async function retentionSettings(prisma, s1) {
   // Организация прогона — в архив (не копится у suite2 за места тарифа)
   await archiveSuiteWorkspace(wsId);
 
+  // Ревью Б: возврат из архива — только до точки невозврата. Заявка стирания пошла в работу
+  // (оркестратор переводит её под замком строки организации) → 409, организация остаётся в архиве.
+  // Срок заявки — конец архива: пока она «в работе» понарошку, джоб её не исполнит
+  const eReq = await prisma.lifecycleErasureRequest.findFirst({ where: { subjectType: 'workspace', subjectId: wsId, status: 'scheduled' }, select: { id: true } });
+  check('архив организации завёл заявку стирания', !!eReq);
+  if (eReq) {
+    await prisma.lifecycleErasureRequest.update({ where: { id: eReq.id }, data: { status: 'running' } });
+    try {
+      r = await call('POST', `/workspaces/${wsId}/restore`, tO);
+      const wsRow = await prisma.workspace.findUnique({ where: { id: wsId }, select: { isActive: true } });
+      check('возврат из архива после начала удаления → 409 workspace.purgeInProgress, организация в архиве', r.status === 409 && r.code === 'workspace.purgeInProgress' && wsRow?.isActive === false, `${r.status} ${r.code} active=${wsRow?.isActive}`);
+    } finally {
+      await prisma.lifecycleErasureRequest.update({ where: { id: eReq.id }, data: { status: 'scheduled' } });
+    }
+  }
+
   // ---- Таймер чата ----
   r = await call('POST', '/messenger/chats/group', t1, { name: `Сьют-Таймер ${rnd()}`, memberIds: [s2.id] });
   const chatId = r.json?.data?.id;
@@ -529,11 +660,31 @@ async function retentionSettings(prisma, s1) {
   await prisma.message.create({ data: { chatId, authorId: s1.id, type: 'text', content: 'Сьют старое', seq: before.lastSeq + 1 } });
   await prisma.chat.update({ where: { id: chatId }, data: { lastSeq: before.lastSeq + 1 } });
   await prisma.message.updateMany({ where: { chatId }, data: { createdAt: new Date(Date.now() - 10 * 86_400_000) } });
+  // Ответ на «старое», пока таймера нет (цитата законна); после включения таймера «старое» вне срока
+  const oldMsg = await prisma.message.findFirst({ where: { chatId, content: 'Сьют старое' }, select: { id: true } });
+  const reply = await call('POST', `/messenger/chats/${chatId}/messages`, t1, { content: 'Сьют ответ', replyToId: oldMsg?.id });
+  check('ответ на старое сообщение до таймера', reply.ok && reply.json?.data?.replyTo?.deleted === false, `${reply.status} ${reply.code ?? ''}`);
   r = await call('PUT', `/messenger/chats/${chatId}/timer`, t1, { days: 7 });
   check('таймер 7 дней включён: сроки в деталях чата', r.ok && r.json?.data?.retention?.timerDays === 7 && r.json?.data?.retention?.effectiveDays === 7 && r.json?.data?.retention?.canChange === true, JSON.stringify(r.json?.data?.retention));
   r = await call('GET', `/messenger/chats/${chatId}/messages`, t1);
   const msgs = r.json?.data ?? [];
   check('лента: сообщения старше таймера скрыты сразу, плашка «таймер включён» видна', r.ok && !msgs.some((m) => m.content === 'Сьют старое') && msgs.some((m) => m.payload?.eventType === 'chat.timer_set'), JSON.stringify(msgs.map((m) => m.payload?.eventType ?? m.content)));
+  // Ревью Б: цитата вне срока не возвращается ни в ответе правки, ни в сокете (и в ленте — удалённой)
+  const inFeed = msgs.find((m) => m.id === reply.json?.data?.id);
+  check('лента: цитата старше таймера — как удалённая', inFeed?.replyTo?.deleted === true && inFeed?.replyTo?.text === null, JSON.stringify(inFeed?.replyTo ?? null));
+  r = await call('PATCH', `/messenger/messages/${reply.json?.data?.id}`, t1, { content: 'Сьют ответ (правка)' });
+  check('правка ответа: цитата старше таймера — как удалённая (текст не возвращается)', r.ok && r.json?.data?.replyTo?.deleted === true && r.json?.data?.replyTo?.text === null, `${r.status} ${JSON.stringify(r.json?.data?.replyTo ?? null)}`);
+  r = await call('POST', `/messenger/chats/${chatId}/scheduled`, t1, { content: 'Сьют отложенное', sendAt: new Date(Date.now() + 3600_000).toISOString(), replyToId: oldMsg?.id });
+  check('отложенное с цитатой старше таймера → 404 chat.messageNotFound', r.status === 404 && r.code === 'chat.messageNotFound', `${r.status} ${r.code}`);
+  // Упоминание в чате, чей срок короче срока уведомлений: уведомление без текста (иначе текст
+  // исчезающего сообщения жил бы 90 дней в центре уведомлений)
+  const mention = await call('POST', `/messenger/chats/${chatId}/messages`, t1, { content: `@[Suite](${s2.id}) Сьют упоминание` });
+  let mEv = null;
+  for (let i = 0; i < 20 && !mEv; i++) {
+    await new Promise((res) => setTimeout(res, 300));
+    mEv = await prisma.notificationEvent.findFirst({ where: { type: 'mention.received', refType: 'chat_message', refId: mention.json?.data?.id }, select: { payload: true } });
+  }
+  check('упоминание в чате с таймером: уведомление без текста сообщения', mention.ok && !!mEv && mEv.payload?.snippet === '' && !JSON.stringify(mEv.payload).includes('Сьют упоминание'), `${mention.status} ${JSON.stringify(mEv?.payload ?? null).slice(0, 160)}`);
   r = await call('POST', '/lifecycle/dev/purge/run', t1, { policyId: 'Message' });
   check('раннер: таймер удаляет сообщения старше срока чата', r.ok && (await prisma.message.count({ where: { chatId, content: 'Сьют старое' } })) === 0, `${r.status} ${r.code ?? ''}`);
   r = await call('PUT', `/messenger/chats/${chatId}/timer`, t1, { days: null });
@@ -726,6 +877,9 @@ async function main() {
       lifecycle_erasure_requests_status_check: shared.LIFECYCLE_ERASURE_STATUSES,
       lifecycle_runs_status_check: shared.LIFECYCLE_RUN_STATUSES,
       lifecycle_holds_scope_check: shared.LIFECYCLE_HOLD_SCOPE_KINDS,
+      // Кто поставил заморозку: CHECK разрешал 'platform_staff', код пишет 'platform' — любая
+      // заморозка платформы падала 23514 (ревью Б)
+      lifecycle_holds_kind_check: shared.LIFECYCLE_HOLD_CREATOR_KINDS,
       lifecycle_erasure_requests_subject_check: ['user', 'workspace'],
     };
     const defs = await prisma.$queryRawUnsafe(`SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conname = ANY($1::text[])`, Object.keys(enumChecks));
@@ -737,13 +891,14 @@ async function main() {
       const extra = [...inDb].filter((v) => !values.includes(v));
       if (!def || missing.length || extra.length) drift.push(`${name}: -[${missing}] +[${extra}]`);
     }
-    check('CHECK-ограничения движка = перечисления shared (статусы заявок, прогонов, области заморозок)', drift.length === 0, drift.join('; '));
+    check('CHECK-ограничения движка = перечисления shared (статусы заявок, прогонов, области и авторы заморозок)', drift.length === 0, drift.join('; '));
 
     // ---- Э4 ----
     const s1 = await login(SUITE.p1);
     await acceptAllPending(BASE, s1.token);
     await holdsOnEveryPath(prisma, redis, s1);
     await erasureEndToEnd(prisma, s1);
+    await erasureReplay(prisma, s1);
     await canary(prisma, s1);
 
     // ---- Э5 ----

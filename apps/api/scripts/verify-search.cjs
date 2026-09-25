@@ -146,6 +146,18 @@ async function main() {
   const short = await http('GET', '/search?q=a', { token: t1.token });
   check('1-char query → 400', short.status === 400, String(short.status));
 
+  // Проекция → сущность по первичному ключу: `n."id"::text = sd."source_id"` терял PK и шёл
+  // Seq Scan всей таблицы сущностей на каждый поиск (core/search/search.sql.ts). План берётся с
+  // тем же фрагментом, что в сервисах (dist), — регресс на приведение колонки виден здесь.
+  console.log('\n-- projection → entity join uses the primary key --');
+  const { searchSourceUuid } = require(path.join(__dirname, '..', 'dist', 'core', 'search', 'search.sql.js'));
+  const { Prisma } = require('@prisma/client');
+  for (const [table, type, pk] of [['drive_nodes', 'drive_node', 'drive_nodes_pkey'], ['notes', 'note', 'notes_pkey']]) {
+    const plan = await prisma.$queryRaw(Prisma.sql`EXPLAIN (COSTS OFF) SELECT n."id" FROM "search_documents" sd JOIN ${Prisma.raw(`"${table}"`)} n ON n."id" = ${searchSourceUuid('sd')} WHERE sd."source_type" = ${type} AND sd.search_vector @@ websearch_to_tsquery('russian', 'test') LIMIT 20`);
+    const text = plan.map((r) => r['QUERY PLAN']).join('\n');
+    check(`${table}: join by ${pk} (no Seq Scan of the entity table)`, text.includes(pk) && !new RegExp(`Seq Scan on "?${table}`).test(text), text.replace(/\s+/g, ' ').slice(0, 160));
+  }
+
   await prisma.$disconnect();
   console.log(`\nRESULT ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

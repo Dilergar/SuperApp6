@@ -26,7 +26,9 @@ export interface LifecycleExportPage {
  *
  * Контракт: страница ≤ `limit` строк, идемпотентно по курсору; удалённое и вне срока не
  * отдаёт; `verify` — НЕЗАВИСИМАЯ перепроверка владельца строк страницы (Google Takeout 2019:
- * чужие видео в архиве) — `false` останавливает сборку целиком.
+ * чужие видео в архиве) — `false` останавливает сборку целиком. Смысл проверки — «чужого нет»:
+ * строка, удалённая между страницей и проверкой, не чужая (в живой организации что-то удаляют
+ * постоянно — иначе выгрузка крупной организации падала бы почти всегда).
  */
 export interface LifecycleExportProvider {
   page(ctx: LifecycleExportContext, cursor: string | null, limit: number): Promise<LifecycleExportPage>;

@@ -56,6 +56,11 @@ async function main() {
   check('ready: бэкапы — проверка движка зарегистрирована (dev — skipped)', !!c.backups && c.backups.critical === false, JSON.stringify(c.backups));
   const prefixed = await call('GET', '/health/ready', null);
   check('пробы живут у корня, не под /api', prefixed.status === 404, String(prefixed.status));
+  // Проба публична и без троттлинга: 30 параллельных вызовов делят один прогон проверок (отчёт
+  // живёт секунду) — иначе чужой цикл curl превращался бы в запросы к базе и Redis
+  const burst = await Promise.all(Array.from({ length: 30 }, () => raw('/health/ready')));
+  const stamps = new Set(burst.map((r) => r.json?.at).filter(Boolean));
+  check('ready: параллельные пробы делят один отчёт (≤ 2 отметок времени на 30 вызовов)', burst.every((r) => r.status === 200) && stamps.size >= 1 && stamps.size <= 2, `stamps=${stamps.size}`);
   if (process.env.METRICS_TOKEN) {
     const bare = await raw('/health/ready', { Authorization: 'Bearer wrong-token' });
     check('ready: чужой токен — только итог, без разбивки', bare.json && !bare.json.checks, bare.text.slice(0, 120));
@@ -143,6 +148,9 @@ async function main() {
     if (cache) {
       check('состояние: noeviction + AOF', (await policyOf(state)) === 'noeviction' && (await aofOf(state)) === '1', `${await policyOf(state)} aof=${await aofOf(state)}`);
       check('кэш: allkeys-lfu без AOF', (await policyOf(cache)) === 'allkeys-lfu' && (await aofOf(cache)) === '0', `${await policyOf(cache)} aof=${await aofOf(cache)}`);
+      // Потолок памяти — флагом запуска, не в файле (файл общий с продом): забытый флаг = OOM / кэш без вытеснения
+      const maxOf = async (r) => Number(/maxmemory:(\d+)/.exec(await r.info('memory'))?.[1] ?? 0);
+      check('maxmemory задан у обоих инстансов (флаг запуска --maxmemory)', (await maxOf(state)) > 0 && (await maxOf(cache)) > 0, `state=${await maxOf(state)} cache=${await maxOf(cache)}`);
       // Кэш профиля и ролей пишется при чтении (/users/me выше) — в инстанс кэша, не состояния
       const scanAll = async (r, match) => {
         const out = [];

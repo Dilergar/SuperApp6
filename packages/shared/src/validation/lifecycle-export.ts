@@ -108,7 +108,7 @@ export interface LifecycleExportDto {
   parts: LifecycleExportPartDto[];
   errorCode: LifecycleExportError | null;
   requestedById: string;
-  /** Скачивает только заказавший (архив организации видят владелец и админы, качает заказчик) */
+  /** Скачивает только заказавший (архив организации видят владелец и админы, качает заказчик, пока он владелец) */
   canDownload: boolean;
   createdAt: string;
   readyAt: string | null;

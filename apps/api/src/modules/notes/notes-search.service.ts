@@ -9,6 +9,7 @@ import {
   type WorkspaceRole,
 } from '@superapp/shared';
 import { SearchRegistry } from '../../core/search/search.registry';
+import { searchSourceUuid } from '../../core/search/search.sql';
 import { SearchProjectionService } from '../../core/search/search-projection.service';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -136,7 +137,7 @@ export class NotesSearchService implements OnModuleInit {
                sd."body" AS "body", n."updated_at" AS "updatedAt",
                (ts_rank(sd.search_vector, ${tsq}) * 4 + word_similarity(${query}, sd.title))::float8 AS "score"
           FROM "search_documents" sd
-          JOIN "notes" n ON n."id"::text = sd."source_id"
+          JOIN "notes" n ON n."id" = ${searchSourceUuid('sd')}
           JOIN "note_spaces" s ON s."id" = n."space_id"
          WHERE sd."source_type" = ${NOTE_REF_TYPE}
            AND n."deleted_at" IS NULL

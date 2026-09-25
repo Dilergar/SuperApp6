@@ -196,6 +196,8 @@ export class LifecycleRestoreService implements LifecycleExportSource, OnModuleI
       select: { id: true },
     });
     if (erased) throw conflict('lifecycle.restoreErased');
+    // Каскад уже идёт (заявка в работе, ретеншн архива, команда Кабинета) — стирание побеждает и тут
+    if (await this.db.$transaction((tx) => this.erasure.purgeStarted(tx, workspaceId))) throw conflict('lifecycle.restoreErased');
   }
 
   // ============================================================
@@ -372,6 +374,13 @@ export class LifecycleRestoreService implements LifecycleExportSource, OnModuleI
       m = await this.loadManifest(state.exportId);
     } catch (err) {
       await this.runs.finish(runId, 'failed', { report: { error: (err as { code?: string }).code ?? 'manifest' } });
+      return;
+    }
+    // Стирание побеждает и посреди импорта (импорт идёт заходами часами): каскад организации
+    // начался — вставленное после его прохода по таблице пережило бы организацию навсегда
+    if (state.phase !== 'done' && (await this.db.$transaction((tx) => this.erasure.purgeStarted(tx, state.workspaceId)))) {
+      await this.runs.finish(runId, 'failed', { report: { error: 'lifecycle.restoreErased' } });
+      this.logger.warn(`tenant restore ${runId}: the organisation ${state.workspaceId} is being purged — import stopped`);
       return;
     }
     if (state.phase === 'rows') {

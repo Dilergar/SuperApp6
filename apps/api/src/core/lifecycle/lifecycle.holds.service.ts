@@ -34,7 +34,7 @@ const PAGE = { at: 'date', i: 'uuid' } as const;
 /** Цель заморозки: область + её поля; `workspaceId` пуст — заморозка платформы. */
 export type LifecycleHoldTarget = LifecycleHoldCreateInput & { workspaceId: string | null };
 
-/** Кто ставит/снимает: человек организации или сотрудник Кабинета (командой). */
+/** Кто ставит/снимает: человек организации или сотрудник Кабинета (командой). Вид = `LIFECYCLE_HOLD_CREATOR_KINDS` shared и CHECK базы. */
 export interface LifecycleHoldActor {
   id: string;
   kind: 'user' | 'platform';
@@ -134,15 +134,37 @@ export class LifecycleHoldsService implements OnModuleInit {
     return this.create({ ...input, workspaceId }, { id: userId, kind: 'user' });
   }
 
-  /** Снять можно только заморозку СВОЕЙ организации — заморозку платформы организация не видит и не снимает. */
+  /**
+   * Снять можно только заморозку, поставленную ОРГАНИЗАЦИЕЙ: заморозку платформы (в том числе
+   * «от имени организации» — поставлена через второго сотрудника Кабинета) организация не
+   * видит и не снимает, свою заморозку хранитель не видит и не снимает (иначе админ-хранитель
+   * снял бы её с себя и удалил улики). Обоим — 404, как несуществующей (не оракул).
+   */
   async releaseForWorkspace(userId: string, workspaceId: string, holdId: string, note: string | undefined): Promise<LifecycleHoldDto> {
     await this.assertManager(userId, workspaceId);
-    return this.release(holdId, note, { id: userId, kind: 'user' }, { workspaceId });
+    // Решение продукта: снимает владелец (любую заморозку организации) или её автор — админ, который
+    // её не ставил, снять не может (сговор одного админа не уносит улики)
+    const owner = (await this.roleIn(userId, workspaceId)) === 'owner';
+    return this.release(holdId, note, { id: userId, kind: 'user' }, { workspaceId, organizationOnly: true, notCustodian: userId, ...(owner ? {} : { authorOnly: userId }) });
   }
 
+  /** Заморозки организации глазами её админа: только её собственные и без тех, где он сам хранитель. */
   async listForWorkspace(userId: string, workspaceId: string, q: LifecycleHoldsQuery): Promise<CursorPage<LifecycleHoldDto>> {
     await this.assertManager(userId, workspaceId);
-    return this.list({ workspaceId }, q);
+    const owner = (await this.roleIn(userId, workspaceId)) === 'owner';
+    const page = await this.list({ workspaceId, organizationOnly: true, notCustodian: userId }, q);
+    // Кнопку «Снять» веб показывает только там, где сервер её примет: владелец — везде, админ — у своих
+    return { ...page, items: page.items.map((h) => ({ ...h, canRelease: !h.releasedAt && (owner || h.createdById === userId) })) };
+  }
+
+  /** Действующие заморозки организации глазами её админа (плитка сводки) — те же правила, что у списка. */
+  countActiveForWorkspace(userId: string, workspaceId: string): Promise<number> {
+    return this.db.lifecycleHold.count({ where: { workspaceId, releasedAt: null, createdByKind: 'user', ...this.notCustodianWhere(userId) } });
+  }
+
+  /** Хранитель своей заморозки не видит: строки без хранителя (область, класс, запись) — видны. */
+  private notCustodianWhere(userId: string): Prisma.LifecycleHoldWhereInput {
+    return { OR: [{ custodianUserId: null }, { custodianUserId: { not: userId } }] };
   }
 
   /**
@@ -161,6 +183,8 @@ export class LifecycleHoldsService implements OnModuleInit {
         where: {
           releasedAt: null,
           workspaceId,
+          // Заморозки платформы «от имени организации» организация не видит
+          createdByKind: 'user',
           OR: [
             { scope: 'custodian', custodianUserId: q.id },
             { scope: 'space', spaceType: 'workspace', spaceId: workspaceId },
@@ -175,7 +199,7 @@ export class LifecycleHoldsService implements OnModuleInit {
     const covering = await this.db.$queryRaw<Array<{ id: string; workspaceId: string | null }>>(holdsCoveringRowSql(policy, t, q.id));
     const own = covering.filter((h) => h.workspaceId === workspaceId).map((h) => h.id);
     if (!own.length) return { held: false };
-    const rows = await this.db.lifecycleHold.findMany({ where: { id: { in: own } }, select: { custodianUserId: true } });
+    const rows = await this.db.lifecycleHold.findMany({ where: { id: { in: own }, createdByKind: 'user' }, select: { custodianUserId: true } });
     return { held: rows.some((r) => r.custodianUserId !== userId) };
   }
 
@@ -204,10 +228,11 @@ export class LifecycleHoldsService implements OnModuleInit {
           createdByKind: actor.kind,
         },
       });
-      // Хранителю событие не показывается: видимость — организация и платформа, субъект не ставится
+      // Хранителю событие не показывается: видимость — организация и платформа, субъект не ставится.
+      // Заморозку ПЛАТФОРМЫ (и «от имени организации») организация не видит и в своём журнале
       await this.audit.record(t, {
         key: 'lifecycle.hold.created',
-        workspaceId: target.workspaceId,
+        workspaceId: actor.kind === 'user' ? target.workspaceId : null,
         subjectUserId: null,
         target: { type: 'lifecycle_hold', id: row.id },
         details: { scope: target.scope, holdId: row.id },
@@ -220,20 +245,39 @@ export class LifecycleHoldsService implements OnModuleInit {
     return this.toDto(row);
   }
 
-  /** `scope.workspaceId` задан — снимается только заморозка этой организации (путь организации). */
-  async release(holdId: string, note: string | undefined, actor: LifecycleHoldActor, scope: { workspaceId?: string } = {}, tx?: Tx): Promise<LifecycleHoldDto> {
+  /**
+   * `scope.workspaceId` задан — снимается только заморозка этой организации (путь организации);
+   * `organizationOnly` — только поставленная организацией (не платформой); `notCustodian` — не
+   * та, где этот человек хранитель.
+   */
+  async release(
+    holdId: string,
+    note: string | undefined,
+    actor: LifecycleHoldActor,
+    scope: { workspaceId?: string; organizationOnly?: boolean; notCustodian?: string; authorOnly?: string } = {},
+    tx?: Tx,
+  ): Promise<LifecycleHoldDto> {
     const run = async (t: Tx) => {
-      const where = { id: holdId, ...(scope.workspaceId !== undefined ? { workspaceId: scope.workspaceId } : {}) };
+      const where: Prisma.LifecycleHoldWhereInput = {
+        id: holdId,
+        ...(scope.workspaceId !== undefined ? { workspaceId: scope.workspaceId } : {}),
+        ...(scope.organizationOnly ? { createdByKind: 'user' } : {}),
+        ...(scope.notCustodian ? this.notCustodianWhere(scope.notCustodian) : {}),
+      };
+      const current = await t.lifecycleHold.findFirst({ where });
+      if (!current) throw notFound('lifecycle.holdNotFound');
+      // `authorOnly` — снимать вправе только автор (админ организации): заморозка ему видна в
+      // списке, поэтому отказ явный (403), а не «нет такой»
+      if (scope.authorOnly && current.createdById !== scope.authorOnly) throw forbidden('lifecycle.holdReleaseOwnerOnly');
       const { count } = await t.lifecycleHold.updateMany({
         where: { ...where, releasedAt: null },
         data: { releasedAt: new Date(), releasedById: actor.id, releaseNote: note?.trim() || null },
       });
-      const row = await t.lifecycleHold.findFirst({ where });
-      if (!row) throw notFound('lifecycle.holdNotFound');
       if (count === 0) throw conflict('lifecycle.holdReleased');
+      const row = (await t.lifecycleHold.findFirst({ where })) ?? current;
       await this.audit.record(t, {
         key: 'lifecycle.hold.released',
-        workspaceId: row.workspaceId,
+        workspaceId: row.createdByKind === 'user' ? row.workspaceId : null,
         subjectUserId: null,
         target: { type: 'lifecycle_hold', id: row.id },
         details: { scope: row.scope as LifecycleHoldDto['scope'], holdId: row.id },
@@ -252,15 +296,22 @@ export class LifecycleHoldsService implements OnModuleInit {
     return rows.map((r) => this.toDto(r));
   }
 
-  /** `workspaceId: null` — заморозки платформы; поле не задано — все (Кабинет). */
-  async list(filter: { workspaceId?: string | null }, q: LifecycleHoldsQuery): Promise<CursorPage<LifecycleHoldDto>> {
+  /**
+   * `workspaceId: null` — заморозки платформы; поле не задано — все (Кабинет). `organizationOnly` —
+   * только поставленные организацией; `notCustodian` — без тех, где этот человек хранитель.
+   */
+  async list(filter: { workspaceId?: string | null; organizationOnly?: boolean; notCustodian?: string }, q: LifecycleHoldsQuery): Promise<CursorPage<LifecycleHoldDto>> {
     const take = q.limit ?? 50;
     const c = decodeCursor(q.cursor, PAGE);
     const rows = await this.db.lifecycleHold.findMany({
       where: {
         ...(filter.workspaceId !== undefined ? { workspaceId: filter.workspaceId } : {}),
+        ...(filter.organizationOnly ? { createdByKind: 'user' } : {}),
         ...(q.active ? { releasedAt: null } : {}),
-        ...(c ? { OR: [{ createdAt: { lt: c.at } }, { createdAt: c.at, id: { lt: c.i } }] } : {}),
+        AND: [
+          ...(filter.notCustodian ? [this.notCustodianWhere(filter.notCustodian)] : []),
+          ...(c ? [{ OR: [{ createdAt: { lt: c.at } }, { createdAt: c.at, id: { lt: c.i } }] }] : []),
+        ],
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: take + 1,
@@ -454,6 +505,8 @@ export class LifecycleHoldsService implements OnModuleInit {
       releasedAt: r.releasedAt?.toISOString() ?? null,
       releasedById: r.releasedById,
       releaseNote: r.releaseNote,
+      // Право снять считает путь организации (`listForWorkspace`); Кабинет решает способностью
+      canRelease: false,
     };
   }
 }

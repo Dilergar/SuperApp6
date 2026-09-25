@@ -3,7 +3,6 @@ import { ShareLinksService } from './share-links.service';
 import { ShareLinksGuestService } from './share-links-guest.service';
 import { ShareLinksTokenService } from './share-links-token.service';
 import { ShareLinksRegistry } from './share-links.registry';
-import { ShareLinksCron } from './share-links.cron';
 import { ShareLinksController } from './share-links.controller';
 import { ShareLinksGuestController } from './share-links-guest.controller';
 import { ShareLinksNotificationRefsProvider } from './share-links-notification-refs.provider';
@@ -34,7 +33,6 @@ import { ShareLinksLifecycleProvider } from './share-links.lifecycle.provider';
     ShareLinksGuestService,
     ShareLinksTokenService,
     ShareLinksRegistry,
-    ShareLinksCron,
   ],
   exports: [ShareLinksService, ShareLinksGuestService, ShareLinksRegistry],
 })

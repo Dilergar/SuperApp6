@@ -82,27 +82,71 @@ export class MessengerRetentionService {
     const hit = this.floors.get(chat.id);
     if (hit && now - hit.at < FLOOR_TTL_MS) return hit.floor;
     const cutoff = await this.cutoffOf(chat, new Date(now));
-    let floor = 0;
-    if (cutoff) {
-      const [first] = await this.db.$queryRaw<Array<{ seq: number }>>`
-        SELECT m."seq" FROM "messages" m
-         WHERE m."chat_id" = ${chat.id}::uuid AND m."created_at" >= ${utcTs(cutoff)}
-         ORDER BY m."seq" ASC LIMIT 1`;
-      if (first) floor = Number(first.seq);
-      else {
-        const c = await this.db.chat.findUnique({ where: { id: chat.id }, select: { lastSeq: true } });
-        floor = (c?.lastSeq ?? 0) + 1;
-      }
-    }
+    const floor = cutoff ? await this.firstSeqNotOlder(chat.id, cutoff) : 0;
     if (this.floors.size >= FLOOR_CACHE_MAX) this.floors.clear();
     this.floors.set(chat.id, { at: now, floor });
     return floor;
+  }
+
+  /**
+   * Первый `seq`, чьё сообщение не старше момента, — двоичным поиском по уникальному индексу
+   * `(chat_id, seq)`: `seq` и `created_at` растут вместе, поэтому ~log₂(N) точечных чтений вместо
+   * `WHERE created_at >= …` с головы чата (у чата под заморозкой истёкшие сообщения живут, и скан
+   * платил бы за них каждые 5 минут на процесс). Нет сообщений или все старше — пол за последним
+   * (`lastSeq + 1`): лента пуста. Дырки в `seq` (удалённые раннером строки) поиск переступает —
+   * зонд берёт первую живую строку с `seq ≥ mid`.
+   */
+  private async firstSeqNotOlder(chatId: string, cutoff: Date): Promise<number> {
+    const cut = utcTs(cutoff);
+    const probe = async (seq: number) => {
+      const [row] = await this.db.$queryRaw<Array<{ seq: number; fresh: boolean }>>`
+        SELECT m."seq"::int AS seq, (m."created_at" >= ${cut}) AS fresh FROM "messages" m
+         WHERE m."chat_id" = ${chatId}::uuid AND m."seq" >= ${seq}
+         ORDER BY m."seq" ASC LIMIT 1`;
+      return row ?? null;
+    };
+    const [range] = await this.db.$queryRaw<Array<{ lo: number | null; hi: number | null }>>`
+      SELECT min(m."seq")::int AS lo, max(m."seq")::int AS hi FROM "messages" m WHERE m."chat_id" = ${chatId}::uuid`;
+    const newest = range?.hi === null || range?.hi === undefined ? null : await probe(range.hi);
+    if (!newest?.fresh) {
+      const c = await this.db.chat.findUnique({ where: { id: chatId }, select: { lastSeq: true } });
+      return (c?.lastSeq ?? 0) + 1;
+    }
+    // Инварианты: живые строки с seq < lo старше срока; ответ ∈ [lo, best]; best — известный «в сроке»
+    let lo = range!.lo!;
+    let hi = range!.hi!;
+    let best = newest.seq;
+    while (lo < hi) {
+      const mid = Math.floor((lo + hi) / 2);
+      const row = await probe(mid);
+      if (!row) break;
+      if (row.fresh) {
+        best = Math.min(best, row.seq);
+        hi = mid; // между mid и row.seq живых строк нет — искать левее
+      } else {
+        lo = row.seq + 1; // всё до row.seq старше (время растёт с seq)
+      }
+    }
+    return best;
   }
 
   /** Сообщение вне срока чата (лента его уже не показывает). */
   async isExpired(chat: ChatRetentionRef, message: { seq: number }): Promise<boolean> {
     const floor = await this.floorOf(chat);
     return floor > 0 && message.seq < floor;
+  }
+
+  /**
+   * Можно ли положить текст сообщения в снимок уведомления (упоминание, «отложенное
+   * отправлено»): снимок живёт сроком уведомлений, и сообщение с более коротким сроком (таймер,
+   * срок организации) пережило бы себя в ленте уведомлений — правило принуждения при чтении
+   * обходилось бы через центр уведомлений. Нельзя — уведомление уходит без текста.
+   */
+  async snippetAllowed(chat: ChatRetentionRef): Promise<boolean> {
+    const days = await this.effectiveDays(chat);
+    if (days === null) return true;
+    const keep = lifecyclePolicy('NotificationEvent')?.retention.defaultDays;
+    return keep !== undefined && keep !== LIFECYCLE_FOREVER && days >= keep;
   }
 
   /** Сбросить пол чата (таймер сменился) — у этого процесса сразу, у соседних ≤ 5 минут. */

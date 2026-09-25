@@ -41,6 +41,8 @@ const BACKUP_STALE_MS = 26 * 3600_000;
 const LAG_TOLERANCE_DAYS = 1;
 /** Тяжёлые вкладки считаются не чаще раза в 30 секунд на процесс. */
 const CACHE_MS = 30_000;
+/** Потолок одного запроса к каталогу и статистике PostgreSQL (план §11.4: 5 с). */
+const STATS_TIMEOUT_MS = 5_000;
 /** Строк очереди стираний на вкладке (итоги — в плитке обзора). */
 const ERASURE_QUEUE_MAX = 200;
 /**
@@ -126,6 +128,18 @@ export class LifecycleDashboardService {
     this.cache.clear();
   }
 
+  /**
+   * Запрос каталога и статистики PostgreSQL под потолком 5 с (план §11.4): на большой базе
+   * `pg_total_relation_size` по всем таблицам и `pg_stat_*` не держат соединение пула до
+   * потолка роли. `SET LOCAL` — только в транзакции (совместимо с PgBouncer transaction mode).
+   */
+  private timed<T>(q: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    return this.db.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('statement_timeout', ${String(STATS_TIMEOUT_MS)}, true)`;
+      return q(tx);
+    });
+  }
+
   // ============================================================
   // Обзор
   // ============================================================
@@ -133,7 +147,7 @@ export class LifecycleDashboardService {
   overview(): Promise<LifecycleDataOverviewDto> {
     return this.cached('overview', async () => {
       const now = new Date();
-      const [dbRow] = await this.db.$queryRaw<
+      const [dbRow] = await this.timed((tx) => tx.$queryRaw<
         Array<{
           xid_age: bigint;
           db_bytes: bigint;
@@ -146,7 +160,7 @@ export class LifecycleDashboardService {
           invalid_indexes: number;
           detach_pending: number;
         }>
-      >`SELECT * FROM lifecycle_db_overview()`;
+      >`SELECT * FROM lifecycle_db_overview()`);
       const xidAge = Number(dbRow?.xid_age ?? 0);
       const lag = Number(dbRow?.max_replay_lag ?? 0);
       const dbLevel: LifecycleHealthLevel =
@@ -245,25 +259,25 @@ export class LifecycleDashboardService {
   storage(): Promise<LifecycleDataStorageDto> {
     return this.cached('storage', async () => {
       const byTable = policyByTable();
-      const stats = await this.tableStats();
+      const stats = await this.timed((tx) => this.tableStats(tx));
       const top = stats.sort((a, b) => Number(b.bytes - a.bytes)).slice(0, 30);
       const weekAgo = await this.db.lifecycleStorageDaily.findMany({
         where: { day: new Date(isoDay(new Date(Date.now() - 7 * DAY_MS))), tableName: { in: top.map((t) => t.name) } },
         select: { tableName: true, bytes: true },
       });
       const was = new Map(weekAgo.map((w) => [w.tableName, w.bytes]));
-      const vac = await this.db.$queryRaw<Array<{ name: string; live: bigint; dead: bigint; last_av: Date | null }>>`
+      const vac = await this.timed((tx) => tx.$queryRaw<Array<{ name: string; live: bigint; dead: bigint; last_av: Date | null }>>`
         SELECT s.schemaname || '.' || s.relname AS name, s.n_live_tup AS live, s.n_dead_tup AS dead,
                GREATEST(s.last_autovacuum, s.last_vacuum) AS last_av
-          FROM pg_stat_user_tables s`;
+          FROM pg_stat_user_tables s`);
       const vacOf = new Map(vac.map((v) => [v.name, v]));
-      const invalid = await this.db.$queryRaw<Array<{ name: string; n: bigint }>>`
+      const invalid = await this.timed((tx) => tx.$queryRaw<Array<{ name: string; n: bigint }>>`
         SELECT n.nspname || '.' || t.relname AS name, count(*)::bigint AS n
           FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid JOIN pg_namespace n ON n.oid = t.relnamespace
-         WHERE NOT i.indisvalid GROUP BY 1`;
+         WHERE NOT i.indisvalid GROUP BY 1`);
       const invalidOf = new Map(invalid.map((r) => [r.name, Number(r.n)]));
-      const [dbRow] = await this.db.$queryRaw<Array<{ connections: number; connections_active: number; connections_idle_tx: number; max_connections: number; lock_waiters: number; lwlock_lockmanager: number }>>`
-        SELECT connections, connections_active, connections_idle_tx, max_connections, lock_waiters, lwlock_lockmanager FROM lifecycle_db_overview()`;
+      const [dbRow] = await this.timed((tx) => tx.$queryRaw<Array<{ connections: number; connections_active: number; connections_idle_tx: number; max_connections: number; lock_waiters: number; lwlock_lockmanager: number }>>`
+        SELECT connections, connections_active, connections_idle_tx, max_connections, lock_waiters, lwlock_lockmanager FROM lifecycle_db_overview()`);
       return {
         tables: top.map((t) => {
           const p = byTable.get(t.name) ?? null;
@@ -291,8 +305,8 @@ export class LifecycleDashboardService {
   }
 
   /** Размер и строки каждой таблицы верхнего уровня (партиционированная — суммой листьев). */
-  private tableStats(): Promise<TableStat[]> {
-    return this.db.$queryRaw<TableStat[]>`
+  private tableStats(client: Prisma.TransactionClient): Promise<TableStat[]> {
+    return client.$queryRaw<TableStat[]>`
       SELECT n.nspname || '.' || c.relname AS name,
              (CASE WHEN c.relkind = 'p'
                    THEN (SELECT COALESCE(sum(pg_total_relation_size(pt.relid)), 0) FROM pg_partition_tree(c.oid) pt WHERE pt.isleaf)
@@ -313,7 +327,7 @@ export class LifecycleDashboardService {
     const byTable = policyByTable();
     const day = new Date(isoDay(now));
     let n = 0;
-    for (const t of await this.tableStats()) {
+    for (const t of await this.timed((tx) => this.tableStats(tx))) {
       const p = byTable.get(t.name) ?? null;
       let oldestAt: Date | null = null;
       const column = p ? retentionColumn(p) : null;
@@ -599,12 +613,12 @@ export class LifecycleDashboardService {
   // ============================================================
 
   async unusedIndexes(): Promise<LifecycleUnusedIndexDto[]> {
-    const rows = await this.db.$queryRaw<Array<{ table: string; index: string; bytes: bigint; scans: bigint }>>`
+    const rows = await this.timed((tx) => tx.$queryRaw<Array<{ table: string; index: string; bytes: bigint; scans: bigint }>>`
       SELECT s.schemaname || '.' || s.relname AS table, s.indexrelname AS index,
              pg_relation_size(s.indexrelid)::bigint AS bytes, s.idx_scan::bigint AS scans
         FROM pg_stat_user_indexes s JOIN pg_index i ON i.indexrelid = s.indexrelid
        WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary
-       ORDER BY pg_relation_size(s.indexrelid) DESC LIMIT 100`;
+       ORDER BY pg_relation_size(s.indexrelid) DESC LIMIT 100`);
     return rows.map((r) => ({ table: r.table, index: r.index, bytes: Number(r.bytes), scans: Number(r.scans) }));
   }
 }

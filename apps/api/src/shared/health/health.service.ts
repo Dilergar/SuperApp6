@@ -7,10 +7,18 @@ import { HealthRegistry, type HealthCheck, type HealthCheckResult } from './heal
 
 export interface HealthReport {
   status: 'ok' | 'degraded' | 'unavailable';
+  /** Когда проверки прогонялись (ISO): параллельные и повторные пробы в пределах секунды делят один отчёт */
+  at: string;
   checks: Record<string, HealthCheckResult & { ms: number; critical: boolean }>;
 }
 
 const DEFAULT_TIMEOUT_MS = 2000;
+/**
+ * Отчёт готовности живёт секунду: проба публична и без троттлинга (адреса балансировщика), и
+ * без памяти каждый вызов = запрос к базе и Redis — чужой цикл `curl /health/ready` стал бы
+ * нагрузкой на зависимости. Параллельные вызовы делят один прогон проверок.
+ */
+const REPORT_TTL_MS = 1000;
 
 /** Проверка под потолком времени: зависшая зависимость — провал, а не висящая проба балансировщика. */
 async function runWithTimeout(check: HealthCheck): Promise<HealthCheckResult> {
@@ -37,6 +45,8 @@ async function runWithTimeout(check: HealthCheck): Promise<HealthCheckResult> {
 @Injectable()
 export class HealthService implements OnModuleInit {
   private readonly gauge: Gauge<string>;
+  private memo: { at: number; report: HealthReport } | null = null;
+  private inflight: Promise<HealthReport> | null = null;
 
   constructor(
     private readonly registry: HealthRegistry,
@@ -70,6 +80,21 @@ export class HealthService implements OnModuleInit {
   }
 
   async ready(): Promise<HealthReport> {
+    const now = Date.now();
+    if (this.memo && now - this.memo.at < REPORT_TTL_MS) return this.memo.report;
+    if (this.inflight) return this.inflight;
+    this.inflight = this.collect()
+      .then((report) => {
+        this.memo = { at: Date.now(), report };
+        return report;
+      })
+      .finally(() => {
+        this.inflight = null;
+      });
+    return this.inflight;
+  }
+
+  private async collect(): Promise<HealthReport> {
     const entries = this.registry.entries();
     const results = await Promise.all(
       entries.map(async ([name, check]) => {
@@ -84,6 +109,6 @@ export class HealthService implements OnModuleInit {
     const checks = Object.fromEntries(results);
     const failed = results.some(([, r]) => r.critical && r.status === 'fail');
     const warned = results.some(([, r]) => r.status === 'warn' || r.status === 'fail');
-    return { status: failed ? 'unavailable' : warned ? 'degraded' : 'ok', checks };
+    return { status: failed ? 'unavailable' : warned ? 'degraded' : 'ok', at: new Date().toISOString(), checks };
   }
 }

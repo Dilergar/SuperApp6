@@ -28,15 +28,20 @@ for repo in 1 2; do
     continue
   fi
   if pgbackrest --stanza="$STANZA" --repo="$repo" --type="$MODE" backup; then
-    # Метка, границы и объём — из info последнего бэкапа этого репозитория
-    info=$(pgbackrest --stanza="$STANZA" --repo="$repo" --output=json info)
-    body=$(printf '%s' "$info" | jq -c --arg repo "repo$repo" '
+    # Метка, границы и объём — из info последнего бэкапа этого репозитория. Сбой самого `info`
+    # (репозиторий недоступен сразу после бэкапа) не должен превратить успех в молчание —
+    # тогда уходит отчёт с меткой запуска и без объёма
+    if info=$(pgbackrest --stanza="$STANZA" --repo="$repo" --output=json info 2>/dev/null)        && body=$(printf '%s' "$info" | jq -ce --arg repo "repo$repo" '
       .[0].backup | last |
       { kind: .type, repo: $repo, status: "ok", externalId: .label,
         startedAt: (.timestamp.start | todate | sub("Z$"; ".000Z")),
         finishedAt: (.timestamp.stop | todate | sub("Z$"; ".000Z")),
         bytes: .info.repository.delta,
-        details: { walFrom: (.timestamp.start | todate | sub("Z$"; ".000Z")), walTo: (.timestamp.stop | todate | sub("Z$"; ".000Z")) } }')
+        details: { walFrom: (.timestamp.start | todate | sub("Z$"; ".000Z")), walTo: (.timestamp.stop | todate | sub("Z$"; ".000Z")) } }' 2>/dev/null); then
+      :
+    else
+      body=$(jq -nc --arg kind "$MODE" --arg repo "repo$repo" --arg ext "$MODE-repo$repo-$started" --arg s "$started" --arg f "$(iso)"         '{kind:$kind, repo:$repo, status:"ok", externalId:$ext, startedAt:$s, finishedAt:$f, bytes:null, details:{}}')
+    fi
   else
     rc_all=1
     body=$(jq -nc --arg kind "$MODE" --arg repo "repo$repo" --arg ext "$MODE-repo$repo-$started" --arg s "$started" --arg f "$(iso)" \

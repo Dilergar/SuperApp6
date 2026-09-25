@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import {
   LIFECYCLE_FOREVER,
   asWorkspaceId,
+  lifecycleErasureReplaySchema,
   lifecycleErasureRetrySchema,
   lifecycleIndexesReportSchema,
   lifecyclePolicy,
@@ -9,6 +10,7 @@ import {
   lifecycleRetentionOverrideSchema,
   lifecycleRetentionPauseSchema,
   workspacePurgeAt,
+  type LifecycleErasureReplayInput,
   type LifecycleErasureRetryInput,
   type LifecycleErasureStatus,
   type LifecycleRetentionDryRunInput,
@@ -167,6 +169,30 @@ export class LifecyclePlatformProvider implements OnModuleInit {
       execute: async (_ctx, input, tx) => {
         const res = await this.erasure.retry(tx, input.requestId);
         return { result: { requestId: input.requestId, status: res.status }, afterCommit: async () => this.dashboard.invalidate() };
+      },
+    });
+
+    // Реплей журнала стираний после восстановления базы (рунбук PITR, до открытия трафика):
+    // псевдонимы из NDJSON журнала объектного хранилища — скрипт lifecycle-replay-erasures.cjs.
+    // Стирает людей и организации массово — критично, всегда через второго сотрудника
+    this.commands.register<LifecycleErasureReplayInput>({
+      key: 'lifecycle.erasure.replay',
+      version: 1,
+      group: 'lifecycle',
+      titleKey: 'platform.commands.lifecycleErasureReplay.title',
+      descriptionKey: 'platform.commands.lifecycleErasureReplay.description',
+      input: lifecycleErasureReplaySchema,
+      capability: 'lifecycle.erasure.write',
+      risk: 'critical',
+      dualControl: true,
+      reasonRequired: true,
+      target: () => null,
+      preview: async (_ctx, input) => ({ result: { pseudonyms: new Set(input.pseudonyms).size } }),
+      execute: async (_ctx, input, tx) => {
+        // Предпросмотр команды — без постановки: прогон и джоб вне транзакции команды не откатить
+        if (DryRun.active()) return { result: { preview: true, pseudonyms: new Set(input.pseudonyms).size } };
+        const res = await this.erasure.startJournalReplay(tx, input.pseudonyms);
+        return { result: res, afterCommit: async () => this.dashboard.invalidate() };
       },
     });
 

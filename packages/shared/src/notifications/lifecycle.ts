@@ -14,12 +14,15 @@ import { defineNotifications } from './types';
  *   владелец — организации): архив готов на 7 дней / сборка не удалась. Ссылки на скачивание в
  *   уведомлении нет — только страница выгрузок (каждое скачивание — своя 5-минутная ссылка).
  * Payload — коды, числа и даты: класс данных ключом, срок в сутках (0 — «вечно»), дата вступления.
+ * Смена срока не схлопывается: объект у всех классов один (организация), и схлопнутая строка
+ * показала бы только последний класс — сокращение другого класса (уведомление ДО удаления,
+ * Slack 2024) член организации пропустил бы.
  */
 export const LIFECYCLE_NOTIFICATIONS = defineNotifications({
   'lifecycle.export.ready': { service: 'lifecycle', priority: 'high', icon: 'download', contexts: 'both', collapse: 'none' },
   'lifecycle.export.failed': { service: 'lifecycle', priority: 'normal', icon: 'warningCircle', contexts: 'both', collapse: 'none' },
-  'lifecycle.retention.changed': { service: 'lifecycle', priority: 'high', icon: 'archive', contexts: 'workspace', collapse: 'ref' },
-  'lifecycle.retention.cancelled': { service: 'lifecycle', priority: 'normal', icon: 'undo', contexts: 'workspace', collapse: 'ref' },
+  'lifecycle.retention.changed': { service: 'lifecycle', priority: 'high', icon: 'archive', contexts: 'workspace', collapse: 'none' },
+  'lifecycle.retention.cancelled': { service: 'lifecycle', priority: 'normal', icon: 'undo', contexts: 'workspace', collapse: 'none' },
   'lifecycle.hold.created': { service: 'lifecycle', priority: 'normal', icon: 'lock', contexts: 'workspace', collapse: 'none' },
   'lifecycle.hold.released': { service: 'lifecycle', priority: 'normal', icon: 'lock', contexts: 'workspace', collapse: 'none' },
   'lifecycle.erasure.completed': { service: 'lifecycle', priority: 'normal', icon: 'sealCheck', contexts: 'personal', collapse: 'none' },

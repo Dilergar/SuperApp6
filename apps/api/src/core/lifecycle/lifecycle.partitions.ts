@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { LIFECYCLE_FOREVER, lifecyclePolicy } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { runInternal } from '../../shared/idempotency/binding';
+import { AuditService } from '../audit/audit.service';
 import { LifecycleMetrics } from './lifecycle.metrics';
 
 const DAY_MS = 86_400_000;
@@ -11,6 +12,8 @@ const SPEC_TTL_MS = 5 * 60_000;
 const LOCK_RETRIES = 5;
 /** Сбросов за прогон на родителя: радиус поражения ошибочной настройки ограничен. */
 const MAX_DROPS_PER_RUN = 12;
+/** Потолок счётчика в деталях журнала безопасности (`detailCount`). */
+const DETAIL_COUNT_MAX = 100_000_000;
 
 /** Правило партиционированного родителя (`lifecycle_partition_specs`; пишет только миграция). */
 export interface LifecyclePartitionSpec {
@@ -93,6 +96,7 @@ export class LifecyclePartitions implements OnApplicationBootstrap {
   constructor(
     private readonly db: DatabaseService,
     private readonly metrics: LifecycleMetrics,
+    private readonly audit: AuditService,
   ) {}
 
   /** Бут доделывает то, что ночной крон мог не успеть: листья вперёд у всех родителей. */
@@ -155,7 +159,10 @@ export class LifecyclePartitions implements OnApplicationBootstrap {
     await this.withLockRetry(() =>
       runInternal(() => this.db.$queryRaw<Array<{ leaf: string }>>`SELECT lifecycle_ensure_partition(${parent}, ${at}::timestamptz) AS leaf`),
     );
-    this.known.add(key);
+    // Кэш — только текущий период и будущие: их сброс по сроку невозможен (пол ≥ периода), а
+    // прошедший лист мог сбросить соседний инстанс — запомненное имя тогда лгало бы, и повтор
+    // «нет партиции → завести → вставить» падал бы снова
+    if (nextPeriod(spec.period, periodStart(spec.period, at)).getTime() > Date.now()) this.known.add(key);
     return leaf;
   }
 
@@ -248,12 +255,29 @@ export class LifecyclePartitions implements OnApplicationBootstrap {
       .sort((a, b) => a.from.getTime() - b.from.getTime())
       .slice(0, MAX_DROPS_PER_RUN);
     const dropped: string[] = [];
+    const [schema] = splitParent(parent);
     for (const l of due) {
       try {
+        // Оценка строк листа до сброса (каталог, не count(*): лист журнала — сотни миллионов строк)
+        const [est] = await runInternal(() =>
+          this.db.$queryRaw<Array<{ n: number }>>`SELECT GREATEST(c.reltuples, 0)::float8 AS n FROM pg_class c WHERE c.oid = to_regclass(${`${schema}.${l.name}`})`,
+        );
         const [res] = await this.withLockRetry(() =>
           runInternal(() => this.db.$queryRaw<Array<{ dropped: boolean }>>`SELECT lifecycle_drop_partition(${parent}, ${l.name}) AS dropped`),
         );
-        if (res?.dropped) dropped.push(l.name);
+        if (res?.dropped) {
+          dropped.push(l.name);
+          // Доказательство сброса (NIST 800-88: удаление, которое нельзя доказать, для регулятора не
+          // случилось) — событие журнала безопасности; сбой записи сброс не отменяет, но виден
+          await this.audit
+            .record(null, {
+              key: 'lifecycle.partition.dropped',
+              actor: { kind: 'system' },
+              target: { type: 'lifecycle_policy', id: spec.policyId },
+              details: { policy: spec.policyId, partition: `${schema}.${l.name}`, rows: Math.min(DETAIL_COUNT_MAX, Math.round(Number(est?.n ?? 0))), held: 0 },
+            })
+            .catch((err: unknown) => this.logger.error(`${parent}: partition ${l.name} dropped, but its audit event failed: ${errText(err)}`));
+        }
       } catch (err) {
         this.metrics.maintenanceError(parent, 'drop');
         this.logger.error(`${parent}: partition ${l.name} was not dropped: ${errText(err)}`);

@@ -134,21 +134,50 @@ export function filterSql(t: LifecycleTable, filter: LifecycleRowFilter | undefi
  * действует только на строки этой организации; заморозка платформы (`workspace_id` пуст) —
  * на все. Колонка из реестра, которой нет в модели, — ошибка (fail-closed: не удалять вслепую).
  */
-export function holdFreeSql(policy: LifecyclePolicy, t: LifecycleTable, alias = 't'): Prisma.Sql {
-  return Prisma.sql`NOT EXISTS (SELECT 1 FROM "lifecycle_holds" h WHERE ${holdCoversSql(policy, t, alias)})`;
+export function holdFreeSql(policy: LifecyclePolicy, t: LifecycleTable, alias = 't', owner?: RowOwner): Prisma.Sql {
+  return Prisma.sql`NOT EXISTS (SELECT 1 FROM "lifecycle_holds" h WHERE ${holdCoversSql(policy, t, alias, owner)})`;
+}
+
+/** Глубина цепочки владельца через родителей (`via`): узел Диска → пространство → организация. */
+const OWNER_VIA_MAX_DEPTH = 3;
+
+/** Владелец строки SQL-выражениями (организация, чат, люди-владельцы). */
+export interface RowOwner {
+  ws: string | null;
+  chat: string | null;
+  users: string[];
 }
 
 /**
- * «Заморозка `h` действующая и покрывает строку `alias`» — общий предикат для оператора
- * удаления (`holdFreeSql`) и для сохранения оригинала в hold store (`holdsCoveringRowSql`).
- * Организация строки: колонка ключа владельца; у беседы — организация её чата (иначе
- * заморозки ОРГАНИЗАЦИИ, например хранителя в её чатах, на сообщения не действовали бы).
+ * Владелец строки: колонка ключа владельца; у беседы — организация её чата (иначе заморозки
+ * ОРГАНИЗАЦИИ, например хранителя в её чатах, на сообщения не действовали бы). Ключ `via` — через
+ * родителя по ребру реестра (колонка ребёнка → ключ родителя), рекурсивно: узел Диска
+ * организации принадлежит организации своего пространства. Без этого заморозки ОРГАНИЗАЦИИ
+ * (пространство, класс, хранитель, запись — все с её `workspace_id`) не видели бы её данные в
+ * таблицах с владельцем через родителя (Диск, Заметки, операции книги, версии документов) — и
+ * корзина, «удалить навсегда» и ночной срок удаляли бы удерживаемое.
  */
-export function holdCoversSql(policy: LifecyclePolicy, t: LifecycleTable, alias = 't'): Prisma.Sql {
+function rowOwnerExprs(policy: LifecyclePolicy, t: LifecycleTable, alias: string, depth = 0): RowOwner {
   const ok = policy.ownerKey;
   let ws: string | null = null;
   let chat: string | null = null;
   const users: string[] = [];
+  if (ok.kind !== 'global' && ok.kind !== 'polymorphic' && ok.kind !== 'scoped' && 'via' in ok) {
+    const parent = lifecyclePolicy(ok.via);
+    const edge = parent?.edges.find((e) => e.to === policy.id && !!e.via && t.fields.has(e.via));
+    const pt = parent ? lifecycleTableOf(parent) : null;
+    if (!parent || !edge?.via || !pt || pt.pk.length !== 1 || depth >= OWNER_VIA_MAX_DEPTH) return { ws, chat, users };
+    // Псевдоним родителя выводится из псевдонима строки: текст оператора детерминирован (кэш
+    // подготовленных выражений пулера), а вложенные родители не сталкиваются
+    const pa = `${alias}_o`;
+    const inner = rowOwnerExprs(parent, pt, pa, depth + 1);
+    const pkField = [...pt.fields.values()].find((f) => f.column === pt.pk[0]);
+    const via = field(t, edge.via);
+    const link = via.native === pkField?.native ? `${pa}.${q(pt.pk[0])} = ${alias}.${q(via.column)}` : `${pa}.${q(pt.pk[0])}::text = ${alias}.${q(via.column)}::text`;
+    const [pSchema, pTable] = pt.name.split('.');
+    const wrap = (expr: string) => `(SELECT ${expr} FROM ${q(pSchema!)}.${q(pTable!)} ${pa} WHERE ${link})`;
+    return { ws: inner.ws ? wrap(inner.ws) : null, chat: inner.chat ? wrap(inner.chat) : null, users: inner.users.map(wrap) };
+  }
   switch (ok.kind) {
     case 'user':
       if ('column' in ok) users.push(colText(t, ok.column, alias));
@@ -177,6 +206,17 @@ export function holdCoversSql(policy: LifecyclePolicy, t: LifecycleTable, alias 
     default:
       break;
   }
+  return { ws, chat, users };
+}
+
+/**
+ * «Заморозка `h` действующая и покрывает строку `alias`» — общий предикат для оператора
+ * удаления (`holdFreeSql`) и для сохранения оригинала в hold store (`holdsCoveringRowSql`).
+ * `owner` — владелец строки уже известен вызывающему (обход потомков: ребёнок с владельцем через
+ * этого родителя принадлежит тому же владельцу, что и строка родителя) — без подзапроса к родителю.
+ */
+export function holdCoversSql(policy: LifecyclePolicy, t: LifecycleTable, alias = 't', owner?: RowOwner): Prisma.Sql {
+  const { ws, chat, users } = owner ? { ws: owner.ws, chat: owner.chat, users: [...owner.users] } : rowOwnerExprs(policy, t, alias);
   // Колонки-массивы (участники) и id людей внутри JSON (`personIds`) — хранитель среди элементов
   const userArrays: string[] = [];
   for (const s of policy.subjects) (field(t, s.column).list ? userArrays : users).push(colText(t, s.column, alias));
@@ -213,7 +253,7 @@ const DESCENDANTS = new Map<string, Prisma.Sql | null>();
 export function heldDescendantsSql(policy: LifecyclePolicy, t: LifecycleTable, alias = 't'): Prisma.Sql | null {
   const cacheable = alias === 't';
   if (cacheable && DESCENDANTS.has(policy.id)) return DESCENDANTS.get(policy.id) ?? null;
-  const sql = descendantsSql(policy, t, alias, 1, new Set([policy.id]), { n: 0, root: policy.id });
+  const sql = descendantsSql(policy, t, alias, rowOwnerExprs(policy, t, alias), 1, new Set([policy.id]), { n: 0, root: policy.id });
   if (cacheable) DESCENDANTS.set(policy.id, sql);
   return sql;
 }
@@ -222,6 +262,7 @@ function descendantsSql(
   p: LifecyclePolicy,
   pt: LifecycleTable,
   pAlias: string,
+  pOwner: RowOwner,
   depth: number,
   path: Set<string>,
   counter: { n: number; root: string },
@@ -246,8 +287,14 @@ function descendantsSql(
           ? Prisma.raw(`${childCol} = ${parentCol}::text`)
           : Prisma.raw(`${childCol}::text = ${parentCol}::text`);
     path.add(e.to);
-    const own = child.holdAware ? Prisma.sql`NOT (${holdFreeSql(child, ct, a)})` : null;
-    const deeper = descendantsSql(child, ct, a, depth + 1, path, counter);
+    // Ребёнок с владельцем через ЭТОГО родителя: его организация и люди — те же, что у строки
+    // родителя (связь уже в условии EXISTS), — владелец передаётся вниз по цепочке, без
+    // подзапросов к родителям на каждую строку потомка
+    const ok = child.ownerKey;
+    const viaThis = ok.kind !== 'global' && ok.kind !== 'polymorphic' && ok.kind !== 'scoped' && 'via' in ok && ok.via === p.id && e.via === via.name;
+    const childOwner = viaThis ? pOwner : rowOwnerExprs(child, ct, a);
+    const own = child.holdAware ? Prisma.sql`NOT (${holdFreeSql(child, ct, a, childOwner)})` : null;
+    const deeper = descendantsSql(child, ct, a, childOwner, depth + 1, path, counter);
     path.delete(e.to);
     const cond = own && deeper ? Prisma.sql`(${own} OR ${deeper})` : (own ?? deeper);
     if (cond) out.push(Prisma.sql`EXISTS (SELECT 1 FROM ${ct.ident} ${Prisma.raw(a)} WHERE ${link} AND ${cond})`);
@@ -330,20 +377,42 @@ function batchOrder(t: LifecycleTable, rule: LifecycleRule): Prisma.Sql {
 
 /**
  * Одна пачка общего удаления: старейшие строки правила, пропуская занятые (SKIP LOCKED),
- * с `NOT EXISTS (заморозка)` в самом операторе. Число удалённых — результат `$executeRaw`.
+ * с `NOT EXISTS (заморозка)` в самом операторе. Результат — `{ n, last }`: число удалённых и
+ * наибольшее значение колонки срока среди них (keyset правила без организации).
+ *
+ * `after` — нижняя граница колонки срока (keyset, включительно): следующая пачка начинает с
+ * места, где остановилась прошлая, а не с головы индекса. Иначе каждая пачка заново проходит
+ * удерживаемые строки в голове очереди и мёртвые записи индекса удалённых только что строк (их
+ * не пометить мёртвыми, пока жив старый снимок любой транзакции), — O(n²) на прогоне в миллионы.
+ * Строки до границы, пропущенные SKIP LOCKED, доберёт следующая ночь (как и без границы).
  */
-export function deleteBatchSql(policy: LifecyclePolicy, t: LifecycleTable, rule: LifecycleRule, cutoff: Date, limit: number): Prisma.Sql {
+export function deleteBatchSql(policy: LifecyclePolicy, t: LifecycleTable, rule: LifecycleRule, cutoff: Date, limit: number, after: Date | null = null): Prisma.Sql {
   const pkList = Prisma.raw(t.pk.map((c) => `t.${q(c)}`).join(', '));
   const join = Prisma.raw(t.pk.map((c) => `t.${q(c)} = d.${q(c)}`).join(' AND '));
+  const lower = after && !rule.workspaceId ? Prisma.sql` AND ${colSql(t, rule.column)} >= ${timeParamSql(t, rule.column, after)}` : Prisma.empty;
   return Prisma.sql`
     WITH doomed AS (
       SELECT ${pkList} FROM ${t.ident} t
-      WHERE ${candidatesWhere(policy, t, rule, cutoff)}
+      WHERE ${candidatesWhere(policy, t, rule, cutoff)}${lower}
       ORDER BY ${batchOrder(t, rule)}
       LIMIT ${limit}
       FOR UPDATE OF t SKIP LOCKED
+    ), gone AS (
+      DELETE FROM ${t.ident} t USING doomed d WHERE ${join} RETURNING ${colSql(t, rule.column)} AS k
     )
-    DELETE FROM ${t.ident} t USING doomed d WHERE ${join}`;
+    SELECT count(*)::int AS n, max(k) AS last FROM gone`;
+}
+
+/**
+ * Заморозка класса данных политики НА ВСЮ ПЛАТФОРМУ (не организации): держит каждую строку —
+ * прогон останавливается сразу (`stopped: held`), а не читает всю таблицу, не найдя ни одной
+ * удаляемой (серия таймаутов пачек выглядела бы как «БД нездорова»).
+ */
+export async function platformClassHeld(db: Pick<Tx, '$queryRaw'>, policy: LifecyclePolicy): Promise<boolean> {
+  if (!policy.holdAware) return false;
+  const [r] = await db.$queryRaw<Array<{ held: boolean }>>`
+    SELECT EXISTS (SELECT 1 FROM "lifecycle_holds" WHERE released_at IS NULL AND scope = 'class' AND data_class = ${policy.dataClass} AND workspace_id IS NULL) AS held`;
+  return !!r?.held;
 }
 
 /** Сколько строк правила к удалению сейчас (с потолком — счёт не читает таблицу целиком). */

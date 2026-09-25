@@ -499,7 +499,9 @@ export class JobsService {
         take: limit,
       });
       if (batch.length === 0) continue;
-      const res = await this.db.job.deleteMany({ where: { id: { in: batch.map((b) => b.id) } } });
+      // Условие правила — и в самом DELETE: между выборкой и удалением похороненный джоб могли
+      // вернуть в очередь (retry) — живую строку по одному id удалять нельзя
+      const res = await this.db.job.deleteMany({ where: { id: { in: batch.map((b) => b.id) }, status: { in: r.statuses }, finishedAt: { lt: r.before } } });
       return { rows: res.count, more: true };
     }
     return { rows: 0, more: false };

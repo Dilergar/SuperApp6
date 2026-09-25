@@ -72,7 +72,7 @@ await audit.record(tx, {
 Соседние таблицы:
 - `security_digests` — неизменяемы, кроме отметок выгрузки и проверки; `leaf_version` — версия корня (1 — `to_jsonb`, 2 — `jsonb_strip_nulls`, 3 — формула v2 и числовой порядок листьев), подписана в строке дайджеста; уникумы по `xact_from` и `xact_to` (последний дайджест и звено цепочки — по индексу);
 - `security_partition_archives` — изменить можно только отметку сброса, один раз; `leaf_version` — формула корня манифеста (формат `sa6-audit-archive:v<версия>`). Умолчание колонки у обеих таблиц — 1 (писатель, не знающий версий, считает по v1); код пишет версию явно;
-- `security_alerts` — тревоги (рабочая очередь, не журнал: закрытые старше года удаляет ночной крон, факт остаётся событием `detect.*`). Один партиальный уникум `(kind, dedupe_key) WHERE status IN ('open','ack')`;
+- `security_alerts` — тревоги (рабочая очередь, не журнал: закрытые удаляет раннер сроков `core/lifecycle` по реестру — пол 3 года (ЕТ № 832 п. 38), под заморозками; своего крона у движка нет; факт остаётся событием `detect.*`). Один партиальный уникум `(kind, dedupe_key) WHERE status IN ('open','ack')`;
 - `platform_command_receipts` — квитанции идемпотентности команд Кабинета, append-only;
 - `user_devices` — устройство человека по `X-Device-Id`;
 - `sessions`: `last_seen_at`, семейство, `family_created_at`, `confirmed_at`, мягкий отзыв с причиной из CHECK;
@@ -248,7 +248,7 @@ await audit.record(tx, {
 
 ## Дев-полигон и сьют
 
-`/audit/dev/*` (только development/test): `partitions`, `tx-probe`, `unlock` (снимает блокировку входа и лимит «Это не я»), `viewed-flush`, `digest/run|verify`, `archive/run`, `detect/tick`, `detect/seed` (тревога на синтетическом субъекте), `alerts/purge` (чистка закрытых тревог сейчас), `seed` (событие «в прошлом» — журнал append-only и в dev; `onBehalfOfId` — системное событие по поручению человека), `settings/check` (сверка настроек журнала сейчас; `archiveEnabled` — подмена одной настройки на время сверки).
+`/audit/dev/*` (только development/test): `partitions`, `tx-probe`, `unlock` (снимает блокировку входа и лимит «Это не я»), `viewed-flush`, `digest/run|verify`, `archive/run`, `detect/tick`, `detect/seed` (тревога на синтетическом субъекте), `seed` (событие «в прошлом» — журнал append-only и в dev; `onBehalfOfId` — системное событие по поручению человека), `settings/check` (сверка настроек журнала сейчас; `archiveEnabled` — подмена одной настройки на время сверки).
 
 `verify-audit.cjs`, разделы:
 - A — реестр и БД;

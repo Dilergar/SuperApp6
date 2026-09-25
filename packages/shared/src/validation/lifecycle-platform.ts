@@ -276,6 +276,18 @@ export type LifecycleRetentionOverrideInput = z.infer<typeof lifecycleRetentionO
 export const lifecycleErasureRetrySchema = z.object({ requestId: z.string().uuid() }).strict();
 export type LifecycleErasureRetryInput = z.infer<typeof lifecycleErasureRetrySchema>;
 
+/**
+ * Реплей журнала стираний после восстановления базы из бэкапа (рунбук PITR, ДО открытия
+ * трафика): псевдонимы субъектов, чьё стирание прошло после точки восстановления, — из
+ * NDJSON журнала объектного хранилища (`lifecycle/erasure-journal/…`, скрипт
+ * `lifecycle-replay-erasures.cjs`). Псевдоним — строка MAC-ключа `lifecycle` (`<префикс>:1:<kid>:<mac>`).
+ */
+export const LIFECYCLE_REPLAY_MAX_PSEUDONYMS = 2000;
+export const lifecycleErasureReplaySchema = z
+  .object({ pseudonyms: z.array(z.string().min(16).max(160).regex(/^[A-Za-z0-9_:.-]+$/)).min(1).max(LIFECYCLE_REPLAY_MAX_PSEUDONYMS) })
+  .strict();
+export type LifecycleErasureReplayInput = z.infer<typeof lifecycleErasureReplaySchema>;
+
 export const lifecycleIndexesReportSchema = z.object({}).strict();
 
 /** Отчёт неиспользуемых индексов (результат команды, в журнал не пишется). */

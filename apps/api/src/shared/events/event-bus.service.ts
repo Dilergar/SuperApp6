@@ -212,9 +212,11 @@ export class EventBusService
     const now = Date.now();
     if (now - this.lastLagCheck < LAG_CHECK_INTERVAL_MS) return;
     this.lastLagCheck = now;
-    // Метрики лага (sa6_stream_*): тревога — на lag > MAXLEN/2, пока хвост ещё не обрезан
+    // Метрики лага (sa6_stream_*): тревога — на lag > MAXLEN/2, пока хвост ещё не обрезан.
+    // Длина стрима признаком НЕ является: после первого заполнения `XADD MAXLEN ~` держит её
+    // около потолка всегда, и условие «len ≥ 0,8 × MAXLEN» кричало бы на каждом тике при lag = 0
     const s = await this.lagGauges.sample(this.c, STREAM, GROUP, MAXLEN);
-    if (s && (s.pending >= LAG_WARN_THRESHOLD || s.lag >= MAXLEN / 2 || s.length >= MAXLEN * 0.8)) {
+    if (s && (s.pending >= LAG_WARN_THRESHOLD || s.lag >= MAXLEN / 2)) {
       this.logger.warn(
         `EventBus lag: lag=${s.lag}, pending=${s.pending}, stream len=${s.length}/${MAXLEN} — consumers falling behind, tail loss possible at cap`,
       );

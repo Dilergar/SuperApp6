@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DRIVE_NODE_REF_TYPE, type SearchResultItem } from '@superapp/shared';
 import { SearchRegistry } from '../../core/search/search.registry';
+import { searchSourceUuid } from '../../core/search/search.sql';
 import { SearchProjectionService } from '../../core/search/search-projection.service';
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -124,7 +125,7 @@ export class DriveSearchService implements OnModuleInit {
                sd."body" AS "body", n."updated_at" AS "updatedAt",
                (ts_rank(sd.search_vector, ${tsq}) * 4 + word_similarity(${query}, sd.title))::float8 AS "score"
           FROM "search_documents" sd
-          JOIN "drive_nodes" n ON n."id"::text = sd."source_id"
+          JOIN "drive_nodes" n ON n."id" = ${searchSourceUuid('sd')}
          WHERE sd."source_type" = ${DRIVE_NODE_REF_TYPE}
            AND n."trashed_at" IS NULL
            AND ${visible}

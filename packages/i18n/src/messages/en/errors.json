@@ -1531,7 +1531,8 @@
     "ownerOnly": "Only the owner can do this",
     "ownerRoleImmutable": "The role of the owner is not changed — transfer the ownership instead",
     "roleNotAssignable": "This role is not assigned by hand",
-    "tooManyBankAccounts": "There are too many accounts — delete the one you do not need"
+    "tooManyBankAccounts": "There are too many accounts — delete the one you do not need",
+    "purgeInProgress": "The organization is already being deleted for good — it can no longer be restored"
   },
   "consents": {
     "pending": "Accept the updated terms to continue",
@@ -1617,6 +1618,7 @@
     "held": "This item is preserved under a data retention requirement and can’t be permanently deleted right now.",
     "holdNotFound": "Legal hold not found",
     "holdReleased": "This legal hold has already been released",
+    "holdReleaseOwnerOnly": "Only the organization owner or the person who placed this legal hold can release it",
     "holdTargetInvalid": "The target of the legal hold was not found in this organization",
     "holdRecordTypeUnsupported": "Records of this type can’t be held one by one — hold the person or the data class instead",
     "receiptNotFound": "No erasure was found for this receipt code",

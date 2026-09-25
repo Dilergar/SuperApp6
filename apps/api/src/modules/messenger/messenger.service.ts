@@ -911,6 +911,15 @@ export class MessengerService implements OnModuleInit {
       rows += touched.length;
       if (touched.length < ERASE_MESSAGES_BATCH) break;
     }
+    // SKIP LOCKED пропускает строки, занятые чужой транзакцией (ответ со ссылкой на сообщение,
+    // реакция): неполная пачка — ещё не «всё». Осталось свободное от заморозок — шаг не закончен,
+    // следующий заход оркестратора доберёт (иначе текст пережил бы выбор «стереть все мои»)
+    const [left] = await this.db.$queryRaw<Array<{ left: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1 FROM "messages" t
+         WHERE t.author_id = ${userId}::uuid AND (t.content IS NOT NULL OR t.payload IS NOT NULL OR t.deleted_at IS NULL)
+           AND ${holdFreeSql(policy, t)}) AS left`;
+    if (left?.left) return { rows, done: false };
     const [h] = await this.db.$queryRaw<Array<{ n: bigint }>>`
       SELECT count(*)::bigint AS n FROM "messages" t
        WHERE t.author_id = ${userId}::uuid AND (t.content IS NOT NULL OR t.payload IS NOT NULL) AND NOT (${holdFreeSql(policy, t)})`;
@@ -2110,8 +2119,31 @@ export class MessengerService implements OnModuleInit {
 
   /** Сообщение вне срока своего чата (таймер, срок организации) — чтение его уже не показывает. */
   private async expiredMessage(msg: { chatId: string; seq: number }): Promise<boolean> {
-    const chat = await this.db.chat.findUnique({ where: { id: msg.chatId }, select: { id: true, type: true, workspaceId: true, messageTtlDays: true } });
-    return !!chat && (await this.retention.isExpired(chat, msg));
+    const floor = await this.chatFloor(msg.chatId);
+    return floor > 0 && msg.seq < floor;
+  }
+
+  /** Пол ленты чата (срок: таймер, срок организации); 0 — пола нет. Цитата старше — как удалённая. */
+  private async chatFloor(chatId: string): Promise<number> {
+    const chat = await this.db.chat.findUnique({ where: { id: chatId }, select: { id: true, type: true, workspaceId: true, messageTtlDays: true } });
+    return chat ? this.retention.floorOf(chat) : 0;
+  }
+
+  /**
+   * Можно ли процитировать сообщение в чате СЕЙЧАС: из этого чата и в его сроке. Отложенное
+   * сообщение отправляется позже, чем составлено, — цитата, истёкшая к отправке, отбрасывается
+   * (отправка без цитаты), а не хоронит само сообщение.
+   */
+  async isQuotable(chatId: string, messageId: string): Promise<boolean> {
+    const parent = await this.db.message.findUnique({ where: { id: messageId }, select: { chatId: true, seq: true } });
+    if (!parent || parent.chatId !== chatId) return false;
+    return !(await this.expiredMessage(parent));
+  }
+
+  /** Текст сообщения для снимка уведомления — или пусто, если сообщение истечёт раньше уведомления. */
+  async notificationSnippet(chatId: string, text: string): Promise<string> {
+    const chat = await this.db.chat.findUnique({ where: { id: chatId }, select: { id: true, type: true, workspaceId: true, messageTtlDays: true } });
+    return chat && !(await this.retention.snippetAllowed(chat)) ? '' : text;
   }
 
   // ============================================================
@@ -2355,7 +2387,9 @@ export class MessengerService implements OnModuleInit {
     // Access first: a user removed from the chat (Hard Revoke) loses edit rights even
     // on their own old messages. Authorship alone is not enough.
     await this.assertAccess(userId, msg.chatId);
-    if (await this.expiredMessage(msg)) throw notFound('chat.messageNotFound');
+    // Пол ленты: сообщение старше — не правится; цитата старше — в ответе и сокете как удалённая
+    const floor = await this.chatFloor(msg.chatId);
+    if (floor > 0 && msg.seq < floor) throw notFound('chat.messageNotFound');
     if (msg.authorId !== userId) throw forbidden('chat.editOwnOnly');
     if (msg.deletedAt) throw badRequest('chat.messageDeleted');
     // attachment: редактируется только подпись (она и живёт в content — К-1)
@@ -2364,15 +2398,15 @@ export class MessengerService implements OnModuleInit {
     }
 
     // Под заморозкой оригинал уходит в hold store той же транзакцией (человек не блокируется)
+    // Переход status-guarded: удаление (или «стереть все мои сообщения»), случившееся между
+    // чтением и записью, не получает текст обратно в томбстоун
     const updated = await this.db.$transaction(async (tx) => {
       await this.holds.preserve(tx, 'Message', msg.id, messageSnapshot(msg));
-      return tx.message.update({
-        where: { id: messageId },
-        data: { content, editedAt: new Date() },
-        include: MESSAGE_REPLY_INCLUDE,
-      });
+      const { count } = await tx.message.updateMany({ where: { id: messageId, deletedAt: null }, data: { content, editedAt: new Date() } });
+      if (!count) throw badRequest('chat.messageDeleted');
+      return tx.message.findUniqueOrThrow({ where: { id: messageId }, include: MESSAGE_REPLY_INCLUDE });
     });
-    await this.broadcastUpdate(updated, 'messenger.message.updated');
+    await this.broadcastUpdate(updated, 'messenger.message.updated', floor);
 
     // Mentions Hub (Phase 5): re-parse the NEW content. The unique [messageId,user]
     // constraint + new-only notify means existing mentions don't duplicate/re-notify,
@@ -2405,7 +2439,7 @@ export class MessengerService implements OnModuleInit {
       // never break editMessage on an index failure
     }
 
-    return this.toMessage(updated, userId);
+    return this.toMessage(updated, userId, 0, 0, undefined, true, floor);
   }
 
   async deleteMessage(userId: string, messageId: string): Promise<void> {
@@ -2601,11 +2635,13 @@ export class MessengerService implements OnModuleInit {
   private async broadcastUpdate(
     msg: any,
     type: 'messenger.message.updated' | 'messenger.message.deleted',
+    /** Пол ленты чата: цитата старше уходит в сокет как удалённая (вне срока чата) */
+    floor = 0,
   ): Promise<void> {
     const memberUserIds = await this.memberIds(msg.chatId);
     const wsPayload: WsMessageUpdated = {
       chatId: msg.chatId,
-      message: this.toMessage(msg, '__broadcast__'),
+      message: this.toMessage(msg, '__broadcast__', 0, 0, undefined, true, floor),
       memberUserIds,
     };
     this.events.emit(type, wsPayload, 'messenger');

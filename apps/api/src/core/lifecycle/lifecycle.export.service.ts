@@ -424,10 +424,25 @@ export class LifecycleExportService implements OnModuleInit {
 
   async listForWorkspace(userId: string, workspaceId: string, q: LifecycleExportsQuery): Promise<CursorPage<LifecycleExportDto>> {
     await this.assertManager(userId, workspaceId);
-    return this.page({ subjectType: 'workspace', subjectId: workspaceId, mode: 'portable' }, q, userId);
+    // Качает заказчик, пока он владелец: бывший владелец (передал владение, понижен) видит архив в списке, но не качает
+    const ownerNow = await this.isOwnerNow(userId, workspaceId);
+    return this.page({ subjectType: 'workspace', subjectId: workspaceId, mode: 'portable' }, q, userId, ownerNow);
   }
 
-  private async page(where: Prisma.LifecycleExportWhereInput, q: LifecycleExportsQuery, viewerId: string): Promise<CursorPage<LifecycleExportDto>> {
+  /**
+   * Заказчик архива организации ВСЁ ЕЩЁ её владелец (роль активна, организация существует —
+   * живая или в архиве до стирания). Проверяется на КАЖДОЙ ссылке: право заказать не
+   * переживает смену владельца — иначе бывший владелец неделю качал бы данные организации.
+   */
+  private async isOwnerNow(userId: string, workspaceId: string): Promise<boolean> {
+    const [role, ws] = await Promise.all([
+      this.db.userRole.findFirst({ where: { userId, context: 'workspace', tenantId: workspaceId, isActive: true, role: 'owner' }, select: { id: true } }),
+      this.db.workspace.findUnique({ where: { id: workspaceId }, select: { id: true } }),
+    ]);
+    return !!role && !!ws;
+  }
+
+  private async page(where: Prisma.LifecycleExportWhereInput, q: LifecycleExportsQuery, viewerId: string, ownerNow = true): Promise<CursorPage<LifecycleExportDto>> {
     const limit = q.limit ?? 20;
     const cur = q.cursor ? decodeCursor(q.cursor, { createdAt: 'date', id: 'uuid' }) : null;
     const rows = await this.db.lifecycleExport.findMany({
@@ -442,12 +457,13 @@ export class LifecycleExportService implements OnModuleInit {
     const items = rows.slice(0, limit);
     const last = items[items.length - 1];
     return {
-      items: items.map((r) => this.toDto(r, viewerId)),
+      items: items.map((r) => this.toDto(r, viewerId, ownerNow)),
       nextCursor: more && last ? encodeCursor({ createdAt: last.createdAt, id: last.id }) : null,
     };
   }
 
-  toDto(r: LifecycleExport, viewerId: string): LifecycleExportDto {
+  /** `ownerNow` — для архива организации: заказчик всё ещё её владелец (качать может только он). */
+  toDto(r: LifecycleExport, viewerId: string, ownerNow = true): LifecycleExportDto {
     const progress = asProgress(r.progress);
     const parts = partsOf(r.parts);
     const live = r.status === 'queued' || r.status === 'running';
@@ -469,7 +485,7 @@ export class LifecycleExportService implements OnModuleInit {
       parts: r.status === 'ready' ? parts.map((p, i) => ({ index: i + 1, bytes: p.bytes, downloads: p.downloads ?? 0, maxDownloads: LIFECYCLE_EXPORT_LIMITS.maxDownloadsPerPart })) : [],
       errorCode: (r.errorCode as LifecycleExportError | null) ?? null,
       requestedById: r.requestedById,
-      canDownload: r.requestedById === viewerId && r.mode === 'portable',
+      canDownload: r.requestedById === viewerId && r.mode === 'portable' && (r.subjectType !== 'workspace' || ownerNow),
       createdAt: r.createdAt.toISOString(),
       readyAt: r.readyAt?.toISOString() ?? null,
       expiresAt: r.expiresAt?.toISOString() ?? null,
@@ -489,6 +505,8 @@ export class LifecycleExportService implements OnModuleInit {
   async link(userId: string, exportId: string, part: number): Promise<LifecycleExportLinkDto> {
     const row = await this.db.lifecycleExport.findUnique({ where: { id: exportId } });
     if (!row || row.requestedById !== userId || row.mode !== 'portable') throw notFound('lifecycle.exportNotFound');
+    // Архив организации — только пока заказчик её владелец (передал владение или понижен — всё)
+    if (row.subjectType === 'workspace' && !(await this.isOwnerNow(userId, row.subjectId))) throw forbidden('lifecycle.exportOwnerOnly');
     await this.stepUp.assert(userId, 'data_export');
     if (row.status === 'expired' || (row.status === 'ready' && row.expiresAt && row.expiresAt.getTime() <= Date.now())) throw conflict('lifecycle.exportExpired');
     if (row.status !== 'ready') throw conflict('lifecycle.exportNotReady');

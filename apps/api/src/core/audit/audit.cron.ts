@@ -18,11 +18,11 @@ const MIN_IDLE_DAYS = Math.min(...AUDIT_LIMITS.sessionMaxIdleDaysOptions);
  *  - партиции на три месяца вперёд (ежедневно; на буте — тоже);
  *  - автозавершение неактивных сессий по настройке человека (`session_max_idle_days`, 90 по
  *    умолчанию) — одно агрегатное событие на человека за прогон;
- *  - устройства без активности год → забыты (событие без уведомления); забытые старше года —
- *    удаляются (журнал хранит события, строка устройства — нет);
- *  - агрегат «кто смотрел журнал» за завершённые часы → события `audit.viewed`;
- *  - закрытые тревоги старше года удаляются: `security_alerts` — рабочая очередь разбора,
- *    а факт тревоги навсегда остаётся событием `detect.*` журнала.
+ *  - устройства без активности год → забыты (событие без уведомления);
+ *  - агрегат «кто смотрел журнал» за завершённые часы → события `audit.viewed`.
+ * Сроки строк (забытые устройства, закрытые тревоги) принуждает ТОЛЬКО раннер core/lifecycle
+ * по реестру (политики `UserDevice`, `SecurityAlert`: пол закона, заморозки) — своего крона
+ * удаления по сроку здесь нет (одна дверь принуждения).
  */
 @Injectable()
 export class AuditCron {
@@ -93,7 +93,7 @@ export class AuditCron {
    * Порциями до исчерпания (в пределах бюджета времени лока): 2000 за ночь на миллионах
    * аккаунтов копили бы отставание навсегда. Бюджет вышел — остальное завтра.
    */
-  async devicesNow(budgetMs = 20 * 60_000): Promise<{ forgotten: number; purged: number }> {
+  async devicesNow(budgetMs = 20 * 60_000): Promise<{ forgotten: number }> {
     const cutoff = new Date(Date.now() - AUDIT_LIMITS.deviceForgetAfterDays * 86_400_000);
     const deadline = Date.now() + budgetMs;
     let forgotten = 0;
@@ -103,9 +103,8 @@ export class AuditCron {
       forgotten += stale.length;
       if (stale.length < 2000 || Date.now() > deadline) break;
     }
-    // Забытые старше года — по частичному индексу `forgotten_at`
-    const purged = await this.db.userDevice.deleteMany({ where: { forgottenAt: { lt: cutoff } } });
-    return { forgotten, purged: purged.count };
+    // Забытые — удаляет раннер сроков (политика `UserDevice`, правило `forgottenAt`), не этот крон
+    return { forgotten };
   }
 
   private async forgetStale(stale: Array<{ id: string; userId: string; deviceClass: string }>): Promise<void> {
@@ -125,23 +124,4 @@ export class AuditCron {
     }
   }
 
-  @Cron('47 4 * * *')
-  async alerts(): Promise<void> {
-    await this.redis.withLock(AUDIT_REDIS.lock('alerts'), 10 * 60_000, () => this.alertsNow());
-  }
-
-  /** Закрытые тревоги старше срока — порциями (открытые и в работе не трогаются никогда). */
-  async alertsNow(): Promise<number> {
-    const cutoff = new Date(Date.now() - AUDIT_LIMITS.closedAlertRetentionDays * 86_400_000);
-    let total = 0;
-    for (;;) {
-      const rows = await this.db.securityAlert.findMany({ where: { status: 'closed', closedAt: { lt: cutoff } }, select: { id: true }, take: 1000 });
-      if (!rows.length) break;
-      const { count } = await this.db.securityAlert.deleteMany({ where: { id: { in: rows.map((r) => r.id) }, status: 'closed' } });
-      total += count;
-      if (rows.length < 1000) break;
-    }
-    if (total) this.logger.log(`closed security alerts purged: ${total}`);
-    return total;
-  }
 }

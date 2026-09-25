@@ -615,6 +615,14 @@ export function lifecycleRegistryProblems(): string[] {
     }
     if (r.tenantConfigurable) {
       if (r.floorDays === undefined) add(at, 'tenantConfigurable needs a legal floor (floorDays)');
+      // Общая пачка раннера режет по умолчанию ВСЕ строки таблицы, включая строки организаций,
+      // выбравших срок длиннее: конечное умолчание при коридоре выше него удалило бы их данные
+      // раньше их выбора. Такой политике — свой шаг модуля (как у сообщений) или потолок = умолчанию
+      const en0 = p.enforcement;
+      if (en0.kind === 'batched_delete' && !en0.handler && isLifecycleDuration(r.defaultDays) && r.defaultDays !== LIFECYCLE_FOREVER
+        && lifecycleDaysValue(r.ceilingDays ?? LIFECYCLE_FOREVER) > r.defaultDays) {
+        add(at, 'tenantConfigurable with a finite default and a longer corridor: the generic batch would purge organisations that chose to keep longer — use a module handler or ceilingDays = defaultDays');
+      }
       if (!r.entitlementKey) add(at, 'tenantConfigurable needs entitlementKey (the plan ceiling)');
       // Класс вне списка организация не увидит на странице сроков — выбор был бы недостижим
       if (!(LIFECYCLE_TENANT_CLASSES as readonly string[]).includes(p.dataClass)) add(at, `tenantConfigurable class "${p.dataClass}" is not in LIFECYCLE_TENANT_CLASSES`);
@@ -777,6 +785,13 @@ export function lifecycleRegistryProblems(): string[] {
     lifecycleTenantPurgePlan();
   } catch (e) {
     add('tenant purge plan', e instanceof Error ? e.message : String(e));
+  }
+  // План стирания человека — тоже: цикл роняет оркестратор на КАЖДОЙ заявке (старт API и CI —
+  // единственное место, где его видно заранее)
+  try {
+    lifecycleSubjectErasurePlan();
+  } catch (e) {
+    add('subject erasure plan', e instanceof Error ? e.message : String(e));
   }
   return problems;
 }

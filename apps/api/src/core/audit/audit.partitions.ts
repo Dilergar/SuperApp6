@@ -9,13 +9,17 @@ export interface AuditPartitionInfo {
 }
 
 const NAME_RE = /^security_events_(\d{4})_(\d{2})$/;
+/** Замок родителя внутри функции — 2 с (атрибут); повторы с бэкоффом, потом отказ вызывающему. */
+const LOCK_RETRIES = 5;
 
 /**
- * Месячные партиции `security_events`. В отличие от прочих журналов (`MonthlyPartitions`)
- * DDL исполняет НЕ роль приложения, а SECURITY DEFINER-функция владельца журнала
- * (`audit_ensure_partition` / `audit_drop_partition`, миграция `core_audit`): партиция
- * принадлежит владельцу, роль приложения не может отключить её триггер, `TRUNCATE`/`DROP`
- * её или сбросить не выгруженный в архив месяц (docs/audit_engine.md, `scripts/db-roles.sql`).
+ * Месячные партиции `security_events`. В отличие от прочих журналов (`LifecyclePartitions`)
+ * DDL исполняет SECURITY DEFINER-функция владельца ЖУРНАЛА (`audit_ensure_partition` /
+ * `audit_drop_partition`): партиция принадлежит владельцу, роль приложения не может отключить её
+ * триггер, `TRUNCATE`/`DROP` её или сбросить не выгруженный в архив месяц (docs/audit_engine.md,
+ * `scripts/db-roles.sql`). Машина состояний — та же, что у движка сроков: лист = CHECK границ +
+ * ATTACH (не ACCESS EXCLUSIVE на родителя — запись аудита идёт в транзакции каждого факта),
+ * `lock_timeout 2 с` в функции и повторы с бэкоффом здесь.
  */
 @Injectable()
 export class AuditPartitions implements OnModuleInit {
@@ -37,7 +41,7 @@ export class AuditPartitions implements OnModuleInit {
     const month = `${at.getUTCFullYear()}-${String(at.getUTCMonth() + 1).padStart(2, '0')}-01`;
     const name = `security_events_${month.slice(0, 4)}_${month.slice(5, 7)}`;
     if (this.known.has(name)) return;
-    await this.db.$queryRaw`SELECT audit_ensure_partition(${month}::date) AS name`;
+    await this.withLockRetry(() => this.db.$queryRaw`SELECT audit_ensure_partition(${month}::date) AS name`);
     this.known.add(name);
   }
 
@@ -66,7 +70,7 @@ export class AuditPartitions implements OnModuleInit {
   /** Сбросить выгруженную партицию (функция владельца сама проверит архив и возраст ≥ 3 лет). */
   async drop(name: string): Promise<boolean> {
     if (!NAME_RE.test(name)) throw new Error(`audit partitions: not a security_events partition: ${name}`);
-    const rows = await this.db.$queryRaw<Array<{ dropped: boolean }>>`SELECT audit_drop_partition(${name}) AS dropped`;
+    const rows = await this.withLockRetry(() => this.db.$queryRaw<Array<{ dropped: boolean }>>`SELECT audit_drop_partition(${name}) AS dropped`);
     this.known.delete(name);
     return rows[0]?.dropped ?? false;
   }
@@ -74,5 +78,19 @@ export class AuditPartitions implements OnModuleInit {
   /** Ошибка «no partition of relation» — месяц не заведён (крон не успел). */
   static isMissingPartition(err: unknown): boolean {
     return /no partition of relation/i.test(err instanceof Error ? err.message : String(err));
+  }
+
+  /** Замок родителя не дался за 2 с (долгое чтение журнала) — повтор с бэкоффом, потом отказ. */
+  private async withLockRetry<T>(fn: () => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        const text = err instanceof Error ? err.message : String(err);
+        if (!/lock timeout|55P03|could not obtain lock/i.test(text) || attempt >= LOCK_RETRIES) throw err;
+        this.logger.warn(`security_events partition DDL waits for a lock (attempt ${attempt}/${LOCK_RETRIES})`);
+        await new Promise((r) => setTimeout(r, 200 * 2 ** attempt + Math.floor(Math.random() * 200)));
+      }
+    }
   }
 }

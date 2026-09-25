@@ -35,10 +35,10 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
       .strict(),
     ocsf: { classUid: C.entityManagement, activityId: A.entityManagement.delete },
   },
-  /** Партиция сброшена по сроку (DETACH CONCURRENTLY → DROP) */
+  /** Лист журнала сброшен по сроку функцией владельца (DETACH → DROP); `rows` — оценка каталога */
   'lifecycle.partition.dropped': {
     category: 'lifecycle',
-    status: 'planned',
+    status: 'live',
     severity: 'low',
     visibility: AUDIT_VIS.platform,
     details: z.object({ policy: detailCode(64), partition: detailCode(96), rows: detailCount(), held: detailCount() }).strict(),

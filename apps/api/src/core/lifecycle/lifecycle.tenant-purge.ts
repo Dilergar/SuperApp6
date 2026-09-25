@@ -14,10 +14,14 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { conflict, notFound } from '../../shared/errors/api-error';
 import { JobDiscardError, JobSnoozeError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
+import { LifecycleHealth } from './lifecycle.health';
 import { LifecycleMetrics } from './lifecycle.metrics';
 import { LifecycleTenantHeldError, LifecycleTenantHookRegistry, type LifecycleTenantPurgeContext } from './lifecycle.purge.registry';
 import { LifecycleRuns } from './lifecycle.runs';
-import { lifecycleTableOf, lockHoldsShared, releasableIds, tenantBatchSql, tenantEstimateSql, workspaceHeld } from './lifecycle.sql';
+import { isQueryTimeout, lifecycleTableOf, lockHoldsShared, releasableIds, tenantBatchSql, tenantEstimateSql, workspaceHeld } from './lifecycle.sql';
+
+/** Исход захода каскада: всё / бюджет вышел / БД нездорова (пачки ждут, как у раннера сроков). */
+type TenantOutcome = 'done' | 'continue' | 'unhealthy';
 
 interface TenantPurgePayload {
   workspaceId: string;
@@ -72,6 +76,7 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
     private readonly hooks: LifecycleTenantHookRegistry,
     private readonly runs: LifecycleRuns,
     private readonly metrics: LifecycleMetrics,
+    private readonly health: LifecycleHealth,
   ) {}
 
   onModuleInit(): void {
@@ -121,16 +126,29 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
    * предпросмотр команды откатывает их вместе.
    */
   async schedule(workspaceId: WorkspaceId, tx?: Prisma.TransactionClient): Promise<{ runId: string; queued: boolean }> {
-    await this.assertArchivedWorkspace(workspaceId);
-    const running = await this.runs.findRunning('tenant_purge', { subjectId: workspaceId });
-    if (running) return { runId: running.id, queued: false };
-    const put = async (t: Prisma.TransactionClient) => {
+    const put = async (t: Prisma.TransactionClient): Promise<{ runId: string; queued: boolean }> => {
+      // Под замком строки организации: возврат из архива (`restoreWorkspace`) берёт тот же замок —
+      // либо он видит начатый каскад (409), либо каскад видит живую организацию. Проверка «уже
+      // идёт» — тоже под замком: два параллельных планировщика (ретеншн архива и оркестратор
+      // стирания) иначе заводили бы две строки прогона на один джоб, и осиротевшая «running»
+      // навсегда отвечала бы следующим «уже идёт».
+      await this.lockArchivedWorkspace(t, workspaceId);
+      const running = await this.runs.findRunning('tenant_purge', { subjectId: workspaceId }, t);
+      if (running) return { runId: running.id, queued: false };
       const id = await this.runs.start(t, { kind: 'tenant_purge', subjectType: 'workspace', subjectId: workspaceId, report: { done: [] } });
-      await this.jobs.enqueue(t, { type: LIFECYCLE_JOBS.tenantPurge, payload: { workspaceId, runId: id }, uniqueKey: `tenant:${workspaceId}` });
-      return id;
+      const { inserted } = await this.jobs.enqueue(t, { type: LIFECYCLE_JOBS.tenantPurge, payload: { workspaceId, runId: id }, uniqueKey: `tenant:${workspaceId}` });
+      // Живой джоб каскада без живого прогона — прогон без исполнителя не заводим (откат транзакции)
+      if (!inserted) throw conflict('workspace.purgeInProgress');
+      return { runId: id, queued: true };
     };
-    const runId = tx ? await put(tx) : await this.db.$transaction(put);
-    return { runId, queued: true };
+    return tx ? put(tx) : this.db.$transaction(put);
+  }
+
+  /** Строка организации под замком (FOR UPDATE) и в архиве — иначе 404 / 409. */
+  private async lockArchivedWorkspace(t: Prisma.TransactionClient, workspaceId: WorkspaceId): Promise<void> {
+    const [ws] = await t.$queryRaw<Array<{ active: boolean }>>`SELECT is_active AS active FROM "workspaces" WHERE id = ${workspaceId}::uuid FOR UPDATE`;
+    if (!ws) throw notFound('workspace.notFound');
+    if (ws.active) throw conflict('workspace.notArchived');
   }
 
   /**
@@ -139,13 +157,19 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
    * найден в колонках «владелец = организация»).
    */
   async purgeNow(workspaceId: WorkspaceId, opts: { orphan?: boolean } = {}): Promise<void> {
+    let runId: string;
     if (opts.orphan) {
       if (await this.db.workspace.findUnique({ where: { id: workspaceId }, select: { id: true } })) throw conflict('workspace.notArchived');
+      const running = await this.runs.findRunning('tenant_purge', { subjectId: workspaceId });
+      runId = running?.id ?? (await this.runs.start(null, { kind: 'tenant_purge', subjectType: 'workspace', subjectId: workspaceId, report: { done: [], orphan: true } }));
     } else {
-      await this.assertArchivedWorkspace(workspaceId);
+      // Строка прогона — под тем же замком строки организации, что у `schedule` и возврата из архива
+      runId = await this.db.$transaction(async (t) => {
+        await this.lockArchivedWorkspace(t, workspaceId);
+        const running = await this.runs.findRunning('tenant_purge', { subjectId: workspaceId }, t);
+        return running?.id ?? this.runs.start(t, { kind: 'tenant_purge', subjectType: 'workspace', subjectId: workspaceId, report: { done: [] } });
+      });
     }
-    const running = await this.runs.findRunning('tenant_purge', { subjectId: workspaceId });
-    const runId = running?.id ?? (await this.runs.start(null, { kind: 'tenant_purge', subjectType: 'workspace', subjectId: workspaceId, report: { done: [], ...(opts.orphan ? { orphan: true } : {}) } }));
     const outcome = await this.execute(runId, workspaceId, null, !!opts.orphan);
     if (outcome !== 'done') throw new Error(`tenant purge of ${workspaceId} did not finish (${outcome})`);
     const run = await this.runs.get(runId);
@@ -184,11 +208,22 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
     if (run.status !== 'running') return;
     const outcome = await this.execute(payload.runId, payload.workspaceId as WorkspaceId, Date.now() + LIFECYCLE_LIMITS.jobBudgetMs, run.report.orphan === true);
     if (outcome === 'continue') throw new JobSnoozeError(LIFECYCLE_LIMITS.continueDelayMs, 'budget spent, continuing');
+    if (outcome === 'unhealthy') {
+      const reason = String((await this.runs.get(payload.runId))?.report.lastHealth ?? 'timeouts');
+      this.metrics.purgeSnoozed(reason);
+      throw new JobSnoozeError(LIFECYCLE_LIMITS.healthSnoozeMs, `database unhealthy: ${reason}`);
+    }
   }
 
   // ---------------------------------------------------------------- исполнение
 
-  private async execute(runId: string, workspaceId: WorkspaceId, deadline: number | null, orphan: boolean): Promise<'done' | 'continue'> {
+  /**
+   * Заход каскада. `deadline: null` — синхронно в процессе (дев-полигон, сьюты, уборка хвостов):
+   * без бюджета и без пауз здоровья. Джоб — с бюджетом и здоровьем БД перед каждым шагом и каждой
+   * пачкой (удаление крупной организации — миллионы строк в любое время суток: реплики, архив WAL
+   * и p99 API важнее скорости каскада; прогресс шагов сохранён, пауза — снуз джоба).
+   */
+  private async execute(runId: string, workspaceId: WorkspaceId, deadline: number | null, orphan: boolean): Promise<TenantOutcome> {
     const run = await this.runs.get(runId);
     if (!run) throw new Error(`tenant purge run ${runId} is gone`);
     if (run.status !== 'running') return 'done';
@@ -240,6 +275,7 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
       if (orphan && step.key === 'workspaces.row') continue;
       if (deadline !== null && Date.now() > deadline) return 'continue';
       if (await held()) return 'done';
+      if (deadline !== null && !(await this.healthy(runId, null))) return 'unhealthy';
       const started = Date.now();
       let rows = 0;
       if (step.kind === 'hook') {
@@ -267,13 +303,13 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
           return 'continue';
         }
       } else {
-        const res = await this.batched(step, workspaceId, deadline);
+        const res = await this.batched(step, workspaceId, deadline, runId);
         rows = res.rows;
         if (!res.done) {
           if (rows) await this.runs.progress(null, runId, rows, 1);
           addRows(step.key, rows);
           await this.runs.saveState(runId, { stepRows });
-          return 'continue';
+          return res.unhealthy ? 'unhealthy' : 'continue';
         }
       }
       done.add(step.key);
@@ -293,21 +329,45 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
     return 'done';
   }
 
-  /** Строки политики организации пачками; удерживаемые заморозкой остаются. */
-  private async batched(step: Extract<LifecycleTenantPurgeStep, { kind: 'batched' }>, workspaceId: string, deadline: number | null): Promise<{ rows: number; done: boolean }> {
+  /**
+   * Строки политики организации пачками; удерживаемые заморозкой остаются. Пачка — под общим
+   * замком заморозок и потолками `SET LOCAL` (замок 1 с, оператор 5 с); таймаут — пачка вдвое
+   * меньше, серия таймаутов — пауза как у раннера (`unhealthy`), а не падение джоба с потерей счёта.
+   */
+  private async batched(
+    step: Extract<LifecycleTenantPurgeStep, { kind: 'batched' }>,
+    workspaceId: string,
+    deadline: number | null,
+    runId: string,
+  ): Promise<{ rows: number; done: boolean; unhealthy?: boolean }> {
     const policy = lifecyclePolicy(step.policy)!;
     const t = lifecycleTableOf(policy);
     if (!t) throw new Error(`tenant purge: ${step.policy} has no table`);
     let rows = 0;
     let limit: number = LIFECYCLE_LIMITS.batchStart;
+    let timeouts = 0;
     for (;;) {
       if (deadline !== null && Date.now() > deadline) return { rows, done: false };
+      if (deadline !== null && !(await this.healthy(runId, t.name))) return { rows, done: false, unhealthy: true };
       const started = Date.now();
-      const n = await this.db.$transaction(async (tx) => {
-        await lockHoldsShared(tx);
-        await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${LIFECYCLE_LIMITS.batchLockTimeoutMs}ms`}, true)`;
-        return tx.$executeRaw(tenantBatchSql(policy, t, step.column, workspaceId, limit));
-      });
+      let n: number;
+      try {
+        n = await this.db.$transaction(async (tx) => {
+          await lockHoldsShared(tx);
+          await tx.$executeRaw`SELECT set_config('lock_timeout', ${`${LIFECYCLE_LIMITS.batchLockTimeoutMs}ms`}, true), set_config('statement_timeout', ${`${LIFECYCLE_LIMITS.batchStatementTimeoutMs}ms`}, true)`;
+          return tx.$executeRaw(tenantBatchSql(policy, t, step.column, workspaceId, limit));
+        });
+      } catch (err) {
+        if (!isQueryTimeout(err)) throw err;
+        this.metrics.purgeTimeout(step.policy);
+        limit = Math.max(LIFECYCLE_LIMITS.batchMin, Math.floor(limit * LIFECYCLE_LIMITS.batchShrink));
+        if (++timeouts >= LIFECYCLE_LIMITS.batchTimeoutStreak) {
+          await this.runs.saveState(runId, { lastHealth: 'timeouts' });
+          return { rows, done: false, unhealthy: deadline !== null };
+        }
+        continue;
+      }
+      timeouts = 0;
       rows += n;
       if (n < limit) return { rows, done: true };
       const elapsed = Date.now() - started;
@@ -316,5 +376,13 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
           ? Math.min(LIFECYCLE_LIMITS.batchMax, Math.ceil(limit * LIFECYCLE_LIMITS.batchGrow))
           : Math.max(LIFECYCLE_LIMITS.batchMin, Math.floor(limit * LIFECYCLE_LIMITS.batchShrink));
     }
+  }
+
+  /** Здоровье БД (как у пачек раннера сроков); плохо — причина в строке прогона, пачки ждут. */
+  private async healthy(runId: string, table: string | null): Promise<boolean> {
+    const verdict = await this.health.check(table);
+    if (verdict.ok) return true;
+    await this.runs.saveState(runId, { lastHealth: verdict.reason });
+    return false;
   }
 }

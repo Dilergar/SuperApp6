@@ -25,8 +25,12 @@ interface MessageRow {
   reply_to_id: string | null;
   edited_at: Date | null;
   created_at: Date;
+}
+
+interface ExportChatRow {
+  id: string;
+  type: string;
   workspace_id: string | null;
-  chat_type: string;
   message_ttl_days: number | null;
   visible_from_seq: number | null;
 }
@@ -108,10 +112,14 @@ export class MessengerExportProvider implements OnModuleInit {
     return { rows, next: chats.length === limit && last ? encodeCursor({ c: last.id }) : null };
   }
 
+  /**
+   * Перепроверка владельца — «чужого нет», а не «ничего не изменилось»: чат, удалённый между
+   * страницей и проверкой, не чужой (в живой организации что-то удаляют постоянно — иначе
+   * выгрузка крупной организации падала бы почти всегда). Чужой — падение сборки целиком.
+   */
   private async chatsOwned(ctx: LifecycleExportContext, ids: readonly string[]): Promise<boolean> {
     if (!ids.length) return true;
     const chats = await this.db.chat.findMany({ where: { id: { in: [...ids] } }, select: { id: true, workspaceId: true } });
-    if (chats.length !== ids.length) return false;
     if (ctx.side === 'workspace') return chats.every((c) => c.workspaceId === ctx.subjectId);
     const members = await this.db.chatMember.findMany({ where: { chatId: { in: [...ids] }, userId: ctx.subjectId, leftAt: null }, select: { chatId: true } });
     const mine = new Set(members.map((m) => m.chatId));
@@ -124,45 +132,66 @@ export class MessengerExportProvider implements OnModuleInit {
     return fullNameOrNull(u) ?? this.i18n.translateFor(ctx.locale, 'common.labels.deletedUser');
   }
 
+  /** Чат выгрузки: свой (личный участник) или организации; поля срока и видимости ленты. */
+  private async exportChat(ctx: LifecycleExportContext, where: { id?: string; after?: string | null }): Promise<ExportChatRow | null> {
+    const pick = where.id !== undefined ? Prisma.sql`c."id" = ${where.id}::uuid` : where.after ? Prisma.sql`c."id" > ${where.after}::uuid` : Prisma.sql`TRUE`;
+    const [chat] =
+      ctx.side === 'user'
+        ? await this.db.$queryRaw<ExportChatRow[]>`
+            SELECT c."id"::text AS id, c."type", c."workspace_id"::text AS workspace_id, c."message_ttl_days", cm."visible_from_seq"
+              FROM "chat_members" cm JOIN "chats" c ON c."id" = cm."chat_id"
+             WHERE cm."user_id" = ${ctx.subjectId}::uuid AND cm."left_at" IS NULL AND ${pick}
+             ORDER BY c."id" LIMIT 1`
+        : await this.db.$queryRaw<ExportChatRow[]>`
+            SELECT c."id"::text AS id, c."type", c."workspace_id"::text AS workspace_id, c."message_ttl_days", NULL::int AS visible_from_seq
+              FROM "chats" c
+             WHERE c."workspace_id" = ${ctx.subjectId}::uuid AND ${pick}
+             ORDER BY c."id" LIMIT 1`;
+    return chat ?? null;
+  }
+
+  /**
+   * Сообщения ОДНОГО чата после `after` — диапазон уникального индекса `(chat_id, seq)`: страница
+   * стоит «страницу», а не сортировку всей переписки организации (общий запрос по всем чатам
+   * сортировал бы на каждой странице все оставшиеся сообщения). Пол ленты (срок чата, вход в
+   * группу) — в границе диапазона: истёкшее не читается вовсе.
+   */
+  private async chatMessages(ctx: LifecycleExportContext, chat: ExportChatRow, after: number, need: number): Promise<MessageRow[]> {
+    const floor = await this.retention.floorOf({ id: chat.id, type: chat.type, workspaceId: chat.workspace_id, messageTtlDays: chat.message_ttl_days });
+    const from = Math.max(after, floor - 1, (chat.visible_from_seq ?? 0) - 1);
+    // Человек в чате организации забирает только свои сообщения (переписка организации — её)
+    const own = ctx.side === 'user' && chat.workspace_id ? Prisma.sql`AND m."author_id" = ${ctx.subjectId}::uuid` : Prisma.empty;
+    return this.db.$queryRaw<MessageRow[]>`
+      SELECT m."id"::text AS id, m."chat_id"::text AS chat_id, m."seq", m."author_id"::text AS author_id, m."type", m."content", m."payload",
+             m."reply_to_id"::text AS reply_to_id, m."edited_at", m."created_at"
+        FROM "messages" m
+       WHERE m."chat_id" = ${chat.id}::uuid AND m."seq" > ${from}::int AND m."deleted_at" IS NULL ${own}
+       ORDER BY m."seq" LIMIT ${need}`;
+  }
+
   private async messagesPage(ctx: LifecycleExportContext, cursor: string | null, limit: number): Promise<LifecycleExportPage> {
     const cur = decodeCursor(cursor, MESSAGE_CURSOR);
-    const after = cur ? Prisma.sql`(m."chat_id", m."seq") > (${cur.c}::uuid, ${cur.s}::int)` : Prisma.sql`TRUE`;
-    const rows =
-      ctx.side === 'user'
-        ? await this.db.$queryRaw<MessageRow[]>`
-            SELECT m."id"::text AS id, m."chat_id"::text AS chat_id, m."seq", m."author_id"::text AS author_id, m."type", m."content", m."payload",
-                   m."reply_to_id"::text AS reply_to_id, m."edited_at", m."created_at", c."workspace_id"::text AS workspace_id,
-                   c."type" AS chat_type, c."message_ttl_days", cm."visible_from_seq"
-              FROM "chat_members" cm
-              JOIN "chats" c ON c."id" = cm."chat_id"
-              JOIN "messages" m ON m."chat_id" = cm."chat_id"
-             WHERE cm."user_id" = ${ctx.subjectId}::uuid AND cm."left_at" IS NULL
-               AND m."deleted_at" IS NULL AND m."seq" >= cm."visible_from_seq"
-               AND (c."workspace_id" IS NULL OR m."author_id" = ${ctx.subjectId}::uuid)
-               AND ${after}
-             ORDER BY m."chat_id", m."seq" LIMIT ${limit}`
-        : await this.db.$queryRaw<MessageRow[]>`
-            SELECT m."id"::text AS id, m."chat_id"::text AS chat_id, m."seq", m."author_id"::text AS author_id, m."type", m."content", m."payload",
-                   m."reply_to_id"::text AS reply_to_id, m."edited_at", m."created_at", c."workspace_id"::text AS workspace_id,
-                   c."type" AS chat_type, c."message_ttl_days", NULL::int AS visible_from_seq
-              FROM "chats" c
-              JOIN "messages" m ON m."chat_id" = c."id"
-             WHERE c."workspace_id" = ${ctx.subjectId}::uuid AND m."deleted_at" IS NULL AND ${after}
-             ORDER BY m."chat_id", m."seq" LIMIT ${limit}`;
-    const last = rows[rows.length - 1];
-    const next = rows.length === limit && last ? encodeCursor({ c: last.chat_id, s: Number(last.seq) }) : null;
-
-    // Срок чата (таймер / срок организации) действует на чтении — и в архиве тоже
-    const floors = new Map<string, number>();
-    for (const r of rows) {
-      if (floors.has(r.chat_id)) continue;
-      floors.set(r.chat_id, await this.retention.floorOf({ id: r.chat_id, type: r.chat_type, workspaceId: r.workspace_id, messageTtlDays: r.message_ttl_days }));
+    // Курсор — «чат и последний seq в нём». Чат курсора пропал (удалён, человек вышел) — дальше со следующего
+    let chat = cur ? ((await this.exportChat(ctx, { id: cur.c })) ?? (await this.exportChat(ctx, { after: cur.c }))) : await this.exportChat(ctx, { after: null });
+    let after = cur && chat?.id === cur.c ? cur.s : 0;
+    const rows: MessageRow[] = [];
+    while (chat && rows.length < limit) {
+      const need = limit - rows.length;
+      const part = await this.chatMessages(ctx, chat, after, need);
+      rows.push(...part);
+      if (part.length === need) {
+        after = Number(part[part.length - 1]!.seq);
+        break;
+      }
+      chat = await this.exportChat(ctx, { after: chat.id });
+      after = 0;
     }
-    const live = rows.filter((r) => Number(r.seq) >= (floors.get(r.chat_id) ?? 0));
-    const authorIds = [...new Set(live.map((r) => r.author_id).filter((x): x is string => !!x))];
+    const next = chat && rows.length === limit ? encodeCursor({ c: chat.id, s: after }) : null;
+
+    const authorIds = [...new Set(rows.map((r) => r.author_id).filter((x): x is string => !!x))];
     const authors = authorIds.length ? await this.db.user.findMany({ where: { id: { in: authorIds } }, select: { id: true, firstName: true, lastName: true, deletedAt: true } }) : [];
     const byId = new Map(authors.map((a) => [a.id, a]));
-    const out: Row[] = live.map((r) => {
+    const out: Row[] = rows.map((r) => {
       const mine = r.author_id === ctx.subjectId;
       const text = r.content ? r.content.replace(MENTION, '@$1') : null;
       const base: Row = {
@@ -204,13 +233,13 @@ export class MessengerExportProvider implements OnModuleInit {
     return null;
   }
 
+  /** Как у чатов: удалённое между страницей и проверкой — не чужое; чужое — стоп. */
   private async messagesOwned(ctx: LifecycleExportContext, ids: readonly string[]): Promise<boolean> {
     if (!ids.length) return true;
     const msgs = await this.db.message.findMany({
       where: { id: { in: [...ids] } },
-      select: { id: true, authorId: true, deletedAt: true, chatId: true, chat: { select: { workspaceId: true } } },
+      select: { id: true, authorId: true, chatId: true, chat: { select: { workspaceId: true } } },
     });
-    if (msgs.length !== ids.length || msgs.some((m) => m.deletedAt)) return false;
     if (ctx.side === 'workspace') return msgs.every((m) => m.chat.workspaceId === ctx.subjectId);
     const members = await this.db.chatMember.findMany({ where: { chatId: { in: [...new Set(msgs.map((m) => m.chatId))] }, userId: ctx.subjectId, leftAt: null }, select: { chatId: true } });
     const mine = new Set(members.map((m) => m.chatId));

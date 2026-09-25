@@ -29,6 +29,7 @@ import {
   lifecycleTableOf,
   lifecycleTenantScopeSql,
   lockHoldsShared,
+  platformClassHeld,
   releasableIds,
   ruleCutoff,
   type LifecycleRule,
@@ -56,6 +57,8 @@ interface PurgeState {
   timeouts?: number;
   /** Курсор keyset шага модуля */
   cursor?: string | null;
+  /** Keyset общей пачки: колонка срока ≥ этого момента (ISO) — правило без организации */
+  after?: string | null;
 }
 
 type Outcome = 'done' | 'stopped' | 'continue' | 'unhealthy' | 'window';
@@ -260,6 +263,8 @@ export class LifecyclePurgeRunner implements OnModuleInit {
     if (policy.pause || (await this.overrides.get(policy.id))?.paused) return this.stop(run, 'paused');
     const mode = await this.modeOf(policy);
     if (!mode) return this.stop(run, 'handler_missing');
+    // Заморозка класса на всю платформу держит каждую строку — читать таблицу незачем
+    if (!p.dryRun && (await this.db.$transaction((tx) => platformClassHeld(tx, policy)))) return this.stop(run, 'held');
 
     // Ожидание — до первой пачки: и кэп радиуса, и отчёт dry-run, и сверка «факт/ожидание»
     if (run.expectedRows === null) {
@@ -307,15 +312,24 @@ export class LifecyclePurgeRunner implements OnModuleInit {
           const rule = rules[state.rule ?? 0];
           if (!rule) break;
           const cutoff = ruleCutoff(rule, new Date());
-          n = await this.db.$transaction(async (tx) => {
+          const after = state.after ? new Date(state.after) : null;
+          const batch = await this.db.$transaction(async (tx) => {
             await lockHoldsShared(tx);
             await this.setBatchTimeouts(tx);
-            const deleted = await tx.$executeRaw(deleteBatchSql(policy, mode.table, rule, cutoff, limit));
+            const [res] = await tx.$queryRaw<Array<{ n: number; last: Date | null }>>(deleteBatchSql(policy, mode.table, rule, cutoff, limit, after));
+            const deleted = Number(res?.n ?? 0);
             if (deleted) await this.runs.progress(tx, run!.id, deleted);
-            return deleted;
+            return { deleted, last: res?.last ?? null };
           });
-          // Правило исчерпано (SKIP LOCKED оставляет занятые строки следующей ночи)
-          if (n < limit) state.rule = (state.rule ?? 0) + 1;
+          n = batch.deleted;
+          // Правило исчерпано (SKIP LOCKED оставляет занятые строки следующей ночи) — граница keyset
+          // сбрасывается; иначе следующая пачка начинает с последнего удалённого значения срока
+          if (n < limit) {
+            state.rule = (state.rule ?? 0) + 1;
+            state.after = null;
+          } else if (!rule.workspaceId && batch.last) {
+            state.after = new Date(batch.last).toISOString();
+          }
           more = state.rule! < rules.length;
         } else {
           const res = await mode.handler.purgeBatch({

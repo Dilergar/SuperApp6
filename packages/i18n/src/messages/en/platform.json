@@ -292,6 +292,10 @@
     "lifecycleRestoreImport": {
       "title": "Restore an organization from an archive",
       "description": "Returns the rows of a signed restore archive to the live database, parents first: ids are kept, existing rows are left as they are. People erased after the snapshot are erased again. The preview shows rows to return and rows already present."
+    },
+    "lifecycleErasureReplay": {
+      "title": "Replay erasures after a backup restore",
+      "description": "For the runbook of a database restore, before traffic opens: people and organizations from the erasure journal (pseudonyms from the object storage copy) that came back alive with the backup are hidden at once and erased again without a grace period. Legal holds still apply. The preview shows how many pseudonyms are submitted."
     }
   },
   "fields": {

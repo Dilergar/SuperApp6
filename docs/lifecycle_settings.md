@@ -48,7 +48,7 @@
 
 ## Уведомления
 
-Реестр `packages/shared/src/notifications/lifecycle.ts`: `lifecycle.retention.changed|cancelled` (всем членам организации, ссылка — страница организации), `lifecycle.hold.created|released` (владелец и админ, кроме хранителя — тихая заморозка), `lifecycle.erasure.completed` (владельцу стёртой организации — `notifyUserId` заявки, ссылка — `/legal/erasure`). Адресаты — `core/audiences`, ссылки — `NotificationRefRegistry` (`lifecycle_retention`, `lifecycle_hold`).
+Реестр `packages/shared/src/notifications/lifecycle.ts`: `lifecycle.retention.changed|cancelled` (всем членам организации, ссылка — страница организации; без схлопывания — `collapse: 'none'`: сокращение одного класса не перекрывает уведомление о другом), `lifecycle.hold.created|released` (владелец и админ, кроме хранителя — тихая заморозка), `lifecycle.erasure.completed` (владельцу стёртой организации — `notifyUserId` заявки, ссылка — `/legal/erasure`). Адресаты — `core/audiences`, ссылки — `NotificationRefRegistry` (`lifecycle_retention`, `lifecycle_hold`).
 
 ## Дашборд «Данные» Кабинета (`/platform/data`)
 

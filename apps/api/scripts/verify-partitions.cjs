@@ -194,7 +194,7 @@ async function main() {
         out[name] = e;
       };
       const platformHold = (await tx.$queryRawUnsafe(`INSERT INTO lifecycle_holds (scope, data_class, reason_code, note, created_by_id, created_by_kind)
-          VALUES ('class', 'operational', 'suite_probe', $1, gen_random_uuid(), 'platform_staff') RETURNING id`, `verify-partitions ${actor}`))[0].id;
+          VALUES ('class', 'operational', 'suite_probe', $1, gen_random_uuid(), 'platform') RETURNING id`, `verify-partitions ${actor}`))[0].id;
       await tryDrop('platform');
       await tx.$executeRawUnsafe(`UPDATE lifecycle_holds SET released_at = now(), released_by_id = gen_random_uuid() WHERE id = $1::uuid`, platformHold);
       const wsHold = (await tx.$queryRawUnsafe(`INSERT INTO lifecycle_holds (scope, workspace_id, data_class, reason_code, created_by_id)
@@ -281,6 +281,87 @@ async function main() {
     check('журнал стираний не TRUNCATE-ится', !!journalTrunc && /truncate is forbidden/.test(journalTrunc), journalTrunc);
 
     // ============================================================
+    console.log('\n-- 8b. функции владельцев: подмена имён из public не исполняется от владельца --');
+    // Схема public открыта на запись роли, которая ею владеет; `public.format(text, text, text)`
+    // точнее `pg_catalog.format(text, VARIADIC "any")` и при `public` в пути поиска исполнялась
+    // бы ОТ ВЛАДЕЛЬЦА данных (sa6_data_owner / sa6_audit_owner). Всё — в откатываемой транзакции.
+    const definers = await prisma.$queryRawUnsafe(`
+      SELECT p.proname AS name, coalesce(array_to_string(p.proconfig, ';'), '') AS cfg
+        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE p.prosecdef AND n.nspname = 'public' ORDER BY 1`);
+    const unsafe = definers.filter((d) => !/(^|;)search_path=pg_catalog, pg_temp(;|$)/.test(d.cfg));
+    check('каждая SECURITY DEFINER-функция public — с путём поиска pg_catalog, pg_temp', definers.length >= 5 && unsafe.length === 0, unsafe.map((d) => `${d.name}{${d.cfg}}`).join(', ') || `${definers.length} функций`);
+    const hijack = await prisma.$transaction(async (tx) => {
+      const out = {};
+      await tx.$executeRawUnsafe(`CREATE FUNCTION public.format(text, text, text) RETURNS text LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'HIJACKED as %', current_user; END $f$`);
+      await tx.$executeRawUnsafe(`CREATE FUNCTION public.format(text, text, text, text) RETURNS text LANGUAGE plpgsql AS $f$ BEGIN RAISE EXCEPTION 'HIJACKED as %', current_user; END $f$`);
+      const attempt = async (key, sql, ...params) => {
+        await tx.$executeRawUnsafe(`SAVEPOINT s_${key}`);
+        const e = await failsWith(() => tx.$queryRawUnsafe(sql, ...params));
+        await tx.$executeRawUnsafe(e ? `ROLLBACK TO SAVEPOINT s_${key}` : `RELEASE SAVEPOINT s_${key}`);
+        out[key] = e;
+      };
+      await attempt('ensure', `SELECT lifecycle_ensure_partition($1, $2::timestamptz)`, PARENT, monthStart(now.getUTCFullYear(), now.getUTCMonth() + 2).toISOString());
+      await attempt('audit', `SELECT audit_ensure_partition('2099-03-01'::date)`);
+      await attempt('analyze', `SELECT lifecycle_analyze_partitioned($1)`, PARENT);
+      throw Object.assign(new Error('rollback-hijack'), { out });
+    }, { timeout: 30_000 }).catch((e) => {
+      if (e.message !== 'rollback-hijack') throw e;
+      return e.out;
+    });
+    for (const [k, e] of Object.entries(hijack)) check(`${k}: подложенная public.format не исполнена от владельца`, !e || !/HIJACKED/.test(e), e ?? 'ok');
+
+    // Лист журнала безопасности — ATTACH (SHARE UPDATE EXCLUSIVE), не PARTITION OF (ACCESS EXCLUSIVE)
+    const auditLeaf = await prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(`SELECT audit_ensure_partition('2099-04-01'::date)`);
+      const locks = await tx.$queryRawUnsafe(`SELECT mode FROM pg_locks WHERE relation = 'public.security_events'::regclass AND pid = pg_backend_pid()`);
+      const trg = await tx.$queryRawUnsafe(`SELECT tgname, tgenabled FROM pg_trigger WHERE tgrelid = 'public.security_events_2099_04'::regclass AND NOT tgisinternal ORDER BY 1`);
+      throw Object.assign(new Error('rollback-audit-leaf'), { out: { modes: locks.map((l) => l.mode), trg } });
+    }).catch((e) => {
+      if (e.message !== 'rollback-audit-leaf') throw e;
+      return e.out;
+    });
+    check('лист security_events заводится без ACCESS EXCLUSIVE на родителя', !auditLeaf.modes.includes('AccessExclusiveLock') && auditLeaf.modes.includes('ShareUpdateExclusiveLock'), auditLeaf.modes.join(','));
+    check('у листа журнала — страж и запрет TRUNCATE в режиме ALWAYS', auditLeaf.trg.length === 2 && auditLeaf.trg.every((t) => t.tgenabled === 'A'), JSON.stringify(auditLeaf.trg));
+
+    // Учёт удалений без подтранзакции: тело триггера без EXCEPTION, строки учёта пишутся
+    const trackSrc = await prisma.$queryRawUnsafe(`SELECT prosrc AS s, coalesce(array_to_string(proconfig, ';'), '') AS cfg FROM pg_proc WHERE proname = 'lifecycle_track_delete'`);
+    // Комментарии тела в счёт не идут: слово может стоять в пояснении «вместо EXCEPTION»
+    const trackBody = trackSrc[0] ? trackSrc[0].s.replace(/--[^\n]*/g, '') : '';
+    check('триггер учёта удалений — без блока EXCEPTION (подтранзакция на каждый оператор)', !!trackSrc[0] && !/\bEXCEPTION\b/i.test(trackBody) && /search_path=pg_catalog, pg_temp/.test(trackSrc[0].cfg), trackSrc[0]?.cfg);
+    const tracked = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('CREATE TABLE lc_probe.tracked (id uuid PRIMARY KEY, workspace_id uuid)');
+      await tx.$executeRawUnsafe(`CREATE TRIGGER lifecycle_track_delete AFTER DELETE ON lc_probe.tracked REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION lifecycle_track_delete('workspace_id')`);
+      await tx.$executeRawUnsafe('INSERT INTO lc_probe.tracked SELECT gen_random_uuid(), gen_random_uuid() FROM generate_series(1, 3)');
+      await tx.$executeRawUnsafe('DELETE FROM lc_probe.tracked');
+      // `deleted_at` хранится с точностью до миллисекунды, а `now()` несёт микросекунды: строгое
+      // `>= now()` проигрывало половину прогонов на округлении вниз — допуск в секунду
+      const n = await tx.$queryRawUnsafe(`SELECT count(*)::int AS n FROM lifecycle_deleted_rows WHERE table_name = 'tracked' AND workspace_id IS NOT NULL AND deleted_at >= now() - interval '1 second'`);
+      throw Object.assign(new Error('rollback-tracked'), { out: n[0]?.n ?? 0 });
+    }).catch((e) => {
+      if (e.message !== 'rollback-tracked') throw e;
+      return e.out;
+    });
+    check('учёт удалений пишет строку на каждую удалённую (с организацией)', tracked === 3, tracked);
+
+    // Страж «история живёт с родителем»: временная таблица сессии не подменяет родителя
+    const books = (await prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM fin_audit_logs l JOIN fin_books b ON b.id = l.book_id`))[0].n;
+    if (books) {
+      const shadow = await prisma.$transaction(async (tx) => {
+        await tx.$executeRawUnsafe('CREATE TEMP TABLE fin_books (id uuid) ON COMMIT DROP');
+        await tx.$executeRawUnsafe('SAVEPOINT s_shadow');
+        const e = await failsWith(() => tx.$executeRawUnsafe('DELETE FROM fin_audit_logs WHERE id = (SELECT l.id FROM public.fin_audit_logs l JOIN public.fin_books b ON b.id = l.book_id LIMIT 1)'));
+        throw Object.assign(new Error('rollback-shadow'), { out: e });
+      }).catch((e) => {
+        if (e.message !== 'rollback-shadow') throw e;
+        return e.out;
+      });
+      check('временная fin_books не открывает удаление журнала живой книги', !!shadow && /while its parent lives/.test(shadow), shadow ?? 'deleted');
+    } else {
+      console.log('  (журнала книг финансов нет — проба подмены родителя пропущена)');
+    }
+
+    // ============================================================
     console.log('\n-- 9. реальные родители: вперёд, DEFAULT, зависшие detach, правила = реестр --');
     const specs = await prisma.$queryRawUnsafe(`SELECT parent, floor_days, data_class, hold_aware, policy_id, period FROM lifecycle_partition_specs WHERE parent <> '${PARENT}' ORDER BY parent`);
     for (const s of specs) {
@@ -323,8 +404,16 @@ async function main() {
     const probeHealth = h.json?.data?.find?.((x) => x.parent === PARENT);
     check('здоровье отвечает по всем родителям (+ security_events)', h.ok && h.json.data.some((x) => x.parent === 'public.security_events') && h.json.data.some((x) => x.parent === 'public.notification_deliveries'), h.status);
     check('проба видна в здоровье (правило из БД, не из кода)', !!probeHealth, JSON.stringify(probeHealth ?? null));
+    // Старый пустой лист реального родителя (снимки идемпотентности живут часы) — ночной сброс
+    // обязан его снять И доказать событием журнала безопасности
+    const staleDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 10));
+    const staleLeaf = (await prisma.$queryRawUnsafe(`SELECT lifecycle_ensure_partition('idem.responses', $1::timestamptz) AS leaf`, staleDay.toISOString()))[0]?.leaf;
+    const maintainedAt = new Date(Date.now() - 2000);
     const m = await call('POST', '/lifecycle/dev/partitions/maintain', s1.token, {});
     check('ночное обслуживание по запросу проходит', m.ok && Array.isArray(m.json?.data?.health), `${m.status} ${m.code ?? ''}`);
+    const staleGone = (await prisma.$queryRawUnsafe(`SELECT to_regclass($1)::text AS r`, `idem.${staleLeaf}`))[0]?.r;
+    const dropEvent = await prisma.securityEvent.findFirst({ where: { eventKey: 'lifecycle.partition.dropped', occurredAt: { gte: maintainedAt }, details: { path: ['partition'], equals: `idem.${staleLeaf}` } } });
+    check('лист старше срока сброшен ночным обслуживанием и сброс доказан журналом (lifecycle.partition.dropped)', !!staleLeaf && staleGone === null && !!dropEvent && dropEvent.details?.policy === 'table:idem.responses', `${staleLeaf} gone=${staleGone === null} event=${!!dropEvent}`);
   } finally {
     if (probeReady) await teardownProbe(prisma);
     await solo.$disconnect().catch(() => undefined);

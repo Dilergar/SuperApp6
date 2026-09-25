@@ -69,7 +69,8 @@ export class AuditLifecycleExportProvider implements OnModuleInit {
   private async owned(ctx: LifecycleExportContext, eventIds: readonly string[]): Promise<boolean> {
     if (!eventIds.length) return true;
     const rows = await this.db.securityEvent.findMany({ where: { eventId: { in: [...eventIds] } }, select: { visSubject: true, visWorkspace: true, subjectUserId: true, workspaceId: true } });
-    if (rows.length !== eventIds.length) return false;
+    // «Чужого нет»: событие, ушедшее со сброшенной по сроку партицией между страницей и
+    // проверкой, не чужое (ночной сброс не должен ронять идущую выгрузку)
     return rows.every((r) => (ctx.side === 'user' ? r.visSubject && r.subjectUserId === ctx.subjectId : r.visWorkspace && r.workspaceId === ctx.subjectId));
   }
 }

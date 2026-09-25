@@ -244,8 +244,6 @@ export const AUDIT_LIMITS = {
   sessionMaxIdleDaysOptions: [7, 30, 90, 180] as readonly number[],
   /** Устройство без активности столько дней — забывается */
   deviceForgetAfterDays: 365,
-  /** Закрытая тревога живёт столько дней: очередь разбора, не журнал (факт — событие `detect.*`) */
-  closedAlertRetentionDays: 365,
   /** Новизна клиента без X-Device-Id: ключ (ua_family, страна) живёт столько дней */
   unknownDeviceNoveltyDays: 30,
   /** Первые дни аккаунта: новое устройство — только уведомление, без тревоги */
