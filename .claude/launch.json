@@ -25,20 +25,6 @@
       ],
       "port": 3000,
       "autoPort": false
-    },
-    {
-      "name": "brand-showcase",
-      "comment": "Витрина фирменного знака: статика из design-reference/brand (showcase.html)",
-      "runtimeExecutable": "python",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8766",
-        "--directory",
-        "design-reference/brand"
-      ],
-      "port": 8766,
-      "autoPort": false
     }
   ]
 }
