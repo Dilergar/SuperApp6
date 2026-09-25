@@ -24,7 +24,7 @@ infra/
   glyph-pack/     # сборка пака значков (Phosphor + Fluent + Noto)
   pdf-fonts/      # PT Serif для PDF-рендера (казахский алфавит)
 docs/             # документация проекта (этот каталог; индекс — README.md)
-docker-compose.yml  # PostgreSQL 18 + Redis 7.4 + опциональные профили (s3, scan, voice, calls, docs, pdf, sign)
+docker-compose.yml  # PostgreSQL 18 + PgBouncer + Redis 8.10 ×2 + опциональные профили (s3, scan, voice, calls, docs, pdf, sign)
 ```
 
 Корневые документы: `/CLAUDE.md` (конституция — правила работы), `/PRODUCT.md` (продукт), `/DESIGN.md` (дизайн-система), `/docs` (архитектура и справочники).
@@ -72,7 +72,7 @@ docker-compose.yml  # PostgreSQL 18 + Redis 7.4 + опциональные пр�
 | Backend | NestJS | 10.x |
 | ORM | Prisma | 6.x |
 | Database | PostgreSQL | 18 |
-| Cache/шина | Redis | 7 |
+| Cache/шина | Redis | 8.10 (две роли: состояние + кэш) |
 | Web | Next.js | 15.x |
 | CSS | Tailwind CSS | 4.x |
 | State | Zustand | 5.x |
@@ -89,7 +89,7 @@ docker-compose.yml  # PostgreSQL 18 + Redis 7.4 + опциональные пр�
 | API | 3001 | `pnpm dev` / `npx nest start --watch` |
 | Web | 3000 | `pnpm dev` / `npx next dev` |
 | PostgreSQL 18 | 5432 | `docker compose up -d` |
-| Redis 7.4 | 6379 | `docker compose up -d` |
+| Redis 8.10 (состояние / кэш) | 6379 / 6380 | `docker compose up -d` |
 | Collabora (редактор документов) | 9980 | `docker compose --profile docs up -d` |
 | Gotenberg (PDF-рендер) | 3030 | `docker compose --profile pdf up -d` |
 | NCANode (верификатор ЭЦП) | 14579 | `docker compose --profile sign up -d` |

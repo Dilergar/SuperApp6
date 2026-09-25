@@ -28,20 +28,14 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      redis:
-        image: redis:7.4.11
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
 
     env:
       DATABASE_URL: postgresql://superapp:superapp@localhost:5432/superapp6
       # Пулера в CI нет: прямой адрес = адрес пула (миграции идут по directUrl схемы)
       DIRECT_URL: postgresql://superapp:superapp@localhost:5432/superapp6
-      REDIS_URL: redis://localhost:6379
+      # Redis — два инстанса с ACL, как в dev и проде: сьют ходит пользователем приложения
+      REDIS_URL: redis://sa6_app:sa6-dev-redis@localhost:6379
+      REDIS_CACHE_URL: redis://sa6_app:sa6-dev-redis@localhost:6380
       JWT_SECRET: ci-only-secret-0123456789abcdef0123456789
       NODE_ENV: test
       PORT: '3001'
@@ -52,6 +46,30 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2 # страж документации сравнивает HEAD~1..HEAD
+
+      # Redis — НЕ service-контейнер: сервисы стартуют до checkout и не видят конфигов репозитория.
+      # Оба инстанса — как в docker-compose.yml: тот же образ (тег берётся оттуда, второго пина нет),
+      # state.conf / cache.conf, пустой tmpfs вместо модулей образа и ACL users.dev.acl. Сьют ходит
+      # пользователем sa6_app (перечень команд): команда вне перечня краснеет здесь, а не в проде.
+      - name: Start Redis (state + cache)
+        run: |
+          image=$(grep -m1 -oE 'image: redis:[^[:space:]]+' docker-compose.yml | cut -d' ' -f2)
+          echo "Redis image (docker-compose.yml): $image"
+          for spec in state:6379 cache:6380; do
+            role=${spec%%:*}; port=${spec##*:}
+            docker run -d --name "redis-$role" -p "$port:6379" \
+              --tmpfs /usr/local/lib/redis/modules:ro,size=4k \
+              -v "$PWD/infra/redis/$role.conf:/usr/local/etc/redis/redis.conf:ro" \
+              -v "$PWD/infra/redis/users.dev.acl:/usr/local/etc/redis-acl/users.acl:ro" \
+              "$image" redis-server /usr/local/etc/redis/redis.conf --protected-mode no
+          done
+          for role in state cache; do
+            for i in $(seq 1 30); do
+              docker exec "redis-$role" redis-cli ping 2>/dev/null | grep -q PONG && break
+              sleep 1
+            done
+            docker exec "redis-$role" redis-cli ping | grep -q PONG || { docker logs "redis-$role"; exit 1; }
+          done
 
       # Версия pnpm — только из packageManager корневого package.json: второй источник
       # (`with: version`) action отвергает ошибкой «Multiple versions of pnpm specified»
@@ -180,6 +198,7 @@ jobs:
             echo "DATABASE_URL=$DATABASE_URL"
             echo "DIRECT_URL=$DIRECT_URL"
             echo "REDIS_URL=$REDIS_URL"
+            echo "REDIS_CACHE_URL=$REDIS_CACHE_URL"
             echo "JWT_SECRET=$JWT_SECRET"
             echo "NODE_ENV=test"
             echo "PORT=3001"
@@ -205,6 +224,7 @@ jobs:
           node scripts/seed-card-skins.cjs
 
       - name: Run verify suite
+        id: suite
         working-directory: apps/api
         run: |
           set -e
@@ -219,10 +239,19 @@ jobs:
           done
           exit $failed
 
+      # Отказы ACL пользователя приложения за весь прогон (ACL LOG обоих инстансов): команда вне
+      # перечня в пути с .catch() не роняет сьют — деградирует молча, поэтому ловится здесь.
+      - name: Redis ACL denials
+        if: ${{ !cancelled() && steps.suite.conclusion != 'skipped' }}
+        working-directory: apps/api
+        run: node scripts/redis-acl-denials.cjs
+
       - name: API log on failure
         if: failure()
         working-directory: apps/api
-        run: tail -200 api.log || true
+        run: |
+          tail -200 api.log || true
+          docker logs redis-state 2>&1 | tail -30 || true
 
       - name: Stop API
         if: always()

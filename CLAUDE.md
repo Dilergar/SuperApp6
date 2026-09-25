@@ -194,7 +194,7 @@ Cybersecurity - очень важен для такой экосистемы
 > **Windows:** tsc НЕ работает из Git Bash — сборки через PowerShell (`powershell -Command "cd path; command"`). Полный tsc на apps/api падает по памяти — только `nest build`.
 
 ```bash
-docker compose up -d                        # PostgreSQL 18 + Redis 7.4 (версии пинованы)
+docker compose up -d                        # PostgreSQL 18 + Redis 8.10 ×2 (версии пинованы)
 pnpm install
 cd packages/shared && pnpm build            # ПОРЯДОК НЕСУЩИЙ: shared → i18n → api-client → api/web
 cd ../i18n && pnpm build                    # prebuild сам пересоберёт messages/index.ts

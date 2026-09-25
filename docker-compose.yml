@@ -47,12 +47,18 @@ services:
       postgres:
         condition: service_healthy
 
-  # Redis — версия ПИНОВАНА: ≥ 7.4.6 (RediShell, CVSS 10); обновлять минорную осознанно.
+  # Redis — версия ПИНОВАНА: 8.10.x (минорная ≥ 8.10.2 — security-выпуск 2026-09-17, в т.ч. MULTI
+  # в обход отозванных прав ACL); обновлять осознанно, по release notes. Тег один на оба инстанса
+  # и единственный в репозитории: CI берёт его отсюда. Данные 7.x читаются как есть (AOF/RDB),
+  # обратно 8.x → 7.x — нет: откат только из копии тома (docs/dev_environment.md).
   # Две роли (docs/data_architecture.md): здесь СОСТОЯНИЕ (noeviction + AOF, REDIS_URL), кэш —
   # отдельный redis-cache ниже (allkeys-lfu, REDIS_CACHE_URL). Приложение входит пользователем
-  # sa6_app с прод-ограничениями ACL (infra/redis/users.dev.acl).
+  # sa6_app — перечень команд ACL, как в проде (infra/redis/users.dev.acl).
+  # Модули образа (Search, JSON, TimeSeries, Bloom) НЕ грузятся: entrypoint Redis 8 подключает всё
+  # из /usr/local/lib/redis/modules независимо от конфига, пустой tmpfs поверх каталога убирает
+  # неиспользуемый код и его поверхность атаки (встроенный vectorset остаётся — закрыт ACL).
   redis:
-    image: redis:7.4.11-alpine
+    image: redis:8.10.2-alpine
     container_name: superapp6-redis
     restart: unless-stopped
     # protected-mode off только в dev: dev-пользователь default без пароля (LiveKit), а
@@ -60,10 +66,12 @@ services:
     command: ['redis-server', '/usr/local/etc/redis/redis.conf', '--protected-mode', 'no']
     ports:
       - '6379:6379'
+    tmpfs:
+      - /usr/local/lib/redis/modules:ro,size=4k
     volumes:
       - redis_data:/data
       - ./infra/redis/state.conf:/usr/local/etc/redis/redis.conf:ro
-      - ./infra/redis/users.dev.acl:/usr/local/etc/redis/users.acl:ro
+      - ./infra/redis/users.dev.acl:/usr/local/etc/redis-acl/users.acl:ro
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -71,15 +79,17 @@ services:
       retries: 5
 
   redis-cache:
-    image: redis:7.4.11-alpine
+    image: redis:8.10.2-alpine
     container_name: superapp6-redis-cache
     restart: unless-stopped
     command: ['redis-server', '/usr/local/etc/redis/redis.conf', '--protected-mode', 'no']
     ports:
       - '6380:6379'
+    tmpfs:
+      - /usr/local/lib/redis/modules:ro,size=4k
     volumes:
       - ./infra/redis/cache.conf:/usr/local/etc/redis/redis.conf:ro
-      - ./infra/redis/users.dev.acl:/usr/local/etc/redis/users.acl:ro
+      - ./infra/redis/users.dev.acl:/usr/local/etc/redis-acl/users.acl:ro
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s

@@ -9,10 +9,13 @@
 //   - пул приложения идёт через PgBouncer (режим транзакций, подготовленные выражения Prisma),
 //     миграции и обслуживание — мимо него; потолки роли приложения и их снятие параметрами
 //     запуска обслуживающего подключения;
-//   - Redis в две роли: политики вытеснения инстансов, ACL приложения (KEYS/CONFIG закрыты —
-//     проверка на срабатывание), кэш-ключ ложится в инстанс кэша, а не состояния;
+//   - Redis в две роли: политики вытеснения инстансов, версия сервера = пин docker-compose.yml,
+//     модули образа не загружены, ACL приложения — перечень команд (KEYS/CONFIG, новые команды
+//     Redis 8, SORT и чужие каналы закрыты — проверка на срабатывание), кэш-ключ ложится в инстанс
+//     кэша, а не состояния;
 //   - env-валидация production требует REDIS_CACHE_URL ≠ REDIS_URL и DIRECT_URL (страж на
 //     срабатывание: подсаженная неполная конфигурация отвергается).
+const fs = require('node:fs');
 const path = require('node:path');
 const { PrismaClient } = require('@prisma/client');
 const Redis = require('ioredis');
@@ -157,12 +160,35 @@ async function main() {
     } else {
       console.log('  · REDIS_CACHE_URL не задан — один инстанс, проверки ролей пропущены');
     }
+    // Версия сервера = тег образа docker-compose.yml (единственный пин; CI берёт его оттуда же):
+    // расхождение = контейнер не пересоздан после смены тега
+    const pinned = /image:\s*redis:(\d+\.\d+\.\d+)/.exec(fs.readFileSync(path.join(__dirname, '..', '..', '..', 'docker-compose.yml'), 'utf8'))?.[1];
+    for (const [role, r] of [['состояние', state], ...(cache ? [['кэш', cache]] : [])]) {
+      const version = /redis_version:(\S+)/.exec(await r.info('server'))?.[1];
+      check(`Redis ${role}: версия = пин docker-compose.yml (${pinned})`, !!pinned && version === pinned, String(version));
+      // Модули образа (search, ReJSON, timeseries, bf) не грузятся — пустой tmpfs; vectorset встроен
+      const modules = [...(await r.info('modules')).matchAll(/module:name=([^,]+)/g)].map((m) => m[1]);
+      check(`Redis ${role}: модули образа не загружены`, modules.every((m) => m === 'vectorset'), modules.join(',') || '—');
+    }
     const who = await state.call('ACL', 'WHOAMI').catch(() => null);
     if (who && who !== 'default') {
-      const keys = await state.keys('*').then(() => 'allowed').catch((e) => String(e.message));
-      check('ACL приложения: KEYS закрыт (срабатывание)', /NOPERM/.test(keys), keys.slice(0, 80));
-      const cfg = await state.config('GET', 'maxmemory').then(() => 'allowed').catch((e) => String(e.message));
-      check('ACL приложения: CONFIG закрыт', /NOPERM/.test(cfg), cfg.slice(0, 80));
+      // Канарейки — отдельным соединением с именем: их отказы ожидаемы, redis-acl-denials.cjs их
+      // пропускает. Только неразрушающие команды: при сломанном ACL проба не должна ничего стереть.
+      const canary = new Redis(stateUrl, { maxRetriesPerRequest: 2, connectionName: 'sa6-acl-canary' });
+      try {
+        const denied = async (...args) => canary.call(...args).then(() => 'allowed').catch((e) => String(e.message));
+        const keys = await denied('KEYS', '*');
+        check('ACL приложения: KEYS закрыт (срабатывание)', /NOPERM/.test(keys), keys.slice(0, 80));
+        const cfg = await denied('CONFIG', 'GET', 'maxmemory');
+        check('ACL приложения: CONFIG закрыт', /NOPERM/.test(cfg), cfg.slice(0, 80));
+        // Перечень команд, а не категории: новые команды Redis 8 и модулей закрыты без отдельных строк
+        const redis8 = [await denied('HGETEX', 'sa6:acl-canary', 'FIELDS', '1', 'f'), await denied('VCARD', 'sa6:acl-canary'), await denied('SORT', 'sa6:acl-canary')];
+        check('ACL приложения: новые команды Redis 8 (HGETEX, VCARD) и SORT закрыты', redis8.every((m) => /NOPERM/.test(m)), redis8.map((m) => m.slice(0, 40)).join(' | '));
+        const channels = [await denied('PUBLISH', 'sa6-acl-canary', 'x'), await denied('SPUBLISH', 'sa6-acl-canary', 'x')];
+        check('ACL приложения: каналы вне socket.io#* закрыты', channels.every((m) => /NOPERM/.test(m)), channels.map((m) => m.slice(0, 40)).join(' | '));
+      } finally {
+        canary.disconnect();
+      }
       const scan = await state.scan('0', 'COUNT', 10).then(() => 'ok').catch((e) => String(e.message));
       check('ACL приложения: SCAN и INFO открыты', scan === 'ok', scan);
     } else {

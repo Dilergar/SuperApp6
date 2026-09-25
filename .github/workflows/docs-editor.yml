@@ -33,18 +33,12 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U superapp"
           --health-interval 5s --health-timeout 5s --health-retries 10
-      redis:
-        image: redis:7
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s --health-timeout 5s --health-retries 10
 
     env:
       DATABASE_URL: postgresql://superapp:superapp@localhost:5432/superapp6
       # Пулера в CI нет: прямой адрес = адрес пула (миграции идут по directUrl схемы)
       DIRECT_URL: postgresql://superapp:superapp@localhost:5432/superapp6
-      REDIS_URL: redis://localhost:6379
+      REDIS_URL: redis://sa6_app:sa6-dev-redis@localhost:6379
       JWT_SECRET: ci-only-secret-0123456789abcdef0123456789
       NODE_ENV: test
       PORT: '3001'
@@ -52,6 +46,19 @@ jobs:
     steps:
       # Actions пинованы по SHA коммита, рантайм node24 (как в ci.yml)
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Redis — как в ci.yml: образ из docker-compose.yml, конфиг и ACL репозитория, без модулей
+      # (сьюту движка документов хватает одного инстанса — роль состояния)
+      - name: Start Redis
+        run: |
+          image=$(grep -m1 -oE 'image: redis:[^[:space:]]+' docker-compose.yml | cut -d' ' -f2)
+          docker run -d --name redis-state -p 6379:6379 \
+            --tmpfs /usr/local/lib/redis/modules:ro,size=4k \
+            -v "$PWD/infra/redis/state.conf:/usr/local/etc/redis/redis.conf:ro" \
+            -v "$PWD/infra/redis/users.dev.acl:/usr/local/etc/redis-acl/users.acl:ro" \
+            "$image" redis-server /usr/local/etc/redis/redis.conf --protected-mode no
+          for i in $(seq 1 30); do docker exec redis-state redis-cli ping 2>/dev/null | grep -q PONG && break; sleep 1; done
+          docker exec redis-state redis-cli ping | grep -q PONG || { docker logs redis-state; exit 1; }
 
       - name: Read image pin
         id: pins

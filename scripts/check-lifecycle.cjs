@@ -20,6 +20,9 @@
  *   каталоги   — `lifecycle.classes|citations|policies|tables|blobs|redis|derived` в en/kk/ru, без сирот;
  *   хуки       — каждый `handler` принуждения и `registry_hook` удаления организации
  *                зарегистрирован в apps/api/src;
+ *   Redis      — права sa6_app только перечнем команд, одинаковые в users.dev.acl и
+ *                users.acl.template, без закрытых команд и категорий; оба инстанса compose — один
+ *                образ без модулей; своего образа Redis в workflows нет (тег — из compose);
  *   канарейки  — манифест `CANARY_STORES` в verify-lifecycle.cjs перечисляет каждую политику;
  *   ячейки     — ратчет `scripts/lifecycle.cell-readiness.json` (ТОЛЬКО сокращается): индексы
  *                P-моделей, не ведущие ключом владельца; FK между разными владельцами; int4 PK;
@@ -287,6 +290,65 @@ for (const f of [...API_FILES, ...SHARED_REDIS_FILES]) {
   }
 }
 for (const [lit, at] of redisUncovered) err(`ключ Redis "${lit}" (${at}) не покрыт ни одним семейством redis:* реестра`);
+
+// ---------- 4c. Redis: ACL приложения, образ, модули ----------
+// Права sa6_app — только перечень команд, одинаковый в dev и в прод-шаблоне (dev ловит закрытую
+// команду до деплоя). Категории запрещены: в Redis 8 +@read/+@write/+@all включают команды модулей
+// и каждую новую команду версии. Оба инстанса — один образ, без модулей; тег образа — только в
+// docker-compose.yml (CI берёт его оттуда, второй пин разъехался бы).
+const REDIS_INFRA = path.join(ROOT, 'infra', 'redis');
+const REDIS_COMPOSE = path.join(ROOT, 'docker-compose.yml');
+const WORKFLOWS = path.join(ROOT, '.github', 'workflows');
+/** Правила пользователя из ACL-файла без флага входа и пароля */
+function aclRulesOf(file, user) {
+  const line = read(path.join(REDIS_INFRA, file)).split(/\r?\n/).find((l) => l.startsWith(`user ${user} `));
+  if (!line) {
+    err(`infra/redis/${file}: нет пользователя ${user}`);
+    return null;
+  }
+  return line.split(/\s+/).slice(2).filter((t) => !/^(on|off|nopass|#.*|>.*)$/.test(t));
+}
+// Никогда в перечне приложения (целиком или любой подкомандой)
+const ACL_APP_FORBIDDEN = new Set(['keys', 'config', 'flushall', 'flushdb', 'debug', 'restore', 'restore-asking', 'migrate', 'module', 'monitor', 'shutdown', 'failover', 'replicaof', 'slaveof', 'sort', 'sort_ro', 'save', 'bgsave', 'bgrewriteaof', 'backup', 'swapdb', 'sync', 'psync', 'cluster', 'function', 'script', 'hotkeys']);
+// Команды-контейнеры: только названные подкоманды
+const ACL_APP_SUBCOMMANDS = { acl: ['whoami'], client: ['setname', 'setinfo'], xgroup: ['create'], xinfo: ['groups'], pubsub: ['shardnumsub'] };
+const appDev = aclRulesOf('users.dev.acl', 'sa6_app');
+const appProd = aclRulesOf('users.acl.template', 'sa6_app');
+if (appDev && appProd) {
+  if (appDev.join(' ') !== appProd.join(' ')) err('ACL sa6_app: права в infra/redis/users.dev.acl и users.acl.template расходятся (различаться может только пароль)');
+  if (!appProd.includes('-@all')) err('ACL sa6_app: нет -@all — права приложения только перечнем команд');
+  if (appProd.some((t) => /^(&\*|allchannels)$/.test(t))) err('ACL sa6_app: каналы без ограничения — только &socket.io#* (sharded pub/sub адаптера)');
+  for (const t of appProd) {
+    if (/^\+@/.test(t) || t === 'allcommands') err(`ACL sa6_app: категория ${t} — в Redis 8 категории включают команды модулей и новые команды версий; только перечень команд`);
+    const m = /^\+([a-z_-]+)(?:\|([a-z_-]+))?$/.exec(t);
+    if (!m) continue;
+    const [, cmd, sub] = m;
+    if (ACL_APP_FORBIDDEN.has(cmd)) err(`ACL sa6_app: ${t} — закрытая команда`);
+    const subs = ACL_APP_SUBCOMMANDS[cmd];
+    if (subs && !(sub && subs.includes(sub))) err(`ACL sa6_app: ${t} — у ${cmd} допустимы только подкоманды ${subs.join(', ')}`);
+  }
+}
+const composeTxt = read(REDIS_COMPOSE);
+const serviceBlock = (name) => {
+  const m = new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  [a-z][\\w-]*:\\n|\\nvolumes:)`).exec(composeTxt);
+  return m ? m[1] : null;
+};
+const redisImages = new Set();
+for (const svc of ['redis', 'redis-cache']) {
+  const block = serviceBlock(svc);
+  if (!block) {
+    err(`docker-compose.yml: нет сервиса ${svc}`);
+    continue;
+  }
+  const image = /(?:^|\n)\s+image:\s*(\S+)/.exec(block)?.[1];
+  if (image) redisImages.add(image);
+  if (!/\/usr\/local\/lib\/redis\/modules:ro/.test(block)) err(`docker-compose.yml: ${svc} грузит модули образа — нужен пустой tmpfs /usr/local/lib/redis/modules:ro`);
+  if (!/users\.dev\.acl:\/usr\/local\/etc\/redis-acl\/users\.acl:ro/.test(block)) err(`docker-compose.yml: ${svc} без ACL infra/redis/users.dev.acl по пути aclfile конфига`);
+}
+if (redisImages.size !== 1) err(`docker-compose.yml: у redis и redis-cache разные образы (${[...redisImages].join(', ')}) — одна версия на обе роли`);
+for (const f of fs.readdirSync(WORKFLOWS).filter((n) => /\.ya?ml$/.test(n))) {
+  if (/^\s*(?:-\s*)?image:\s*['"]?redis:/m.test(read(path.join(WORKFLOWS, f)))) err(`.github/workflows/${f}: свой образ Redis — тег берётся из docker-compose.yml`);
+}
 
 // ---------- 5. колонки политик ----------
 const hasCol = (model, col) => model.fields.has(col);

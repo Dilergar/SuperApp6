@@ -194,11 +194,6 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     await this.set(key, JSON.stringify(value), ttlSeconds);
   }
 
-  /** Publish event to channel */
-  async publish(channel: string, message: string): Promise<void> {
-    await this.client.publish(channel, message);
-  }
-
   // ------------------------------------------------------------
   // Distributed lock (SET key val NX PX) — ensures a scheduled job runs on a
   // single instance in a multi-instance deployment.

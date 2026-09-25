@@ -42,7 +42,7 @@
 
 ## CI (`.github/workflows/ci.yml`)
 
-PG18 + Redis 7.4 service-контейнеры (версии = docker-compose.yml) → стражи реестров → build shared + api-client → prisma generate + `migrate deploy` → build api → web tsc → линт-стражи (веб-граница + страж исходящих API) → старт API → seed → полный verify-сьют.
+PG18 service-контейнер + два Redis шагом `docker run` (образ, конфиги и ACL — из репозитория: тег читается из docker-compose.yml, сьют ходит пользователем `sa6_app`) → стражи реестров → build shared + api-client → prisma generate + `migrate deploy` → build api → web tsc → линт-стражи (веб-граница + страж исходящих API) → старт API → seed → полный verify-сьют → отказы ACL Redis за прогон (`redis-acl-denials.cjs`).
 
 Env CI: `VERIFY_TEST_PHONES` (тест-карта номеров: фикс-код, SMS не шлётся, лимиты скипаются) + `VOICE_STT_MOCK=true` (полный голосовой пайплайн без сети). Чеки, требующие живых сайдкаров, делают честный SKIP.
 

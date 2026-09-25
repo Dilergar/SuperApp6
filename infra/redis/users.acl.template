@@ -1,4 +1,4 @@
 user default off
-user sa6_app on #<sha256> ~* &* +@all -@dangerous +info -keys -config -debug -restore -restore-asking -migrate -module -monitor -shutdown -failover -replicaof -slaveof
+user sa6_app on #<sha256> resetkeys ~* resetchannels &socket.io#* -@all +ping +info +client|setname +client|setinfo +quit +acl|whoami +get +set +setex +mget +getdel +incr +incrby +decr +del +unlink +exists +expire +pexpire +ttl +pttl +rename +hset +hdel +hgetall +hincrby +rpush +lrange +ltrim +sadd +srem +smembers +spop +scard +xadd +xreadgroup +xack +xautoclaim +xgroup|create +xinfo|groups +xlen +xpending +scan +multi +exec +eval +spublish +ssubscribe +sunsubscribe +pubsub|shardnumsub
 user sa6_ops on #<sha256> ~* &* +@all
 user sa6_monitor on #<sha256> resetkeys resetchannels %R~superapp:* -@all +ping +info +config|get +slowlog|get +latency|latest +latency|history +client|list +dbsize +memory|stats +xinfo|groups +xinfo|stream +pubsub|shardnumsub
