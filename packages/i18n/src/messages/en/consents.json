@@ -155,7 +155,11 @@
     "doneTitle": "The account will be deleted on {date}",
     "doneText": "Changed your mind? Just sign in before that date — the account will be restored",
     "toLogin": "To the sign-in page",
-    "failed": "The account could not be deleted"
+    "failed": "The account could not be deleted",
+    "eraseMessages": {
+      "label": "Also erase all my messages",
+      "hint": "Your messages in chats will show “Message deleted” for everyone. Without this, they stay with your contacts, signed “Deleted user”."
+    }
   },
   "console": {
     "title": "Consents and documents",

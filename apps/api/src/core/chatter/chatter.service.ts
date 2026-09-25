@@ -7,8 +7,10 @@ import {
 } from '@nestjs/common';
 import { Prisma, ChatterEntry } from '@prisma/client';
 import {
-  SOURCE_LOCALE,
   CHATTER_LIMITS,
+  CHATTER_PERSON_ID_KEYS,
+  personRefProblems,
+  redactPersonRefs,
   CHATTER_REGISTRY,
   ChatterActorLite,
   ChatterChange,
@@ -19,6 +21,7 @@ import {
   JournalQueryInput,
   chatterTypeKeysOf,
 } from '@superapp/shared';
+import { isDevEnv } from '../../shared/config/env.validation';
 import { DatabaseService } from '../../shared/database/database.service';
 import { fullName } from '../../shared/utils/user-name';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
@@ -26,7 +29,7 @@ import { JobsService } from '../jobs/jobs.service';
 import { ChatterRefRegistry } from './chatter-ref.registry';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { forbidden, notFound } from '../../shared/errors/api-error';
-import { renderChatter, chatterChangeDisplay, type ChatterRawKind } from '@superapp/i18n';
+import { DELETED_USER_MARKER, renderChatter, chatterChangeDisplay, type ChatterRawKind } from '@superapp/i18n';
 
 /** Тип джоба проекции плашки (core/jobs); payload = { entryId }, uniqueKey = `ce:<id>`. */
 export const CHATTER_CHATPOST_JOB = 'chatter.chatpost';
@@ -101,12 +104,12 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
 
   /**
    * Стирание актора (реестр core/lifecycle: `ChatterEntry` — pseudonymize `actorName`): снимок
-   * имени в записях человека заменяется меткой «удалённый пользователь» в языке ИСТОЧНИКА (как
-   * имя его строки User). Пачками по ctid — у активного человека сотни тысяч записей;
+   * имени в записях человека заменяется маркером томбстоуна `DELETED_USER_MARKER` (как имя его
+   * строки User; зритель видит метку на своём языке). Пачками по ctid — у активного человека сотни тысяч записей;
    * идемпотентно (уже заменённые не трогаются). Возвращает число изменённых строк.
    */
   async redactActor(userId: string, batch = 5000): Promise<number> {
-    const label = this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.deletedUser');
+    const label = DELETED_USER_MARKER;
     let total = 0;
     for (;;) {
       const n = await this.db.$executeRaw`
@@ -116,7 +119,62 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
                  LIMIT ${batch}) d
          WHERE t.ctid = d.ctid`;
       total += n;
-      if (n < batch) return total;
+      if (n < batch) break;
+    }
+    return total + (await this.redactPersonJson(userId, label));
+  }
+
+  /**
+   * Имена человека ВНУТРИ записей, где он не актор: цель записи (`targetName` рядом с
+   * `targetUserId`), заместитель (`deputyLabel` / `deputyUserId`), значения «было → стало»
+   * (`from` / `to` рядом с `fromUserId` / `toUserId`). Строки находит GIN-индекс
+   * `chatter_person_ids` (без скана таблицы); id остаётся — зритель рисует томбстоун.
+   */
+  private async redactPersonJson(userId: string, label: string, batch = 500): Promise<number> {
+    let total = 0;
+    let after = 0n;
+    for (;;) {
+      const rows = await this.db.$queryRaw<Array<{ id: bigint; payload: Prisma.JsonValue; changes: Prisma.JsonValue }>>`
+        SELECT id, payload, changes FROM "chatter_entries"
+         WHERE chatter_person_ids(payload, changes) @> ARRAY[${userId}]::text[] AND chatter_person_ids(payload, changes) <> '{}'::text[]
+           AND id > ${after}
+         ORDER BY id LIMIT ${batch}`;
+      if (!rows.length) return total;
+      await this.db.$transaction(async (tx) => {
+        for (const r of rows) {
+          const next = redactPersonRefs(r.payload, r.changes, userId, label);
+          if (!next.changed) continue;
+          await tx.chatterEntry.update({
+            where: { id: r.id },
+            data: {
+              payload: next.payload === null ? Prisma.DbNull : (next.payload as Prisma.InputJsonValue),
+              changes: next.changes === null ? Prisma.DbNull : (next.changes as Prisma.InputJsonValue),
+            },
+          });
+          total++;
+        }
+      });
+      after = rows[rows.length - 1]!.id;
+      if (rows.length < batch) return total;
+    }
+  }
+
+  /**
+   * Имя человека в JSON записи — только парой с его id (`PERSON_NAME_REFS`): иначе стирание
+   * его не найдёт. В деве и сьютах нарушение — ошибка (ловится сразу), в проде — журнал
+   * (доменная операция не ломается из-за формы хроники).
+   */
+  private assertPersonRefs(entries: ChatterLogInput[]): void {
+    for (const e of entries) {
+      const problems = personRefProblems(e.payload, CHATTER_PERSON_ID_KEYS);
+      for (const [i, c] of (e.changes ?? []).entries()) {
+        if (c.fromUserId !== undefined && c.fromUserId !== null && typeof c.fromUserId !== 'string') problems.push(`changes[${i}].fromUserId is not an id`);
+        if (c.toUserId !== undefined && c.toUserId !== null && typeof c.toUserId !== 'string') problems.push(`changes[${i}].toUserId is not an id`);
+      }
+      if (!problems.length) continue;
+      const msg = `chatter ${e.typeKey}: person names without ids — ${problems.join('; ')}`;
+      if (isDevEnv()) throw new Error(msg);
+      this.logger.error(msg);
     }
   }
 
@@ -195,6 +253,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
   async logMany(tx: Tx | null, entries: ChatterLogInput[]): Promise<void> {
     if (entries.length === 0) return;
     const named = await this.withActorNames(tx, entries);
+    this.assertPersonRefs(named);
     const data = named.map((e) => this.toRow(e));
     if (tx) {
       await this.createWithJobs(tx, data);

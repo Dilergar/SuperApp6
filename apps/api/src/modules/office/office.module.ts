@@ -5,6 +5,7 @@ import { OfficeController } from './office.controller';
 import { OfficeCron } from './office.cron';
 import { OfficeRichCardsProvider } from './office-rich-cards.provider';
 import { OfficeNotificationRefsProvider } from './office-notification-refs.provider';
+import { OfficeLifecycleProvider } from './office.lifecycle.provider';
 
 /**
  * OfficeModule — сервис «Виртуальный офис» (B2B): видеовстречи организации на движке
@@ -21,6 +22,8 @@ import { OfficeNotificationRefsProvider } from './office-notification-refs.provi
     OfficeService,
     OfficeCron,
     OfficeRichCardsProvider,
+    // Движок сроков: посев канарейки стирания (участие во встрече)
+    OfficeLifecycleProvider,
     // Строковый токен для ленивого ModuleRef-резолва из WorkspacesService (каскад
     // увольнения снимает участия во встречах) — избегаем цикла модулей, паттерн проекта.
     { provide: 'OfficeService', useExisting: OfficeService },

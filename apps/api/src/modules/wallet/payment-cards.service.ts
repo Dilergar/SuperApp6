@@ -2,12 +2,14 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { UserPaymentCard } from '@prisma/client';
 import {
   REQUISITE_LIMITS,
+  createPaymentCardSchema,
   maskCardPan,
   type CreatePaymentCardInput,
   type UpdatePaymentCardInput,
   type UserPaymentCardDto,
 } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { LifecycleCanaryRegistry, type LifecycleCanaryContext, type LifecycleCanaryPlant } from '../../core/lifecycle/lifecycle.purge.registry';
 import { badRequest, notFound } from '../../shared/errors/api-error';
 import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
 import { KeysFieldRegistry } from '../../core/keys/keys.registry';
@@ -52,10 +54,12 @@ export class PaymentCardsService implements OnModuleInit {
     private readonly db: DatabaseService,
     private readonly keys: KeysEnvelopeService,
     private readonly keyFields: KeysFieldRegistry,
+    private readonly canary: LifecycleCanaryRegistry,
   ) {}
 
   /** Колонки карт — в реестре движка ключей: перешивка при ротации KEK, legacy-джоб. */
   onModuleInit(): void {
+    this.canary.register('wallet.cards', (ctx) => this.seedCanary(ctx));
     for (const [column, field] of [
       ['pan_encrypted', 'pan'],
       ['iban_encrypted', 'iban'],
@@ -71,6 +75,15 @@ export class PaymentCardsService implements OnModuleInit {
         legacyDecrypt: (stored) => legacyCardPlain(stored),
       });
     }
+  }
+
+  /**
+   * Посев канарейки стирания: карта человека живым путём (номер — тестовый, шифрование — KEK
+   * человека). Стирается общим шагом оркестратора по `userId`.
+   */
+  private async seedCanary(ctx: LifecycleCanaryContext): Promise<LifecycleCanaryPlant[]> {
+    const card = await this.create(ctx.userId, createPaymentCardSchema.parse({ pan: '4000000000000002', holderName: 'CANARY', expMonth: 12, expYear: 2099 }));
+    return [{ policy: 'UserPaymentCard', id: card.id, expect: 'gone' }];
   }
 
   private ctx(userId: string, field: CardField) {

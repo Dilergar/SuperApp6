@@ -48,6 +48,13 @@ export interface ChatterChange {
    * `from`/`to` символы маски, `hidden` — значений нет, клиент пишет «изменено».
    */
   concealed?: 'masked' | 'hidden';
+  /**
+   * Значение — ЧЕЛОВЕК (ответственный, руководитель): его id рядом со снимком имени в
+   * `from` / `to`. Обязательно для такого значения — стирание человека переписывает снимок
+   * меткой «удалённый пользователь» по id (`CHANGE_PERSON_ID_KEYS`, core/lifecycle).
+   */
+  fromUserId?: string | null;
+  toUserId?: string | null;
 }
 
 /** Лайт-профиль актёра для PersonChip (батч-обогащение страницы) */

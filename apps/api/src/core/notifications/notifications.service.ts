@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { Prisma } from '@prisma/client';
-import { SOURCE_LOCALE, uuidv7 } from '@superapp/shared';
-import type { Locale } from '@superapp/i18n';
+import { NOTIFICATION_PERSON_ID_KEYS, SOURCE_LOCALE, personRefProblems, redactPersonRefs, uuidv7 } from '@superapp/shared';
+import { DELETED_USER_MARKER, type Locale } from '@superapp/i18n';
 import {
   NOTIFICATION_LIMITS,
   NOTIFICATION_PERSONAL_CONTEXT,
@@ -26,6 +26,7 @@ import {
   type NotificationsCountsBusPayload,
   type RichCardRefType,
 } from '@superapp/shared';
+import { isDevEnv } from '../../shared/config/env.validation';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { utcTs } from '../../shared/database/sql-time';
@@ -113,6 +114,14 @@ export class NotificationsService {
     }
 
     const payload = input.payload ?? {};
+    // Имя человека в payload — только парой с его id (стирание найдёт его по id): в деве и
+    // сьютах нарушение — ошибка, в проде — журнал (доставка не ломается из-за формы payload)
+    const refProblems = personRefProblems(payload, NOTIFICATION_PERSON_ID_KEYS);
+    if (refProblems.length) {
+      const msg = `notification ${input.type}: person names without ids — ${refProblems.join('; ')}`;
+      if (isDevEnv()) throw new Error(msg);
+      this.logger.error(msg);
+    }
     // Снимок текста в языке-источнике — фолбэк для типов, ушедших из реестра (как у хроники)
     const snapshot = this.renderer.render(SOURCE_LOCALE, input.type, payload);
     const eventId = uuidv7();
@@ -471,7 +480,37 @@ export class NotificationsService {
           FROM (SELECT ctid FROM "notification_events" WHERE "actor_id" = ${userId}::uuid AND "snapshot" IS NOT NULL LIMIT ${batch}) d
          WHERE t.ctid = d.ctid`;
       total += n;
-      if (n < batch) return total;
+      if (n < batch) break;
+    }
+    return total + (await this.redactPersonPayloads(userId));
+  }
+
+  /**
+   * События, где человек не актор, но его имя лежит в payload парой с id («о ком» событие,
+   * кто принял приглашение, владелец книги): имя — меткой «удалённый пользователь», снимок
+   * текста (собран из этого имени) — NULL. Строки находит GIN-индекс `notification_person_ids`.
+   */
+  private async redactPersonPayloads(userId: string, batch = 500): Promise<number> {
+    const label = DELETED_USER_MARKER;
+    let total = 0;
+    let after = '00000000-0000-0000-0000-000000000000';
+    for (;;) {
+      const rows = await this.db.$queryRaw<Array<{ id: string; payload: Prisma.JsonValue; snapshot: Prisma.JsonValue | null }>>`
+        SELECT id::text AS id, payload, snapshot FROM "notification_events"
+         WHERE notification_person_ids(payload) @> ARRAY[${userId}]::text[] AND notification_person_ids(payload) <> '{}'::text[]
+           AND id > ${after}::uuid
+         ORDER BY id LIMIT ${batch}`;
+      if (!rows.length) return total;
+      await this.db.$transaction(async (tx) => {
+        for (const r of rows) {
+          const next = redactPersonRefs(r.payload, null, userId, label);
+          if (!next.changed && r.snapshot === null) continue;
+          await tx.notificationEvent.update({ where: { id: r.id }, data: { payload: next.payload as Prisma.InputJsonValue, snapshot: Prisma.DbNull } });
+          total++;
+        }
+      });
+      after = rows[rows.length - 1]!.id;
+      if (rows.length < batch) return total;
     }
   }
 

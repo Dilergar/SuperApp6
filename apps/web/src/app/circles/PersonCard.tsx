@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
 import type { Formatters } from '@superapp/i18n/format';
+import { isDeletedUserMarker } from '@superapp/i18n/person-marker';
 import { useFormatters } from '@/lib/format';
 import {
   Button,
@@ -169,11 +170,16 @@ export const PersonChip = memo(function PersonChip({
   avatar?: string | null;
 }) {
   const skin = usePersonSkin(userId) || DEFAULT_SKIN;
+  const tc = useTranslations('common');
+  // Стёртый человек (core/lifecycle): имя в базе — маркер томбстоуна на языке источника,
+  // зритель видит метку «удалённый пользователь» на своём языке
+  const deleted = isDeletedUserMarker(firstName, lastName);
+  const shownFirst = deleted ? tc('labels.deletedUser') : firstName;
   const person: CardPerson = {
-    firstName,
-    lastName,
+    firstName: shownFirst,
+    lastName: deleted ? null : lastName,
     phone: null,
-    avatarInitial: (firstName || '?').charAt(0).toUpperCase(),
+    avatarInitial: (shownFirst || '?').charAt(0).toUpperCase(),
     avatar,
     birthday: null, age: null, city: null, bio, maritalStatus: null,
     email: null, socialLinks: null, presenceMode: 'none', role, presenceLine: null,

@@ -364,7 +364,7 @@ export class NotesShareService {
         to: [{ userId: input.principalId }],
         payload: {
           // Имя — данные; его отсутствие — слово продукта, и оно едет ключом.
-          ...(actor ? { ownerName: fullName(actor) } : { ownerNameKey: 'common.labels.someone' }),
+          ...(actor ? { ownerName: fullName(actor), ownerUserId: actorId } : { ownerNameKey: 'common.labels.someone' }),
           ...name,
           role: input.role,
         },

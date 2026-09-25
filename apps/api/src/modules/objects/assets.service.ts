@@ -504,7 +504,8 @@ export class AssetsService {
         workspaceId,
         actorId: userId,
         typeKey: 'asset.custodian_set',
-        changes: [{ field: 'custodian', label: this.fieldLabel('custodian'), from: fromName, to: toName }],
+        // Значения — люди: id рядом со снимками имён (стирание перепишет снимок меткой)
+        changes: [{ field: 'custodian', label: this.fieldLabel('custodian'), from: fromName, to: toName, fromUserId: asset.custodianUserId ?? null, toUserId: dto.custodianUserId ?? null }],
       });
       return row;
     });

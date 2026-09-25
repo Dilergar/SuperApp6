@@ -31,7 +31,8 @@
     "visibilityExplain": "Проверка «что видит сотрудник»",
     "visibilityPresets": "Пресеты правил видимости",
     "visibilityMaxRules": "Правила видимости",
-    "visibilityRevealsPerDay": "Раскрытий данных в сутки"
+    "visibilityRevealsPerDay": "Раскрытий данных в сутки",
+    "lifecycleHolds": "Заморозки данных"
   },
   "lock": {
     "quotaFull": "Место на Диске закончилось",
@@ -73,7 +74,8 @@
     "shop": "Магазин",
     "workspaces": "Организации",
     "audit": "Журнал безопасности",
-    "visibility": "Правила видимости"
+    "visibility": "Правила видимости",
+    "lifecycle": "Жизненный цикл данных"
   },
   "source": {
     "grant": "Подарок до {date}",

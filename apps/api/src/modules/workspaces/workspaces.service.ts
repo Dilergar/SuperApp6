@@ -24,10 +24,13 @@ import { EntitlementsService } from '../../core/entitlements/entitlements.servic
 import { AnalyticsService } from '../../core/analytics/analytics.service';
 import { ConsentsService } from '../../core/consents/consents.service';
 import { ConsentsDocumentsService } from '../../core/consents/consents.documents.service';
+import { ConsentsActionsService } from '../../core/consents/consents.actions.service';
+import { SmsOutboundService } from '../../core/verify/sms-outbound.service';
 import { AuditService } from '../../core/audit/audit.service';
 import { LifecycleTenantPurgeService } from '../../core/lifecycle/lifecycle.tenant-purge';
+import { LifecycleErasureService } from '../../core/lifecycle/lifecycle.erasure.service';
 import { LifecycleBlastRadiusError, LifecycleTenantHeldError } from '../../core/lifecycle/lifecycle.purge.registry';
-import { lockHoldsShared, tenantHeld } from '../../core/lifecycle/lifecycle.sql';
+import { workspaceHeld } from '../../core/lifecycle/lifecycle.sql';
 import { consentsRequired } from '../../shared/config/env.validation';
 import type { ConsentSelectionInput } from '@superapp/shared';
 import { RedisService } from '../../shared/redis/redis.service';
@@ -120,9 +123,12 @@ export class WorkspacesService implements OnModuleInit {
     private consentDocs: ConsentsDocumentsService,
     private audit: AuditService,
     private tenantPurge: LifecycleTenantPurgeService,
+    private erasure: LifecycleErasureService,
     private readonly userCards: UserCardService,
     private readonly visibility: VisibilityService,
     private readonly discoverability: VisibilityDiscoverabilityService,
+    private readonly pdActions: ConsentsActionsService,
+    private readonly smsOutbound: SmsOutboundService,
   ) {}
 
   /**
@@ -583,14 +589,19 @@ export class WorkspacesService implements OnModuleInit {
    * `archivedAt` (иначе отсчёт до удаления начинался бы заново) и не пишет второе
    * событие журнала и аналитики.
    */
-  async deactivateWorkspace(userId: string, workspaceId: string): Promise<void> {
+  async deactivateWorkspace(userId: string, workspaceId: string): Promise<{ archived: boolean; receipt: string | null }> {
     await this.assertOwner(userId, workspaceId);
+    let receipt: string | null = null;
     const archived = await this.db.$transaction(async (tx) => {
+      const archivedAt = new Date();
       const { count } = await tx.workspace.updateMany({
         where: { id: workspaceId, isActive: true },
-        data: { isActive: false, archivedAt: new Date() },
+        data: { isActive: false, archivedAt },
       });
       if (count === 0) return false;
+      // Заявка на стирание (оркестратор core/lifecycle): срок = конец архива, скрыта с архива.
+      // Код квитанции — владельцу; через 48 ч интеграциям уйдёт lifecycle.workspace.redact
+      receipt = (await this.erasure.request(tx, { subject: { type: 'workspace', id: workspaceId }, effectiveAt: workspacePurgeAt(archivedAt), hiddenAt: archivedAt })).receipt;
       // Журнал безопасности организации (core/audit): архив — событие той же транзакцией
       await this.audit.record(tx, { key: 'org.workspace.archived', workspaceId, target: { type: 'workspace', id: workspaceId }, details: {} });
       await this.analytics.track(tx, 'workspaces.workspace.archived', {}, { userId, workspaceId });
@@ -599,6 +610,31 @@ export class WorkspacesService implements OnModuleInit {
     // Счётчик «Пространств» в /users/me считает ЖИВЫЕ организации и кэшируется 5 минут —
     // без сброса человек полчаса видит «2 Пространств» над пустым списком.
     if (archived) await this.redis.invalidateUserProfile(userId);
+    if (receipt) this.sendReceiptSms(userId, workspaceId, receipt);
+    return { archived, receipt };
+  }
+
+  /**
+   * Ссылка на квитанцию стирания — SMS владельцу (план core/lifecycle: «сертификат доступен
+   * владельцу по SMS-ссылке»; почты у платформы нет). Код в базе только отпечатком: без SMS
+   * закрытый экран унёс бы его навсегда. Best-effort после коммита: архив уже случился.
+   */
+  private sendReceiptSms(userId: string, workspaceId: string, receipt: string): void {
+    void (async () => {
+      const [owner, ws] = await Promise.all([
+        this.db.user.findUnique({ where: { id: userId }, select: { phone: true, locale: true } }),
+        this.db.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } }),
+      ]);
+      if (!owner?.phone || !ws) return;
+      const url = `${(process.env.WEB_URL || 'http://localhost:3000').replace(/\/+$/, '')}/legal/erasure/${receipt}`;
+      const text = this.i18n.translateFor(coerceLocale(owner.locale), 'notifications.sms.workspaceErasureReceipt', {
+        name: ws.name,
+        days: WORKSPACE_LIMITS.archiveRetentionDays,
+        url,
+      });
+      if (!(await this.smsOutbound.sendErasureReceipt(userId, owner.phone, text))) return;
+      await this.pdActions.record(null, { subjectId: userId, recipient: 'kazinfoteh', fields: ['phone', 'notification_text'], purpose: 'service_sms', refType: 'workspace_erasure', refId: workspaceId, workspaceId });
+    })().catch((err) => this.logger.warn(`The erasure receipt SMS was not sent: ${(err as Error).message}`));
   }
 
   /**
@@ -646,6 +682,8 @@ export class WorkspacesService implements OnModuleInit {
       });
       if (count === 0) return false;
       await this.audit.record(tx, { key: 'org.workspace.restored', workspaceId, target: { type: 'workspace', id: workspaceId }, details: {} });
+      // Стирание отменяется той же транзакцией (квитанция покажет «отменено»)
+      await this.erasure.cancel(tx, { type: 'workspace', id: workspaceId });
       return true;
     });
     if (restored) await this.redis.invalidateUserProfile(userId);
@@ -675,8 +713,9 @@ export class WorkspacesService implements OnModuleInit {
     if (!ws) return { rows: 0 };
     let consentsAfterPurge: (() => Promise<void>) | null = null;
     const memberIds = await this.db.$transaction(async (tx) => {
-      await lockHoldsShared(tx);
-      if (await tenantHeld(tx, workspaceId)) throw new LifecycleTenantHeldError(workspaceId);
+      // Под общим замком заморозок: удерживаемое среди данных организации (в том числе заморозкой
+      // платформы) держит строку — её FK-каскад снёс бы удержанное
+      if (await workspaceHeld(tx, workspaceId, true)) throw new LifecycleTenantHeldError(workspaceId);
       consentsAfterPurge = (await this.consents.revokeAllForSubject(tx, { type: 'workspace', id: workspaceId }, 'workspace_purged', null)).afterCommit;
       const members = await tx.workspaceMember.findMany({ where: { workspaceId }, select: { userId: true }, take: 100_000 });
       await this.audit.record(tx, {
@@ -834,7 +873,7 @@ export class WorkspacesService implements OnModuleInit {
     for (const w of due.slice(0, opts.limit ?? LIFECYCLE_LIMITS.tenantPurgesPerRun)) {
       const id = asWorkspaceId(w.id);
       try {
-        if (await this.tenantPurge.isHeld(id)) continue;
+        if (await this.tenantPurge.isHeld(id, { deep: true })) continue;
         if (opts.inline) {
           await this.tenantPurge.purgeNow(id);
           purged++;
@@ -1244,6 +1283,48 @@ export class WorkspacesService implements OnModuleInit {
     });
   }
 
+  /**
+   * Стирание человека (шаг `workspaces.subject` оркестратора core/lifecycle): выход из КАЖДОЙ
+   * организации тем же путём, что «ушёл сам» — назначения и замещения, офис, шаги
+   * согласований, роли, ключи и боты, вебхук `workspaces.member.left`, журнал, хроника
+   * (имя — уже томбстоун). Членство под заморозкой организации остаётся (`held`). Владелец
+   * организации стереться не может (блокер удаления «единственный владелец») — такая строка
+   * пропускается с предупреждением, а не ломает стирание.
+   */
+  async eraseMemberships(
+    userId: string,
+    ctx: { deadline: number | null; held(rows: number): void; releasable(tx: Prisma.TransactionClient, policyId: string, ids: readonly string[]): Promise<string[]> },
+  ): Promise<{ rows: number; done: boolean }> {
+    const memberships = await this.db.workspaceMember.findMany({ where: { userId }, select: { id: true, workspaceId: true, workspace: { select: { ownerId: true } } }, orderBy: { id: 'asc' } });
+    let rows = 0;
+    for (const m of memberships) {
+      if (ctx.deadline !== null && Date.now() > ctx.deadline) return { rows, done: false };
+      if (m.workspace.ownerId === userId) {
+        this.logger.warn(`erasure of ${userId}: owner of ${m.workspaceId} — membership kept (ownership must be transferred first)`);
+        continue;
+      }
+      const free = await this.db.$transaction((tx) => ctx.releasable(tx, 'WorkspaceMember', [m.id]));
+      if (!free.length) {
+        ctx.held(1);
+        continue;
+      }
+      const role = await this.getMyRole(userId, m.workspaceId).catch(() => null);
+      await this.releaseMemberFootprint(m.workspaceId, userId, userId);
+      const cut = await this.cutMembership(m.workspaceId, userId, { exit: 'left', keysReason: 'left', actorId: userId, role });
+      if (!cut) continue;
+      await this.chatter.log(null, {
+        refType: 'workspace',
+        refId: m.workspaceId,
+        workspaceId: m.workspaceId,
+        actorId: userId,
+        actorName: await this.userName(userId),
+        typeKey: 'staff.left',
+      });
+      rows++;
+    }
+    return { rows, done: true };
+  }
+
   /** Voluntary leave (non-owner). */
   async leaveWorkspace(userId: string, workspaceId: string): Promise<void> {
     const ws = await this.getWorkspaceOrThrow(workspaceId);
@@ -1279,6 +1360,36 @@ export class WorkspacesService implements OnModuleInit {
    * Опционально должность+филиал «с порога»: при принятии назначение создаётся само.
    * Дневных лимитов и кулдаунов нет (решение продукта: «нанять всех за день»).
    */
+  /**
+   * Организация канарейки стирания (core/lifecycle): те же строки, что создание и приём
+   * сотрудника, — организация, членства, роли (владелец и сотрудник), объект по умолчанию,
+   * головное юрлицо. Без согласий, триала, журнала и аналитики: синтетика живёт минуты и
+   * эффектов наружу не рассылает. Только для канарейки.
+   */
+  async createCanaryWorkspace(ownerId: string, memberId: string, name: string): Promise<string> {
+    const ws = await this.db.$transaction(async (tx) => {
+      const w = await tx.workspace.create({ data: { name, ownerId }, select: { id: true } });
+      await tx.workspaceMember.createMany({ data: [{ workspaceId: w.id, userId: ownerId }, { workspaceId: w.id, userId: memberId }] });
+      await tx.userRole.createMany({
+        data: [
+          { userId: ownerId, role: 'owner', context: WS_CONTEXT, tenantId: w.id, grantedBy: ownerId },
+          { userId: memberId, role: 'staff', context: WS_CONTEXT, tenantId: w.id, grantedBy: ownerId },
+        ],
+      });
+      await tx.staffBranch.create({ data: { workspaceId: w.id, name, isDefault: true } });
+      await tx.legalEntity.create({ data: { workspaceId: w.id, name, isHead: true, ...this.legal.defaultSignBasis() } });
+      return w;
+    });
+    await this.roles.invalidateUserCache(ownerId);
+    await this.roles.invalidateUserCache(memberId);
+    return ws.id;
+  }
+
+  /** Архив организации канарейки: purge-каскад принимает только архивную. */
+  async archiveCanaryWorkspace(workspaceId: string): Promise<void> {
+    await this.db.workspace.updateMany({ where: { id: workspaceId, isActive: true }, data: { isActive: false, archivedAt: new Date() } });
+  }
+
   async inviteMember(
     userId: string,
     workspaceId: string,
@@ -1589,7 +1700,7 @@ export class WorkspacesService implements OnModuleInit {
     await this.notifications.send(null, {
       type: 'workspace.invitation.accepted',
       to: [{ userId: inv.invitedBy }],
-      payload: { workspaceId: inv.workspaceId, workspaceName: inv.workspace.name, byName: me ? this.fullName(me) : '' },
+      payload: { workspaceId: inv.workspaceId, workspaceName: inv.workspace.name, byUserId: userId, byName: me ? this.fullName(me) : '' },
       workspaceId: inv.workspaceId,
       actorId: userId,
       actionUrl: `/workspaces/${inv.workspaceId}/members`,
@@ -1626,7 +1737,7 @@ export class WorkspacesService implements OnModuleInit {
     await this.notifications.send(null, {
       type: 'workspace.invitation.rejected',
       to: [{ userId: inv.invitedBy }],
-      payload: { workspaceId: inv.workspaceId, workspaceName: inv.workspace.name, byName: me ? this.fullName(me) : '' },
+      payload: { workspaceId: inv.workspaceId, workspaceName: inv.workspace.name, byUserId: userId, byName: me ? this.fullName(me) : '' },
       workspaceId: inv.workspaceId,
       actorId: userId,
       actionUrl: `/workspaces/${inv.workspaceId}/members/invites`,

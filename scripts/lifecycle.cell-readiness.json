@@ -181,7 +181,6 @@
     "apps/api/src/core/platform/platform-access.service.ts#holdersOf",
     "apps/api/src/core/platform/platform-access.service.ts#listStaff",
     "apps/api/src/core/platform/platform-access.service.ts#ownerIds",
-    "apps/api/src/core/users/users.service.ts#findExpiredDeletions",
     "apps/api/src/core/webhooks/webhooks.service.ts#list",
     "apps/api/src/modules/calendar/calendar.service.ts#listShares",
     "apps/api/src/modules/calendar/resources.service.ts#list",

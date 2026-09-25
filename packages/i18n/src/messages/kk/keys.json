@@ -371,7 +371,9 @@
       "security_consents_recorded": "Қауіпсіздік: келісімдер",
       "security_detect_recorded": "Қауіпсіздік: анықтаулар",
       "security_sharing_recorded": "Қауіпсіздік: қолжетімділік және жария сілтемелер",
-      "security_files_recorded": "Қауіпсіздік: файлдар"
+      "security_files_recorded": "Қауіпсіздік: файлдар",
+      "lifecycle_person_redact": "Адам өшірілді — оның деректерін жойыңыз",
+      "lifecycle_workspace_redact": "Ұйым мұрағатталды — оның деректерін жойыңыз"
     },
     "createdTitle": "Вебхук құрылды",
     "createdNote": "Бұл қолтаңба құпиясы. Ол бір рет қана көрсетіледі — қабылдағышқа қазір қойыңыз.",

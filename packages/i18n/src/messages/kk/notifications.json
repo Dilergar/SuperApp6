@@ -720,7 +720,8 @@
   },
   "sms": {
     "text": "SuperApp6: {title}",
-    "accountDeletionScheduled": "SuperApp6: аккаунтты жою сұралды. Сіз емес пе? Болдырмау үшін {days, plural, one {# күн} other {# күн}} ішінде кіріңіз."
+    "accountDeletionScheduled": "SuperApp6: аккаунтты жою сұралды. Сіз емес пе? Болдырмау үшін {days, plural, one {# күн} other {# күн}} ішінде кіріңіз.",
+    "workspaceErasureReceipt": "SuperApp6: «{name}» ұйымы мұрағатта, қайтарылмаса, {days, plural, one {# күннен} other {# күннен}} кейін өшіріледі. Өшіру түбіртегі: {url}"
   },
   "staff": {
     "deputy": {

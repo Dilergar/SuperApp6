@@ -5,7 +5,8 @@
 //   1. проверка — блокеры (мотивированный отказ, ЗоПД ст. 8 п. 7) показываются ДО пароля;
 //   2. что произойдёт — отзыв согласия, 15 рабочих дней, грейс на восстановление, что останется;
 //   3. подтверждение — пароль → SMS-код на свой номер (цель `account_delete`);
-//   4. готово — «Аккаунт будет удалён DD.MM».
+//   4. готово — «Аккаунт будет удалён DD.MM» + код квитанции стирания (core/lifecycle): после
+//      удаления это единственный ключ человека к этапам и подписанному сертификату.
 // ============================================================
 
 import { useEffect, useState } from 'react';
@@ -13,8 +14,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslations } from 'next-intl';
-import { WORKSPACE_LIMITS, type AccountDeletionBlockersDto, type ConsentPendingDto, type WorkspaceMember } from '@superapp/shared';
-import { Alert, Button, ConfirmDialog, Input, LoadingBlock } from '@/components/ui';
+import { WORKSPACE_LIMITS, type AccountDeletionBlockersDto, type AccountDeletionResultDto, type ConsentPendingDto, type WorkspaceArchiveResultDto, type WorkspaceMember } from '@superapp/shared';
+import { Alert, Button, Checkbox, ConfirmDialog, Input, LoadingBlock } from '@/components/ui';
 import { EntitySelector } from '@/components/EntitySelector';
 import { OtpStep } from '@/components/verify/OtpStep';
 import { useOtpFlow } from '@/components/verify/otp-flow';
@@ -27,6 +28,8 @@ import { useAuthStore } from '@/lib/stores/auth';
 import { AuthLayout } from '../../auth-ui';
 
 import { toastApiError } from '@/lib/api-errors';
+import { ErasureReceiptCode } from '@/components/lifecycle/ErasureReceiptCode';
+
 type Step = 'check' | 'consequences' | 'confirm' | 'done';
 const STEPS: Array<{ key: Step; labelKey: string }> = [
   { key: 'check', labelKey: 'deletion.steps.check' },
@@ -35,19 +38,13 @@ const STEPS: Array<{ key: Step; labelKey: string }> = [
   { key: 'done', labelKey: 'deletion.steps.done' },
 ];
 
-interface DeletionResult {
-  scheduled: boolean;
-  gracePeriodDays: number;
-  purgeAt: string;
-}
-
 /**
  * Выход для единственного владельца — ПРЯМО В МАСТЕРЕ: передать владение или отправить организацию
  * в архив. Страницы организации за блокирующим экраном согласий недоступны, а человек, не
  * принимающий новые условия, обязан иметь возможность удалить аккаунт (отзыв согласия — его право).
  * Оба маршрута API и список сотрудников работают вне шлюза (`@SkipConsentGate`).
  */
-function SoleOwnerActions({ workspace, gated, onDone }: { workspace: { id: string; name: string }; gated: boolean; onDone: () => void }) {
+function SoleOwnerActions({ workspace, gated, onDone }: { workspace: { id: string; name: string }; gated: boolean; onDone: (archiveReceipt?: string | null) => void }) {
   const t = useTranslations('consents');
   const qc = useQueryClient();
   const [transferTo, setTransferTo] = useState('');
@@ -63,11 +60,14 @@ function SoleOwnerActions({ workspace, gated, onDone }: { workspace: { id: strin
   const run = async () => {
     setBusy(true);
     try {
+      // Код квитанции стирания архивированной организации отдаётся странице: этот шаг исчезнет
+      // вместе с блокером, а код показывается один раз
+      let receipt: string | null = null;
       if (confirm === 'transfer') await apiPost(`/workspaces/${workspace.id}/transfer`, { toUserId: transferTo });
-      else await apiDelete(`/workspaces/${workspace.id}`);
+      else receipt = (await apiDelete<WorkspaceArchiveResultDto>(`/workspaces/${workspace.id}`))?.receipt ?? null;
       setConfirm(null);
       await qc.invalidateQueries({ queryKey: workspacesKey });
-      onDone();
+      onDone(receipt);
     } catch (err) {
       toastApiError(err);
     } finally {
@@ -131,6 +131,9 @@ export default function AccountDeletePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [purgeAt, setPurgeAt] = useState<string | null>(null);
+  const [eraseMessages, setEraseMessages] = useState(false);
+  const [receipt, setReceipt] = useState<string | null>(null);
+  const [orgReceipts, setOrgReceipts] = useState<Array<{ name: string; code: string }>>([]);
 
   const blockers = useQuery({
     queryKey: accountDeletionBlockersKey,
@@ -151,8 +154,9 @@ export default function AccountDeletePage() {
     setBusy(true);
     setError('');
     try {
-      const res = await apiDelete<DeletionResult>('/users/me', { data: { password, ...(verifyToken ? { verifyToken } : {}) } });
+      const res = await apiDelete<AccountDeletionResultDto>('/users/me', { data: { password, eraseMessages, ...(verifyToken ? { verifyToken } : {}) } });
       setPurgeAt(res?.purgeAt ?? null);
+      setReceipt(res?.receipt ?? null);
       setStep('done');
       // Сессии уже погашены сервером — чистим локальное состояние, не уводя человека с экрана итога
       await logout();
@@ -199,6 +203,14 @@ export default function AccountDeletePage() {
       step={{ current: stepIdx, total: STEPS.length, labels: STEPS.map((s) => t(s.labelKey)) }}
       footer={step !== 'done' ? <Link href="/profile/security" style={{ fontWeight: 700 }}>{common('actions.cancel')}</Link> : undefined}
     >
+      {orgReceipts.length > 0 && (
+        <div className="ui-stack" style={{ gap: 'var(--spacing-3)', marginBottom: 'var(--spacing-4)' }}>
+          {orgReceipts.map((r) => (
+            <ErasureReceiptCode key={r.code} code={r.code} caption={r.name} />
+          ))}
+        </div>
+      )}
+
       {step === 'check' && (
         <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
           {blockers.isLoading && <LoadingBlock text={t('deletion.checking')} />}
@@ -212,7 +224,14 @@ export default function AccountDeletePage() {
                     ? (b.workspaces ?? []).map((w) => (
                         <li key={`${b.code}:${w.id}`} className="card" style={{ padding: 'var(--spacing-4)' }}>
                           <p style={{ margin: '0 0 var(--spacing-3)', fontSize: '0.875rem', lineHeight: 1.5 }}>{t('deletion.blockers.sole_owner', { name: w.name, members: w.members })}</p>
-                          <SoleOwnerActions workspace={w} gated={gated} onDone={() => void blockers.refetch()} />
+                          <SoleOwnerActions
+                            workspace={w}
+                            gated={gated}
+                            onDone={(code) => {
+                              if (code) setOrgReceipts((prev) => [...prev, { name: w.name, code }]);
+                              void blockers.refetch();
+                            }}
+                          />
                         </li>
                       ))
                     : [
@@ -237,6 +256,10 @@ export default function AccountDeletePage() {
             <li>{t('deletion.c.keys')}</li>
             <li>{t('deletion.c.remains')}</li>
           </ul>
+          <div className="card" style={{ padding: 'var(--spacing-4)' }}>
+            <Checkbox checked={eraseMessages} onChange={setEraseMessages} label={t('deletion.eraseMessages.label')} />
+            <p className="label-sm" style={{ margin: 'var(--spacing-2) 0 0' }}>{t('deletion.eraseMessages.hint')}</p>
+          </div>
           <Button variant="primary" tone="danger" size="lg" block onClick={() => setStep('confirm')}>{t('deletion.continue')}</Button>
         </div>
       )}
@@ -270,6 +293,7 @@ export default function AccountDeletePage() {
       {step === 'done' && (
         <div className="ui-stack" style={{ gap: 'var(--spacing-4)' }}>
           <Alert tone="success" title={purgeAt ? t('deletion.doneTitle', { date: fmt.date(purgeAt) }) : t('deletion.title')}>{t('deletion.doneText')}</Alert>
+          {receipt && <ErasureReceiptCode code={receipt} />}
           <Button variant="primary" size="lg" block onClick={() => router.push('/login?deleted=1')}>{t('deletion.toLogin')}</Button>
         </div>
       )}

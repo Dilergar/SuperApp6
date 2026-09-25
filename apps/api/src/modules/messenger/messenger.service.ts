@@ -1,6 +1,6 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { SOURCE_LOCALE } from '@superapp/shared';
-import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../../shared/database/database.service';
 import { AnalyticsService } from '../../core/analytics/analytics.service';
@@ -20,7 +20,11 @@ import { DriveRoutingRegistry } from '../drive/drive-routing.registry';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { NotificationsRenderer } from '../../core/notifications/notifications.render';
 import { renderChatter, resolveLabelKeys, type ChatterEntryLike } from '@superapp/i18n';
-import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABEL_KEYS, attachmentPreviewKind } from '@superapp/shared';
+import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABEL_KEYS, attachmentPreviewKind, lifecyclePolicy } from '@superapp/shared';
+import { deletableSql, holdFreeSql, lifecycleTableOf, lockHoldsShared } from '../../core/lifecycle/lifecycle.sql';
+import type { LifecycleSubjectEraseContext } from '../../core/lifecycle/lifecycle.purge.registry';
+import { LifecycleHoldsService } from '../../core/lifecycle/lifecycle.holds.service';
+import { utcTs } from '../../shared/database/sql-time';
 import type {
   CallActiveDto,
   ChatCallStatePayload,
@@ -41,6 +45,27 @@ import type {
   WsMessageUpdated,
   WsReceipt,
 } from '@superapp/shared';
+
+/** Снимок сообщения для hold store (оригинал до правки/удаления под заморозкой). */
+function messageSnapshot(m: { id: string; chatId: string; authorId: string | null; type: string; content: string | null; payload: Prisma.JsonValue | null; seq: number; replyToId: string | null; editedAt: Date | null; deletedAt: Date | null; createdAt: Date }): Record<string, unknown> {
+  return {
+    id: m.id,
+    chatId: m.chatId,
+    authorId: m.authorId,
+    type: m.type,
+    content: m.content,
+    payload: m.payload,
+    seq: m.seq,
+    replyToId: m.replyToId,
+    editedAt: m.editedAt?.toISOString() ?? null,
+    deletedAt: m.deletedAt?.toISOString() ?? null,
+    createdAt: m.createdAt.toISOString(),
+    preservedAt: new Date().toISOString(),
+  };
+}
+
+/** Сообщений за один UPDATE при стирании «всех моих сообщений» (томбстоун) */
+const ERASE_MESSAGES_BATCH = 500;
 
 /** Сообщений за один DELETE при окончательном удалении чата */
 const PURGE_MESSAGES_BATCH = 5000;
@@ -111,6 +136,8 @@ export interface SystemPlaque {
 
 @Injectable()
 export class MessengerService implements OnModuleInit {
+  private readonly logger = new Logger(MessengerService.name);
+
   constructor(
     private db: DatabaseService,
     private events: EventBusService,
@@ -128,6 +155,7 @@ export class MessengerService implements OnModuleInit {
     private i18n: I18nService,
     private notificationsRenderer: NotificationsRenderer,
     private analytics: AnalyticsService,
+    private holds: LifecycleHoldsService,
   ) {}
 
   /** Снимок для БД — в языке ИСТОЧНИКА (зритель перерисует его при чтении). */
@@ -372,17 +400,6 @@ export class MessengerService implements OnModuleInit {
       if (built) out.push(built.payload);
     }
     return out;
-  }
-
-  /** Отвязать и прибрать вложения всех attachment-сообщений чата (перед его удалением) */
-  private async reapChatAttachments(chatId: string): Promise<void> {
-    const msgs = await this.db.message.findMany({
-      where: { chatId, type: 'attachment' },
-      select: { id: true },
-    });
-    if (msgs.length) {
-      await this.files.unlinkAllForRefs('chat_message', msgs.map((m) => m.id)).catch(() => undefined);
-    }
   }
 
   private user(id: string): Principal {
@@ -683,10 +700,9 @@ export class MessengerService implements OnModuleInit {
 
   async deleteGroup(userId: string, chatId: string): Promise<void> {
     await this.assertManage(userId, chatId, { ownerOnly: true });
-    await this.reapChatAttachments(chatId); // вложения не каскадятся с cascade-удалением сообщений
-    await this.access.revokeResource('chat', chatId);
-    await this.db.chat.delete({ where: { id: chatId } }); // cascade members + messages
-    await this.searchIndex.removeChat(chatId).catch(() => {}); // drop indexed messages
+    // Группа под заморозкой (чат, организация, хранитель автора, запись сообщения) целиком не
+    // удаляется — 409 с нейтральным текстом, ничего не тронуто
+    if ((await this.purgeChat(chatId)) === 'held') throw conflict('lifecycle.held');
   }
 
   // ============================================================
@@ -851,25 +867,159 @@ export class MessengerService implements OnModuleInit {
   }
 
   /**
-   * Окончательно удалить чат: вложения отвязываются, сообщения — пачками (крупный чат одним
-   * DELETE держал бы замки минутами и раздувал WAL), права снимаются, затем строка (участники,
-   * отложенные — каскадом FK) и индекс поиска. Идемпотентно; `deadline` прошёл — `false`
-   * (удалено не всё, следующий заход продолжит).
+   * «Стереть все мои сообщения» (мастер удаления аккаунта, шаг `messenger.subject`): томбстоун —
+   * content и payload NULL, момент удаления; вложения отвязываются (осиротевший файл уйдёт шагом
+   * файлов), проекции поиска удаляются. Сообщения под заморозкой остаются (`held`) — в самом
+   * операторе, под общим замком заморозок. Пачками, идемпотентно (томбстоун повторно не
+   * выбирается); `deadline` прошёл — `done: false`, продолжит следующий заход.
    */
-  async purgeChat(chatId: string, deadline: number | null = null): Promise<boolean> {
-    await this.reapChatAttachments(chatId);
+  async eraseAuthoredMessages(userId: string, deadline: number | null, held: (rows: number) => void): Promise<{ rows: number; done: boolean }> {
+    const policy = lifecyclePolicy('Message')!;
+    const t = lifecycleTableOf(policy)!;
+    let rows = 0;
+    for (;;) {
+      if (deadline !== null && Date.now() > deadline) return { rows, done: false };
+      const touched = await this.db.$transaction(async (tx) => {
+        await lockHoldsShared(tx);
+        return tx.$queryRaw<Array<{ id: string; type: string }>>`
+          WITH d AS (
+            SELECT t.id FROM "messages" t
+             WHERE t.author_id = ${userId}::uuid AND (t.content IS NOT NULL OR t.payload IS NOT NULL OR t.deleted_at IS NULL)
+               AND ${holdFreeSql(policy, t)}
+             LIMIT ${ERASE_MESSAGES_BATCH}
+             FOR UPDATE OF t SKIP LOCKED)
+          UPDATE "messages" m SET content = NULL, payload = NULL, deleted_at = COALESCE(m.deleted_at, ${utcTs(new Date())})
+            FROM d WHERE m.id = d.id
+          RETURNING m.id::text AS id, m.type`;
+      });
+      for (const m of touched) {
+        if (m.type === 'attachment') await this.files.unlinkAllForRef('chat_message', m.id).catch(() => undefined);
+        await this.searchIndex.removeMessage(m.id).catch(() => undefined);
+      }
+      rows += touched.length;
+      if (touched.length < ERASE_MESSAGES_BATCH) break;
+    }
+    const [h] = await this.db.$queryRaw<Array<{ n: bigint }>>`
+      SELECT count(*)::bigint AS n FROM "messages" t
+       WHERE t.author_id = ${userId}::uuid AND (t.content IS NOT NULL OR t.payload IS NOT NULL) AND NOT (${holdFreeSql(policy, t)})`;
+    const heldRows = Number(h?.n ?? 0);
+    if (heldRows) held(heldRows);
+    return { rows, done: true };
+  }
+
+  /**
+   * Стирание человека (шаг `messenger.subject`): по выбору — все его сообщения томбстоуном;
+   * затем членства. Личный чат остаётся собеседнику, строка участника — ссылка на томбстоун
+   * («Удалённый аккаунт», как у Telegram), личное состояние (закреп, звук, архив) обнуляется.
+   * Группа — выход; владение — старейшему админу, иначе старейшему участнику; пустая группа
+   * удаляется. Контекстный чат (задача, заказ, встреча) — выход без плашки. Членство под
+   * заморозкой (чат, организация чата, хранитель) остаётся — улика состава.
+   */
+  async eraseMember(userId: string, ctx: LifecycleSubjectEraseContext): Promise<{ rows: number; done: boolean }> {
+    let rows = 0;
+    if (ctx.options.eraseMessages) {
+      const r = await this.eraseAuthoredMessages(userId, ctx.deadline, (n) => ctx.held(n));
+      rows += r.rows;
+      if (!r.done) return { rows, done: false };
+    }
+    const memberships = await this.db.chatMember.findMany({
+      where: { userId },
+      select: { id: true, chatId: true, role: true, chat: { select: { type: true } } },
+      orderBy: { id: 'asc' },
+    });
+    for (const m of memberships) {
+      if (ctx.deadline !== null && Date.now() > ctx.deadline) return { rows, done: false };
+      const free = await this.db.$transaction((tx) => ctx.releasable(tx, 'ChatMember', [m.id]));
+      if (!free.length) {
+        ctx.held(1);
+        continue;
+      }
+      if (m.chat.type === 'dm') {
+        await this.db.chatMember.update({ where: { id: m.id }, data: { pinned: false, archived: false, mutedUntil: null } });
+        // Личный чат, где стёрты все собеседники (или «Избранное» с самим собой), не видит больше
+        // никто — удаляется целиком (DELF refcount: беседа умирает с последним живым участником)
+        const alive = await this.db.chatMember.count({ where: { chatId: m.chatId, userId: { not: userId }, user: { deletedAt: null } } });
+        if (!alive) {
+          const r = await this.purgeChat(m.chatId, ctx.deadline);
+          if (r === false) return { rows, done: false };
+          if (r === 'held') ctx.held(1);
+          else rows++;
+        }
+        continue;
+      }
+      if (m.chat.type === 'group' && m.role === 'owner') {
+        const others = { chatId: m.chatId, userId: { not: userId }, leftAt: null };
+        const heir =
+          (await this.db.chatMember.findFirst({ where: { ...others, role: 'admin' }, orderBy: { joinedAt: 'asc' }, select: { id: true } })) ??
+          (await this.db.chatMember.findFirst({ where: { ...others, role: 'member' }, orderBy: { joinedAt: 'asc' }, select: { id: true } }));
+        if (!heir) {
+          const r = await this.purgeChat(m.chatId, ctx.deadline);
+          if (r === false) return { rows, done: false };
+          if (r === 'held') ctx.held(1);
+          else rows++;
+          continue;
+        }
+        await this.db.chatMember.update({ where: { id: heir.id }, data: { role: 'owner' } });
+      }
+      await this.db.chatMember.deleteMany({ where: { id: m.id } });
+      await this.access.revoke(this.memberTuple(m.chatId, userId));
+      if (m.chat.type === 'group') await this.postStructuredSystemMessage(m.chatId, 'group.member_left', { actorName: ctx.deletedLabel });
+      rows++;
+    }
+    return { rows, done: true };
+  }
+
+  /**
+   * Окончательно удалить чат — ЕДИНСТВЕННАЯ дверь (группа, контекстные чаты задачи, заказа,
+   * события и встречи, каскад организации, стирание человека). Под заморозкой (сам чат, его
+   * организация, хранитель автора, запись или класс сообщений) чат не трогается вовсе —
+   * `'held'` (переписка вокруг удерживаемого — тоже улика). Иначе сообщения уходят пачками под
+   * общим замком заморозок (крупный чат одним DELETE держал бы замки минутами и раздувал WAL) с
+   * привязками своих вложений; строка чата (участники и отложенные — каскадом FK) — последней,
+   * в транзакции с повторной проверкой: заморозка, поставленная посреди, оставит чат с
+   * удержанным. Права и индекс поиска снимаются после строки (висячий кортеж безвреден, его
+   * добирает loose FK; чат без кортежей был бы невидим участникам). Идемпотентно; `deadline`
+   * прошёл — `false` (следующий заход продолжит).
+   */
+  async purgeChat(chatId: string, deadline: number | null = null): Promise<boolean | 'held'> {
+    if (!(await this.db.$transaction((tx) => this.holds.allReleasable(tx, 'Chat', [chatId])))) return 'held';
+    const policy = lifecyclePolicy('Message')!;
+    const t = lifecycleTableOf(policy)!;
     for (;;) {
       if (deadline !== null && Date.now() > deadline) return false;
-      const n = await this.db.$executeRaw`
-        DELETE FROM "messages" t
-         USING (SELECT ctid FROM "messages" WHERE chat_id = ${chatId}::uuid ORDER BY seq DESC LIMIT ${PURGE_MESSAGES_BATCH}) d
-         WHERE t.ctid = d.ctid`;
-      if (n < PURGE_MESSAGES_BATCH) break;
+      const gone = await this.db.$transaction(async (tx) => {
+        await lockHoldsShared(tx);
+        return tx.$queryRaw<Array<{ id: string; type: string }>>`
+          DELETE FROM "messages" m
+           USING (SELECT t.ctid FROM "messages" t WHERE t.chat_id = ${chatId}::uuid AND ${deletableSql(policy, t)} ORDER BY t.seq DESC LIMIT ${PURGE_MESSAGES_BATCH}) d
+           WHERE m.ctid = d.ctid
+          RETURNING m.id::text AS id, m.type`;
+      });
+      // Вложения удалённых сообщений: привязка снимается сразу (сбой здесь доберёт loose FK Message → FileLink)
+      const attachments = gone.filter((m) => m.type === 'attachment').map((m) => m.id);
+      if (attachments.length) await this.files.unlinkAllForRefs('chat_message', attachments).catch(() => undefined);
+      if (gone.length < PURGE_MESSAGES_BATCH) break;
     }
+    const deleted = await this.db.$transaction(async (tx) => {
+      if (!(await this.holds.allReleasable(tx, 'Chat', [chatId]))) return false;
+      await tx.chat.deleteMany({ where: { id: chatId } });
+      return true;
+    });
+    if (!deleted) return 'held';
     await this.access.revokeResource('chat', chatId);
-    await this.db.chat.deleteMany({ where: { id: chatId } });
-    await this.searchIndex.removeChat(chatId);
+    await this.searchIndex.removeChat(chatId).catch(() => undefined);
     return true;
+  }
+
+  /** Контекстный чат сущности, которой больше нет (задача, заказ, событие, встреча) — через единую дверь. */
+  private async purgeContextChat(parentType: 'task' | 'order' | 'event' | 'office_room', parentId: string): Promise<void> {
+    try {
+      const chat = await this.db.chat.findFirst({ where: { parentType, parentId }, select: { id: true } });
+      // Под заморозкой чат остаётся (улика); после снятия его добирает loose FK родителя
+      if (chat) await this.purgeChat(chat.id);
+    } catch (err) {
+      this.logger.warn(`context chat of ${parentType} ${parentId} was not purged: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   /**
@@ -899,8 +1049,10 @@ export class MessengerService implements OnModuleInit {
       if (!chats.length) return { rows, done: true };
       const ok = await this.db.$transaction((tx) => ctx.releasable(tx, chats.map((c) => c.id)));
       for (const id of ok) {
-        if (!(await this.purgeChat(id, ctx.deadline))) return { rows, done: false };
-        rows++;
+        const r = await this.purgeChat(id, ctx.deadline);
+        if (r === false) return { rows, done: false };
+        // Удержанный посреди прогона чат остаётся — строку организации тогда удержит её проверка
+        if (r === true) rows++;
       }
       after = chats[chats.length - 1]!.id;
     }
@@ -908,19 +1060,7 @@ export class MessengerService implements OnModuleInit {
 
   /** Best-effort: delete the task's chat when the task is deleted. */
   async deleteTaskChat(taskId: string): Promise<void> {
-    try {
-      const chat = await this.db.chat.findFirst({
-        where: { parentType: 'task', parentId: taskId },
-        select: { id: true },
-      });
-      if (!chat) return;
-      await this.reapChatAttachments(chat.id);
-      await this.access.revokeResource('chat', chat.id);
-      await this.db.chat.delete({ where: { id: chat.id } });
-      await this.searchIndex.removeChat(chat.id); // drop indexed messages (best-effort: in try)
-    } catch {
-      // best-effort
-    }
+    await this.purgeContextChat('task', taskId);
   }
 
   /**
@@ -1078,19 +1218,7 @@ export class MessengerService implements OnModuleInit {
 
   /** Best-effort: delete the order's chat when the order is gone. */
   async deleteOrderChat(orderId: string): Promise<void> {
-    try {
-      const chat = await this.db.chat.findFirst({
-        where: { parentType: 'order', parentId: orderId },
-        select: { id: true },
-      });
-      if (!chat) return;
-      await this.reapChatAttachments(chat.id);
-      await this.access.revokeResource('chat', chat.id);
-      await this.db.chat.delete({ where: { id: chat.id } });
-      await this.searchIndex.removeChat(chat.id); // drop indexed messages (best-effort: in try)
-    } catch {
-      // best-effort
-    }
+    await this.purgeContextChat('order', orderId);
   }
 
   /** Public: post a system plaque to an order's chat, ensuring the chat exists. */
@@ -1229,19 +1357,7 @@ export class MessengerService implements OnModuleInit {
 
   /** Best-effort: delete the event's chat when the event is gone. */
   async deleteEventChat(eventId: string): Promise<void> {
-    try {
-      const chat = await this.db.chat.findFirst({
-        where: { parentType: 'event', parentId: eventId },
-        select: { id: true },
-      });
-      if (!chat) return;
-      await this.reapChatAttachments(chat.id);
-      await this.access.revokeResource('chat', chat.id);
-      await this.db.chat.delete({ where: { id: chat.id } });
-      await this.searchIndex.removeChat(chat.id); // drop indexed messages (best-effort: in try)
-    } catch {
-      // best-effort
-    }
+    await this.purgeContextChat('event', eventId);
   }
 
   /** Public: post a system plaque to an event's chat, ensuring the chat exists. */
@@ -1375,19 +1491,7 @@ export class MessengerService implements OnModuleInit {
 
   /** Best-effort: delete the meeting's chat (задел — v1 встречу не удаляет, только завершает). */
   async deleteOfficeRoomChat(roomId: string): Promise<void> {
-    try {
-      const chat = await this.db.chat.findFirst({
-        where: { parentType: 'office_room', parentId: roomId },
-        select: { id: true },
-      });
-      if (!chat) return;
-      await this.reapChatAttachments(chat.id);
-      await this.access.revokeResource('chat', chat.id);
-      await this.db.chat.delete({ where: { id: chat.id } });
-      await this.searchIndex.removeChat(chat.id);
-    } catch {
-      // best-effort
-    }
+    await this.purgeContextChat('office_room', roomId);
   }
 
   /** Public: post a system plaque to a meeting's chat, ensuring the chat exists. */
@@ -2081,10 +2185,14 @@ export class MessengerService implements OnModuleInit {
       throw badRequest('chat.messageNotEditable');
     }
 
-    const updated = await this.db.message.update({
-      where: { id: messageId },
-      data: { content, editedAt: new Date() },
-      include: MESSAGE_REPLY_INCLUDE,
+    // Под заморозкой оригинал уходит в hold store той же транзакцией (человек не блокируется)
+    const updated = await this.db.$transaction(async (tx) => {
+      await this.holds.preserve(tx, 'Message', msg.id, messageSnapshot(msg));
+      return tx.message.update({
+        where: { id: messageId },
+        data: { content, editedAt: new Date() },
+        include: MESSAGE_REPLY_INCLUDE,
+      });
     });
     await this.broadcastUpdate(updated, 'messenger.message.updated');
 
@@ -2130,10 +2238,15 @@ export class MessengerService implements OnModuleInit {
     if (msg.authorId !== userId) throw forbidden('chat.deleteOwnOnly');
     if (msg.deletedAt) return;
 
-    const updated = await this.db.message.update({
-      where: { id: messageId },
-      data: { deletedAt: new Date(), content: null },
-      include: { author: { select: USER_LITE } },
+    // Томбстоун несёт только id, тип и момент: текст и payload (имя, размер, превью файла) — NULL.
+    // Под заморозкой оригинал уходит в hold store той же транзакцией (человек не блокируется)
+    const updated = await this.db.$transaction(async (tx) => {
+      await this.holds.preserve(tx, 'Message', msg.id, messageSnapshot(msg));
+      return tx.message.update({
+        where: { id: messageId },
+        data: { deletedAt: new Date(), content: null, payload: Prisma.DbNull },
+        include: { author: { select: USER_LITE } },
+      });
     });
     await this.broadcastUpdate(updated, 'messenger.message.deleted');
 

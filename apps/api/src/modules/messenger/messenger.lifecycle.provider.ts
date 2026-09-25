@@ -2,9 +2,19 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { decodeCursor, encodeCursor, lifecyclePolicy } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
-import { LifecyclePurgeHandlerRegistry, LifecycleTenantHookRegistry, type LifecyclePurgeBatchContext } from '../../core/lifecycle/lifecycle.purge.registry';
+import { FilesService } from '../../core/files/files.service';
+import {
+  LifecycleCanaryRegistry,
+  LifecyclePurgeHandlerRegistry,
+  LifecycleSubjectHookRegistry,
+  LifecycleTenantHookRegistry,
+  type LifecycleCanaryContext,
+  type LifecycleCanaryPlant,
+  type LifecyclePurgeBatchContext,
+} from '../../core/lifecycle/lifecycle.purge.registry';
 import { LifecycleSettings } from '../../core/lifecycle/lifecycle.settings';
-import { holdFreeSql, lifecycleTableOf, lockHoldsShared } from '../../core/lifecycle/lifecycle.sql';
+import { deletableSql, lifecycleTableOf, lockHoldsShared } from '../../core/lifecycle/lifecycle.sql';
+import { MessengerSearchService } from './messenger-search.service';
 import { MessengerService } from './messenger.service';
 
 const RETENTION_CURSOR = { w: 'uuid', c: 'uuid?' } as const;
@@ -15,16 +25,23 @@ const RETENTION_CURSOR = { w: 'uuid', c: 'uuid?' } as const;
  *    организация (коридор, класс `user_content_shared`): сообщения её чатов старше срока
  *    уходят пачками по (чат, seq), удерживаемые заморозкой остаются; поиск и вложения
  *    добирает loose FK. Умолчание — вечно (без настройки шаг ничего не делает);
- *  - `messenger.workspace-chats` (политика `Chat`) — каскад организации: её чаты.
+ *  - `messenger.workspace-chats` (политика `Chat`) — каскад организации: её чаты;
+ *  - `messenger.subject` (политика `ChatMember`) — стирание человека: по выбору в мастере —
+ *    все его сообщения томбстоуном, затем выход из групп и контекстных чатов (личные чаты
+ *    остаются собеседнику, автор — томбстоун).
  */
 @Injectable()
 export class MessengerLifecycleProvider implements OnModuleInit {
   constructor(
     private readonly handlers: LifecyclePurgeHandlerRegistry,
     private readonly tenantHooks: LifecycleTenantHookRegistry,
+    private readonly subjectHooks: LifecycleSubjectHookRegistry,
     private readonly settings: LifecycleSettings,
     private readonly messenger: MessengerService,
     private readonly db: DatabaseService,
+    private readonly canary: LifecycleCanaryRegistry,
+    private readonly files: FilesService,
+    private readonly search: MessengerSearchService,
   ) {}
 
   onModuleInit(): void {
@@ -40,6 +57,61 @@ export class MessengerLifecycleProvider implements OnModuleInit {
         }),
       estimate: (workspaceId) => this.db.message.count({ where: { chat: { workspaceId } } }),
     });
+    this.subjectHooks.register('messenger.subject', { erase: (userId, ctx) => this.messenger.eraseMember(userId, ctx) });
+    this.canary.register('messenger.subject', (ctx) => this.seedCanary(ctx));
+  }
+
+  /**
+   * Посев канарейки (стирание идёт с выбором «стереть все мои сообщения»): личный чат с
+   * соседом — текст (с проекцией поиска) и вложение человека становятся томбстоунами, файл
+   * вложения исчезает, ответ соседа и строки участников остаются собеседнику; отложенное
+   * сообщение человека исчезает; его группа переходит соседу, членство человека уходит.
+   */
+  private async seedCanary(ctx: LifecycleCanaryContext): Promise<LifecycleCanaryPlant[]> {
+    const u = ctx.userId;
+    const p = ctx.peerId;
+    const tuples = (chatId: string) => [u, p].map((uid) => ({ resourceType: 'chat', resourceId: chatId, relation: 'member', subjectType: 'user', subjectId: uid, subjectRelation: '' }));
+    const dm = await this.db.$transaction(async (tx) => {
+      const c = await tx.chat.create({
+        data: { type: 'dm', dmKey: [u, p].sort().join(':'), lastSeq: 3, members: { create: [{ userId: u }, { userId: p }] } },
+        select: { id: true, members: { select: { id: true } } },
+      });
+      await tx.relationTuple.createMany({ data: tuples(c.id), skipDuplicates: true });
+      return c;
+    });
+    const file = await this.files.createCanaryFile({ profile: 'chat_attachment', ownerType: 'user', ownerId: u, uploaderId: u, name: `${ctx.marker}.txt`, mime: 'text/plain', content: ctx.marker });
+    const now = new Date();
+    const msgs = await this.db.$transaction(async (tx) => {
+      const text = await tx.message.create({ data: { chatId: dm.id, authorId: u, type: 'text', content: ctx.marker, seq: 1, createdAt: now }, select: { id: true } });
+      const att = await tx.message.create({ data: { chatId: dm.id, authorId: u, type: 'attachment', content: ctx.marker, payload: { fileId: file.id, name: `${ctx.marker}.txt` }, seq: 2 }, select: { id: true } });
+      const reply = await tx.message.create({ data: { chatId: dm.id, authorId: p, type: 'text', content: 'canary peer', seq: 3 }, select: { id: true } });
+      await this.files.linkSystemInTx(tx, { fileId: file.id, refType: 'chat_message', refId: att.id, role: 'attachment', createdById: u });
+      return { text, att, reply };
+    });
+    await this.search.indexMessage({ id: msgs.text.id, chatId: dm.id, authorId: u, content: ctx.marker, seq: 1, type: 'text', createdAt: now, workspaceId: null });
+    const doc = await this.db.searchDocument.findFirst({ where: { sourceType: 'message', sourceId: msgs.text.id }, select: { id: true } });
+    const scheduled = await this.db.scheduledMessage.create({ data: { chatId: dm.id, authorId: u, content: ctx.marker, sendAt: new Date(Date.now() + 86_400_000) }, select: { id: true } });
+    const group = await this.db.$transaction(async (tx) => {
+      const c = await tx.chat.create({
+        data: { type: 'group', title: ctx.marker, createdById: u, members: { create: [{ userId: u, role: 'owner' }, { userId: p, role: 'member' }] } },
+        select: { id: true, members: { select: { id: true, userId: true } } },
+      });
+      await tx.relationTuple.createMany({ data: tuples(c.id), skipDuplicates: true });
+      return c;
+    });
+    return [
+      { policy: 'Chat', id: dm.id, expect: 'kept' },
+      ...dm.members.map((m) => ({ policy: 'ChatMember', id: m.id, expect: 'kept' as const })),
+      { policy: 'Message', id: msgs.text.id, expect: 'scrubbed' },
+      { policy: 'Message', id: msgs.att.id, expect: 'scrubbed' },
+      { policy: 'Message', id: msgs.reply.id, expect: 'kept' },
+      { policy: 'FileObject', id: file.id, expect: 'gone' },
+      { policy: 'blob:chat_attachment', id: file.storageKey, expect: 'gone' },
+      ...(doc ? [{ policy: 'SearchDocument', id: doc.id, expect: 'gone' as const }] : []),
+      { policy: 'ScheduledMessage', id: scheduled.id, expect: 'gone' },
+      { policy: 'Chat', id: group.id, expect: 'kept' },
+      ...group.members.map((m) => ({ policy: 'ChatMember', id: m.id, expect: m.userId === u ? ('gone' as const) : ('kept' as const) })),
+    ];
   }
 
   /** Одна пачка: первая организация (от курсора) с конечным сроком и сообщениями старше него. */
@@ -71,7 +143,7 @@ export class MessengerLifecycleProvider implements OnModuleInit {
                USING (
                  SELECT t.id FROM "messages" t
                   WHERE t.chat_id = ${chat.id}::uuid AND t.created_at < (${cutoff}::timestamptz AT TIME ZONE 'UTC')
-                    AND ${holdFreeSql(policy, table)}
+                    AND ${deletableSql(policy, table)}
                   ORDER BY t.seq
                   LIMIT ${limit}
                   FOR UPDATE OF t SKIP LOCKED

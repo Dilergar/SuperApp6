@@ -15,8 +15,9 @@ import { EntitySelector } from '@/components/EntitySelector';
 import { AvatarUploadBlock } from '@/components/files/AvatarUploadBlock';
 import {
   Alert, BentoGrid, Button, Card, CardHeader, ConfirmDialog, Divider, Input, LoadingBlock,
-  GuardedValue, PageHeader, SegmentedControl, Select, StatTile, Textarea,
+  GuardedValue, Modal, PageHeader, SegmentedControl, Select, StatTile, Textarea,
 } from '@/components/ui';
+import { ErasureReceiptCode } from '@/components/lifecycle/ErasureReceiptCode';
 import {
   LOCALE_DISPLAY_ORDER,
   LOCALE_NAMES,
@@ -31,6 +32,7 @@ import { useFormatters } from '@/lib/format';
 import { PlanAndLimits } from '@/components/entitlements';
 import type {
   Workspace,
+  WorkspaceArchiveResultDto,
   WorkspaceMember,
 } from '@superapp/shared';
 
@@ -53,6 +55,7 @@ const emptyForm = {
 
 export default function WorkspaceSectionPage() {
   const t = useTranslations('workspaces');
+  const common = useTranslations('common');
   const f = useFormatters();
   const { isReady } = useRequireAuth();
   const router = useRouter();
@@ -71,6 +74,8 @@ export default function WorkspaceSectionPage() {
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [transferTo, setTransferTo] = useState('');
   const [confirm, setConfirm] = useState<null | 'transfer' | 'deactivate'>(null);
+  // Код квитанции стирания архивированной организации — показывается один раз, до ухода со страницы
+  const [archiveReceipt, setArchiveReceipt] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const fetchWs = useCallback(async () => {
@@ -182,7 +187,12 @@ export default function WorkspaceSectionPage() {
   const doDeactivate = async () => {
     setBusy(true);
     try {
-      await apiDelete(`/workspaces/${id}`);
+      const res = await apiDelete<WorkspaceArchiveResultDto>(`/workspaces/${id}`);
+      if (res?.receipt) {
+        setConfirm(null);
+        setArchiveReceipt(res.receipt);
+        return;
+      }
       router.push('/dashboard');
     } catch (e) {
       setError(apiErrorMessage(e));
@@ -389,6 +399,16 @@ export default function WorkspaceSectionPage() {
           />
         </>
       )}
+      <Modal
+        open={!!archiveReceipt}
+        onClose={() => router.push('/dashboard')}
+        title={t('profile.archivedTitle')}
+        closeOnBackdrop={false}
+        footer={<Button variant="primary" onClick={() => router.push('/dashboard')}>{common('actions.done')}</Button>}
+      >
+        <p className="body-md" style={{ margin: '0 0 var(--spacing-3)' }}>{t('profile.archivedText', { n: WORKSPACE_LIMITS.archiveRetentionDays })}</p>
+        {archiveReceipt && <ErasureReceiptCode code={archiveReceipt} />}
+      </Modal>
     </>
   );
 }

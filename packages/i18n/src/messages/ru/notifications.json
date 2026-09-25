@@ -720,7 +720,8 @@
   },
   "sms": {
     "text": "SuperApp6: {title}",
-    "accountDeletionScheduled": "SuperApp6: запрошено удаление аккаунта. Не вы? Войдите в течение {days, plural, one {# дня} few {# дней} many {# дней} other {# дня}}, чтобы отменить."
+    "accountDeletionScheduled": "SuperApp6: запрошено удаление аккаунта. Не вы? Войдите в течение {days, plural, one {# дня} few {# дней} many {# дней} other {# дня}}, чтобы отменить.",
+    "workspaceErasureReceipt": "SuperApp6: организация «{name}» в архиве и будет стёрта через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}, если её не вернуть. Квитанция стирания: {url}"
   },
   "staff": {
     "deputy": {

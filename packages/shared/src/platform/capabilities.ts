@@ -62,6 +62,9 @@ export const PLATFORM_CAPABILITIES = [
   // командой — ВСЕГДА через второго сотрудника (пара «пишет / одобряет»)
   'lifecycle.purge.write',
   'lifecycle.purge.approve',
+  // Заморозки (legal hold) платформы и снятие любой заморозки — тоже через второго сотрудника
+  'lifecycle.holds.write',
+  'lifecycle.holds.approve',
 ] as const;
 
 export type PlatformCapability = (typeof PLATFORM_CAPABILITIES)[number];

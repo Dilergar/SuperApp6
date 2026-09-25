@@ -42,6 +42,7 @@ import { FilesService } from '../../core/files/files.service';
 import { JobsService } from '../../core/jobs/jobs.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { LifecycleHoldsService } from '../../core/lifecycle/lifecycle.holds.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { fullName } from '../../shared/utils/user-name';
 import { MentionsService } from '../messenger/mentions.service';
@@ -99,6 +100,7 @@ export class NotesService {
     private readonly mentions: MentionsService,
     private readonly targets: NoteTargetRegistry,
     private readonly i18n: I18nService,
+    private readonly holds: LifecycleHoldsService,
   ) {}
 
   /** Снимок для БД — в языке ИСТОЧНИКА (зритель перерисует его при чтении). */
@@ -775,7 +777,9 @@ export class NotesService {
   async purge(userId: string, noteId: string): Promise<void> {
     const { note } = await this.requireNote(userId, noteId, 'manager');
     if (!note.deletedAt) throw badRequest('notes.trashFirst');
-    await this.hardDelete([noteId]);
+    // Под заморозкой — 409 с нейтральным текстом; ничего не удаляется
+    const gone = await this.hardDelete([noteId], async (tx, ids) => ((await this.holds.allReleasable(tx, 'Note', ids)) ? [...ids] : []));
+    if (!gone.length) throw conflict('lifecycle.held');
   }
 
   /**
@@ -797,10 +801,9 @@ export class NotesService {
       take,
     });
     if (!rows.length) return { rows: 0, more: false, cursor: null };
-    const ok = await this.db.$transaction((tx) => opts.releasable(tx, rows.map((r) => r.id)));
-    if (ok.length) await this.hardDelete(ok);
+    const gone = await this.hardDelete(rows.map((r) => r.id), opts.releasable);
     const last = rows[rows.length - 1]!;
-    return { rows: ok.length, more: rows.length === take, cursor: encodeKeyset({ d: last.deletedAt, i: last.id }) };
+    return { rows: gone.length, more: rows.length === take, cursor: encodeKeyset({ d: last.deletedAt, i: last.id }) };
   }
 
   /**
@@ -809,19 +812,32 @@ export class NotesService {
    * индекс), гранты папок, затем строка пространства (папки, доску и чанки снимет внешний
    * ключ). Пачками, идемпотентно: прерванный прогон доберёт остаток.
    */
-  async purgeSpaceOf(ownerType: 'workspace', ownerId: string, deadline: number | null = null): Promise<{ rows: number; done: boolean }> {
+  async purgeSpaceOf(
+    ownerType: 'workspace' | 'user',
+    ownerId: string,
+    deadline: number | null = null,
+    opts: { releasable?: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>; held?: (rows: number) => void } = {},
+  ): Promise<{ rows: number; done: boolean }> {
     const space = await this.db.noteSpace.findUnique({
       where: { ownerType_ownerId: { ownerType, ownerId } },
       select: { id: true },
     });
     if (!space) return { rows: 0, done: true };
     let removed = 0;
+    const skipped = new Set<string>();
     for (;;) {
       if (deadline !== null && Date.now() > deadline) return { rows: removed, done: false };
-      const rows = await this.db.note.findMany({ where: { spaceId: space.id }, select: { id: true }, take: NOTE_LIMITS.purgeBatch });
+      const rows = await this.db.note.findMany({ where: { spaceId: space.id, ...(skipped.size ? { id: { notIn: [...skipped] } } : {}) }, select: { id: true }, take: NOTE_LIMITS.purgeBatch });
       if (!rows.length) break;
-      await this.hardDelete(rows.map((r) => r.id));
-      removed += rows.length;
+      const ids = rows.map((r) => r.id);
+      const gone = await this.hardDelete(ids, opts.releasable ?? (async (_tx, all) => [...all]));
+      removed += gone.length;
+      // Удерживаемые заморозкой — остаются; пространство тогда не удаляется (заметки внутри)
+      for (const id of ids) if (!gone.includes(id)) skipped.add(id);
+    }
+    if (skipped.size) {
+      opts.held?.(skipped.size);
+      return { rows: removed, done: true };
     }
     const folders = await this.db.noteFolder.findMany({ where: { spaceId: space.id }, select: { id: true } });
     await this.db.$transaction(async (tx) => {
@@ -831,16 +847,30 @@ export class NotesService {
     return { rows: removed, done: true };
   }
 
-  private async hardDelete(noteIds: string[]): Promise<void> {
-    // Порядок несущий: сначала файлы (у них своё хранилище и свой reaper), потом ОДНОЙ
-    // транзакцией гранты и строки — иначе обрыв посередине оставлял бы живую заметку
-    // без грантов, то есть невидимой всем, кому её открывали.
-    await this.files.unlinkAllForRefs(NOTE_REF_TYPE, noteIds).catch(() => undefined);
-    await this.db.$transaction(async (tx) => {
-      for (const id of noteIds) await this.acl.revokeAll(NOTE_REF_TYPE, id, tx);
-      await tx.note.deleteMany({ where: { id: { in: noteIds } } });
-    });
-    for (const id of noteIds) await this.search.remove(id);
+  /**
+   * Окончательное удаление заметок, свободных от заморозки (`releasable` — в этой же
+   * транзакции, под общим замком: заморозка, поставленная посреди уборки, ждёт коммита).
+   * Порядок несущий: сначала файлы (у них своё хранилище и свой reaper), потом гранты и
+   * строки — иначе обрыв посередине оставлял бы живую заметку без грантов, то есть
+   * невидимой всем, кому её открывали. Возвращает удалённые id.
+   */
+  private async hardDelete(
+    noteIds: string[],
+    releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>,
+  ): Promise<string[]> {
+    const gone = await this.db.$transaction(
+      async (tx) => {
+        const ok = await releasable(tx, noteIds);
+        if (!ok.length) return [];
+        await this.files.unlinkAllForRefs(NOTE_REF_TYPE, ok).catch(() => undefined);
+        for (const id of ok) await this.acl.revokeAll(NOTE_REF_TYPE, id, tx);
+        await tx.note.deleteMany({ where: { id: { in: ok } } });
+        return ok;
+      },
+      { timeout: 60_000 },
+    );
+    for (const id of gone) await this.search.remove(id);
+    return gone;
   }
 
   // ============================================================

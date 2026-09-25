@@ -1,3 +1,5 @@
+import { isDeletedUserMarker } from '@superapp/i18n';
+
 type NameParts = { firstName: string; lastName: string | null };
 /** Строка пользователя может нести «надгробие» удалённого аккаунта */
 type MaybeDeleted = NameParts & { deletedAt?: Date | null };
@@ -19,7 +21,8 @@ export function fullNameOrNull(u: MaybeDeleted | null | undefined): string | nul
   // Аккаунт удалён: в колонке лежит «надгробие» в языке ИСТОЧНИКА (PII вычищено).
   // Наружу отдаём null — слово («Удалённый пользователь») подставит каталог в языке
   // того, кто смотрит.
-  if (u.deletedAt) return null;
+  // Без `deletedAt` в выборке надгробие узнаётся по маркеру томбстоуна (core/lifecycle)
+  if (u.deletedAt || isDeletedUserMarker(u.firstName, u.lastName)) return null;
   return [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.firstName || null;
 }
 

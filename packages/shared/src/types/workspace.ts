@@ -25,6 +25,16 @@ export type WorkspaceInvitationStatus =
   | 'cancelled'
   | 'expired';
 
+/**
+ * Ответ архивации организации (`DELETE /workspaces/:id`). `receipt` — код квитанции стирания
+ * (`/legal/erasure/<код>`): по истечении архива организация стирается окончательно, и этапы с
+ * подписанным сертификатом владелец видит по этому коду. Повторный архив — `receipt: null`.
+ */
+export interface WorkspaceArchiveResultDto {
+  archived: boolean;
+  receipt: string | null;
+}
+
 export interface Workspace {
   id: string;
   name: string;

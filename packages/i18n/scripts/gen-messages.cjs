@@ -87,3 +87,23 @@ if (prev !== next) {
 } else {
   console.log('[i18n:gen] messages/index.ts уже актуален');
 }
+
+// ---- Маркер томбстоуна стёртого человека (core/lifecycle) ----
+// Имя стёртого в базе — метка `common.labels.deletedUser` на языке ИСТОЧНИКА. Лёгкий модуль
+// с одной строкой (без каталогов) нужен вебу и рендеру хроники: подпуть `./person-marker`
+// уходит в браузер, и тянуть за ним все каталоги нельзя.
+const SOURCE_LOCALE = 'en';
+const commonSource = JSON.parse(fs.readFileSync(path.join(MSG, SOURCE_LOCALE, 'common.json'), 'utf8'));
+const marker = commonSource?.labels?.deletedUser;
+if (typeof marker !== 'string' || !marker.trim()) throw new Error('common.labels.deletedUser отсутствует в каталоге-источнике');
+const markerOut = path.join(SRC, 'person-marker.generated.ts');
+const markerNext = [
+  '// Сгенерировано scripts/gen-messages.cjs — не править руками.',
+  '/** Маркер томбстоуна: имя стёртого человека в базе (`common.labels.deletedUser` языка-источника). */',
+  `export const DELETED_USER_MARKER = ${JSON.stringify(marker)};`,
+  '',
+].join('\n');
+if ((fs.existsSync(markerOut) ? fs.readFileSync(markerOut, 'utf8') : null) !== markerNext) {
+  fs.writeFileSync(markerOut, markerNext, 'utf8');
+  console.log('[i18n:gen] person-marker.generated.ts обновлён');
+}

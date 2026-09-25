@@ -371,7 +371,9 @@
       "security_consents_recorded": "Безопасность: согласия",
       "security_detect_recorded": "Безопасность: детекции",
       "security_sharing_recorded": "Безопасность: доступы и публичные ссылки",
-      "security_files_recorded": "Безопасность: файлы"
+      "security_files_recorded": "Безопасность: файлы",
+      "lifecycle_person_redact": "Человек стёрт — удалите его данные",
+      "lifecycle_workspace_redact": "Организация в архиве — удалите её данные"
     },
     "createdTitle": "Вебхук создан",
     "createdNote": "Это секрет подписи. Он показывается только один раз — положите его в приёмник сейчас.",

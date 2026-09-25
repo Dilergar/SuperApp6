@@ -10,7 +10,8 @@ import {
 import { FilesService } from '../../core/files/files.service';
 import { ShareLinksService } from '../../core/share-links/share-links.service';
 import { DatabaseService } from '../../shared/database/database.service';
-import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { LifecycleHoldsService } from '../../core/lifecycle/lifecycle.holds.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { DriveAccessService } from './drive-access.service';
 import { DriveJobs } from './drive.jobs';
@@ -41,6 +42,7 @@ export class DriveTreeService {
     private readonly search: DriveSearchService,
     private readonly shareLinks: ShareLinksService,
     private readonly i18n: I18nService,
+    private readonly holds: LifecycleHoldsService,
   ) {}
 
   // ============================================================
@@ -389,7 +391,7 @@ export class DriveTreeService {
    * Порядок важен: сначала снимаем гранты (tuples внешними ключами не связаны и
    * пережили бы узел), потом убиваем файлы, потом строки.
    */
-  async purge(userId: string | null, ids: string[]): Promise<number> {
+  async purge(userId: string | null, ids: string[], opts: { held?: (rows: number) => void } = {}): Promise<number> {
     const roots = await this.db.driveNode.findMany({ where: { id: { in: ids } } });
     if (!roots.length) return 0;
 
@@ -416,13 +418,31 @@ export class DriveTreeService {
       }
     }
 
+    // Заморозка: поддерево каждого корня — целиком ДО начала (человек получает 409 заранее, без
+    // частичного удаления) и каждой пачкой в её транзакции удаления (заморозка посреди — стоп)
+    const free = new Map<string, boolean>();
+    for (const root of roots) {
+      const all = await this.subtreeIds(root.id);
+      free.set(root.id, await this.db.$transaction((tx) => this.holds.allReleasable(tx, 'DriveNode', all)));
+    }
+    if (userId && [...free.values()].some((f) => !f)) throw conflict('lifecycle.held');
     let purged = 0;
     for (const root of roots) {
-      await this.purgeSubtree(root.id);
+      if (!free.get(root.id) || !(await this.purgeSubtree(root.id))) {
+        opts.held?.(1);
+        continue;
+      }
       await this.db.$transaction((tx) => this.drive.markDirty(tx, root.ancestorIds));
       purged++;
     }
     return purged;
+  }
+
+  /** Узел и все его потомки (id) — для проверки заморозки поддерева. */
+  private async subtreeIds(rootId: string): Promise<string[]> {
+    const rows = await this.db.$queryRaw<Array<{ id: string }>>`
+      SELECT id::text AS id FROM "drive_nodes" WHERE id = ${rootId}::uuid OR ${rootId}::uuid = ANY(ancestor_ids)`;
+    return rows.map((r) => r.id);
   }
 
   /**
@@ -431,14 +451,14 @@ export class DriveTreeService {
    * ссылки ещё не сняты. Папка на десятки тысяч файлов больше не читается одним запросом и не
    * держит соединение полчаса; сбой посреди — следующий прогон продолжит с оставшихся.
    */
-  private async purgeSubtree(rootId: string): Promise<void> {
+  private async purgeSubtree(rootId: string): Promise<boolean> {
     for (;;) {
       const subtree = await this.db.$queryRaw<Array<{ id: string; fileId: string | null }>>`
         SELECT id::text AS id, file_id::text AS "fileId" FROM "drive_nodes"
          WHERE id = ${rootId}::uuid OR ${rootId}::uuid = ANY(ancestor_ids)
          ORDER BY cardinality(ancestor_ids) DESC, id
          LIMIT ${DRIVE_LIMITS.purgeBatch}`;
-      if (!subtree.length) return;
+      if (!subtree.length) return true;
       const nodeIds = subtree.map((n) => n.id);
       // Снимки версий тоже уходят вместе с узлом — иначе их байты и квота остались бы
       // висеть навсегда: строки DriveNodeVersion умрут каскадом, а FileObject нет.
@@ -447,28 +467,38 @@ export class DriveTreeService {
         ...new Set([...subtree.map((n) => n.fileId).filter((f): f is string => !!f), ...versionFileIds]),
       ];
 
-      await this.acl.revokeAllOn(nodeIds);
-      // Связи снимаем ЯВНО: FileLink каскадится за файлом, но не за узлом, и осиротевшая
-      // строка со ссылкой на мёртвый узел навсегда защищала бы файл от реапа сирот.
-      await this.files.unlinkAllForRefs(DRIVE_NODE_REF_TYPE, nodeIds).catch(() => undefined);
-      // Гостевые ссылки — такие же висячие гранты, только наружу: строка share_links
-      // внешним ключом не связана и пережила бы узел. Отзываем и на корне, и на всех
-      // потомках. Корзину при этом НЕ трогаем: оттуда объект возвращается, и ссылка
-      // обязана ожить вместе с ним (её на время приостанавливает резолвер).
-      await this.shareLinks.revokeAllForRefs(null, DRIVE_NODE_REF_TYPE, nodeIds).catch(() => undefined);
-      for (const fileId of fileIds) {
-        // Файл гаснет ВЕЗДЕ — это и есть «Диск дом файла». Ошибка одного файла не
-        // должна оставить дерево наполовину удалённым: логируем и идём дальше, ночная
-        // сверка движка приберёт байты по своим правилам.
-        await this.files.systemDeleteFile(fileId).catch((err: unknown) => {
-          this.logger.warn(`Could not delete file ${fileId}: ${err instanceof Error ? err.message : err}`);
-        });
-      }
-      // Явное удаление по списку (листья раньше родителей) не зависит от того, остались ли
-      // строки согласованными после сбоя выше
-      await this.db.driveNode.deleteMany({ where: { id: { in: nodeIds } } });
+      // Транзакция держит общий замок заморозок от проверки пачки до удаления её строк:
+      // заморозка, поставленная посреди уборки, ждёт коммита, следующая пачка её увидит
+      const done = await this.db.$transaction(
+        async (tx) => {
+          if (!(await this.holds.allReleasable(tx, 'DriveNode', nodeIds))) return false;
+          await this.acl.revokeAllOn(nodeIds);
+          // Связи снимаем ЯВНО: FileLink каскадится за файлом, но не за узлом, и осиротевшая
+          // строка со ссылкой на мёртвый узел навсегда защищала бы файл от реапа сирот.
+          await this.files.unlinkAllForRefs(DRIVE_NODE_REF_TYPE, nodeIds).catch(() => undefined);
+          // Гостевые ссылки — такие же висячие гранты, только наружу: строка share_links
+          // внешним ключом не связана и пережила бы узел. Отзываем и на корне, и на всех
+          // потомках. Корзину при этом НЕ трогаем: оттуда объект возвращается, и ссылка
+          // обязана ожить вместе с ним (её на время приостанавливает резолвер).
+          await this.shareLinks.revokeAllForRefs(null, DRIVE_NODE_REF_TYPE, nodeIds).catch(() => undefined);
+          for (const fileId of fileIds) {
+            // Файл гаснет ВЕЗДЕ — это и есть «Диск дом файла». Ошибка одного файла не
+            // должна оставить дерево наполовину удалённым: логируем и идём дальше, ночная
+            // сверка движка приберёт байты по своим правилам.
+            await this.files.systemDeleteFile(fileId).catch((err: unknown) => {
+              this.logger.warn(`Could not delete file ${fileId}: ${err instanceof Error ? err.message : err}`);
+            });
+          }
+          // Явное удаление по списку (листья раньше родителей) не зависит от того, остались ли
+          // строки согласованными после сбоя выше
+          await tx.driveNode.deleteMany({ where: { id: { in: nodeIds } } });
+          return true;
+        },
+        { timeout: 120_000 },
+      );
+      if (!done) return false;
       await this.search.removeMany(nodeIds);
-      if (subtree.length < DRIVE_LIMITS.purgeBatch) return;
+      if (subtree.length < DRIVE_LIMITS.purgeBatch) return true;
     }
   }
 
@@ -479,21 +509,28 @@ export class DriveTreeService {
    * (узлы и фото-корзины снимет внешний ключ). Узлы, выпавшие из дерева корня после
    * сбоя прошлого прогона, добираются по пространству. Идемпотентно.
    */
-  async purgeOwnerSpaces(ownerType: 'workspace', ownerId: string, deadline: number | null = null): Promise<{ rows: number; done: boolean }> {
+  async purgeOwnerSpaces(ownerType: 'workspace' | 'user', ownerId: string, deadline: number | null = null, opts: { held?: (rows: number) => void } = {}): Promise<{ rows: number; done: boolean }> {
     const spaces = await this.db.driveSpace.findMany({ where: { ownerType, ownerId }, select: { id: true } });
     if (!spaces.length) return { rows: 0, done: true };
     const spaceIds = spaces.map((s) => s.id);
     // Корни, затем узлы, выпавшие из дерева после сбоя прошлого прогона, — по одному узлу
     // верхнего уровня за шаг, каждый пачками; бюджет вышел — продолжит следующий заход
+    // Удерживаемое заморозкой поддерево пропускается (иначе выборка «следующего» узла
+    // возвращала бы его снова и снова); пространство с удерживаемым внутри остаётся
+    const skipped: string[] = [];
     for (;;) {
       if (deadline !== null && Date.now() > deadline) return { rows: 0, done: false };
       const next = await this.db.driveNode.findFirst({
-        where: { spaceId: { in: spaceIds } },
+        where: { spaceId: { in: spaceIds }, ...(skipped.length ? { id: { notIn: skipped } } : {}) },
         orderBy: [{ parentId: { sort: 'asc', nulls: 'first' } }, { id: 'asc' }],
         select: { id: true },
       });
       if (!next) break;
-      await this.purge(null, [next.id]);
+      if (!(await this.purge(null, [next.id]))) skipped.push(next.id);
+    }
+    if (skipped.length) {
+      opts.held?.(skipped.length);
+      return { rows: 0, done: true };
     }
     await this.db.driveSpace.deleteMany({ where: { id: { in: spaceIds } } });
     return { rows: spaces.length, done: true };
@@ -566,8 +603,8 @@ export class DriveTreeService {
       take: Math.min(opts.limit, DRIVE_LIMITS.purgeBatch),
     });
     if (!due.length) return { rows: 0, more: false, cursor: null };
-    const ok = await this.db.$transaction((tx) => opts.releasable(tx, due.map((d) => d.id)));
-    const rows = ok.length ? await this.purge(null, ok) : 0;
+    // Корни корзины: поддерево каждого проверяется целиком внутри purge (заморозка ребёнка держит корень)
+    const rows = await this.purge(null, due.map((d) => d.id));
     const last = due[due.length - 1]!;
     return { rows, more: due.length === Math.min(opts.limit, DRIVE_LIMITS.purgeBatch), cursor: encodeTrashCursor(last) };
   }

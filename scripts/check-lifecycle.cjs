@@ -101,7 +101,7 @@ const IDS = reg.LIFECYCLE_POLICY_IDS;
 for (const p of reg.lifecycleRegistryProblems()) err(`реестр: ${p}`);
 
 // ---------- 1b. поля политики — только известные (опечатка `retentionDays` = молчаливое «хранить») ----------
-const POLICY_KEYS = new Set(['id', 'store', 'owner', 'version', 'dataClass', 'ownerKey', 'subjects', 'legalBasis', 'retention', 'onSubjectErasure', 'onTenantPurge', 'edges', 'tiers', 'enforcement', 'extraRules', 'holdAware', 'proofEvent', 'pause', 'rootEntity', 'exportable']);
+const POLICY_KEYS = new Set(['id', 'store', 'owner', 'version', 'dataClass', 'ownerKey', 'subjects', 'legalBasis', 'retention', 'onSubjectErasure', 'onTenantPurge', 'edges', 'tiers', 'enforcement', 'extraRules', 'holdAware', 'proofEvent', 'pause', 'rootEntity', 'exportable', 'personIds']);
 const RETENTION_KEYS = new Set(['trigger', 'floorDays', 'defaultDays', 'ceilingDays', 'tenantConfigurable', 'userConfigurable', 'entitlementKey']);
 for (const id of IDS) {
   const p = POLICIES[id];
@@ -395,6 +395,20 @@ for (const id of IDS) {
     for (const c of ownerCols) want.push(model ? fieldToDb(model, c) : c);
     if (!want.some((c) => leads.has(c))) err(`${id}: batched_delete без индекса, ведущего колонкой времени "${want[0]}" или владельца (${want.slice(1).join(', ') || '—'})`);
   }
+  // Люди в JSON строки: функция объявлена миграцией, по ней стоит GIN-индекс, аргументы — поля модели
+  if (p.personIds) {
+    const { fn, args } = p.personIds;
+    if (!/^[a-z_][a-z0-9_]*$/.test(fn)) err(`${id}: personIds.fn "${fn}" — не имя SQL-функции`);
+    else {
+      if (!new RegExp(`CREATE\\s+(OR\\s+REPLACE\\s+)?FUNCTION\\s+${fn}\\s*\\(`, 'i').test(sqlAll)) err(`${id}: personIds.fn ${fn} не объявлена ни одной миграцией`);
+      if (!new RegExp(`USING\\s+gin\\s*\\(\\s*${fn}\\s*\\(`, 'i').test(sqlAll)) err(`${id}: по ${fn} нет GIN-индекса — стирание читало бы таблицу целиком`);
+      // Тело функции (последнее определение) читает каждый ключ реестра — иначе строки с ним индекс не найдёт
+      const defs = [...sqlAll.matchAll(new RegExp(`FUNCTION\\s+${fn}\\s*\\([\\s\\S]*?\\$\\$([\\s\\S]*?)\\$\\$`, 'gi'))];
+      const body = defs.length ? defs[defs.length - 1][1] : '';
+      for (const k of p.personIds.keys ?? []) if (!body.includes(`'${k}'`)) err(`${id}: функция ${fn} не читает ключ '${k}' — строки с ним стирание не найдёт`);
+    }
+    for (const a of args) if (model && !model.fields.has(a)) err(`${id}: personIds.args — у модели нет поля "${a}"`);
+  }
   if (p.rootEntity && model && !PENDING.softDelete[id] && !['deletedAt', 'trashedAt', 'hiddenAt'].some((c) => model.fields.has(c))) {
     err(`${id}: корневая пользовательская сущность без мягкого скрытия (deletedAt / trashedAt / hiddenAt)`);
   }
@@ -470,12 +484,24 @@ for (const loc of LOCALES) {
 
 // ---------- 10. хуки и обработчики зарегистрированы в API ----------
 const apiText = API_FILES.map(read).join('\n');
-const registered = (key) => new RegExp(`\\.register\\(\\s*['\`]${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['\`]`).test(apiText);
-const { handlers: handlerKeys, hooks: tenantHookKeys } = reg.lifecycleRegistrationKeys();
-const hookKeys = new Set([...handlerKeys, ...tenantHookKeys]);
+// Регистрация — в СВОЁМ реестре: обработчик purge (`this.handlers`), хук каскада организации
+// (`this.tenantHooks`), хук стирания человека (`this.subjectHooks`). Ключ, зарегистрированный не
+// в том реестре, не исполнится никогда — поэтому проверка знает вид.
+const KIND_REGISTRY = { handler: 'handlers', hook: 'tenantHooks', subject_hook: 'subjectHooks' };
+const registered = (key, kind) =>
+  new RegExp(`\\b${KIND_REGISTRY[kind]}\\.register\\(\\s*['\`]${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}['\`]`).test(apiText);
+const { handlers: handlerKeys, hooks: tenantHookKeys, subjectHooks: subjectHookKeys } = reg.lifecycleRegistrationKeys();
+const declared = [
+  ...handlerKeys.map((k) => [k, 'handler']),
+  ...tenantHookKeys.map((k) => [k, 'hook']),
+  ...subjectHookKeys.map((k) => [k, 'subject_hook']),
+];
 const PENDING_KEYS = reg.LIFECYCLE_PENDING_KEYS;
-for (const k of hookKeys) if (!PENDING_KEYS[k] && !registered(k)) err(`обработчик/хук "${k}" объявлен в реестре, но не зарегистрирован в apps/api/src (.register('${k}', …))`);
-for (const k of Object.keys(PENDING_KEYS)) if (!hookKeys.has(k)) err(`LIFECYCLE_PENDING_KEYS "${k}" — такого ключа нет в реестре, строку убрать`);
+const isPending = (k, kind) => PENDING_KEYS[k] && PENDING_KEYS[k].as === kind;
+for (const [k, kind] of declared) {
+  if (!isPending(k, kind) && !registered(k, kind)) err(`${kind} "${k}" объявлен в реестре, но не зарегистрирован в apps/api/src (this.${KIND_REGISTRY[kind]}.register('${k}', …))`);
+}
+for (const [k, v] of Object.entries(PENDING_KEYS)) if (!declared.some(([dk, kind]) => dk === k && kind === v.as)) err(`LIFECYCLE_PENDING_KEYS "${k}" (${v.as}) — такого ключа этого вида нет в реестре, строку убрать`);
 
 // ---------- 11. манифест канареечного сьюта ----------
 if (!fs.existsSync(SUITE)) err(`нет сьюта ${path.relative(ROOT, SUITE)} (манифест CANARY_STORES)`);

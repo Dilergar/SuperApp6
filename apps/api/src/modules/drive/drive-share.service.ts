@@ -348,7 +348,7 @@ export class DriveShareService implements OnModuleInit {
         type: 'drive.shared',
         to: [{ userId: input.principalId }],
         payload: {
-          ...(ownerName ? { ownerName } : { ownerNameKey: 'common.labels.someone' }),
+          ...(ownerName ? { ownerName, ownerUserId: actorId } : { ownerNameKey: 'common.labels.someone' }),
           nodeName,
           role: input.role,
           nodeId,

@@ -286,5 +286,12 @@
     "restore": "Restore",
     "purge": "Delete for good",
     "restored": "«{name}» is restored"
+  },
+  "erasureReceipt": {
+    "title": "Erasure receipt",
+    "text": "Keep this code: it shows the erasure stages and, when everything is done, the signed certificate. The code is shown once — we don’t store it and can’t send it again.",
+    "copied": "Copied",
+    "copyFailed": "Couldn’t copy the code — select it and copy it by hand",
+    "open": "Open the receipt"
   }
 }

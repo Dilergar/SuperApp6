@@ -133,8 +133,10 @@ export class WebhooksDeliveryJobs implements OnModuleInit {
     const isPing = d.eventKey === WEBHOOK_SYSTEM_EVENTS.ping;
     // Отключённый endpoint не получает ничего; pending получает только пинг проверки;
     // архивная организация наружу не говорит (хвост ретраев гаснет, статус endpoint'а цел —
-    // восстановление организации вернёт всё как было)
-    const blocked = !e.workspace.isActive ? 'workspace archived' : e.status === 'disabled' || (e.status === 'pending_verification' && !isPing) ? `endpoint ${e.status}` : null;
+    // восстановление организации вернёт всё как было). Исключение одно — `lifecycle.workspace.redact`:
+    // его смысл и есть «организация отключена, удалите её данные»
+    const archivedGate = !e.workspace.isActive && d.eventKey !== 'lifecycle.workspace.redact';
+    const blocked = archivedGate ? 'workspace archived' : e.status === 'disabled' || (e.status === 'pending_verification' && !isPing) ? `endpoint ${e.status}` : null;
     if (blocked) {
       await this.db.webhookDelivery.update({ where: key, data: { status: 'exhausted', nextAt: null, lastError: blocked } });
       throw new JobDiscardError(blocked);

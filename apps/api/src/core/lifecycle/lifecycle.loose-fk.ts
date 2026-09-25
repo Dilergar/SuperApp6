@@ -13,7 +13,7 @@ import { DatabaseService } from '../../shared/database/database.service';
 import { JobSnoozeError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { LifecycleMetrics } from './lifecycle.metrics';
-import { holdFreeSql, lifecycleTableOf, lockHoldsShared } from './lifecycle.sql';
+import { deletableSql, deleteNeedsHoldCheck, holdFreeSql, lifecycleTableOf, lockHoldsShared } from './lifecycle.sql';
 
 const IDENT = /^[a-z_][a-z0-9_]*$/i;
 
@@ -147,7 +147,8 @@ export class LifecycleLooseFk implements OnModuleInit {
     const type = await this.columnType(target.tableName, target.column);
     const col = Prisma.raw(`t."${target.column}"`);
     const idList = Prisma.sql`${ids}::text[]::${Prisma.raw(type)}[]`;
-    const hold = target.holdAware ? this.holdFree(target) : Prisma.sql`TRUE`;
+    const holdCheck = this.holdSql(target);
+    const hold = holdCheck ?? Prisma.sql`TRUE`;
     const limit = LIFECYCLE_LIMITS.looseFkChildBatch;
     let rows = 0;
     for (;;) {
@@ -169,15 +170,21 @@ export class LifecycleLooseFk implements OnModuleInit {
       rows += n;
       if (n < limit) break;
     }
-    if (!target.holdAware) return { rows, done: true, held: [] };
+    if (!holdCheck) return { rows, done: true, held: [] };
     const left = await this.db.$queryRaw<Array<{ id: string }>>`
       SELECT DISTINCT ${col}::text AS id FROM ${target.table} t WHERE ${col} = ANY(${idList})`;
     return { rows, done: true, held: left.map((r) => r.id) };
   }
 
-  private holdFree(target: ChildTarget): Prisma.Sql {
+  /**
+   * «Ребёнка можно тронуть»: обнуление ссылки — сама строка без заморозки; удаление — и без
+   * удерживаемых потомков по `deep`-рёбрам (их унёс бы каскад). `null` — проверка не нужна.
+   */
+  private holdSql(target: ChildTarget): Prisma.Sql | null {
     const t = lifecycleTableOf(target.policy);
-    return t ? holdFreeSql(target.policy, t) : Prisma.sql`TRUE`;
+    if (!t) return null;
+    if (target.edge.kind === 'async_nullify') return target.holdAware ? holdFreeSql(target.policy, t) : null;
+    return deleteNeedsHoldCheck(target.policy) ? deletableSql(target.policy, t) : null;
   }
 
   private async mark(rows: DeletedRow[], how: 'processed' | 'retry'): Promise<void> {

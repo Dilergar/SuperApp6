@@ -10,6 +10,7 @@
 // Run: node apps/api/scripts/verify-keys.cjs
 const { SUITE, call, login, makeChecker, devCode, createSuiteWorkspace, archiveSuiteWorkspace, crash } = require('./_lib.cjs');
 const { PrismaClient } = require('@prisma/client');
+const { SIGNING_AUDIENCES, MAC_KEY_NAMES } = require('@superapp/shared');
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -32,17 +33,14 @@ async function main() {
     check('dev/status: 200', st.ok, st.status);
     check('provider software, root fingerprint 16 hex', st.json?.data?.provider === 'software' && /^[0-9a-f]{16}$/.test(st.json?.data?.rootKid ?? ''), JSON.stringify(st.json?.data?.rootKid));
     const audiences = (st.json?.data?.signing ?? []).map((s) => s.audience).sort();
-    // `consents` — подпись версий документов платформы (core/consents, архивная проверка)
-    check('signing keys for all 8 audiences', JSON.stringify(audiences) === JSON.stringify(['audit', 'consents', 'files_url', 'platform', 'product', 'share_link', 'webhook', 'wopi']), audiences.join(','));
+    // Ожидание — реестр shared целиком: новая аудитория без пары ключей в базе = провал
+    const wantAudiences = [...SIGNING_AUDIENCES].sort();
+    check(`signing keys for all ${wantAudiences.length} audiences`, JSON.stringify(audiences) === JSON.stringify(wantAudiences), audiences.join(','));
     check('every audience has a primary kid', (st.json?.data?.signing ?? []).every((s) => !!s.primaryKid));
     const macs = (st.json?.data?.mac ?? []).map((m) => m.name).sort();
-    // `idempotency` — отпечаток формы запроса (core/idempotency); `google_channel` — токен
-    // канала push-уведомлений Google (проверка отправителя в приёмнике)
-    check(
-      'mac keys: api_key_pepper, audit, blind_index, google_channel, idempotency, oauth_state, verify_otp',
-      JSON.stringify(macs) === JSON.stringify(['api_key_pepper', 'audit', 'blind_index', 'google_channel', 'idempotency', 'oauth_state', 'verify_otp']),
-      macs.join(','),
-    );
+    // Ожидание — реестр именованных HMAC-ключей shared целиком
+    const wantMacs = [...MAC_KEY_NAMES].sort();
+    check(`mac keys: ${wantMacs.join(', ')}`, JSON.stringify(macs) === JSON.stringify(wantMacs), macs.join(','));
 
     // ===== A2. JWKS =====
     const wk = await fetch(`${BASE_ROOT}/.well-known/jwks.json`);

@@ -32,6 +32,7 @@ import {
   createBankAccountSchema,
   updateBankAccountSchema,
   workspaceCardPreviewQuerySchema,
+  type WorkspaceArchiveResultDto,
 } from '@superapp/shared';
 import { z } from 'zod';
 import { isDevEnv } from '../../shared/config/env.validation';
@@ -256,9 +257,8 @@ export class WorkspacesController {
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Deactivate the organization (owner)' })
-  async deactivate(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
-    await this.workspaces.deactivateWorkspace(user.sub, id);
-    return { success: true };
+  async deactivate(@CurrentUser() user: JwtPayload, @Param('id') id: string): Promise<{ success: true; data: WorkspaceArchiveResultDto }> {
+    return { success: true, data: await this.workspaces.deactivateWorkspace(user.sub, id) };
   }
 
   @NoApiKeys()

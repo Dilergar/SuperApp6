@@ -8,6 +8,7 @@ import { CallsController } from './calls.controller';
 import { CallsWebhookController } from './calls-webhook.controller';
 import { CallsCron } from './calls.cron';
 import { CallsNotificationRefsProvider } from './calls-notification-refs.provider';
+import { CallsLifecycleProvider } from './calls.lifecycle.provider';
 
 /**
  * Движок звонков (core/calls) — 8-й платформенный движок: аудио/видеокомнаты
@@ -29,6 +30,8 @@ import { CallsNotificationRefsProvider } from './calls-notification-refs.provide
     CallsRecordingRegistry,
     CallsRecordingService,
     CallsCron,
+    // Движок сроков: посев канарейки стирания (участие и заявки на запись человека)
+    CallsLifecycleProvider,
   ],
   // CallsRecordingRegistry — потребители записей (Диктофон; офис Ф3) регистрируют
   // хук доставки по своему refType

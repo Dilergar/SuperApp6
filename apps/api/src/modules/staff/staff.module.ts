@@ -9,6 +9,7 @@ import { OrgService } from './org.service';
 import { OrgController } from './org.controller';
 import { StaffRegistriesProvider } from './staff-registries.provider';
 import { StaffVisibilityProvider } from './staff-visibility.provider';
+import { StaffLifecycleProvider } from './staff.lifecycle.provider';
 
 /**
  * StaffModule — сервис «Сотрудники» (B2B): справочники Должность/Отдел/Объект +
@@ -30,6 +31,7 @@ import { StaffVisibilityProvider } from './staff-visibility.provider';
     OrgService,
     StaffRegistriesProvider,
     StaffVisibilityProvider,
+    StaffLifecycleProvider,
     { provide: DI_TOKENS.StaffService, useExisting: StaffService },
   ],
   exports: [StaffService, OrgService, OrgGraphService, DI_TOKENS.StaffService],

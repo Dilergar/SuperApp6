@@ -51,6 +51,8 @@ export {
 export type { Formatters, FormatContext, DateStyle, TimeOptions, NumberOptions, ByteUnits } from './format';
 
 export { renderChatter, chatterFieldLabel, chatterChangeDisplay } from './chatter';
+export { DELETED_USER_MARKER, isDeletedUserMarker, localizePersonSnapshot } from './person-marker';
+export { isReservedPersonName } from './person-name';
 export { resolveLabelKeys } from './label-keys';
 export { renderAudienceLabel, resolveAudienceLabels, isAudienceLabelSnapshot } from './audience-label';
 export { resolveIsoValues } from './iso-values';

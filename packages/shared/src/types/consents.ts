@@ -190,6 +190,18 @@ export interface AccountDeletionBlockersDto {
   verifyRequired: boolean;
 }
 
+/** Ответ `DELETE /users/me`: удаление назначено; код квитанции показывается ОДИН раз. */
+export interface AccountDeletionResultDto {
+  scheduled: true;
+  gracePeriodDays: number;
+  purgeAt: string;
+  /**
+   * Код квитанции стирания (`/legal/erasure/<код>`): этапы, даты и — после завершения —
+   * подписанный сертификат. Аккаунта к тому времени не будет — сохранить его может только человек.
+   */
+  receipt: string;
+}
+
 // ---- Кабинет платформы ----
 
 export interface PdIncidentEventDto {

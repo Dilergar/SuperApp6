@@ -1438,6 +1438,10 @@
       "denyLevel": "A deny rule always hides",
       "exceptionConflict": "A person cannot be in both lists",
       "previewTarget": "Choose whose eyes to preview with"
+    },
+    "lifecycle": {
+      "holdTargetRequired": "Fill in the target of the legal hold for this scope",
+      "holdTargetForeign": "This field does not belong to the chosen scope"
     }
   },
   "verify": {
@@ -1552,7 +1556,8 @@
   },
   "account": {
     "deletionBlocked": "The account cannot be deleted yet: there are unfinished obligations",
-    "deletionAlreadyScheduled": "The account deletion has already been requested"
+    "deletionAlreadyScheduled": "The account deletion has already been requested",
+    "nameReserved": "This name is reserved by the platform — choose another one"
   },
   "pd": {
     "incident": {
@@ -1607,6 +1612,14 @@
     "no_second_admin": "Nobody else can approve: another owner or admin is needed, or turn off second-admin approval"
   },
   "lifecycle": {
-    "tenantHeld": "The organization is under a legal hold, so it cannot be deleted."
+    "tenantHeld": "The organization is under a legal hold, so it cannot be deleted.",
+    "held": "This item is preserved under a data retention requirement and can’t be permanently deleted right now.",
+    "holdNotFound": "Legal hold not found",
+    "holdReleased": "This legal hold has already been released",
+    "holdTargetInvalid": "The target of the legal hold was not found in this organization",
+    "holdRecordTypeUnsupported": "Records of this type can’t be held one by one — hold the person or the data class instead",
+    "receiptNotFound": "No erasure was found for this receipt code",
+    "holdClassUnsupported": "Data of this class is not preserved by legal holds (credentials and caches expire on their own)",
+    "canaryRunning": "A canary run is already in progress"
   }
 }

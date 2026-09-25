@@ -88,6 +88,8 @@ export const deleteAccountSchema = z
   .object({
     password: z.string().min(1, 'validation.verify.passwordRequired'),
     verifyToken: verifyTokenSchema.optional(),
+    /** «Стереть все мои сообщения» (мастер удаления): томбстоун вместо текста в чужих чатах */
+    eraseMessages: z.boolean().optional(),
   })
   .strict();
 export type DeleteAccountInput = z.infer<typeof deleteAccountSchema>;

@@ -5,6 +5,7 @@ import {
   KEYS_ERROR_CODES,
   KEYS_REDIS,
   WEBHOOK_LIMITS,
+  WEBHOOK_MANDATORY_EVENTS,
   WEBHOOK_SYSTEM_EVENTS,
   type KeyRegistryRowDto,
   type WebhookDeliveriesQuery,
@@ -135,6 +136,23 @@ export class WebhooksService implements OnModuleInit {
     const occurredAt = input.occurredAt ?? new Date();
     for (const e of targets) await this.createDelivery(tx, e.id, input.eventKey, input.payload, occurredAt);
     return targets.length;
+  }
+
+  /**
+   * Обязательное событие стирания (`WEBHOOK_MANDATORY_EVENTS`, модель Shopify customers/redact ·
+   * shop/redact): уходит ВСЕМ активным адресам организации без подписки — интеграция обязана
+   * удалить у себя данные. `includeArchived` — только для `lifecycle.workspace.redact`: его
+   * смысл и есть «организация отключена» (доставка пропускает его мимо шлюза архива).
+   */
+  async emitMandatory(tx: Tx, input: { workspaceId: string; eventKey: (typeof WEBHOOK_MANDATORY_EVENTS)[number]; payload: Record<string, unknown>; includeArchived?: boolean }): Promise<number> {
+    if (!(WEBHOOK_MANDATORY_EVENTS as readonly string[]).includes(input.eventKey)) throw new Error(`webhooks: ${input.eventKey} is not a mandatory event`);
+    const endpoints = await tx.webhookEndpoint.findMany({
+      where: { workspaceId: input.workspaceId, status: 'active', ...(input.includeArchived ? {} : { workspace: { isActive: true } }) },
+      select: { id: true },
+    });
+    const occurredAt = new Date();
+    for (const e of endpoints) await this.createDelivery(tx, e.id, input.eventKey, input.payload, occurredAt);
+    return endpoints.length;
   }
 
   /** Попыток у доставки: проверочный пинг короткий (~15 минут), событие — полное окно ретраев. */

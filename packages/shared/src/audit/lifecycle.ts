@@ -56,7 +56,7 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
   /** Заморозка поставлена (удаление по области остановлено) — организация видит свою */
   'lifecycle.hold.created': {
     category: 'lifecycle',
-    status: 'planned',
+    status: 'live',
     severity: 'medium',
     visibility: AUDIT_VIS.workspace,
     details: z.object({ scope: z.enum(LIFECYCLE_HOLD_SCOPES), holdId: detailCode(40) }).strict(),
@@ -65,7 +65,7 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
   /** Заморозка снята — удаление возобновится по политике */
   'lifecycle.hold.released': {
     category: 'lifecycle',
-    status: 'planned',
+    status: 'live',
     severity: 'medium',
     visibility: AUDIT_VIS.workspace,
     details: z.object({ scope: z.enum(LIFECYCLE_HOLD_SCOPES), holdId: detailCode(40) }).strict(),
@@ -74,7 +74,7 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
   /** Заявка на стирание субъекта принята (человек или организация) */
   'lifecycle.erasure.requested': {
     category: 'lifecycle',
-    status: 'planned',
+    status: 'live',
     severity: 'medium',
     visibility: AUDIT_VIS.both,
     details: z.object({ subjectType: z.enum(['user', 'workspace']), effectiveAt: detailIso() }).strict(),
@@ -83,7 +83,7 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
   /** Этап стирания пройден (скрыто → горячее стёрто → ключи уничтожены → бэкапы очищены) */
   'lifecycle.erasure.stage': {
     category: 'lifecycle',
-    status: 'planned',
+    status: 'live',
     severity: 'info',
     visibility: AUDIT_VIS.platform,
     details: z.object({ stage: z.enum(LIFECYCLE_ERASURE_STAGES), rows: detailCount(), policies: detailCount() }).strict(),
@@ -92,7 +92,7 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
   /** Стирание завершено, сертификат подписан */
   'lifecycle.erasure.completed': {
     category: 'lifecycle',
-    status: 'planned',
+    status: 'live',
     severity: 'medium',
     visibility: AUDIT_VIS.platform,
     details: z.object({ subjectType: z.enum(['user', 'workspace']), rows: detailCount(), policies: detailCount(), keys: detailCount() }).strict(),
@@ -118,7 +118,7 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
   /** Ночная канарейка нашла след стёртого синтетического субъекта — стирание где-то протекает */
   'lifecycle.canary.failed': {
     category: 'lifecycle',
-    status: 'planned',
+    status: 'live',
     severity: 'critical',
     visibility: AUDIT_VIS.platform,
     details: z.object({ stores: detailCount(), findings: detailCount() }).strict(),

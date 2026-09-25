@@ -14,6 +14,7 @@ import { HrJobs } from './hr.jobs';
 import { HrTemplateFieldsProvider } from './hr-template-fields.provider';
 import { HrRegistriesProvider } from './hr-registries.provider';
 import { HrVisibilityProvider } from './hr-visibility.provider';
+import { HrLifecycleProvider } from './hr.lifecycle.provider';
 import { HrController, HrPersonalController } from './hr.controller';
 import { HrNotificationRefsProvider } from './hr-notification-refs.provider';
 
@@ -44,6 +45,7 @@ import { HrNotificationRefsProvider } from './hr-notification-refs.provider';
     HrTemplateFieldsProvider,
     HrRegistriesProvider,
     HrVisibilityProvider,
+    HrLifecycleProvider,
     { provide: DI_TOKENS.HrService, useExisting: HrService },
   ],
   exports: [HrService, DI_TOKENS.HrService],

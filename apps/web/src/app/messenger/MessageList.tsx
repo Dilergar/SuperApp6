@@ -264,7 +264,8 @@ export const MessageList = forwardRef<MessageListHandle, {
       >
         {m.type === 'system' ? (
           <SystemPlaque message={m} />
-        ) : m.type === 'rich_card' ? (
+        ) : m.type === 'rich_card' && !m.deletedAt ? (
+          // Удалённая карточка (томбстоун: payload пуст) — обычный пузырь «сообщение удалено»
           <CardRow message={m} onCardUpdated={onCardUpdated} />
         ) : (
           <MessageBubble

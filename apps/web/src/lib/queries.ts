@@ -63,6 +63,9 @@ export const consentBundleKey = (bundle: string) => ['consents', 'bundle', bundl
 export const consentDocumentKey = (documentKey: string, locale: string, version?: number | null) => ['consents', 'document', documentKey, locale, version ?? 'current'] as const;
 export const consentVersionKey = (versionId: string, locale: string) => ['consents', 'version', versionId, locale] as const;
 export const consentArchiveKey = (documentKey: string) => ['consents', 'archive', documentKey] as const;
+/** Квитанция стирания по коду (публичная страница) и архивная проверка её подписи */
+export const erasureReceiptKey = (code: string) => ['lifecycle', 'erasure-receipt', code] as const;
+export const erasureVerificationKey = (code: string) => ['lifecycle', 'erasure-receipt', code, 'verification'] as const;
 /** Корень личных согласий: приёмка/отзыв инвалидируют его целиком (pending, state, history, receipt) */
 export const consentsMineRootKey = ['consents', 'mine'] as const;
 export const consentsPendingKey = ['consents', 'mine', 'pending'] as const;

@@ -116,6 +116,7 @@ export const PLAN_SEED_POLICY: Record<PlanKey, PlanSeedPolicy | null> = {
   // выгрузка — с basic, стрим в SIEM — со standard
   // Правила видимости (core/visibility): потолок правил — абсолютом 200 / 1000 / 5000,
   // адресаты оргструктуры, делегирование, объяснение и пресеты — со standard
+  // Заморозки организации (core/lifecycle) — со standard
   business_basic: {
     multipliers: { 'files.storageBytes': 1, '*': 1 },
     absolute: { 'workspace.seats': 5, 'audit.retentionDays': 180, 'visibility.maxRules': 200 },
@@ -124,11 +125,11 @@ export const PLAN_SEED_POLICY: Record<PlanKey, PlanSeedPolicy | null> = {
   business_standard: {
     multipliers: { 'files.storageBytes': 5, '*': 2 },
     absolute: { 'workspace.seats': 50, 'audit.retentionDays': 365, 'visibility.maxRules': 1000 },
-    features: ['audit.export', 'audit.stream', 'visibility.orgAudiences', 'visibility.revealDelegation', 'visibility.explain', 'visibility.presets'],
+    features: ['audit.export', 'audit.stream', 'visibility.orgAudiences', 'visibility.revealDelegation', 'visibility.explain', 'visibility.presets', 'lifecycle.holds'],
   },
   business_pro: {
     multipliers: { 'files.storageBytes': 10, '*': 4 },
     absolute: { 'workspace.seats': 250, 'audit.retentionDays': 1095, 'visibility.maxRules': 5000 },
-    features: ['audit.export', 'audit.stream', 'visibility.orgAudiences', 'visibility.revealDelegation', 'visibility.explain', 'visibility.presets'],
+    features: ['audit.export', 'audit.stream', 'visibility.orgAudiences', 'visibility.revealDelegation', 'visibility.explain', 'visibility.presets', 'lifecycle.holds'],
   },
 };

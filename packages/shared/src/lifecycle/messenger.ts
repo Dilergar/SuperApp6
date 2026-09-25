@@ -4,18 +4,19 @@
 // «вечно»; след удалённого аккаунта в общих чатах остаётся, автор рисуется томбстоуном.
 // Сообщения НЕ партиционируются: чтение «последние N в чате» идёт по `(chatId, seq)`.
 import {
+  BY_REFERENCE,
   CASCADE,
   CASCADE_FK,
   CONTRACT,
   FOREVER,
-  HARD_DELETE,
   batched,
   byChat,
   deep,
+  eraseBy,
+  eraseHook,
   forDays,
   keep,
   notEnforced,
-  pseudonymize,
   retainLegal,
   shallow,
   subject,
@@ -33,7 +34,7 @@ export const MESSENGER_LIFECYCLE = {
     subjects: [subject('createdById', 'author')],
     legalBasis: CONTRACT,
     retention: keep(),
-    onSubjectErasure: pseudonymize('createdById'),
+    onSubjectErasure: BY_REFERENCE,
     // Чаты организации находятся по `workspaceId` (раньше — только через parentType задач и
     // комнат): хук стирает сообщения батчами по (chatId, seq), затем строки чатов
     onTenantPurge: tenantHook('messenger.workspace-chats'),
@@ -56,7 +57,7 @@ export const MESSENGER_LIFECYCLE = {
     subjects: [subject('userId', 'member')],
     legalBasis: CONTRACT,
     retention: withParent,
-    onSubjectErasure: HARD_DELETE,
+    onSubjectErasure: eraseHook('messenger.subject'),
     onTenantPurge: CASCADE_FK,
     edges: [],
     enforcement: CASCADE,
@@ -101,7 +102,7 @@ export const MESSENGER_LIFECYCLE = {
     subjects: [subject('authorId', 'author')],
     legalBasis: CONTRACT,
     retention: forDays(30, 'event:terminal'),
-    onSubjectErasure: HARD_DELETE,
+    onSubjectErasure: eraseBy('authorId'),
     onTenantPurge: CASCADE_FK,
     edges: [],
     enforcement: batched('updatedAt', { status: ['sent', 'cancelled', 'failed'] }),

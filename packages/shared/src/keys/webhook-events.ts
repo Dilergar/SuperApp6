@@ -27,6 +27,21 @@ export const DOCUMENTS_WEBHOOK_EVENTS = defineWebhookEvents({
   'documents.document.signed': { service: 'documents', version: 1 },
 });
 
+/**
+ * Обязательные события стирания (модель Shopify customers/redact · shop/redact): уходят ВСЕМ
+ * активным адресам организации без подписки — интеграция обязана удалить у себя данные.
+ *  - `lifecycle.person.redact` — человек стёр аккаунт: каждой организации, где он состоял
+ *    (срок исполнения 30 дней, кроме законных оснований хранения);
+ *  - `lifecycle.workspace.redact` — через 48 часов после архивации организации (интеграции
+ *    отключены): удалить данные организации.
+ */
+export const LIFECYCLE_WEBHOOK_EVENTS = defineWebhookEvents({
+  'lifecycle.person.redact': { service: 'lifecycle', version: 1 },
+  'lifecycle.workspace.redact': { service: 'lifecycle', version: 1 },
+});
+/** События, которые не выбираются подпиской (обязательны для каждого адреса). */
+export const WEBHOOK_MANDATORY_EVENTS = Object.keys(LIFECYCLE_WEBHOOK_EVENTS) as ReadonlyArray<keyof typeof LIFECYCLE_WEBHOOK_EVENTS>;
+
 export const WORKSPACES_WEBHOOK_EVENTS = defineWebhookEvents({
   'workspaces.member.joined': { service: 'workspaces', version: 1 },
   'workspaces.member.left': { service: 'workspaces', version: 1 },
@@ -53,6 +68,7 @@ const REGISTRY_RAW = {
   ...TASKS_WEBHOOK_EVENTS,
   ...DOCUMENTS_WEBHOOK_EVENTS,
   ...WORKSPACES_WEBHOOK_EVENTS,
+  ...LIFECYCLE_WEBHOOK_EVENTS,
   ...SECURITY_WEBHOOK_EVENTS,
 } as const satisfies Record<string, WebhookEventDef>;
 
@@ -65,9 +81,13 @@ export function isWebhookEventKey(value: unknown): value is WebhookEventKey {
 }
 
 /** События, сгруппированные по сервису (чекбоксы формы endpoint'а). */
+/** Ключи, на которые подписываются (обязательные события уходят всем адресам без подписки). */
+export const WEBHOOK_SUBSCRIBABLE_KEYS = WEBHOOK_EVENT_KEYS.filter((k) => !(WEBHOOK_MANDATORY_EVENTS as readonly string[]).includes(k));
+
+/** Каталог подписки по сервисам — без обязательных событий. */
 export function webhookEventsByService(): Array<{ service: string; events: WebhookEventKey[] }> {
   const map = new Map<string, WebhookEventKey[]>();
-  for (const key of WEBHOOK_EVENT_KEYS) {
+  for (const key of WEBHOOK_SUBSCRIBABLE_KEYS) {
     const s = WEBHOOK_EVENT_REGISTRY[key].service;
     if (!map.has(s)) map.set(s, []);
     map.get(s)!.push(key);

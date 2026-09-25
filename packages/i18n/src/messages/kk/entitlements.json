@@ -31,7 +31,8 @@
     "visibilityExplain": "Қызметкер не көретінін тексеру",
     "visibilityPresets": "Көріну ережелерінің үлгілері",
     "visibilityMaxRules": "Көріну ережелері",
-    "visibilityRevealsPerDay": "Тәулігіне деректерді ашу саны"
+    "visibilityRevealsPerDay": "Тәулігіне деректерді ашу саны",
+    "lifecycleHolds": "Тоқтатулар"
   },
   "lock": {
     "quotaFull": "Дискідегі орын толды",
@@ -73,7 +74,8 @@
     "shop": "Дүкен",
     "workspaces": "Ұйымдар",
     "audit": "Қауіпсіздік журналы",
-    "visibility": "Көріну ережелері"
+    "visibility": "Көріну ережелері",
+    "lifecycle": "Деректердің өмірлік циклі"
   },
   "source": {
     "grant": "Сыйлық {date} дейін",

@@ -4,6 +4,10 @@ import { resolveAudienceLabels } from './audience-label';
 import { resolveIsoValues } from './iso-values';
 import { createFormatters, type Formatters } from './format';
 import type { Locale } from '@superapp/shared';
+import { localizePersonSnapshot } from './person-marker';
+
+/** Переменные шаблона со снимком имени человека (пары person-refs + значения изменения). */
+const PERSON_SNAPSHOT_VARS = ['targetName', 'deputyLabel', 'byName', 'fromName', 'otherName', 'ownerName', 'from', 'to'] as const;
 
 // ============================================================
 // Рендер записи хроники в языке ЗРИТЕЛЯ (переезд renderChatterText из shared).
@@ -132,8 +136,12 @@ export function renderChatter(
   // Актор: снимок имени → слово из payload по ключу («Система», когда действие
   // совершил не человек) → общее «Кто-то». Ключ, а не слово: запись вечна.
   const actorSnapshot = entry.actorName?.trim();
-  if (actorSnapshot) vars.actorName = actorSnapshot;
+  if (actorSnapshot) vars.actorName = localizePersonSnapshot(t, actorSnapshot);
   else if (typeof vars.actorNameKey !== 'string') vars.actorName = t('common.labels.someone');
+  // Снимки имён людей в payload и «было → стало»: маркер стёртого — метка на языке зрителя
+  for (const key of PERSON_SNAPSHOT_VARS) {
+    if (typeof vars[key] === 'string') vars[key] = localizePersonSnapshot(t, vars[key] as string);
+  }
 
   // Подпись изменённого поля берётся из каталога по refType и полю — той же
   // ступенью, что у `chatterFieldLabel`. Снимок `payload.fieldLabel` кладут

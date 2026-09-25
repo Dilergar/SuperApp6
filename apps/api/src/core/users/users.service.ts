@@ -7,7 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { badRequest, conflict, forbidden, notFound, unauthorized } from '../../shared/errors/api-error';
-import { coerceLocale } from '@superapp/i18n';
+import { DELETED_USER_MARKER, coerceLocale, isReservedPersonName } from '@superapp/i18n';
 import { ConsentsService } from '../consents/consents.service';
 import { ConsentsActionsService } from '../consents/consents.actions.service';
 import { ConsentsGateService } from '../consents/gate/consents-gate.service';
@@ -32,7 +32,15 @@ import { EntitlementsService } from '../entitlements/entitlements.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { PlatformAccessService } from '../platform/platform-access.service';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
-import { USER_ANONYMIZE_REDACT_JOB, USER_PHONE_INVITATIONS_JOB } from './user-jobs';
+import { USER_PHONE_INVITATIONS_JOB } from './user-jobs';
+import { LifecycleErasureService } from '../lifecycle/lifecycle.erasure.service';
+import {
+  LifecycleCanaryRegistry,
+  LifecycleSubjectHookRegistry,
+  type LifecycleCanaryContext,
+  type LifecycleCanaryPlant,
+  type LifecycleSubjectEraseContext,
+} from '../lifecycle/lifecycle.purge.registry';
 import { ContactsService } from '../../modules/contacts/contacts.service';
 import { WorkspacesService } from '../../modules/workspaces/workspaces.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -45,12 +53,13 @@ import { USER_CARD_SELECT, UserCardService } from './user-card.service';
 import {
   CONSENT_AGE,
   CONSENT_ERROR_CODES,
-  SOURCE_LOCALE,
+  LIFECYCLE_ACCOUNT_GRACE_DAYS,
   isUuid,
   ageOnDate,
   maskPhone,
   platformTodayIso,
   type AccountDeletionBlockersDto,
+  type AccountDeletionResultDto,
   type ChangePasswordInput,
   type ChangePhoneInput,
   type SocialLinks,
@@ -65,9 +74,8 @@ import {
 import { ChatterService } from '../chatter/chatter.service';
 
 /** Days a deleted account stays recoverable before permanent anonymization. */
-// 14 календарных дней: от отзыва согласия до прекращения обработки закон даёт 15 РАБОЧИХ дней
-// (ЗоПД ст. 8 п. 7) — грейс обязан укладываться в них с запасом на саму анонимизацию.
-export const ACCOUNT_GRACE_DAYS = 14;
+// Грейс удаления аккаунта — одна правда с оркестратором стирания (shared, ЗоПД ст. 8 п. 7)
+export const ACCOUNT_GRACE_DAYS = LIFECYCLE_ACCOUNT_GRACE_DAYS;
 
 // Джоб активации приглашений: константа общая с регистрацией (см. user-jobs.ts),
 // реэкспорт — чтобы прежние импорты из этого файла продолжали работать.
@@ -107,23 +115,16 @@ export class UsersService implements OnModuleInit {
     private discoverability: VisibilityDiscoverabilityService,
     private userCards: UserCardService,
     private chatter: ChatterService,
+    private erasure: LifecycleErasureService,
+    private subjectHooks: LifecycleSubjectHookRegistry,
+    private canary: LifecycleCanaryRegistry,
   ) {}
 
   onModuleInit(): void {
     this.jobsRegistry.register(USER_PHONE_INVITATIONS_JOB, (payload) => this.runPhoneInvitationsJob(payload));
-    this.jobsRegistry.register(USER_ANONYMIZE_REDACT_JOB, (payload) => this.runAnonymizeRedactJob(payload));
-  }
-
-  /**
-   * След стёртого человека вне его строки (`USER_ANONYMIZE_REDACT_JOB`): снимок имени в хронике и
-   * снимки текста его событий уведомлений. Идемпотентно — ретрай движка джобов безопасен.
-   */
-  private async runAnonymizeRedactJob(payload: Record<string, unknown>): Promise<void> {
-    const userId = String(payload.userId ?? '');
-    if (!isUuid(userId)) throw new JobDiscardError('users.anonymize.redact: userId is required');
-    const chatter = await this.chatter.redactActor(userId);
-    const events = await this.notifications.redactActorSnapshots(userId);
-    this.logger.log(`anonymized ${userId}: ${chatter} chronicle snapshot(s), ${events} notification snapshot(s) redacted`);
+    // Корневой шаг стирания человека (оркестратор core/lifecycle): скрыть и стереть ПДн строки
+    this.subjectHooks.register('users.account', { erase: (userId, ctx) => this.eraseAccount(userId, ctx) });
+    this.canary.register('users.account', (ctx) => this.seedCanary(ctx));
   }
 
   /**
@@ -245,6 +246,9 @@ export class UsersService implements OnModuleInit {
     data: UpdateProfileInput,
   ): Promise<Omit<User, 'isVerified' | 'createdAt' | 'updatedAt'>> {
     const { dateOfBirth, socialLinks, ...rest } = data;
+    // Имя-метка «удалённый пользователь» — маркер томбстоуна стёртого человека: живому его взять
+    // нельзя ни на одном языке, иначе он выдавал бы себя за стёртого (core/lifecycle)
+    if (isReservedPersonName(rest.firstName)) throw badRequest('account.nameReserved');
     // Аватар хранится ССЫЛКОЙ (не FileLink) → при замене прибираем прежний файл сами,
     // иначе каждая смена аватара навсегда копит квоту (публичные файлы крон не свипает).
     const prevAvatar =
@@ -342,7 +346,7 @@ export class UsersService implements OnModuleInit {
    * принимает заново (шлюз). После коммита владельцу уходит SMS «не вы? войдите, чтобы отменить» —
    * защита от удаления с угнанной сессии.
    */
-  async scheduleDeletion(userId: string, input: { password: string; verifyToken?: string }) {
+  async scheduleDeletion(userId: string, input: { password: string; verifyToken?: string; eraseMessages?: boolean }): Promise<AccountDeletionResultDto> {
     const user = await this.db.user.findUnique({ where: { id: userId } });
     if (!user || user.deletedAt) {
       throw notFound('auth.accountNotFound');
@@ -362,6 +366,7 @@ export class UsersService implements OnModuleInit {
     const purgeAt = new Date(scheduledAt.getTime() + ACCOUNT_GRACE_DAYS * 86_400_000);
     let consentsAfterCommit: (() => Promise<void>) | null = null;
     let revokedFamilies: string[] = [];
+    let receipt = '';
     await this.db.$transaction(async (tx) => {
       if (input.verifyToken) {
         await this.verify.consume(tx, { verifyToken: input.verifyToken, purpose: 'account_delete', expectedUserId: userId });
@@ -371,6 +376,9 @@ export class UsersService implements OnModuleInit {
       if (count === 0) throw conflict('account.deletionAlreadyScheduled');
       consentsAfterCommit = (await this.consents.revokeAllForSubject(tx, { type: 'user', id: userId }, 'account_deleted', userId)).afterCommit;
       await this.audit.record(tx, { key: 'account.deletion_requested', subjectUserId: userId, details: { graceDays: ACCOUNT_GRACE_DAYS } });
+      // Заявка на стирание (оркестратор core/lifecycle): джоб в срок, этапы, сертификат. Код
+      // квитанции — единственный путь человека к сертификату, когда аккаунта уже нет
+      receipt = (await this.erasure.request(tx, { subject: { type: 'user', id: userId }, effectiveAt: purgeAt, options: { eraseMessages: !!input.eraseMessages } })).receipt;
       // SMS уходит отдельной дверью ниже (безусловно), поэтому канал sms движка выключен — иначе две SMS
       await this.notifications.send(tx, {
         type: 'account.deletionScheduled',
@@ -405,7 +413,7 @@ export class UsersService implements OnModuleInit {
       .sendAccountAlert(userId, user.phone, this.i18n.translateFor(locale, 'notifications.sms.accountDeletionScheduled', { days: ACCOUNT_GRACE_DAYS }))
       .then((sent) => (sent ? this.pdActions.record(null, { subjectId: userId, recipient: 'kazinfoteh', fields: ['phone', 'notification_text'], purpose: 'service_sms', refType: 'account_deletion', refId: userId }) : undefined))
       .catch((err) => this.logger.warn(`The account deletion SMS was not sent: ${(err as Error).message}`));
-    return { scheduled: true, gracePeriodDays: ACCOUNT_GRACE_DAYS, purgeAt: purgeAt.toISOString() };
+    return { scheduled: true, gracePeriodDays: ACCOUNT_GRACE_DAYS, purgeAt: purgeAt.toISOString(), receipt };
   }
 
   /**
@@ -572,7 +580,10 @@ export class UsersService implements OnModuleInit {
   async restoreAccount(userId: string) {
     await this.db.$transaction(async (tx) => {
       const { count } = await tx.user.updateMany({ where: { id: userId, deletionScheduledAt: { not: null }, deletedAt: null }, data: { deletionScheduledAt: null } });
-      if (count) await this.audit.record(tx, { key: 'account.deletion_cancelled', subjectUserId: userId, details: {} });
+      if (count) {
+        await this.audit.record(tx, { key: 'account.deletion_cancelled', subjectUserId: userId, details: {} });
+        await this.erasure.cancel(tx, { type: 'user', id: userId });
+      }
     });
     await this.redis.invalidateUserProfile(userId);
   }
@@ -600,30 +611,35 @@ export class UsersService implements OnModuleInit {
     return total;
   }
 
-  /** IDs of accounts whose grace window has elapsed — driven by the deletion cron. */
-  async findExpiredDeletions(graceDays: number): Promise<string[]> {
-    const cutoff = new Date(Date.now() - graceDays * 24 * 60 * 60 * 1000);
-    const rows = await this.db.user.findMany({
-      where: { deletionScheduledAt: { lt: cutoff }, deletedAt: null },
-      select: { id: true },
-    });
-    return rows.map((r) => r.id);
-  }
-
   /**
-   * Permanently anonymize the account — "right to be forgotten". We do NOT
-   * delete the user row, so collaborative content others depend on (tasks
-   * assigned to them, comments, workspaces) survives. PII is scrubbed and the
-   * phone is freed for re-registration. Called by the cron after the grace
-   * window elapses.
+   * Корневой шаг стирания человека (`users.account`, оркестратор core/lifecycle; «право на
+   * забвение»). Строка не удаляется — совместный контент (задачи, чаты, организации) цел,
+   * автор рисуется томбстоуном. Два под-шага, оба идемпотентны:
+   *  1) СКРЫТЬ — `deletedAt` (вход закрыт навсегда, эпоха токенов, сокеты). Идёт ВСЕГДА, даже
+   *     под заморозкой: заморозка держит данные, не доступ;
+   *  2) СТЕРЕТЬ — ПДн строки, связи Окружения, тариф, аналитика, ключи (KEK на уничтожение),
+   *     роли, номер освобождается. Под заморозкой хранителя НЕ идёт (ПДн — улика процесса):
+   *     шаг вернёт «удерживается», оркестратор повторит его после снятия.
+   * Срок проверяет оркестратор (джоб в срок); здесь — только «удаление запрошено».
    */
-  async anonymizeAccount(userId: string) {
+  async eraseAccount(userId: string, ctx: LifecycleSubjectEraseContext): Promise<{ rows: number }> {
     // JWT-guard кэширует «жив» — терминальное удаление чистит кэш первым делом.
     await this.redis.del(authAliveKey(userId)).catch(() => undefined);
+    const hidden = await this.db.user.updateMany({
+      where: { id: userId, deletedAt: null, deletionScheduledAt: { not: null } },
+      data: { deletedAt: new Date(), tokenEpoch: { increment: 1 } },
+    });
+    const state = await this.db.user.findUnique({ where: { id: userId }, select: { phone: true, deletedAt: true } });
+    if (!state?.deletedAt) throw new Error(`account ${userId} is not scheduled for erasure — nothing to hide`);
     // Живые сокеты рвём, как и все остальные пути отзыва (сброс/смена пароля, смена
-    // номера, logout-all, планирование удаления). Необратимая анонимизация — единственный
-    // путь, который этого не делал, и открытое соединение её переживало.
-    this.events.emit('auth.sessions.revoked', { userId }, 'users');
+    // номера, logout-all, планирование удаления)
+    if (hidden.count) this.events.emit('auth.sessions.revoked', { userId }, 'users');
+    // Уже стёрто (повтор шага) — номер освобождён меткой
+    if (state.phone === `deleted:${userId}`) return { rows: 0 };
+    if (ctx.subjectHeld) {
+      ctx.held(1);
+      return { rows: 0 };
+    }
     // Former contacts whose contactsCount changes — bust their caches afterwards.
     const links = await this.db.contactLink.findMany({
       where: { OR: [{ userAId: userId }, { userBId: userId }] },
@@ -652,19 +668,19 @@ export class UsersService implements OnModuleInit {
     });
 
     const deadHash = await bcrypt.hash(randomUUID(), 12);
-    const cutoff = new Date(Date.now() - ACCOUNT_GRACE_DAYS * 24 * 60 * 60 * 1000);
 
     const anonymized = await this.db.$transaction(async (tx) => {
-      // Atomic claim: take the row ONLY if it's STILL pending past the grace
-      // window. If the user logged back in and restored it
-      // (deletionScheduledAt → null) — or re-scheduled — this matches 0 rows and
-      // we abort, touching nothing. This closes the race where the cron would
-      // otherwise wipe an account the user just recovered.
-      const claimed = await tx.user.updateMany({
-        where: { id: userId, deletedAt: null, deletionScheduledAt: { lt: cutoff } },
-        data: { deletedAt: new Date() },
-      });
-      if (claimed.count === 0) return false;
+      // Атомарный клейм стирания: строка блокируется ПЕРВЫМ оператором, номер-метка ставится
+      // сразу — параллельный заход (ретрай джоба, второй инстанс) ждёт замка и видит метку, каскад
+      // дважды не пройдёт. Номер — зашифрованное поле (ключ на строку): только одиночный update,
+      // массовый updateMany расширение ПДн отвергает. Скрытый аккаунт восстановить нельзя —
+      // гонки с «вернулся в грейс» здесь уже нет (её закрыл шаг «скрыть»).
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT id::text AS id FROM "users" WHERE id = ${userId}::uuid AND deleted_at IS NOT NULL FOR UPDATE`;
+      if (!locked.length) return false;
+      const current = await tx.user.findUnique({ where: { id: userId }, select: { phone: true } });
+      if (!current || current.phone === `deleted:${userId}`) return false;
+      await tx.user.update({ where: { id: userId }, data: { phone: `deleted:${userId}` } });
 
       // Ключи API, созданные боты, KEK человека (crypto-shredding зашифрованных ПДн)
       await this.keysCascades.onAccountAnonymize(tx, userId);
@@ -673,13 +689,8 @@ export class UsersService implements OnModuleInit {
       await tx.contactLink.deleteMany({
         where: { OR: [{ userAId: userId }, { userBId: userId }] },
       });
-      await tx.contactInvitation.updateMany({
-        where: {
-          status: 'pending',
-          OR: [{ fromUserId: userId }, { toUserId: userId }],
-        },
-        data: { status: 'cancelled', respondedAt: new Date() },
-      });
+      // Приглашения человека и к нему — стираются (реестр: hard_delete), а не гасятся статусом
+      await tx.contactInvitation.deleteMany({ where: { OR: [{ fromUserId: userId }, { toUserId: userId }] } });
       await tx.contactBlock.deleteMany({
         where: { OR: [{ blockerId: userId }, { blockedId: userId }] },
       });
@@ -692,16 +703,13 @@ export class UsersService implements OnModuleInit {
       // хранения по закону), а устройства человека, которого больше нет, — нет
       await tx.userDevice.deleteMany({ where: { userId } });
       await this.audit.record(tx, { key: 'account.anonymized', subjectUserId: userId, actor: { kind: 'system' }, details: {} });
-      // След человека вне его строки (хроника, снимки уведомлений) — пачками джобом того же коммита
-      await this.jobs.enqueue(tx, { type: USER_ANONYMIZE_REDACT_JOB, payload: { userId }, uniqueKey: `anon-redact:${userId}` });
-      await tx.userRole.updateMany({
-        where: { userId },
-        data: { isActive: false },
-      });
+      // След человека вне его строки (хроника, снимки уведомлений) — шаги оркестратора
+      // `chatter.subject` / `notifications.subject` (пачками, с продолжением после сбоя).
+      // Роли стираются (реестр: hard_delete): неактивная строка роли — лишняя ссылка на человека
+      await tx.userRole.deleteMany({ where: { userId } });
       // Тариф: подписки, гранты, оверрайды и счётчики — полиморфные строки без FK
       await this.entitlements.forgetSubject(tx, { type: 'user', id: userId });
-      // Аналитика: агрегаты по человеку — сразу, сырьё и склейки анонимов — джобом
-      await this.analytics.forgetUser(tx, userId);
+      // Аналитика человека — свой шаг оркестратора (`analytics.subject`): первый проход сразу, второй джобом
       // Кабинет платформы: сотрудник на анонимизированном аккаунте оставался активным —
       // он числился в штате, попадал в адресаты заявок four-eyes и в получатели
       // security-alert. Снимаем со штата и гасим его консольные сессии.
@@ -713,9 +721,8 @@ export class UsersService implements OnModuleInit {
         where: { id: userId },
         data: {
           // Имя ложится В БД — снимок в языке ИСТОЧНИКА (зритель перерисует его при чтении).
-          firstName: this.i18n.translateFor(SOURCE_LOCALE, 'common.labels.deletedUser'),
+          firstName: DELETED_USER_MARKER,
           lastName: null,
-          phone: `deleted:${userId}`, // frees the real number for re-registration
           phoneVerifiedAt: null, // подтверждение принадлежало освобождённому номеру
           email: null,
           // Удостоверяющие данные: без них «удалённый» аккаунт продолжал бы хранить ИИН, адрес
@@ -739,8 +746,8 @@ export class UsersService implements OnModuleInit {
       return true;
     });
 
-    // Restored / re-scheduled in the meantime → nothing was changed, skip.
-    if (!anonymized) return;
+    // Параллельный заход уже стёр — ничего не менялось
+    if (!anonymized) return { rows: 0 };
 
     // KEK человека ушёл на уничтожение — кэши keystore сбрасываются ПОСЛЕ коммита
     await this.keysCascades.afterScopeDestroyCommitted();
@@ -762,6 +769,39 @@ export class UsersService implements OnModuleInit {
     await Promise.all(
       [...others].map((id) => this.redis.invalidateUserProfile(id)),
     );
+    return { rows: 1 };
+  }
+
+  /**
+   * Посев канарейки стирания для корневого шага: аккаунт глазами `users.account` — сессия
+   * (отозванная), устройство, SMS-цепочка, сессия Кабинета (отозванная), роли человека (роль в
+   * организации канарейки заведена её фабрикой), связь и приглашение Окружения, блок, Группа с
+   * соседом. Номера — `canary:` (ни SMS, ни совпадения с живым номером). Всё обязано исчезнуть.
+   */
+  private async seedCanary(ctx: LifecycleCanaryContext): Promise<LifecycleCanaryPlant[]> {
+    const u = ctx.userId;
+    // Строка аккаунта остаётся томбстоуном («удалённый пользователь») — без фамилии-маркера
+    const plants: LifecycleCanaryPlant[] = [{ policy: 'User', id: u, expect: 'kept' }];
+    const gone = (policy: string, id: string) => plants.push({ policy, id, expect: 'gone' });
+    const inHour = new Date(Date.now() + 3_600_000);
+    gone('Session', (await this.db.session.create({ data: { userId: u, token: `canary:${randomUUID()}`, expiresAt: inHour, deviceInfo: ctx.marker, revokedAt: new Date(), revokedReason: 'self' }, select: { id: true } })).id);
+    gone('UserDevice', (await this.db.userDevice.create({ data: { userId: u, deviceId: randomUUID(), label: ctx.marker }, select: { id: true } })).id);
+    gone(
+      'VerifyChallenge',
+      (await this.db.verifyChallenge.create({ data: { userId: u, phone: `canary:${u}`, purpose: 'password_change', codeHash: createHash('sha256').update(randomUUID()).digest('hex'), expiresAt: inHour, delivery: 'simulated' }, select: { id: true } })).id,
+    );
+    gone('PlatformSession', (await this.db.platformSession.create({ data: { userId: u, expiresAt: inHour, revokedAt: new Date(), userAgent: ctx.marker }, select: { id: true } })).id);
+    for (const r of await this.db.userRole.findMany({ where: { userId: u }, select: { id: true }, take: 100 })) gone('UserRole', r.id);
+    const link = await this.db.contactLink.create({ data: { userAId: u, userBId: ctx.peerId, initiatedBy: u, roleAForB: ctx.marker }, select: { id: true } });
+    gone('ContactLink', link.id);
+    gone(
+      'ContactInvitation',
+      (await this.db.contactInvitation.create({ data: { fromUserId: u, toPhone: `canary:${randomUUID()}`, message: ctx.marker, expiresAt: inHour }, select: { id: true } })).id,
+    );
+    gone('ContactBlock', (await this.db.contactBlock.create({ data: { blockerId: u, blockedId: ctx.peerId }, select: { id: true } })).id);
+    const circle = await this.db.circle.create({ data: { ownerId: u, name: ctx.marker, memberships: { create: { contactLinkId: link.id } } }, select: { id: true } });
+    gone('Circle', circle.id);
+    return plants;
   }
 
   /** Поиск по номеру глазами зрителя: находимость + минимальная карточка по правилам владельца. */

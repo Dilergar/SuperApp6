@@ -72,6 +72,8 @@ export const ENTITLEMENT_SERVICES = {
   audit: { order: 95, icon: 'shield' },
   /** Правила видимости (core/visibility): адресаты оргструктуры, делегирование, объяснение, пресеты, правила, раскрытия */
   visibility: { order: 96, icon: 'eye' },
+  /** Жизненный цикл данных организации (core/lifecycle): заморозки (legal hold) */
+  lifecycle: { order: 97, icon: 'archive' },
 } as const satisfies Record<string, { order: number; icon: string }>;
 
 export type EntitlementServiceKey = keyof typeof ENTITLEMENT_SERVICES;

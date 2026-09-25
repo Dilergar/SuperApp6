@@ -33,13 +33,16 @@ export type KeyScopeRef = { type: 'platform' } | { type: 'workspace' | 'user'; i
 
 /** Аудитории подписи — отдельная пара ключей на каждую (урок Storm-0558). */
 // `audit` — подписанные дайджесты и манифесты архива журнала безопасности (core/audit)
-export const SIGNING_AUDIENCES = ['product', 'platform', 'wopi', 'share_link', 'files_url', 'webhook', 'consents', 'audit'] as const;
+// `lifecycle` — сертификаты стирания (NIST 800-88): подпись ставится один раз и проверяется годами (verifyArchival)
+export const SIGNING_AUDIENCES = ['product', 'platform', 'wopi', 'share_link', 'files_url', 'webhook', 'consents', 'audit', 'lifecycle'] as const;
 export type SigningAudience = (typeof SIGNING_AUDIENCES)[number];
 
 /** Именованные HMAC-ключи платформы. */
 // `audit` — псевдонимы в журнале безопасности (IP события, неизвестный номер неудачного входа):
 // поиск по равенству всеми живыми версиями без открытого значения в строке (core/audit)
-export const MAC_KEY_NAMES = ['blind_index', 'verify_otp', 'oauth_state', 'api_key_pepper', 'idempotency', 'google_channel', 'audit'] as const;
+// `lifecycle` — псевдоним стёртого субъекта в журнале стираний и сертификате: реплей журнала после
+// восстановления бэкапа находит субъекта пересчётом (всеми живыми версиями), без id в журнале
+export const MAC_KEY_NAMES = ['blind_index', 'verify_otp', 'oauth_state', 'api_key_pepper', 'idempotency', 'google_channel', 'audit', 'lifecycle'] as const;
 export type MacKeyName = (typeof MAC_KEY_NAMES)[number];
 
 /** Алгоритмы — метка в каждом артефакте (crypto-agility: смена = новая версия ключа). */

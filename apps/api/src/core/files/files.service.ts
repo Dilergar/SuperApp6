@@ -30,6 +30,7 @@ import {
   type AttachmentFileView, uuidv7, opaqueIdTail } from '@superapp/shared';
 import { resolveIsoValues } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
+import { appTmpPath } from '../../shared/fs/temp-file.util';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { FilesUrlService } from './files-url.service';
@@ -470,6 +471,67 @@ export class FilesService implements OnModuleInit {
       await this.driver.delete(storageKey).catch(() => undefined);
       throw err;
     }
+  }
+
+  /**
+   * Синтетический файл канарейки стирания (core/lifecycle): та же строка, те же байты в
+   * хранилище и та же квота владельцу, что у готового файла `ingestLocalFile`, — без
+   * конвейера (медиа, антивирус), сверки магических байт и событий `file.*` (посев не
+   * рассылает эффектов наружу). Только для посевов канарейки.
+   */
+  async createCanaryFile(opts: {
+    profile: string;
+    ownerType: FileOwnerType;
+    ownerId: string;
+    uploaderId: string;
+    name: string;
+    mime: string;
+    content: string;
+  }): Promise<{ id: string; storageKey: string }> {
+    const spec = this.profileSpec(opts.profile);
+    const id = uuidv7();
+    const storageKey = fileStorageKey(id);
+    const tmp = appTmpPath(`canary-file-${id}`);
+    await fs.promises.writeFile(tmp, opts.content);
+    try {
+      await this.driver.putFromFile(storageKey, tmp, opts.mime);
+    } finally {
+      await fs.promises.unlink(tmp).catch(() => undefined);
+    }
+    const size = Buffer.byteLength(opts.content);
+    try {
+      await this.db.$transaction(async (tx) => {
+        await tx.fileObject.create({
+          data: {
+            id,
+            ownerType: opts.ownerType,
+            ownerId: opts.ownerId,
+            uploaderId: opts.uploaderId,
+            profile: opts.profile,
+            kind: fileKindFromMime(opts.mime),
+            name: opts.name,
+            mime: opts.mime,
+            size: BigInt(size),
+            sha256: createHash('sha256').update(opts.content).digest('hex'),
+            status: 'ready',
+            readyAt: new Date(),
+            visibility: spec.visibility,
+            publicToken: spec.visibility === 'public' ? randomBytes(24).toString('base64url') : null,
+            storageDriver: this.driver.name,
+            storageKey,
+            meta: { pipeline: 'done', canary: true },
+          },
+        });
+        if (!isEvidenceProfile(opts.profile)) {
+          await this.entitlements.consume(tx, { type: opts.ownerType, id: opts.ownerId }, 'files.storageBytes', size);
+          await this.entitlements.consume(tx, { type: opts.ownerType, id: opts.ownerId }, 'files.count', 1);
+        }
+      });
+    } catch (err) {
+      await this.driver.delete(storageKey).catch(() => undefined);
+      throw err;
+    }
+    return { id, storageKey };
   }
 
   /**

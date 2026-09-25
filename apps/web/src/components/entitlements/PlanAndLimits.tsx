@@ -36,6 +36,7 @@ const SERVICE_ICON: Record<EntitlementServiceKey, IconName> = {
   notifications: 'bell',
   audit: 'shield',
   visibility: 'eye',
+  lifecycle: 'archive',
 };
 
 /** Ключ каталога подписи → относительный (внутри неймспейса `entitlements`). */

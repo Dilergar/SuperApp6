@@ -8,7 +8,7 @@ import {
   KEY_SCOPE_LEVELS,
   KEY_SCOPE_SERVICE_KEYS,
   SIGNING_AUDIENCES,
-  WEBHOOK_EVENT_KEYS,
+  WEBHOOK_SUBSCRIBABLE_KEYS,
   WEBHOOK_SIGNINGS,
   type KeyScopeService,
   type WebhookEventKey,
@@ -182,7 +182,8 @@ const webhookUrl = z
   // Только https; http допускается ТОЛЬКО на loopback (dev-полигон сьюта, сервер сверх того требует WEBHOOKS_DEV_LOOPBACK)
   .refine((u) => u.startsWith('https://') || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?(\/|$)/i.test(u), 'validation.keys.webhookHttpsOnly');
 
-export const webhookEventKeySchema = z.enum(WEBHOOK_EVENT_KEYS as [WebhookEventKey, ...WebhookEventKey[]]);
+// Подписка — только на подписываемые события: обязательные (стирание) уходят всем адресам сами
+export const webhookEventKeySchema = z.enum(WEBHOOK_SUBSCRIBABLE_KEYS as [WebhookEventKey, ...WebhookEventKey[]]);
 
 export const webhookEndpointCreateSchema = z
   .object({

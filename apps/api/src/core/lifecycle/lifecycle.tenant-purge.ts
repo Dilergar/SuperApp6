@@ -17,11 +17,19 @@ import { JobsService } from '../jobs/jobs.service';
 import { LifecycleMetrics } from './lifecycle.metrics';
 import { LifecycleTenantHeldError, LifecycleTenantHookRegistry, type LifecycleTenantPurgeContext } from './lifecycle.purge.registry';
 import { LifecycleRuns } from './lifecycle.runs';
-import { lifecycleTableOf, lockHoldsShared, releasableIds, tenantBatchSql, tenantEstimateSql, tenantHeld } from './lifecycle.sql';
+import { lifecycleTableOf, lockHoldsShared, releasableIds, tenantBatchSql, tenantEstimateSql, workspaceHeld } from './lifecycle.sql';
 
 interface TenantPurgePayload {
   workspaceId: string;
   runId: string;
+}
+
+/** Итог каскада для наблюдателя (оркестратор стирания): строки по шагам — счётчики сертификата. */
+export interface LifecycleTenantPurgedInfo {
+  runId: string;
+  rows: number;
+  steps: string[];
+  stepRows: Record<string, number>;
 }
 
 /** Шаг каскада глазами предпросмотра (Atlassian 2022: сколько удалим — ДО удаления). */
@@ -55,6 +63,7 @@ export interface LifecycleTenantPreviewStep {
 @Injectable()
 export class LifecycleTenantPurgeService implements OnModuleInit {
   private readonly logger = new Logger(LifecycleTenantPurgeService.name);
+  private readonly purgedObservers: Array<(workspaceId: string, info: LifecycleTenantPurgedInfo) => Promise<void>> = [];
 
   constructor(
     private readonly db: DatabaseService,
@@ -79,6 +88,15 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
   }
 
   /**
+   * Наблюдатель завершения каскада (оркестратор стирания отмечает этап «горячее стёрто»).
+   * Подписка, а не зависимость: оркестратор сам ставит каскад — кольцо конструкторов не нужно.
+   * Ошибка наблюдателя каскад не откатывает (он уже закоммичен) — её подберёт тик оркестратора.
+   */
+  onPurged(cb: (workspaceId: string, info: LifecycleTenantPurgedInfo) => Promise<void>): void {
+    this.purgedObservers.push(cb);
+  }
+
+  /**
    * Организация существует и в архиве. Живую удалить нельзя ни ретеншном, ни командой —
    * сначала архив (обратимо), потом срок.
    */
@@ -88,9 +106,13 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
     if (ws.isActive) throw conflict('workspace.notArchived');
   }
 
-  /** Организация под заморозкой — каскад её не трогает (ретеншн архива пропускает). */
-  isHeld(workspaceId: WorkspaceId): Promise<boolean> {
-    return this.db.$transaction((tx) => tenantHeld(tx, workspaceId));
+  /**
+   * Организация под заморозкой — каскад её не трогает (ретеншн архива пропускает). Дёшево —
+   * заморозки этой организации (проверка перед каждым шагом); `deep` — и заморозки платформы
+   * на её данных (раз на прогон, перед командой и в транзакции удаления строки организации).
+   */
+  isHeld(workspaceId: WorkspaceId, opts: { deep?: boolean } = {}): Promise<boolean> {
+    return this.db.$transaction((tx) => workspaceHeld(tx, workspaceId, !!opts.deep));
   }
 
   /**
@@ -179,6 +201,11 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
       }
     }
     const done = new Set<string>(Array.isArray(run.report.done) ? (run.report.done as string[]) : []);
+    // Строки по шагам (сертификат стирания организации считает их по классам данных)
+    const stepRows: Record<string, number> = { ...((run.report.stepRows as Record<string, number> | undefined) ?? {}) };
+    const addRows = (key: string, n: number) => {
+      if (n) stepRows[key] = (stepRows[key] ?? 0) + n;
+    };
     const held = async () => {
       if (!(await this.isHeld(workspaceId))) return false;
       await this.runs.finish(runId, 'stopped', { stoppedReason: 'held', report: { done: [...done] } });
@@ -198,6 +225,16 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
         return releasableIds(tx, policy, ids);
       },
     };
+    // Заморозки ПЛАТФОРМЫ на данных организации (хранитель, класс, запись) — раз на прогон:
+    // удерживаемое среди её данных держит весь каскад, как и заморозка самой организации
+    if (!run.report.deepHoldChecked) {
+      if (await this.isHeld(workspaceId, { deep: true })) {
+        await this.runs.finish(runId, 'stopped', { stoppedReason: 'held', report: { done: [...done] } });
+        this.logger.warn(`tenant purge of ${workspaceId} stopped: its data is under a legal hold`);
+        return 'done';
+      }
+      await this.runs.saveState(runId, { deepHoldChecked: true });
+    }
     for (const step of lifecycleTenantPurgePlan()) {
       if (done.has(step.key)) continue;
       if (orphan && step.key === 'workspaces.row') continue;
@@ -225,6 +262,8 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
         rows = res && typeof res.rows === 'number' ? res.rows : 0;
         if (res && res.done === false) {
           if (rows) await this.runs.progress(null, runId, rows, 1);
+          addRows(step.key, rows);
+          await this.runs.saveState(runId, { stepRows });
           return 'continue';
         }
       } else {
@@ -232,16 +271,25 @@ export class LifecycleTenantPurgeService implements OnModuleInit {
         rows = res.rows;
         if (!res.done) {
           if (rows) await this.runs.progress(null, runId, rows, 1);
+          addRows(step.key, rows);
+          await this.runs.saveState(runId, { stepRows });
           return 'continue';
         }
       }
       done.add(step.key);
+      addRows(step.key, rows);
       await this.runs.progress(null, runId, rows, 1);
-      await this.runs.saveState(runId, { done: [...done] });
+      await this.runs.saveState(runId, { done: [...done], stepRows });
       this.metrics.tenantStep(step.key, Date.now() - started);
     }
-    await this.runs.finish(runId, 'done', { report: { done: [...done] } });
+    const closed = await this.runs.finish(runId, 'done', { report: { done: [...done] } });
     this.logger.log(`tenant purge of ${workspaceId} finished (${done.size} steps)`);
+    if (closed && !orphan) {
+      const total = (await this.runs.get(runId))?.rows ?? 0;
+      for (const cb of this.purgedObservers) {
+        await cb(workspaceId, { runId, rows: total, steps: [...done], stepRows }).catch((err: unknown) => this.logger.warn(`tenant purge observer failed for ${workspaceId}: ${err instanceof Error ? err.message : err}`));
+      }
+    }
     return 'done';
   }
 

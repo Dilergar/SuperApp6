@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { RedisService } from '../../shared/redis/redis.service';
+import { LifecycleCanaryService } from './lifecycle.canary';
+import { LifecycleErasureService } from './lifecycle.erasure.service';
 import { LifecycleLooseFk } from './lifecycle.loose-fk';
 import { LifecyclePartitions } from './lifecycle.partitions';
 import { LifecyclePurgeRunner } from './lifecycle.purge';
@@ -9,7 +11,10 @@ import { LifecyclePurgeRunner } from './lifecycle.purge';
  * Ночное обслуживание движка — в окне массового ретеншна 01:00–06:00 по Алматы (plan §6.1):
  * план прогонов сроков (джоб на политику), партиции журналов (вперёд, сброс по сроку,
  * ANALYZE родителей), здоровье → метрики. Loose FK — круглосуточно каждые 5 минут (удаление
- * родителя не ждёт ночи, хвосты детей — тоже).
+ * родителя не ждёт ночи, хвосты детей — тоже). Стирание субъекта — круглосуточно: тик
+ * оркестратора каждые 10 минут (ключи → окно бэкапов → сертификат, страховка потерянных
+ * джобов, SLO), журнал стираний выгружается вне базы каждый час. Канарейка стирания — в 02:30
+ * (джоб на сутки: синтетический человек и организация посеяны, стёрты, проверены).
  * Под Redis-локом — один инстанс (`null` от withLock = лок занят, не результат).
  */
 @Injectable()
@@ -21,6 +26,8 @@ export class LifecycleCron {
     private readonly partitions: LifecyclePartitions,
     private readonly purge: LifecyclePurgeRunner,
     private readonly looseFk: LifecycleLooseFk,
+    private readonly erasure: LifecycleErasureService,
+    private readonly canary: LifecycleCanaryService,
   ) {}
 
   /** План ночи: прогон каждой ведомой политики (джоб ждёт окна сам, живой дубль не ставится). */
@@ -47,6 +54,36 @@ export class LifecycleCron {
   @Cron('17 */6 * * *')
   async partitionsHealth(): Promise<void> {
     await this.partitions.health();
+  }
+
+  /** Тик оркестратора стирания: этапы по сроку, сертификаты, redact организаций, застрявшие → метрика. */
+  @Cron('*/10 * * * *')
+  async erasureTick(): Promise<void> {
+    const ran = await this.redis.withLock('cron:lifecycle-erasure-tick', 9 * 60_000, async () => {
+      const r = await this.erasure.tick();
+      if (r.keys || r.completed || r.requeued || r.redacted || r.legacy) this.logger.log(`erasure tick: ${JSON.stringify(r)}`);
+    });
+    if (ran === null) this.logger.debug('erasure tick skipped: lock held by another instance');
+  }
+
+  /** Журнал стираний вне базы (NDJSON в объектное хранилище): реплей после восстановления бэкапа. */
+  @Cron('23 * * * *')
+  async erasureJournalExport(): Promise<void> {
+    const ran = await this.redis.withLock('cron:lifecycle-erasure-journal', 10 * 60_000, async () => {
+      const n = await this.erasure.exportJournal();
+      if (n) this.logger.log(`erasure journal: ${n} row(s) exported`);
+    });
+    if (ran === null) this.logger.debug('erasure journal export skipped: lock held by another instance');
+  }
+
+  /** Канарейка стирания: один прогон в сутки (uniqueKey дня; второй инстанс получит no-op). */
+  @Cron('30 2 * * *', { timeZone: 'Asia/Almaty' })
+  async canaryNightly(): Promise<void> {
+    try {
+      if (await this.canary.schedule()) this.logger.log('erasure canary queued');
+    } catch (err) {
+      this.logger.warn(`erasure canary was not queued: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   /** Loose FK: проход по учёту удалений (один живой джоб на кластер — uniqueKey) + метрика хвоста. */

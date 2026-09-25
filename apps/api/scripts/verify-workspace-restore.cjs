@@ -243,10 +243,12 @@ async function main() {
     // Первая фаза каскада — данные движков и сервисов
     check('Диск организации стёрт (пространство и узлы)', (await prisma.driveSpace.count({ where: { ownerType: 'workspace', ownerId: wsId } })) === 0 && (await prisma.driveNode.count({ where: { id: folderId } })) === 0);
     check('заметки организации стёрты (пространство и заметки)', (await prisma.noteSpace.count({ where: { ownerType: 'workspace', ownerId: wsId } })) === 0 && (await prisma.note.count({ where: { id: noteId } })) === 0);
-    check('файл организации удалён системным путём', (await prisma.fileObject.findUnique({ where: { id: fileId } }))?.status === 'deleted');
+    // Организация уходит навсегда — файл сразу физически (строка и байты), а не 7 дней корзины
+    check('файл организации стёрт физически (восстанавливать некому)', (await prisma.fileObject.count({ where: { id: fileId } })) === 0);
     check('ссылка наружу отозвана', !!(await prisma.shareLink.findUnique({ where: { id: linkId } }))?.revokedAt);
     check('гости ссылок организации (ПДн) удалены', (await prisma.shareLinkGuest.count({ where: { id: guest.id } })) === 0);
-    check('незакрытая заявка согласования отменена', (await prisma.approvalRequest.findUnique({ where: { id: approvalReqId } }))?.status === 'cancelled');
+    // FK на организацию у заявки нет: без шага approvals.workspace история решений пережила бы её
+    check('заявки согласования организации удалены (живая — сначала отменена)', (await prisma.approvalRequest.count({ where: { id: approvalReqId } })) === 0);
     check('и из стопки согласующего ушла', (await approvalsWaiting(t2)) === waitingBefore, `${await approvalsWaiting(t2)} vs ${waitingBefore}`);
   } finally {
     // Уведомления FK-free (переживают удаление организации) — убираем свои сами,

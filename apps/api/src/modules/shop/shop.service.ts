@@ -1108,13 +1108,13 @@ export class ShopService implements OnModuleInit {
   // ============================================================
 
   /**
-   * Каскад удаления организации (шаг `shop.owner` core/lifecycle): магазин организации
-   * закрывается. Живые заказы возвращают деньги — эскроу снимается целиком (у складчины — всем
+   * Каскад удаления организации (шаг `shop.owner` core/lifecycle) и стирание человека (шаг
+   * `shop.subject` — его личный магазин): магазин владельца закрывается. Живые заказы возвращают деньги — эскроу снимается целиком (у складчины — всем
    * участникам), покупатель получает «отклонён»; витрины с лотами, их права и фото лотов уходят;
    * история заказов остаётся (срок закона, ссылка на лот обнуляется). Идемпотентно;
    * `deadline` прошёл — `done: false`, каскад продолжит следующим заходом.
    */
-  async closeOwnerShop(ownerType: 'workspace', ownerId: string, deadline: number | null): Promise<{ rows: number; done: boolean }> {
+  async closeOwnerShop(ownerType: 'workspace' | 'user', ownerId: string, deadline: number | null): Promise<{ rows: number; done: boolean }> {
     const shop = await this.db.shop.findUnique({ where: { ownerType_ownerId: { ownerType, ownerId } }, select: { id: true } });
     if (!shop) return { rows: 0, done: true };
     let rows = 0;
@@ -1330,6 +1330,15 @@ export class ShopService implements OnModuleInit {
       },
     });
     return this.serializeWish(row);
+  }
+
+  /**
+   * Стирание человека (шаг `shop.subject`): его вишлист целиком. Права «кто видит вишлист»
+   * снимает шаг прав (`access.subject`), фото желаний — публичные файлы без ссылок — шаг файлов.
+   */
+  async purgeWishlist(ownerId: string): Promise<number> {
+    const { count } = await this.db.wishItem.deleteMany({ where: { ownerId } });
+    return count;
   }
 
   async deleteWish(ownerId: string, id: string): Promise<void> {

@@ -460,6 +460,8 @@ model NotificationEvent {
   //   notification_events_workspace_id_idx (workspace_id) WHERE workspace_id IS NOT NULL
   // Частичный индекс псевдонимизации следа стёртого актора (миграция lifecycle_actor_indexes, руками):
   //   notification_events_actor_id_idx (actor_id) WHERE actor_id IS NOT NULL
+  // GIN notification_events_person_ids_idx на notification_person_ids(payload) — id людей, чьи имена
+  // лежат в payload; выражение — руками в миграции 20260927000200 (ключи — lifecycle/person-refs.ts)
   @@map("notification_events")
 }
 
@@ -2972,6 +2974,9 @@ model ChatterEntry {
   // держит ~0 строк; пересоздан руками в миграции jobs_engine (бэкфилл/страховка движка джобов).
   // Частичный индекс псевдонимизации следа стёртого актора (миграция lifecycle_actor_indexes, руками):
   //   chatter_entries_actor_id_idx (actor_id) WHERE actor_id IS NOT NULL
+  // GIN chatter_entries_person_ids_idx на chatter_person_ids(payload, changes) — id людей, чьи имена
+  // лежат в payload/changes (стирание человека находит их без скана); выражение — руками в миграции
+  // 20260927000100 (Prisma его не выражает), ключи — packages/shared/src/lifecycle/person-refs.ts
   @@map("chatter_entries")
 }
 

@@ -29,6 +29,8 @@ export const AUDIENCE_MAX_TTL_SEC: Record<SigningAudience, number> = {
   consents: 3600,
   // Дайджесты и манифесты архива журнала безопасности — так же архивные (`verifyArchival`)
   audit: 3600,
+  // Сертификаты стирания — архивные (`verifyArchival` по окну жизни версии)
+  lifecycle: 3600,
 };
 
 /**

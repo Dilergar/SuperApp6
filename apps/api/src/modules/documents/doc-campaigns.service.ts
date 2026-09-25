@@ -446,7 +446,8 @@ export class DocCampaignsService implements OnModuleInit {
         actorId: userId,
         actorName: await this.nameOf(userId),
         typeKey: 'hr.campaign_acknowledged',
-        payload: { title: campaign.title, targetName: await this.nameOf(userId) },
+        // Имя человека — парой с его id: стирание перепишет его меткой (lifecycle/person-refs)
+        payload: { title: campaign.title, targetUserId: userId, targetName: await this.nameOf(userId) },
       })
       .catch(() => undefined);
 

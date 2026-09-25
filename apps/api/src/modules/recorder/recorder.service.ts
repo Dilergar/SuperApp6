@@ -11,7 +11,8 @@ import {
   VoiceTranscriptStatus,
 } from '@superapp/shared';
 import { coerceLocale, type Locale } from '@superapp/i18n';
-import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { LifecycleHoldsService } from '../../core/lifecycle/lifecycle.holds.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { DatabaseService } from '../../shared/database/database.service';
 import { FilesService } from '../../core/files/files.service';
@@ -43,6 +44,12 @@ export interface AutoTitleRow {
  * напрямую не ходим); файловые связи — через API движка files.
  * Будущие источники: SuperTerminal6 (source='terminal'), запись звонков LiveKit.
  */
+/** Шаг раннера/стирания: «releasable» движка → «всё свободно». */
+const allFree =
+  (releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>) =>
+  async (tx: Prisma.TransactionClient, ids: readonly string[]): Promise<boolean> =>
+    (await releasable(tx, ids)).length >= new Set(ids).size;
+
 @Injectable()
 export class RecorderService implements OnModuleInit {
   private readonly logger = new Logger(RecorderService.name);
@@ -55,6 +62,7 @@ export class RecorderService implements OnModuleInit {
     private readonly callsRecordings: CallsRecordingRegistry,
     private readonly notifications: NotificationsService,
     private readonly i18n: I18nService,
+    private readonly holds: LifecycleHoldsService,
   ) {}
 
   onModuleInit(): void {
@@ -238,7 +246,8 @@ export class RecorderService implements OnModuleInit {
   async purge(userId: string, id: string): Promise<void> {
     const row = await this.assertOwner(userId, id, { includeTrashed: true });
     if (!row.deletedAt) throw badRequest('recorder.trashFirst');
-    await this.hardDelete(id);
+    // Под заморозкой — 409 с нейтральным текстом; ничего не удаляется
+    if (!(await this.hardDelete(id, (tx, ids) => this.holds.allReleasable(tx, 'VoiceRecording', ids)))) throw conflict('lifecycle.held');
   }
 
   /** Корзина старше срока — навсегда (крон под Redis-локом; раннер purge core/lifecycle). */
@@ -256,24 +265,58 @@ export class RecorderService implements OnModuleInit {
       take,
     });
     if (!rows.length) return { rows: 0, more: false, cursor: null };
-    const ok = await this.db.$transaction((tx) => opts.releasable(tx, rows.map((r) => r.id)));
-    for (const id of ok) await this.hardDelete(id);
+    let deleted = 0;
+    for (const r of rows) if (await this.hardDelete(r.id, allFree(opts.releasable))) deleted++;
     const last = rows[rows.length - 1]!;
-    return { rows: ok.length, more: rows.length === take, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
+    return { rows: deleted, more: rows.length === take, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
   }
 
   countTrashDue(before: Date): Promise<number> {
     return this.db.voiceRecording.count({ where: { deletedAt: { lt: before } } });
   }
 
-  /** Окончательное удаление: отвязка (движок реапит осиротевший файл) → транскрипты ТОЛЬКО прибранных файлов → строка */
-  private async hardDelete(id: string): Promise<void> {
-    const fileIds = await this.files.getLinkedFileIds('voice_recording', id);
-    await this.files.unlinkAllForRef('voice_recording', id);
-    // Транскрипт умирает только вместе с файлом: файл, живущий вложением чата,
-    // сохраняет общий транскрипт («1 файл = 1 транскрипт навсегда»)
-    await this.voice.deleteForReapedFiles(fileIds);
-    await this.db.voiceRecording.delete({ where: { id } });
+  /**
+   * Стирание человека (шаг `recorder.subject`): все его записи — путём «навсегда» (отвязка,
+   * транскрипты только прибранных файлов, строка). Под заморозкой запись остаётся.
+   */
+  async purgeOwnerRecordings(
+    ownerId: string,
+    opts: { deadline: number | null; held: (rows: number) => void; releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]> },
+  ): Promise<{ rows: number; done: boolean }> {
+    let rows = 0;
+    let after: string | undefined;
+    for (;;) {
+      if (opts.deadline !== null && Date.now() > opts.deadline) return { rows, done: false };
+      const batch = await this.db.voiceRecording.findMany({ where: { ownerId, ...(after ? { id: { gt: after } } : {}) }, select: { id: true }, orderBy: { id: 'asc' }, take: RECORDER_LIMITS.purgeBatch });
+      if (!batch.length) return { rows, done: true };
+      after = batch[batch.length - 1]!.id;
+      for (const r of batch) {
+        if (await this.hardDelete(r.id, allFree(opts.releasable))) rows++;
+        else opts.held(1);
+      }
+    }
+  }
+
+  /**
+   * Окончательное удаление: отвязка (движок реапит осиротевший файл) → транскрипты ТОЛЬКО
+   * прибранных файлов → строка. Транзакция держит общий замок заморозок от проверки до
+   * удаления строки: заморозка, поставленная посреди уборки, ждёт коммита. `false` —
+   * запись под заморозкой, ничего не тронуто.
+   */
+  private async hardDelete(id: string, guard: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<boolean>): Promise<boolean> {
+    return this.db.$transaction(
+      async (tx) => {
+        if (!(await guard(tx, [id]))) return false;
+        const fileIds = await this.files.getLinkedFileIds('voice_recording', id);
+        await this.files.unlinkAllForRef('voice_recording', id);
+        // Транскрипт умирает только вместе с файлом: файл, живущий вложением чата,
+        // сохраняет общий транскрипт («1 файл = 1 транскрипт навсегда»)
+        await this.voice.deleteForReapedFiles(fileIds);
+        await tx.voiceRecording.delete({ where: { id } });
+        return true;
+      },
+      { timeout: 60_000 },
+    );
   }
 
   private async assertOwner(userId: string, id: string, opts: { includeTrashed?: boolean } = {}): Promise<VoiceRecording> {

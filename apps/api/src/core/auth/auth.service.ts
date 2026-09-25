@@ -46,6 +46,7 @@ import { USER_PHONE_INVITATIONS_JOB } from '../users/user-jobs';
 import type { AuthTokens } from '@superapp/shared';
 import type { JwtPayload } from '../../shared/decorators/current-user.decorator';
 import { authAliveKey } from '../../shared/auth/session-validator.service';
+import { isReservedPersonName } from '@superapp/i18n';
 
 @Injectable()
 export class AuthService {
@@ -93,6 +94,9 @@ export class AuthService {
     if (!Number.isFinite(age) || age < CONSENT_AGE.minRegistration) {
       throw forbidden(CONSENT_ERROR_CODES.minorNotAllowed, { age: CONSENT_AGE.minRegistration });
     }
+
+    // Имя-метка «удалённый пользователь» — маркер томбстоуна (core/lifecycle): живому не взять
+    if (isReservedPersonName(data.firstName)) throw badRequest('account.nameReserved');
 
     // Check if phone already exists
     const existing = await this.db.user.findUnique({

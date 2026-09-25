@@ -171,7 +171,7 @@ export class ChatCallsListener implements OnModuleInit {
               to: [{ userId }],
               payload: {
                 // Имя — данные; его отсутствие — слово продукта, и оно едет ключом.
-                ...(fromName ? { fromName } : { fromNameKey: 'messenger.somebody' }),
+                ...(fromName ? { fromName, fromUserId: p.startedById } : { fromNameKey: 'messenger.somebody' }),
                 chatId,
               },
               ref: { type: 'chat', id: chatId },

@@ -342,6 +342,7 @@ export class OrgService {
     const deputyTargetPre = this.deputyTargetPayload(
       dto.deputyPositionId ? (g.positionById.get(dto.deputyPositionId)?.name ?? '') : null,
       dto.deputyPositionId ? null : await this.nameOf(dto.deputyUserId!),
+      dto.deputyPositionId ? null : (dto.deputyUserId ?? null),
     );
     let row: { id: string };
     try {
@@ -454,6 +455,7 @@ export class OrgService {
     const deputyTarget = this.deputyTargetPayload(
       dto.deputyPositionName,
       dto.deputyPositionName ? null : await this.nameOf(dto.deputyUserId!),
+      dto.deputyPositionName ? null : (dto.deputyUserId ?? null),
     );
     const actorName = await this.nameOf(actorId);
     await this.db.$transaction(async (tx) => {
@@ -590,11 +592,13 @@ export class OrgService {
     return keys.none ? { periodLabelKey: keys.none } : {};
   }
 
-  /** Кто замещает: должность даёт КЛЮЧ каталога, человек — своё имя (это данные). */
-  private deputyTargetPayload(positionName: string | null, personName: string | null): Record<string, string> {
-    return positionName
-      ? { deputyLabelKey: 'staff.deputyTarget.position', deputyPositionName: positionName }
-      : { deputyLabel: personName ?? '' };
+  /**
+   * Кто замещает: должность даёт КЛЮЧ каталога, человек — своё имя (это данные) парой с его id:
+   * стирание человека переписывает имя в хронике по `deputyUserId`.
+   */
+  private deputyTargetPayload(positionName: string | null, personName: string | null, personId: string | null): Record<string, string> {
+    if (positionName) return { deputyLabelKey: 'staff.deputyTarget.position', deputyPositionName: positionName };
+    return personId ? { deputyLabel: personName ?? '', deputyUserId: personId } : { deputyLabel: personName ?? '' };
   }
 
   private async peopleLite(ids: string[]): Promise<Record<string, OrgPersonLite>> {

@@ -1,7 +1,8 @@
 import { Global, Logger, Module, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
-import { LIFECYCLE_PENDING_KEYS, LIFECYCLE_POLICY_IDS, lifecycleRegistrationKeys, lifecycleRegistryProblems } from '@superapp/shared';
+import { LIFECYCLE_PENDING_KEYS, LIFECYCLE_POLICY_IDS, lifecyclePolicy, lifecycleRegistrationKeys, lifecycleRegistryProblems } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
 import { JobsService } from '../jobs/jobs.service';
+import { LifecycleController } from './lifecycle.controller';
 import { LifecycleCron } from './lifecycle.cron';
 import { LifecycleDevController } from './lifecycle.dev.controller';
 import { LifecycleHealth } from './lifecycle.health';
@@ -10,7 +11,10 @@ import { LifecycleMetrics } from './lifecycle.metrics';
 import { LifecyclePartitions } from './lifecycle.partitions';
 import { LifecyclePlatformProvider } from './lifecycle.platform.provider';
 import { LifecyclePurgeRunner } from './lifecycle.purge';
-import { LifecyclePurgeHandlerRegistry, LifecycleTenantHookRegistry } from './lifecycle.purge.registry';
+import { LifecycleErasureService } from './lifecycle.erasure.service';
+import { LifecycleHoldsService } from './lifecycle.holds.service';
+import { LifecycleCanaryService } from './lifecycle.canary';
+import { LifecycleCanaryRegistry, LifecyclePurgeHandlerRegistry, LifecycleSubjectHookRegistry, LifecycleTenantHookRegistry } from './lifecycle.purge.registry';
 import { LifecycleRuns } from './lifecycle.runs';
 import { LifecycleSettings } from './lifecycle.settings';
 import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
@@ -21,13 +25,17 @@ import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
  * `packages/shared/src/lifecycle`: чьи это данные, сколько хранить и почему, что делать при
  * стирании человека и при удалении организации, граф удаления, способ принуждения.
  * @Global: модули регистрируют свои шаги purge (`LifecyclePurgeHandlerRegistry`), хуки
- * каскада организации (`LifecycleTenantHookRegistry`), а движки-владельцы журналов — свой
+ * каскада организации (`LifecycleTenantHookRegistry`), шаги стирания человека
+ * (`LifecycleSubjectHookRegistry`) и посев канарейки рядом с ним (`LifecycleCanaryRegistry`),
+ * а движки-владельцы журналов — свой
  * срок партиций (`LifecyclePartitions.register`); движок фичи не импортирует — граница
  * держится `check:docs`.
  *
  * Принуждение сроков — раннер `LifecyclePurgeRunner` (джоб на политику, окно, здоровье, AIMD,
  * кэп радиуса); каскад организации — `LifecycleTenantPurgeService` по плану реестра; строки
- * без внешних ключей — `LifecycleLooseFk`; партиции журналов — `LifecyclePartitions`.
+ * без внешних ключей — `LifecycleLooseFk`; партиции журналов — `LifecyclePartitions`; заморозки
+ * (legal hold) — `LifecycleHoldsService`; стирание субъекта с журналом, квитанцией и подписанным
+ * сертификатом — `LifecycleErasureService`; ночная проверка стирания — `LifecycleCanaryService`.
  *
  * Смоук на бутстрапе: реестр нарушает правила (длительность не сутками, «по закону» без
  * нормы, hold выключен у юридических записей, хранилище недостижимо от корней графа
@@ -36,7 +44,7 @@ import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
  */
 @Global()
 @Module({
-  controllers: [LifecycleDevController],
+  controllers: [LifecycleController, LifecycleDevController],
   providers: [
     LifecycleMetrics,
     LifecyclePartitions,
@@ -45,13 +53,30 @@ import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
     LifecycleSettings,
     LifecyclePurgeHandlerRegistry,
     LifecycleTenantHookRegistry,
+    LifecycleSubjectHookRegistry,
+    LifecycleCanaryRegistry,
+    LifecycleHoldsService,
+    LifecycleErasureService,
+    LifecycleCanaryService,
     LifecyclePurgeRunner,
     LifecycleTenantPurgeService,
     LifecycleLooseFk,
     LifecycleCron,
     LifecyclePlatformProvider,
   ],
-  exports: [LifecyclePartitions, LifecyclePurgeHandlerRegistry, LifecycleTenantHookRegistry, LifecycleTenantPurgeService, LifecyclePurgeRunner, LifecycleRuns, LifecycleSettings],
+  exports: [
+    LifecyclePartitions,
+    LifecyclePurgeHandlerRegistry,
+    LifecycleTenantHookRegistry,
+    LifecycleSubjectHookRegistry,
+    LifecycleCanaryRegistry,
+    LifecycleTenantPurgeService,
+    LifecyclePurgeRunner,
+    LifecycleRuns,
+    LifecycleSettings,
+    LifecycleHoldsService,
+    LifecycleErasureService,
+  ],
 })
 export class LifecycleModule implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(LifecycleModule.name);
@@ -60,7 +85,9 @@ export class LifecycleModule implements OnModuleInit, OnApplicationBootstrap {
     private readonly db: DatabaseService,
     private readonly handlers: LifecyclePurgeHandlerRegistry,
     private readonly tenantHooks: LifecycleTenantHookRegistry,
+    private readonly subjectHooks: LifecycleSubjectHookRegistry,
     private readonly jobs: JobsService,
+    private readonly erasure: LifecycleErasureService,
   ) {}
 
   onModuleInit(): void {
@@ -69,28 +96,54 @@ export class LifecycleModule implements OnModuleInit, OnApplicationBootstrap {
       purgeBatch: (ctx) => this.jobs.pruneTerminalBatch(ctx.limit),
       estimate: () => this.jobs.countTerminalDue(),
     });
-    // Выгрузки организации (Э6) уходят с ней: строки заявок; байты — файлы организации (files.owned)
+    // Выгрузки организации уходят с ней: байты частей и манифеста, затем строки заявок
     this.tenantHooks.register('lifecycle.exports', {
-      purge: async (workspaceId) => {
-        const { count } = await this.db.lifecycleExport.deleteMany({ where: { subjectType: 'workspace', subjectId: workspaceId } });
-        return { rows: count };
-      },
+      purge: (workspaceId) => this.erasure.deleteExports({ subjectType: 'workspace', subjectId: workspaceId }),
       estimate: (workspaceId) => this.db.lifecycleExport.count({ where: { subjectType: 'workspace', subjectId: workspaceId } }),
     });
   }
 
-  onApplicationBootstrap(): void {
+  async onApplicationBootstrap(): Promise<void> {
     const problems = lifecycleRegistryProblems();
+    problems.push(...(await this.personIdsProblems()));
     // Каждый шаг purge и хук каскада из реестра зарегистрирован модулем (кроме ждущих этапа):
     // иначе раннер молча пропускал бы политику, а каскад организации вставал бы на полпути
-    const { handlers, hooks } = lifecycleRegistrationKeys();
-    for (const k of handlers) if (!LIFECYCLE_PENDING_KEYS[k] && !this.handlers.get(k)) problems.push(`purge handler "${k}" is declared in the registry but not registered (LifecyclePurgeHandlerRegistry)`);
+    const { handlers, hooks, subjectHooks } = lifecycleRegistrationKeys();
+    for (const k of handlers) if (!(LIFECYCLE_PENDING_KEYS[k]?.as === 'handler') && !this.handlers.get(k)) problems.push(`purge handler "${k}" is declared in the registry but not registered (LifecyclePurgeHandlerRegistry)`);
     for (const k of hooks) if (!(LIFECYCLE_PENDING_KEYS[k]?.as === 'hook') && !this.tenantHooks.get(k)) problems.push(`tenant purge hook "${k}" is declared in the registry but not registered (LifecycleTenantHookRegistry)`);
+    // Шаг стирания человека без регистрации — стирание встало бы на полпути, а данные модуля
+    // пережили бы человека: старт падает
+    for (const k of subjectHooks) if (!(LIFECYCLE_PENDING_KEYS[k]?.as === 'subject_hook') && !this.subjectHooks.get(k)) problems.push(`subject erasure hook "${k}" is declared in the registry but not registered (LifecycleSubjectHookRegistry)`);
     if (problems.length) {
       const msg = `lifecycle registry is invalid:\n  ${problems.join('\n  ')}`;
       this.logger.error(msg);
       throw new Error(msg);
     }
-    this.logger.log(`lifecycle registry: ${LIFECYCLE_POLICY_IDS.length} policies, ${handlers.length} purge handlers, ${hooks.length} tenant hooks`);
+    this.logger.log(`lifecycle registry: ${LIFECYCLE_POLICY_IDS.length} policies, ${handlers.length} purge handlers, ${hooks.length} tenant hooks, ${subjectHooks.length} subject erasure hooks`);
+  }
+
+  /**
+   * Люди внутри JSON (`personIds` реестра): в живой базе есть функция, она читает каждый ключ
+   * реестра, по ней стоит GIN-индекс. Иначе стирание не нашло бы имена человека в чужих
+   * записях (или читало бы большую таблицу целиком) — старт падает.
+   */
+  private async personIdsProblems(): Promise<string[]> {
+    const out: string[] = [];
+    for (const id of LIFECYCLE_POLICY_IDS) {
+      const spec = lifecyclePolicy(id)?.personIds;
+      if (!spec) continue;
+      const [fn] = await this.db.$queryRaw<Array<{ def: string | null }>>`
+        SELECT pg_get_functiondef(p.oid) AS def FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND p.proname = ${spec.fn} LIMIT 1`;
+      if (!fn?.def) {
+        out.push(`${id}: person-ids function ${spec.fn} is missing in the database (migration not applied)`);
+        continue;
+      }
+      for (const k of spec.keys) if (!fn.def.includes(`'${k}'`)) out.push(`${id}: person-ids function ${spec.fn} does not read the key '${k}'`);
+      const [ix] = await this.db.$queryRaw<Array<{ n: bigint }>>`
+        SELECT count(*)::bigint AS n FROM pg_indexes WHERE schemaname = 'public' AND indexdef ILIKE ${`%USING gin (${spec.fn}(%`}`;
+      if (!Number(ix?.n ?? 0)) out.push(`${id}: no GIN index on ${spec.fn}(…) — erasure would scan the whole table`);
+    }
+    return out;
   }
 }

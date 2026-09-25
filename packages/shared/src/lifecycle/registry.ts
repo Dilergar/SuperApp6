@@ -351,28 +351,141 @@ export function lifecycleTenantPurgePlan(): LifecycleTenantPurgeStep[] {
 }
 
 /**
+ * Классы данных, которые заморозка вообще держит (есть политика с `holdAware`). Заморозка
+ * класса без таких политик (секреты входа, кэши) не держала бы ничего — пикер её не
+ * предлагает, сервер отвергает.
+ */
+export function lifecycleHoldableClasses(): LifecycleDataClass[] {
+  const out = new Set<LifecycleDataClass>();
+  for (const id of LIFECYCLE_POLICY_IDS) if (LIFECYCLE_POLICIES[id].holdAware) out.add(LIFECYCLE_POLICIES[id].dataClass);
+  return LIFECYCLE_DATA_CLASSES.filter((c) => out.has(c));
+}
+
+// ============================================================
+// План стирания человека (оркестратор `LifecycleErasureService`)
+// ============================================================
+
+/**
+ * Корневой шаг стирания человека — модуль пользователей (`anonymizeAccount`): скрыть аккаунт,
+ * стереть ПДн строки `User`, погасить сессии, связи Окружения, тариф, аналитику, ключи. Всегда
+ * ПЕРВЫМ: остальные шаги идут по уже скрытому аккаунту.
+ */
+export const LIFECYCLE_SUBJECT_ROOT_HOOK = 'users.account';
+
+/**
+ * Шаг стирания человека:
+ *  - `hook` — шаг модуля-владельца (`LifecycleSubjectHookRegistry`), один на ключ;
+ *  - `generic` — строки политики, где любая из колонок `by` = человек: `delete` удаляет,
+ *    `pseudonymize` пишет в строковые поля метку «удалённый пользователь», `redact` — NULL.
+ */
+export type LifecycleSubjectErasureStep =
+  /** `covers` — политики шага и всё, что уходит с ними по рёбрам deep/async_delete без своего шага */
+  | { kind: 'hook'; key: string; policies: readonly string[]; covers: readonly string[] }
+  | {
+      kind: 'generic';
+      key: string;
+      policy: string;
+      action: 'delete' | 'pseudonymize' | 'redact';
+      by: readonly string[];
+      fields: readonly string[];
+      personalOnly: boolean;
+    };
+
+function subjectStepOf(p: LifecyclePolicy): LifecycleSubjectErasureStep | null {
+  const se = p.onSubjectErasure;
+  if ('hook' in se && se.hook) return { kind: 'hook', key: se.hook, policies: [], covers: [] };
+  if (se.kind === 'hard_delete') return { kind: 'generic', key: `generic:${p.id}`, policy: p.id, action: 'delete', by: se.by ?? [], fields: [], personalOnly: !!se.personalOnly };
+  if (se.kind === 'pseudonymize' || se.kind === 'redact') {
+    return { kind: 'generic', key: `generic:${p.id}`, policy: p.id, action: se.kind, by: se.by ?? [], fields: se.fields, personalOnly: false };
+  }
+  return null;
+}
+
+/**
+ * План стирания человека — из реестра. Корень (`users.account`) — первым; дальше по рёбрам:
+ * `deep` — дети раньше родителей, `refcount` — ссылающиеся раньше файла (Диск, Заметки,
+ * Документы, Диктофон снимают свои ссылки своим путём, потом файлы человека); прочее — в
+ * порядке реестра. Цикл — ошибка реестра (страж и смоук бута).
+ */
+export function lifecycleSubjectErasurePlan(): LifecycleSubjectErasureStep[] {
+  const stepOfPolicy = new Map<string, string>();
+  const steps = new Map<string, LifecycleSubjectErasureStep>();
+  for (const id of LIFECYCLE_POLICY_IDS) {
+    const s = subjectStepOf(LIFECYCLE_POLICIES[id]);
+    if (!s) continue;
+    stepOfPolicy.set(id, s.key);
+    const prev = steps.get(s.key);
+    if (!prev) steps.set(s.key, s);
+    const cur = steps.get(s.key)!;
+    if (cur.kind === 'hook') (cur.policies as string[]).push(id);
+  }
+  // Замыкание шага: его политики + всё, что уходит с ними (deep / async_delete) без своего шага —
+  // рёбра `refcount` детей (узел Диска → файл) считаются рёбрами шага родителя (Диска)
+  const closure = (key: string): Set<string> => {
+    const out = new Set<string>([...stepOfPolicy].filter(([, k]) => k === key).map(([id]) => id));
+    const queue = [...out];
+    while (queue.length) {
+      const cur = queue.shift()!;
+      for (const e of lifecyclePolicy(cur)?.edges ?? []) {
+        if ((e.kind !== 'deep' && e.kind !== 'async_delete') || out.has(e.to) || stepOfPolicy.has(e.to)) continue;
+        out.add(e.to);
+        queue.push(e.to);
+      }
+    }
+    return out;
+  };
+  const before = new Map<string, Set<string>>();
+  for (const key of steps.keys()) before.set(key, new Set());
+  for (const key of steps.keys()) {
+    if (key === LIFECYCLE_SUBJECT_ROOT_HOOK) continue;
+    for (const pid of closure(key)) {
+      for (const e of lifecyclePolicy(pid)?.edges ?? []) {
+        const other = stepOfPolicy.get(e.to);
+        if (!other || other === key || other === LIFECYCLE_SUBJECT_ROOT_HOOK) continue;
+        if (e.kind === 'deep') before.get(key)!.add(other);
+        else if (e.kind === 'refcount') before.get(other)!.add(key);
+      }
+    }
+  }
+  // Замыкание шага модуля — «что он удаляет на самом деле» (предохранитель заморозок платформы)
+  for (const [key, step] of steps) if (step.kind === 'hook') (step.covers as string[]).push(...closure(key));
+  const order: string[] = steps.has(LIFECYCLE_SUBJECT_ROOT_HOOK) ? [LIFECYCLE_SUBJECT_ROOT_HOOK] : [];
+  const placed = new Set<string>(order);
+  const pending = [...steps.keys()].filter((k) => k !== LIFECYCLE_SUBJECT_ROOT_HOOK);
+  while (pending.length) {
+    const i = pending.findIndex((k) => [...before.get(k)!].every((d) => placed.has(d)));
+    if (i < 0) throw new Error(`subject erasure plan has a cycle among: ${pending.join(', ')}`);
+    const [k] = pending.splice(i, 1);
+    placed.add(k);
+    order.push(k);
+  }
+  return order.map((k) => steps.get(k)!);
+}
+
+/**
  * Ключи обработчиков purge и хуков каскада, чья регистрация в API ждёт этапа стройки
  * (`stage` — код этапа плана латиницей: E4 = Э4).
  * Одна правда для стража (`check:lifecycle`) и смоука бута: ключа нет здесь и нет
  * регистрации — красный CI и падение старта.
  */
-export const LIFECYCLE_PENDING_KEYS: Readonly<Record<string, { stage: string; as: 'handler' | 'hook' }>> = {
+export const LIFECYCLE_PENDING_KEYS: Readonly<Record<string, { stage: string; as: 'handler' | 'hook' | 'subject_hook' }>> = {
   'lifecycle.exports': { stage: 'E6', as: 'handler' },
-  'lifecycle.hold-store': { stage: 'E4', as: 'handler' },
-  'lifecycle.erasure-requests': { stage: 'E4', as: 'handler' },
 };
 
-/** Ключи обработчиков purge (`batched_delete.handler`) и хуков каскада организации — по видам. */
-export function lifecycleRegistrationKeys(): { handlers: string[]; hooks: string[] } {
+/** Ключи обработчиков purge (`batched_delete.handler`), хуков каскада организации и хуков стирания человека. */
+export function lifecycleRegistrationKeys(): { handlers: string[]; hooks: string[]; subjectHooks: string[] } {
   const handlers = new Set<string>();
   const hooks = new Set<string>();
+  const subjectHooks = new Set<string>();
   for (const id of LIFECYCLE_POLICY_IDS) {
     const p = LIFECYCLE_POLICIES[id];
     if (p.enforcement.kind === 'batched_delete' && p.enforcement.handler) handlers.add(p.enforcement.handler);
     const s = tenantStepOf(p);
     if (s?.kind === 'hook') hooks.add(s.key);
+    const se = p.onSubjectErasure;
+    if ('hook' in se && se.hook) subjectHooks.add(se.hook);
   }
-  return { handlers: [...handlers].sort(), hooks: [...hooks].sort() };
+  return { handlers: [...handlers].sort(), hooks: [...hooks].sort(), subjectHooks: [...subjectHooks].sort() };
 }
 
 /** Ребро loose FK: строки ребёнка без внешнего ключа, которые добирает воркер после удаления родителя. */
@@ -502,6 +615,22 @@ export function lifecycleRegistryProblems(): string[] {
     if (se.kind === 'none' && !se.reason) add(at, 'onSubjectErasure none needs a reason');
     if (se.kind === 'hard_delete' && se.personalOnly && p.ownerKey.kind !== 'scoped' && p.ownerKey.kind !== 'polymorphic') {
       add(at, 'personalOnly erasure needs a scoped or polymorphic owner key (how else to tell personal rows)');
+    }
+    if ('hook' in se && se.hook !== undefined && !/^[a-z]+(\.[a-z-]+)+$/.test(se.hook)) add(at, `subject erasure hook "${se.hook}" must be <module>.<step>`);
+    if ((se.kind === 'hard_delete' || se.kind === 'pseudonymize' || se.kind === 'redact') && !('hook' in se && se.hook)) {
+      // Общий шаг: строки ищутся по явным колонкам субъекта; «кто выдал / отозвал» удаление не ведёт
+      const by = se.by ?? [];
+      if (!by.length) add(at, `${se.kind} without a hook needs "by" — the subject columns that select the person's rows`);
+      for (const col of by) {
+        const s = p.subjects.find((x) => x.column === col);
+        if (!s) add(at, `erasure column "${col}" is not a subject column`);
+        else if (s.role === 'actor') add(at, `erasure column "${col}" has role actor — an actor reference must never select rows to erase (it would erase other people's records)`);
+      }
+      if (p.store.kind !== 'model' && p.store.kind !== 'table') add(at, `a ${p.store.kind} store cannot be erased by the generic step — declare a hook`);
+    }
+    if (p.store.kind === 'redis' && se.kind === 'hard_delete') {
+      if (se.hook !== 'lifecycle.redis') add(at, 'a Redis family with personal keys is erased by the lifecycle.redis step');
+      if (!p.store.subjectPattern || !p.store.subjectPattern.includes('{user}')) add(at, 'a Redis family with personal keys needs a subjectPattern with {user}');
     }
 
     // удаление организации

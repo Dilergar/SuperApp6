@@ -1,12 +1,27 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import type { Prisma } from '@prisma/client';
 import { DOCS_LIMITS, decodeCursor, encodeCursor } from '@superapp/shared';
 import { DatabaseService } from '../../shared/database/database.service';
+import { FilesService } from '../files/files.service';
 import {
+  LifecycleCanaryRegistry,
   LifecyclePurgeHandlerRegistry,
+  LifecycleSubjectHookRegistry,
   LifecycleTenantHookRegistry,
+  type LifecycleCanaryContext,
+  type LifecycleCanaryPlant,
   type LifecyclePurgeBatchContext,
-  type LifecycleTenantPurgeContext,
 } from '../lifecycle/lifecycle.purge.registry';
+
+/** Что шагу «все документы владельца» нужно от каскада организации и от стирания человека. */
+interface OwnedPurgeCtx {
+  deadline: number | null;
+  releasable(tx: Prisma.TransactionClient, policyId: string, ids: readonly string[]): Promise<string[]>;
+  /** Каскад организации: заморозка появилась — бросает */
+  checkpoint?(): Promise<void>;
+  /** Стирание человека: строки под заморозкой остались — заявка ждёт */
+  held?(rows: number): void;
+}
 import { DocsService } from './docs.service';
 
 const ROW_CURSOR = { c: 'date', i: 'uuid' } as const;
@@ -18,15 +33,20 @@ const ROW_CURSOR = { c: 'date', i: 'uuid' } as const;
  *    неподписанные вехи уходят. Документ с ПОДПИСАННОЙ вехой не удаляется никогда — на неё
  *    ссылается ЭЦП (доказательство);
  *  - `docs.owned` — каскад организации: все её документы проходят `archive`, неподписанные
- *    уходят сразу (срок архива организации уже был окном восстановления).
+ *    уходят сразу (срок архива организации уже был окном восстановления);
+ *  - `docs.subject` — стирание человека: то же для его ЛИЧНЫХ документов (владелец — человек;
+ *    документы организации остаются ей). Подписанное — доказательство, остаётся всегда.
  */
 @Injectable()
 export class DocsLifecycleProvider implements OnModuleInit {
   constructor(
     private readonly handlers: LifecyclePurgeHandlerRegistry,
     private readonly tenantHooks: LifecycleTenantHookRegistry,
+    private readonly subjectHooks: LifecycleSubjectHookRegistry,
     private readonly db: DatabaseService,
     private readonly docs: DocsService,
+    private readonly files: FilesService,
+    private readonly canary: LifecycleCanaryRegistry,
   ) {}
 
   onModuleInit(): void {
@@ -35,9 +55,30 @@ export class DocsLifecycleProvider implements OnModuleInit {
       estimate: () => this.db.document.count({ where: this.dueWhere(this.trashCutoff()) }),
     });
     this.tenantHooks.register('docs.owned', {
-      purge: (workspaceId, ctx) => this.purgeOwned(workspaceId, ctx),
+      purge: (workspaceId, ctx) => this.purgeOwned('workspace', workspaceId, ctx),
       estimate: (workspaceId) => this.db.document.count({ where: { ownerType: 'workspace', ownerId: workspaceId } }),
     });
+    this.subjectHooks.register('docs.subject', { erase: (userId, ctx) => this.purgeOwned('user', userId, ctx) });
+    this.canary.register('docs.subject', (ctx) => this.seedCanary(ctx));
+  }
+
+  /** Посев канарейки: личный документ человека тем же путём, что создание (файл-черновик + якорь ссылки). */
+  private async seedCanary(ctx: LifecycleCanaryContext): Promise<LifecycleCanaryPlant[]> {
+    const mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    const file = await this.files.createCanaryFile({ profile: 'document', ownerType: 'user', ownerId: ctx.userId, uploaderId: ctx.userId, name: `${ctx.marker}.docx`, mime, content: ctx.marker });
+    const doc = await this.db.$transaction(async (tx) => {
+      const d = await tx.document.create({
+        data: { fileId: file.id, ownerType: 'user', ownerId: ctx.userId, createdById: ctx.userId, title: ctx.marker, ext: 'docx', mime, editorKind: 'writer' },
+        select: { id: true },
+      });
+      await this.files.linkSystemInTx(tx, { fileId: file.id, refType: 'document', refId: d.id, role: 'content', createdById: ctx.userId });
+      return d;
+    });
+    return [
+      { policy: 'Document', id: doc.id, expect: 'gone' },
+      { policy: 'FileObject', id: file.id, expect: 'gone' },
+      { policy: 'blob:document', id: file.storageKey, expect: 'gone' },
+    ];
   }
 
   private trashCutoff(): Date {
@@ -69,14 +110,14 @@ export class DocsLifecycleProvider implements OnModuleInit {
     return { rows: deleted, more: rows.length === limit, cursor: encodeCursor({ c: last.deletedAt!, i: last.id }) };
   }
 
-  /** Каскад организации: `archive` каждого документа, затем неподписанные — навсегда (заморозка удерживает). */
-  private async purgeOwned(workspaceId: string, ctx: LifecycleTenantPurgeContext): Promise<{ rows: number; done: boolean }> {
+  /** Все документы владельца: `archive` каждого, затем неподписанные — навсегда (заморозка удерживает). */
+  private async purgeOwned(ownerType: 'workspace' | 'user', ownerId: string, ctx: OwnedPurgeCtx): Promise<{ rows: number; done: boolean }> {
     let after: string | undefined;
     for (;;) {
       if (ctx.deadline !== null && Date.now() > ctx.deadline) return { rows: 0, done: false };
-      await ctx.checkpoint();
+      await ctx.checkpoint?.();
       const batch = await this.db.document.findMany({
-        where: { ownerType: 'workspace', ownerId: workspaceId, ...(after ? { id: { gt: after } } : {}) },
+        where: { ownerType, ownerId, ...(after ? { id: { gt: after } } : {}) },
         select: { id: true },
         orderBy: { id: 'asc' },
         take: 200,
@@ -91,7 +132,7 @@ export class DocsLifecycleProvider implements OnModuleInit {
       if (ctx.deadline !== null && Date.now() > ctx.deadline) return { rows, done: false };
       const ids: string[] = (
         await this.db.document.findMany({
-          where: { ownerType: 'workspace', ownerId: workspaceId, status: 'archived', versions: { none: { signed: true } }, ...(after ? { id: { gt: after } } : {}) },
+          where: { ownerType, ownerId, status: 'archived', versions: { none: { signed: true } }, ...(after ? { id: { gt: after } } : {}) },
           select: { id: true },
           orderBy: { id: 'asc' },
           take: 500,
@@ -100,6 +141,7 @@ export class DocsLifecycleProvider implements OnModuleInit {
       if (!ids.length) break;
       rows += await this.db.$transaction(async (tx) => {
         const ok = await ctx.releasable(tx, 'Document', ids);
+        if (ok.length < ids.length) ctx.held?.(ids.length - ok.length);
         if (!ok.length) return 0;
         const res = await tx.document.deleteMany({ where: { id: { in: ok }, status: 'archived', versions: { none: { signed: true } } } });
         return res.count;

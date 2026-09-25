@@ -23,6 +23,7 @@ import { LifecycleSettings } from './lifecycle.settings';
 import {
   deleteBatchSql,
   estimateSql,
+  isQueryTimeout,
   lifecycleRules,
   lifecycleTableOf,
   lifecycleWorkspaceColumn,
@@ -60,12 +61,6 @@ type Outcome = 'done' | 'stopped' | 'continue' | 'unhealthy' | 'window';
 
 /** Способ принуждения политики раннером (или null — раннер её не ведёт). */
 export type LifecyclePurgeMode = { kind: 'generic'; table: LifecycleTable; rules: LifecycleRule[] } | { kind: 'handler'; key: string; handler: LifecyclePurgeHandler };
-
-function isTimeout(err: unknown): boolean {
-  const e = err as { code?: string; meta?: { code?: string }; message?: string };
-  const code = e?.meta?.code ?? e?.code;
-  return code === '55P03' || code === '57014' || /lock timeout|canceling statement due to statement timeout|could not obtain lock/i.test(String(e?.message ?? ''));
-}
 
 /**
  * Раннер сроков хранения (plan §6.1): джоб `lifecycle.purge` на политику реестра с
@@ -311,7 +306,7 @@ export class LifecyclePurgeRunner implements OnModuleInit {
           this.logger.error(`purge ${policy.id}: ${err.message} — stopped until confirmed`);
           return this.stop(run, 'blast_radius', { due: err.due, threshold: err.threshold });
         }
-        if (!isTimeout(err)) throw err;
+        if (!isQueryTimeout(err)) throw err;
         state.timeouts = (state.timeouts ?? 0) + 1;
         state.batch = Math.max(LIFECYCLE_LIMITS.batchMin, Math.floor((state.batch ?? LIFECYCLE_LIMITS.batchStart) * LIFECYCLE_LIMITS.batchShrink));
         this.metrics.purgeTimeout(policy.id);

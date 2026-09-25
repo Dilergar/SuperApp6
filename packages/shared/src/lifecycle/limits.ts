@@ -3,6 +3,13 @@
 // «Данные» (Э5) и сьютов — числа в коде раннера не дублируются.
 
 /**
+ * Грейс удаления аккаунта: 14 календарных дней — от отзыва согласия до прекращения обработки
+ * закон даёт 15 РАБОЧИХ дней (ЗоПД ст. 8 п. 7), грейс обязан укладываться в них с запасом на
+ * само стирание. Одна правда для модуля пользователей и оркестратора стирания.
+ */
+export const LIFECYCLE_ACCOUNT_GRACE_DAYS = 14;
+
+/**
  * Окно массового ретеншна: часы по Алматы, [startHour; endHour). Вне окна прогон ретеншна
  * откладывается до следующего открытия; стирание субъекта и каскад организации идут в
  * любое время (обещание человеку и суд не ждут ночи).
@@ -54,6 +61,30 @@ export const LIFECYCLE_LIMITS = {
   looseFkBudgetMs: 30_000,
   looseFkChildBatch: 1000,
   looseFkHeldRetryMs: 24 * 3600_000,
+  /**
+   * Стирание субъекта (оркестратор): пачка общего шага, бюджет захода, ретрай «под заморозкой»,
+   * окно бэкапов (обещание человеку: из живых систем — за грейс + 3 дня, из бэкапов — +35),
+   * «застряло» — без прогресса дольше N дней (DELF: стирание стояло 45 дней незаметно).
+   */
+  erasure: {
+    batch: 500,
+    budgetMs: 60_000,
+    heldRetryMs: 6 * 3600_000,
+    backupsDays: 35,
+    stuckDays: 7,
+    /** Скрыть субъекта не позже чем через N секунд после срока (джоб runAt = срок) */
+    hiddenSloSec: 60,
+  },
+  /**
+   * Канарейка: бюджет проверки (воркер loose FK до сверки), потолок запроса проверки одной
+   * политики (большая таблица без индекса по колонке субъекта — пробел в отчёте, а не
+   * зависший прогон), аренда джоба.
+   */
+  canary: {
+    verifyBudgetMs: 120_000,
+    queryTimeoutMs: 5_000,
+    leaseMs: 20 * 60_000,
+  },
 } as const;
 
 /** Типы джобов движка (очередь `LIFECYCLE_QUEUE`). */
@@ -64,6 +95,10 @@ export const LIFECYCLE_JOBS = {
   tenantPurge: 'lifecycle.tenant-purge',
   /** Разбор учёта удалений без внешних ключей (`lifecycle_deleted_rows`) */
   looseFk: 'lifecycle.loose-fk',
+  /** Исполнение заявки на стирание субъекта (`{ requestId }`, runAt = срок) */
+  erasure: 'lifecycle.erasure',
+  /** Ночная канарейка стирания */
+  canary: 'lifecycle.canary',
 } as const;
 
 export const LIFECYCLE_QUEUE = 'lifecycle';
@@ -77,5 +112,5 @@ export const LIFECYCLE_STOP_REASONS = ['paused', 'blast_radius', 'overrun', 'max
 export type LifecycleStopReason = (typeof LIFECYCLE_STOP_REASONS)[number];
 
 /** Виды прогонов `lifecycle_runs.kind`. */
-export const LIFECYCLE_RUN_KINDS = ['purge', 'tenant_purge', 'loose_fk'] as const;
+export const LIFECYCLE_RUN_KINDS = ['purge', 'tenant_purge', 'loose_fk', 'erasure', 'canary'] as const;
 export type LifecycleRunKind = (typeof LIFECYCLE_RUN_KINDS)[number];

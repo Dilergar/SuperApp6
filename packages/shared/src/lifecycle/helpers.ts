@@ -65,17 +65,25 @@ export const legalFloor = (floorDays: LifecycleDuration, trigger: LifecycleReten
 /** 75 лет / 5 лет / 3 года — сутки по календарю григорианского года (365.25 округлённо вверх). */
 export const YEARS = (n: number): number => Math.ceil(n * 365.25);
 
-// ---- стирание субъекта ----
-export const HARD_DELETE: LifecycleSubjectErasure = { kind: 'hard_delete' };
-/** Стирается только личное (строки без организации); строки организации остаются по ссылке */
-export const HARD_DELETE_PERSONAL: LifecycleSubjectErasure = { kind: 'hard_delete', personalOnly: true };
+// ---- стирание субъекта (правило исполнения — `LifecycleSubjectErasure` в types.ts) ----
+/** Общий шаг: удаляются строки, где любая из колонок `by` = человек */
+export const eraseBy = (...by: string[]): LifecycleSubjectErasure => ({ kind: 'hard_delete', by });
+/** Общий шаг только по личным строкам (без организации); строки организации остаются по ссылке */
+export const erasePersonalBy = (...by: string[]): LifecycleSubjectErasure => ({ kind: 'hard_delete', personalOnly: true, by });
+/** Стирает модуль-владелец своим путём (`LifecycleSubjectHookRegistry`): байты, эскроу, деревья */
+export const eraseHook = (hook: string, personalOnly = false): LifecycleSubjectErasure => ({ kind: 'hard_delete', hook, ...(personalOnly ? { personalOnly: true } : {}) });
+/** Семейство Redis с ключами человека: шаг `lifecycle.redis` находит их по id (SCAN) и удаляет */
+export const ERASE_REDIS: LifecycleSubjectErasure = { kind: 'hard_delete', hook: 'lifecycle.redis' };
 /** Человек упомянут только id — томбстоун строки User рисует «Удалённый пользователь»; копий ПДн нет */
 export const BY_REFERENCE: LifecycleSubjectErasure = { kind: 'none', reason: 'person referenced by id only: the User tombstone renders a deleted user' };
 export const shred = (keyScope: 'user' | 'workspace' = 'user'): LifecycleSubjectErasure => ({ kind: 'crypto_shred', keyScope });
-export const pseudonymize = (...fields: string[]): LifecycleSubjectErasure => ({ kind: 'pseudonymize', fields });
-export const redact = (...fields: string[]): LifecycleSubjectErasure => ({ kind: 'redact', fields });
-export const retainLegal = (citation: LifecycleCitation, untilDays: LifecycleDuration): LifecycleSubjectErasure => ({ kind: 'retain_legal', citation, untilDays });
-export const noSubject = (reason: string): LifecycleSubjectErasure => ({ kind: 'none', reason });
+/** Общий шаг: строковые поля строк, где колонка `by` = человек, получают метку «удалённый пользователь» */
+export const pseudonymizeBy = (by: readonly string[], ...fields: string[]): LifecycleSubjectErasure => ({ kind: 'pseudonymize', by, fields });
+/** Поля псевдонимизирует модуль-владелец (снимки внутри JSON, пачки по своему индексу) */
+export const pseudonymizeHook = (hook: string, ...fields: string[]): LifecycleSubjectErasure => ({ kind: 'pseudonymize', hook, fields });
+export const retainLegal = (citation: LifecycleCitation, untilDays: LifecycleDuration, hook?: string): LifecycleSubjectErasure =>
+  hook ? { kind: 'retain_legal', citation, untilDays, hook } : { kind: 'retain_legal', citation, untilDays };
+export const noSubject = (reason: string, hook?: string): LifecycleSubjectErasure => (hook ? { kind: 'none', reason, hook } : { kind: 'none', reason });
 
 // ---- удаление организации ----
 export const CASCADE_FK: LifecycleTenantPurge = { kind: 'cascade_fk' };

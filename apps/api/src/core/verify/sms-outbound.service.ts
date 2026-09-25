@@ -113,6 +113,29 @@ export class SmsOutboundService {
     }
   }
 
+  /**
+   * SMS владельцу со ссылкой на квитанцию стирания организации (core/lifecycle): код показан
+   * один раз, в базе лежит только его отпечаток — SMS остаётся у владельца, когда экран закрыт.
+   * Не зависит от opt-in (ответ на его же действие). Потолок — `receiptPerUserDaily` в сутки на
+   * человека (архив → возврат → архив не жжёт деньги без конца); бюджет тратится по факту.
+   * Best-effort: `false` — не отправлено; действие вызывающего не откатывается.
+   */
+  async sendErasureReceipt(userId: string, phone: string, text: string): Promise<boolean> {
+    if (!this.live && !isDevEnv()) return false;
+    const budgetPrefix = `smsout:receipt:${userId}`;
+    const used = await this.slidingPeek(budgetPrefix, 24 * 3600).catch(() => 0);
+    if (used >= SMS_OUTBOUND_LIMITS.receiptPerUserDaily) return false;
+    try {
+      const res = await this.sms.driver.send(phone, text);
+      if (!res.ok) throw new Error(res.error ?? 'no reason given');
+    } catch (e) {
+      this.logger.warn(`Erasure receipt SMS → ${maskPhone(phone)} was not sent: ${(e as Error).message}`);
+      return false;
+    }
+    await this.slidingRecord(budgetPrefix, 24 * 3600).catch(() => undefined);
+    return true;
+  }
+
   /** Ключи двух корзин скользящего окна + доля прошедшего окна */
   private windowOf(prefix: string, windowSec: number) {
     const nowSec = Date.now() / 1000;

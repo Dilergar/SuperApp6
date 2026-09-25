@@ -244,7 +244,9 @@
       "aria": "Whose eyes to look at the card with",
       "member": "As the employees see it",
       "owner": "As you see it"
-    }
+    },
+    "archivedTitle": "The organization is archived",
+    "archivedText": "Everything stays for {n, plural, one {# day} other {# days}}: the owner can restore the organization. After that it is erased for good, and the stages with the signed certificate are shown by the receipt code."
   },
   "requisites": {
     "accounts": {

@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { ChatterController } from './chatter.controller';
 import { ChatterRefRegistry } from './chatter-ref.registry';
+import { ChatterLifecycleProvider } from './chatter.lifecycle.provider';
 import { ChatterService } from './chatter.service';
 
 /**
@@ -15,7 +16,7 @@ import { ChatterService } from './chatter.service';
 @Global()
 @Module({
   controllers: [ChatterController],
-  providers: [ChatterService, ChatterRefRegistry],
+  providers: [ChatterService, ChatterRefRegistry, ChatterLifecycleProvider],
   exports: [ChatterService, ChatterRefRegistry],
 })
 export class ChatterModule {}

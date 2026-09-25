@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { resolveAudienceLabels, resolveByteValues, resolveCountryValues, resolveIsoValues, resolveLabelKeys, type Locale } from '@superapp/i18n';
-import { notificationDef } from '@superapp/shared';
+import { localizePersonSnapshot, resolveAudienceLabels, resolveByteValues, resolveCountryValues, resolveIsoValues, resolveLabelKeys, type Locale } from '@superapp/i18n';
+import { PERSON_NAME_REFS, notificationDef } from '@superapp/shared';
 import { I18nService } from '../../shared/i18n/i18n.service';
 
 export interface RenderedText {
@@ -51,6 +51,10 @@ export class NotificationsRenderer {
       t,
       resolveCountryValues(fmt, resolveIsoValues(fmt, resolveByteValues((v) => this.i18n.bytes(v, locale), { ...toValues(withAudiences), n }))),
     );
+    // Имя стёртого человека в payload — маркер томбстоуна: зритель видит метку на своём языке
+    for (const key of Object.keys(PERSON_NAME_REFS)) {
+      if (typeof values[key] === 'string') values[key] = localizePersonSnapshot(t, values[key] as string);
+    }
     const titleKey = `notifications.${type}.title`;
     const bodyKey = `notifications.${type}.body`;
     const collapsedKey = `notifications.${type}.collapsed`;

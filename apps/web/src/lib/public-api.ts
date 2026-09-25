@@ -11,6 +11,9 @@ import {
   type ConsentDocumentDto,
   type ConsentDocumentKey,
   type ConsentVersionRefDto,
+  type JwksDto,
+  type LifecycleErasureReceiptDto,
+  type LifecycleErasureVerificationDto,
   type Locale,
   type ShareDriveNodesPage,
   SHARE_SESSION_HEADER,
@@ -232,4 +235,23 @@ export function fetchConsentVersion(versionId: string, locale: Locale): Promise<
 
 export function fetchConsentArchive(documentKey: ConsentDocumentKey): Promise<ConsentVersionRefDto[]> {
   return guestGet<ConsentVersionRefDto[]>(`/consents/documents/${documentKey}/versions`);
+}
+
+// ============================================================
+// Квитанция стирания (core/lifecycle) — публичная страница /legal/erasure/<код>: аккаунта к
+// этому времени уже нет, код — единственный ключ человека к этапам и сертификату
+// ============================================================
+
+export function fetchErasureReceipt(code: string): Promise<LifecycleErasureReceiptDto> {
+  return guestGet<LifecycleErasureReceiptDto>(`/lifecycle/erasure-receipts/${encodeURIComponent(code)}`);
+}
+
+/** Архивная проверка подписи сервером — когда ключа уже нет в JWKS (ротация). */
+export function fetchErasureVerification(code: string): Promise<LifecycleErasureVerificationDto> {
+  return guestGet<LifecycleErasureVerificationDto>(`/lifecycle/erasure-receipts/${encodeURIComponent(code)}/verification`);
+}
+
+/** JWKS платформы — стандартный формат без конверта ответа. */
+export async function fetchJwks(): Promise<JwksDto> {
+  return (await publicApi.get<JwksDto>('/keys/jwks')).data;
 }

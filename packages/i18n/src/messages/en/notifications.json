@@ -720,7 +720,8 @@
   },
   "sms": {
     "text": "SuperApp6: {title}",
-    "accountDeletionScheduled": "SuperApp6: account deletion requested. Not you? Sign in within {days, plural, one {# day} other {# days}} to cancel."
+    "accountDeletionScheduled": "SuperApp6: account deletion requested. Not you? Sign in within {days, plural, one {# day} other {# days}} to cancel.",
+    "workspaceErasureReceipt": "SuperApp6: the organization “{name}” is archived and will be erased in {days, plural, one {# day} other {# days}} unless restored. Erasure receipt: {url}"
   },
   "staff": {
     "deputy": {

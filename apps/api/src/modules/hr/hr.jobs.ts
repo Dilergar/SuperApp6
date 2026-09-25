@@ -92,10 +92,13 @@ export class HrJobs implements OnModuleInit {
     return u ? fullName(u) : null;
   }
 
-  /** Имя в payload: данные под своим именем либо слово ключом */
+  /**
+   * Имя в payload: данные под своим именем (парой с id человека — стирание перепишет имя
+   * меткой, lifecycle/person-refs) либо слово ключом.
+   */
   private async namePayload(userId: string): Promise<Record<string, string>> {
     const name = await this.nameOf(userId);
-    return name ? { targetName: name } : { targetNameKey: 'common.labels.someone' };
+    return name ? { targetUserId: userId, targetName: name } : { targetNameKey: 'common.labels.someone' };
   }
 
   /** ЕСУТД: осталось ≤ 2 рабочих дней (или просрочено) — управляющим */

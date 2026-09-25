@@ -1,16 +1,24 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { asWorkspaceId, isUuid, lifecycleTenantPurgePlan } from '@superapp/shared';
+import { asWorkspaceId, isUuid, lifecycleCanaryRunSchema, lifecyclePlatformHoldCreateSchema, lifecyclePlatformHoldReleaseSchema, lifecycleTenantPurgePlan } from '@superapp/shared';
 import { z } from 'zod';
 import { isDevEnv } from '../../shared/config/env.validation';
-import { badRequest, notFound } from '../../shared/errors/api-error';
+import { badRequest, conflict, notFound } from '../../shared/errors/api-error';
+import { DatabaseService } from '../../shared/database/database.service';
+import { CurrentUser, type JwtPayload } from '../../shared/decorators/current-user.decorator';
+import { KeysStoreService } from '../keys/keys.store.service';
+import { userScope, workspaceScope } from '../keys/keys.constants';
+import { LifecycleCanaryBusyError, LifecycleCanaryService } from './lifecycle.canary';
+import { LifecycleErasureService } from './lifecycle.erasure.service';
 import { LifecycleHealth } from './lifecycle.health';
+import { LifecycleHoldsService } from './lifecycle.holds.service';
 import { LifecycleLooseFk } from './lifecycle.loose-fk';
 import { LifecyclePartitions } from './lifecycle.partitions';
 import { LifecyclePurgeRunner } from './lifecycle.purge';
 import { LifecycleRuns } from './lifecycle.runs';
 import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
 
+const erasureRunSchema = z.object({ requestId: z.string().uuid(), now: z.boolean().optional() }).strict();
 const purgeRunSchema = z.object({ policyId: z.string().min(1).max(96), dryRun: z.boolean().optional(), force: z.boolean().optional() }).strict();
 const purgeScheduleSchema = purgeRunSchema.extend({ anytime: z.boolean().optional() }).strict();
 const healthOverrideSchema = z
@@ -25,8 +33,9 @@ const healthOverrideSchema = z
   .strict();
 
 /**
- * Дев-полигон движка жизненного цикла (verify-partitions.cjs, verify-purge.cjs): партиции,
- * прогоны сроков, подмена сигналов здоровья, loose FK, предпросмотр каскада организации.
+ * Дев-полигон движка жизненного цикла (verify-partitions.cjs, verify-purge.cjs,
+ * verify-lifecycle.cjs): партиции, прогоны сроков, подмена сигналов здоровья, loose FK,
+ * предпросмотр каскада организации, стирание субъекта, заморозки, канарейка.
  * Вне NODE_ENV=development — 404, как будто ручек нет; в проде то же видит дашборд «Данные»
  * Кабинета платформы (core/platform, Э5).
  */
@@ -41,6 +50,11 @@ export class LifecycleDevController {
     private readonly health: LifecycleHealth,
     private readonly looseFk: LifecycleLooseFk,
     private readonly tenant: LifecycleTenantPurgeService,
+    private readonly erasure: LifecycleErasureService,
+    private readonly holds: LifecycleHoldsService,
+    private readonly keysStore: KeysStoreService,
+    private readonly db: DatabaseService,
+    private readonly canary: LifecycleCanaryService,
   ) {}
 
   private assertDev(): void {
@@ -139,6 +153,103 @@ export class LifecycleDevController {
     this.assertDev();
     const res = await this.looseFk.process(30_000);
     return { success: true, data: { ...res, backlog: await this.looseFk.backlog() } };
+  }
+
+  // ---- стирание субъекта ----
+
+  /** Исполнить заявку сейчас без бюджета (`now` — срок переносится на сейчас: грейс не ждём). */
+  @Post('erasure/run')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Execute an erasure request now (optionally moving its effective time to now)' })
+  async erasureRun(@Body() body: unknown) {
+    this.assertDev();
+    const { requestId, now } = erasureRunSchema.parse(body ?? {});
+    if (now) await this.db.lifecycleErasureRequest.updateMany({ where: { id: requestId, status: { in: ['scheduled', 'held'] } }, data: { effectiveAt: new Date() } });
+    const out = await this.erasure.execute(requestId, null);
+    const row = await this.db.lifecycleErasureRequest.findUnique({ where: { id: requestId } });
+    return { success: true, data: { outcome: out, status: row?.status ?? null } };
+  }
+
+  /**
+   * «Перемотать время» одной заявки: версии ключей её скоупа созревают к уничтожению сейчас
+   * (движок ключей уничтожает их своим путём), окно бэкапов — в прошлом; затем тик доводит
+   * этапы до сертификата. Только дев: в проде время не перематывается.
+   */
+  @Post('erasure/advance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Fast-forward an erasure request: keys destroyed and the backup window passed, then tick' })
+  async erasureAdvance(@Body() body: unknown) {
+    this.assertDev();
+    const { requestId } = erasureRunSchema.parse(body ?? {});
+    const r = await this.db.lifecycleErasureRequest.findUnique({ where: { id: requestId } });
+    if (!r) throw notFound('lifecycle.receiptNotFound');
+    const scope = r.subjectType === 'user' ? userScope(r.subjectId) : workspaceScope(r.subjectId);
+    const past = new Date(Date.now() - 1000);
+    await this.db.cryptoKeyVersion.updateMany({ where: { key: { scope }, state: 'destroy_scheduled' }, data: { destroyScheduledAt: past } });
+    await this.keysStore.destroyDue();
+    await this.db.lifecycleErasureRequest.updateMany({ where: { id: requestId, backupsClearAt: { not: null } }, data: { backupsClearAt: past } });
+    const tick = await this.erasure.tick();
+    const row = await this.db.lifecycleErasureRequest.findUnique({ where: { id: requestId } });
+    return { success: true, data: { tick, status: row?.status ?? null } };
+  }
+
+  @Post('erasure/tick')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Run the erasure orchestrator tick now' })
+  async erasureTick() {
+    this.assertDev();
+    return { success: true, data: await this.erasure.tick() };
+  }
+
+  @Post('erasure/journal/export')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Export pending erasure journal rows to object storage now' })
+  async erasureJournalExport() {
+    this.assertDev();
+    return { success: true, data: { rows: await this.erasure.exportJournal() } };
+  }
+
+  // ---- заморозки (сьюту не нужен вход в Кабинет с «четырьмя глазами») ----
+
+  @Post('holds')
+  @ApiOperation({ summary: '[dev] Place a legal hold directly (platform when workspaceId is empty)' })
+  async holdCreate(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    this.assertDev();
+    const input = lifecyclePlatformHoldCreateSchema.parse(body ?? {});
+    return { success: true, data: await this.holds.create({ ...input, workspaceId: input.workspaceId ?? null }, { id: user.sub, kind: 'user' }) };
+  }
+
+  @Post('holds/release')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Release any legal hold directly' })
+  async holdRelease(@CurrentUser() user: JwtPayload, @Body() body: unknown) {
+    this.assertDev();
+    const { holdId, note } = lifecyclePlatformHoldReleaseSchema.parse(body ?? {});
+    return { success: true, data: await this.holds.release(holdId, note, { id: user.sub, kind: 'user' }) };
+  }
+
+  // ---- канарейка стирания ----
+
+  /** Прогон канарейки сейчас (синхронно); `leak` — подсадить утечку после стирания (проверка самой канарейки). */
+  @Post('canary/run')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '[dev] Run the erasure canary now; optionally plant a leak after the erasure' })
+  async canaryRun(@Body() body: unknown) {
+    this.assertDev();
+    const { leak } = lifecycleCanaryRunSchema.parse(body ?? {});
+    try {
+      return { success: true, data: await this.canary.run({ leak }) };
+    } catch (err) {
+      if (err instanceof LifecycleCanaryBusyError) throw conflict('lifecycle.canaryRunning');
+      throw err;
+    }
+  }
+
+  @Get('canary/coverage')
+  @ApiOperation({ summary: '[dev] Stores of the erasure plan the canary must seed' })
+  canaryCoverage() {
+    this.assertDev();
+    return { success: true, data: { policies: this.canary.coverage() } };
   }
 
   @Get('tenant/:workspaceId/preview')

@@ -256,6 +256,14 @@
     "lifecycleWorkspacePurge": {
       "title": "Delete an archived organization permanently",
       "description": "Runs the full deletion cascade now instead of waiting for the archive period to end: tasks, chats, Drive, notes, files and access go; legal records stay. Only for an archived organization without a legal hold. Needs a second staff member to approve."
+    },
+    "lifecycleHoldCreate": {
+      "title": "Place a legal hold",
+      "description": "Stops every deletion path for the chosen data: a person, a chat or a whole organization, one record or a data class. Without an organization the hold covers the person’s personal data and every organization. Needs a second staff member to approve."
+    },
+    "lifecycleHoldRelease": {
+      "title": "Release a legal hold",
+      "description": "Deletion of the held data resumes by its retention policy. The hold stays in the history. Needs a second staff member to approve."
     }
   },
   "fields": {

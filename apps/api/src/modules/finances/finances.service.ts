@@ -827,7 +827,7 @@ export class FinancesService implements OnModuleInit {
    * затем строка (счета, бюджеты, люди, повторы — каскадом). Журнал книги уходит loose FK
    * (append-only: удаление строк журнала разрешено только когда книги уже нет).
    */
-  async purgeOwnerBook(ownerType: 'workspace', ownerId: string, deadline: number | null): Promise<{ rows: number; done: boolean }> {
+  async purgeOwnerBook(ownerType: 'workspace' | 'user', ownerId: string, deadline: number | null): Promise<{ rows: number; done: boolean }> {
     const book = await this.db.finBook.findUnique({ where: { ownerType_ownerId: { ownerType, ownerId } }, select: { id: true } });
     if (!book) return { rows: 0, done: true };
     let rows = 0;
@@ -1366,7 +1366,7 @@ export class FinancesService implements OnModuleInit {
           to: [{ userId: dto.principalId }],
           payload: {
             ...(me
-              ? { ownerName: `${me.firstName} ${me.lastName ?? ''}`.trim() }
+              ? { ownerUserId: userId, ownerName: `${me.firstName} ${me.lastName ?? ''}`.trim() }
               : // Имени нет — слово продукта, и оно едет ключом (`ownerNameKey` → `ownerName`).
                 { ownerNameKey: 'common.labels.someone' }),
             // «Ключ вместо слова»: роль в ВЕЧНОМ payload не вправе застыть в

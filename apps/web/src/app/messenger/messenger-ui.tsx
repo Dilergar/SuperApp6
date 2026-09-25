@@ -1,6 +1,7 @@
 'use client';
 
 import { useTranslations } from 'next-intl';
+import { DELETED_USER_MARKER } from '@superapp/i18n/person-marker';
 import { useFormatters } from '@/lib/format';
 
 // Icon — напрямую из файла, не из барабана '@/components/ui': этот модуль сидит
@@ -93,7 +94,10 @@ export function PersonAvatar({
   size?: 'sm' | 'md' | 'lg';
 }) {
   const skin = usePersonSkin(userId);
-  return <Avatar name={name} avatar={avatar} size={size} skin={skin} />;
+  const tc = useTranslations('common');
+  // Стёртый человек: имя-маркер томбстоуна → метка на языке зрителя
+  const shown = name.trim() === DELETED_USER_MARKER ? tc('labels.deletedUser') : name;
+  return <Avatar name={shown} avatar={avatar} size={size} skin={skin} />;
 }
 
 /** Галочки на МОИХ сообщениях: одна — отправлено, две — доставлено, две синие — прочитано. */

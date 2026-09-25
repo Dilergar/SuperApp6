@@ -175,15 +175,29 @@ export interface LifecycleRetention {
   entitlementKey?: string;
 }
 
-/** Что делать со следом человека при стирании его аккаунта (DELF, GitLab ghost, Stripe redaction). */
+/**
+ * Что делать со следом человека при стирании его аккаунта (DELF, GitLab ghost, Stripe redaction).
+ *
+ * Правило исполнения (оркестратор `LifecycleErasureService`): ЛИЧНОЕ стирается, ОБЩЕЕ остаётся
+ * у собеседников за томбстоуном «Удалённый пользователь» (строка `User` не удаляется), данные
+ * ОРГАНИЗАЦИИ остаются организации — она оператор. Шаг политики:
+ *  - `hook` — шаг модуля-владельца (`LifecycleSubjectHookRegistry`): байты, эскроу, деревья,
+ *    членства — то, что голым SQL не стереть; один на ключ, сколько бы политик его ни объявили;
+ *  - иначе общий шаг по колонкам `by` (строки, где колонка = человек): `hard_delete` удаляет,
+ *    `pseudonymize` пишет в строковые поля метку «удалённый пользователь», `redact` — NULL.
+ *    `by` ⊆ колонок субъектов; колонка роли `actor` (кто выдал / отозвал / решил) не ведёт
+ *    удаление никогда — иначе стирание сотрудника унесло бы чужие гранты и записи организации.
+ */
 export type LifecycleSubjectErasure =
   /** `personalOnly` — только строки вне организации (личная задача стирается, задача организации остаётся) */
-  | { kind: 'hard_delete'; personalOnly?: boolean }
+  | { kind: 'hard_delete'; personalOnly?: boolean; by?: readonly string[]; hook?: string }
   | { kind: 'crypto_shred'; keyScope: 'user' | 'workspace' }
-  | { kind: 'pseudonymize'; fields: readonly string[] }
-  | { kind: 'redact'; fields: readonly string[] }
-  | { kind: 'retain_legal'; citation: LifecycleCitation; untilDays: LifecycleDuration }
-  | { kind: 'none'; reason: string };
+  | { kind: 'pseudonymize'; fields: readonly string[]; by?: readonly string[]; hook?: string }
+  | { kind: 'redact'; fields: readonly string[]; by?: readonly string[]; hook?: string }
+  /** `hook` — модуль закрывает ОТКРЫТОЕ (активное назначение кончается), строки остаются по закону */
+  | { kind: 'retain_legal'; citation: LifecycleCitation; untilDays: LifecycleDuration; hook?: string }
+  /** `hook` — то же для строк без удаления (членства, назначения организации) */
+  | { kind: 'none'; reason: string; hook?: string };
 
 /** Что делать при окончательном удалении организации (замена «знания в голове» о каскаде). */
 export type LifecycleTenantPurge =
@@ -318,6 +332,13 @@ export interface LifecyclePolicy {
   rootEntity?: boolean;
   /** Модель — экспортируется человеку/организации (`LifecycleExportRegistry`) */
   exportable?: 'user' | 'workspace' | 'both';
+  /**
+   * Люди внутри JSON строки (снимки имён парой с id — `person-refs.ts`): SQL-функция, что
+   * возвращает их id (`text[]`), её аргументы — поля модели, и ключи id, которые она обязана
+   * читать (страж сверяет миграцию, смоук бута — живую функцию). По ней GIN-индекс таблицы
+   * находит строки человека при стирании, канарейка ищет его имя и в них.
+   */
+  personIds?: { fn: string; args: readonly string[]; keys: readonly string[] };
 }
 
 /** Политика в файле области: id и `store` модели дописывает реестр. */

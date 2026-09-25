@@ -4,6 +4,7 @@ import { ConsentsRevokeRegistry } from '../../core/consents/consents.registry';
 import { ConsentsActionsService } from '../../core/consents/consents.actions.service';
 import { AuditService } from '../../core/audit/audit.service';
 import { CONSENT_ERROR_CODES } from '@superapp/shared';
+import { LifecycleCanaryRegistry, type LifecycleCanaryContext, type LifecycleCanaryPlant } from '../../core/lifecycle/lifecycle.purge.registry';
 import { badRequest, notFound } from '../../shared/errors/api-error';
 import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
 import { KeysMacService } from '../../core/keys/keys.mac.service';
@@ -67,10 +68,12 @@ export class GoogleCalendarService implements OnModuleInit {
     private consentHooks: ConsentsRevokeRegistry,
     private pdActions: ConsentsActionsService,
     private audit: AuditService,
+    private canary: LifecycleCanaryRegistry,
   ) {}
 
   /** Токены Google — envelope core/keys (KEK человека); строки прошлой эпохи (открытый текст) перешивает legacy-джоб. */
   onModuleInit(): void {
+    this.canary.register('google.subject', (ctx) => this.seedCanary(ctx));
     // Согласие `integration_google` отозвано (в т.ч. удалением аккаунта) → подключение гаснет в той же
     // транзакции: без хука отзыв оставлял бы синхронизацию работать (правило «на всех путях»)
     this.consentHooks.register('integration_google', {
@@ -104,6 +107,17 @@ export class GoogleCalendarService implements OnModuleInit {
         legacyDecrypt: (stored) => (stored ? stored : null),
       });
     }
+  }
+
+  /**
+   * Посев канарейки стирания: подключение с токенами под KEK человека (тем же конвертом, что
+   * живое), без календаря синхронизации — кроны канала и синхронизации его не берут. Стирается
+   * общим шагом оркестратора по `userId`.
+   */
+  private async seedCanary(ctx: LifecycleCanaryContext): Promise<LifecycleCanaryPlant[]> {
+    const [accessToken, refreshToken] = await Promise.all([this.encryptToken(ctx.userId, 'access_token', `canary-${ctx.marker}`), this.encryptToken(ctx.userId, 'refresh_token', `canary-${ctx.marker}`)]);
+    const row = await this.db.googleConnection.create({ data: { userId: ctx.userId, googleEmail: `${ctx.marker}@canary.invalid`, accessToken, refreshToken }, select: { id: true } });
+    return [{ policy: 'GoogleConnection', id: row.id, expect: 'gone' }];
   }
 
   private tokenCtx(userId: string, field: TokenField) {

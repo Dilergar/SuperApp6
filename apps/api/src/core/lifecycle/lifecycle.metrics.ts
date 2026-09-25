@@ -10,7 +10,11 @@ import { MetricsService } from '../../shared/metrics/metrics.service';
  * партиции близко (вставки упадут); `lifecycle_partitions_detach_pending > 0` дольше суток;
  * рост `lifecycle_partition_maintenance_errors_total`; любой `lifecycle_purge_halted_total`
  * (кэп радиуса / факт обогнал ожидание — человек смотрит ДО следующей ночи); рост
- * `lifecycle_loose_fk_backlog` дольше суток; `lifecycle_tenant_purge_step_failures_total`.
+ * `lifecycle_loose_fk_backlog` дольше суток; `lifecycle_tenant_purge_step_failures_total`;
+ * `lifecycle_erasure_stuck > 0` (стирание без прогресса больше 7 дней — DELF: застревание
+ * на 45 дней); любой `lifecycle_canary_failures_total` (стирание где-то протекает);
+ * `time() - lifecycle_canary_last_success_seconds > 2 суток` (канарейка не бежит);
+ * `lifecycle_canary_unseeded_policies > 0` (хранилище плана стирания канарейка не проверяет).
  */
 @Injectable()
 export class LifecycleMetrics {
@@ -28,6 +32,14 @@ export class LifecycleMetrics {
   private readonly tenantFailures: Counter<string>;
   private readonly looseBacklog: Gauge<string>;
   private readonly looseProcessed: Counter<string>;
+  private readonly holds: Counter<string>;
+  private readonly erasureStages: Counter<string>;
+  private readonly erasureRows: Counter<string>;
+  private readonly erasureStuck: Gauge<string>;
+  private readonly erasureHeld: Gauge<string>;
+  private readonly canaryFailures: Counter<string>;
+  private readonly canaryLastOk: Gauge<string>;
+  private readonly canaryUnseeded: Gauge<string>;
 
   constructor(metrics: MetricsService) {
     this.ahead = metrics.gauge('lifecycle_partitions_ahead', 'Partitions from the current period onwards (current + future)', ['parent']);
@@ -44,6 +56,14 @@ export class LifecycleMetrics {
     this.tenantFailures = metrics.counter('lifecycle_tenant_purge_step_failures_total', 'Organisation purge steps that threw (the cascade stops and retries)', ['step']);
     this.looseBacklog = metrics.gauge('lifecycle_loose_fk_backlog', 'Deleted parent rows whose loose-FK children are not processed yet');
     this.looseProcessed = metrics.counter('lifecycle_loose_fk_processed_total', 'Deleted parent rows whose loose-FK children were processed', ['table']);
+    this.holds = metrics.counter('lifecycle_holds_changes_total', 'Legal holds placed and released', ['action', 'scope']);
+    this.erasureStages = metrics.counter('lifecycle_erasure_stages_total', 'Erasure stages passed', ['subject_type', 'stage']);
+    this.erasureRows = metrics.counter('lifecycle_erasure_rows_total', 'Rows erased, pseudonymized or redacted by subject erasure steps', ['step']);
+    this.erasureStuck = metrics.gauge('lifecycle_erasure_stuck', 'Erasure requests without progress for more than the SLO (waiting for backups excluded)');
+    this.erasureHeld = metrics.gauge('lifecycle_erasure_held', 'Erasure requests waiting for a legal hold to be released');
+    this.canaryFailures = metrics.counter('lifecycle_canary_failures_total', 'Canary runs that found a trace of an erased synthetic subject', ['store']);
+    this.canaryLastOk = metrics.gauge('lifecycle_canary_last_success_seconds', 'Unix time of the last clean canary run');
+    this.canaryUnseeded = metrics.gauge('lifecycle_canary_unseeded_policies', 'Stores of the erasure plan the last canary run did not seed (not verified)');
   }
 
   health(parent: string, h: { ahead: number; detachPending: number; leaves: number }): void {
@@ -91,5 +111,34 @@ export class LifecycleMetrics {
 
   looseFkProcessed(table: string, n: number): void {
     if (n > 0) this.looseProcessed.inc({ table }, n);
+  }
+
+  holdsChanged(action: 'created' | 'released', scope: string): void {
+    this.holds.inc({ action, scope });
+  }
+
+  erasureStage(subjectType: string, stage: string): void {
+    this.erasureStages.inc({ subject_type: subjectType, stage });
+  }
+
+  erasureStepRows(step: string, n: number): void {
+    if (n > 0) this.erasureRows.inc({ step }, n);
+  }
+
+  erasureBacklog(stuck: number, held: number): void {
+    this.erasureStuck.set(stuck);
+    this.erasureHeld.set(held);
+  }
+
+  canaryFailed(store: string): void {
+    this.canaryFailures.inc({ store });
+  }
+
+  canaryOk(at: Date): void {
+    this.canaryLastOk.set(Math.floor(at.getTime() / 1000));
+  }
+
+  canaryCoverage(unseeded: number): void {
+    this.canaryUnseeded.set(unseeded);
   }
 }

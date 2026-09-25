@@ -1179,6 +1179,39 @@ export class ApprovalsService implements OnModuleInit {
     return rows.length;
   }
 
+  /**
+   * Каскад удаления организации (шаг `approvals.workspace`): живые заявки отменяются (стопки
+   * людей чистеют), затем ВСЕ заявки организации удаляются пачками — шаги и решения каскадом
+   * FK. Внешнего ключа на организацию у заявки нет: без шага история решений пережила бы
+   * организацию навсегда. Удерживаемое заморозкой остаётся (строку организации удержит её
+   * проверка); `deadline` прошёл — `done: false`, следующий заход продолжит.
+   */
+  async purgeWorkspace(
+    workspaceId: string,
+    ctx: { deadline: number | null; releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]> },
+  ): Promise<{ rows: number; done: boolean }> {
+    await this.cancelAllForWorkspace(workspaceId);
+    let rows = 0;
+    let after: string | undefined;
+    for (;;) {
+      if (ctx.deadline !== null && Date.now() > ctx.deadline) return { rows, done: false };
+      const batch = await this.db.approvalRequest.findMany({
+        where: { workspaceId, ...(after ? { id: { gt: after } } : {}) },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: 500,
+      });
+      if (!batch.length) return { rows, done: true };
+      after = batch[batch.length - 1]!.id;
+      rows += await this.db.$transaction(async (tx) => {
+        const ok = await ctx.releasable(tx, batch.map((r) => r.id));
+        if (!ok.length) return 0;
+        const { count } = await tx.approvalRequest.deleteMany({ where: { id: { in: ok } } });
+        return count;
+      });
+    }
+  }
+
   /** Отменить ВСЕ живые заявки на предмет (предмет отменён/удалён его сервисом) */
   async cancelForRef(refType: string, refId: string): Promise<void> {
     const rows = await this.db.approvalRequest.findMany({

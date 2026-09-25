@@ -824,5 +824,72 @@
     "call_egress": {
       "title": "Recordings before saving"
     }
+  },
+  "holds": {
+    "reasons": {
+      "litigation": "Litigation",
+      "investigation": "Internal investigation",
+      "regulator_request": "Regulator request",
+      "audit": "Audit",
+      "other": "Other"
+    },
+    "scopes": {
+      "custodian": "Person",
+      "space": "Chat or organization",
+      "record": "One record",
+      "class": "Data class"
+    }
+  },
+  "receipt": {
+    "title": "Erasure receipt",
+    "subtitle": "The stages of erasing the data and, when everything is done, a certificate signed by the platform. There is no personal data on this page.",
+    "home": "SuperApp6",
+    "legal": "Legal documents",
+    "code": "Receipt code",
+    "subject": {
+      "user": "Account",
+      "workspace": "Organization"
+    },
+    "status": {
+      "scheduled": "Scheduled",
+      "held": "In progress",
+      "running": "In progress",
+      "hot_purged": "Erased from live systems",
+      "keys_destroyed": "Keys destroyed",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "failed": "In progress"
+    },
+    "progress": "Progress",
+    "stages": {
+      "requested": "Deletion requested",
+      "effective": "Erasure starts",
+      "hidden": "Account hidden",
+      "hotPurged": "Erased from live systems",
+      "keysDestroyed": "Encryption keys destroyed",
+      "backupsClear": "Backups cleared",
+      "completed": "Certificate issued"
+    },
+    "pending": "Pending",
+    "planned": "Planned for {date}",
+    "cancelled": "The deletion was cancelled: the account was restored during the grace period.",
+    "certificate": {
+      "title": "Erasure certificate",
+      "text": "Signed with the platform key (Ed25519). It holds a pseudonym, dates and counts — no personal data.",
+      "total": "Records in total",
+      "policies": "Data stores covered",
+      "keys": "Encryption keys destroyed",
+      "pseudonym": "Subject pseudonym"
+    },
+    "verify": {
+      "action": "Verify signature",
+      "valid": "Signature is valid",
+      "validServer": "Signature is valid (checked by the platform: the key was rotated)",
+      "invalid": "Signature does not match"
+    },
+    "download": "Download certificate",
+    "notFound": "No erasure was found for this code. Check it: the code was shown once, when the deletion was requested.",
+    "badCode": "This doesn’t look like a receipt code: it has 26 letters and digits.",
+    "loadFailed": "Couldn’t load the receipt. Try again a bit later."
   }
 }

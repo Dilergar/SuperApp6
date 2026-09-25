@@ -147,3 +147,141 @@ export class LifecycleTenantHookRegistry {
     return [...this.hooks.entries()];
   }
 }
+
+/** Что оркестратор стирания человека даёт хуку модуля. */
+export interface LifecycleSubjectEraseContext {
+  /** Заявка на стирание (ключи идемпотентности шагов модуля) */
+  requestId: string;
+  runId: string;
+  /** Момент, после которого шаг обязан вернуть управление (`{ done: false }`); `null` — без бюджета */
+  deadline: number | null;
+  /** Метка томбстоуна в языке источника — для строковых снимков имени (зритель перерисует её при чтении) */
+  deletedLabel: string;
+  /** Выбор человека в мастере удаления */
+  options: { eraseMessages: boolean };
+  /**
+   * Человек — хранитель действующей заморозки: корневой шаг СКРЫВАЕТ аккаунт (вход, сессии),
+   * но не стирает ПДн строки — это улика; шаг досчитает после снятия.
+   */
+  subjectHeld: boolean;
+  /** id строк политики без действующей заморозки — в транзакции удаления, под общим замком */
+  releasable(tx: Tx, policyId: string, ids: readonly string[]): Promise<string[]>;
+  /** Шаг оставил строки под заморозкой — заявка ждёт снятия, следующий заход повторит шаг */
+  held(rows: number): void;
+}
+
+/**
+ * Хук модуля в стирании человека (`onSubjectErasure.hook` реестра): ЛИЧНОЕ человека стирается
+ * путём сервиса (байты, эскроу, деревья, права), ОБЩЕЕ и данные организаций остаются за
+ * томбстоуном «Удалённый пользователь» (правило — `LifecycleSubjectErasure` в shared).
+ *
+ * Контракт: идемпотентен (прерванное стирание повторит шаг), права не проверяет (решение
+ * принял человек и грейс), удерживаемое не трогает (`releasable` + `held`), на сбое бросает —
+ * заявка остаётся на этом шаге, следующий заход продолжит. Большой объём — пачками; прошёл
+ * `deadline` — вернуть `{ done: false }`.
+ */
+export interface LifecycleSubjectHook {
+  erase(userId: string, ctx: LifecycleSubjectEraseContext): Promise<void | { rows?: number; done?: boolean }>;
+}
+
+/** Хуки стирания человека. Порядок вызова задаёт план реестра (`lifecycleSubjectErasurePlan()`). */
+@Injectable()
+export class LifecycleSubjectHookRegistry {
+  private readonly logger = new Logger(LifecycleSubjectHookRegistry.name);
+  private readonly hooks = new Map<string, LifecycleSubjectHook>();
+
+  register(key: string, hook: LifecycleSubjectHook): void {
+    if (this.hooks.has(key)) this.logger.warn(`subject erasure hook "${key}" is already registered — overwriting`);
+    this.hooks.set(key, hook);
+  }
+
+  get(key: string): LifecycleSubjectHook | undefined {
+    return this.hooks.get(key);
+  }
+
+  keys(): string[] {
+    return [...this.hooks.keys()];
+  }
+}
+
+// ============================================================
+// Канарейка стирания: посев строк синтетического человека модулями-владельцами
+// ============================================================
+
+/** Что канарейка даёт посеву модуля: синтетические человек, сосед, организация и маркеры. */
+export interface LifecycleCanaryContext {
+  runId: string;
+  /** Человек, которого канарейка сотрёт: его ЛИЧНОЕ исчезает, общее и данные организации остаются без его имени */
+  userId: string;
+  /** Сосед: владелец организации канарейки и собеседник — общее с ним остаётся (проверка лишнего удаления) */
+  peerId: string;
+  /** Организация канарейки (владелец — сосед, человек — сотрудник); после стирания человека — её purge-каскад */
+  workspaceId: string;
+  /** Маркер ТЕКСТА (заголовки, содержимое): личное с ним исчезает, томбстоун его не несёт */
+  marker: string;
+  /** Фамилия человека (маркер имени): после стирания не встречается ни в одной его строке, включая оставшиеся */
+  name: string;
+}
+
+/** Посеянная строка и что с ней обязано стать после стирания человека. */
+export interface LifecycleCanaryPlant {
+  /** id политики реестра (модель, `blob:<профиль>`, `derived:<имя>`, `redis:<семейство>`, `table:<схема.таблица>`) */
+  policy: string;
+  /** Первичный ключ строки; у байтов и выгрузок — ключ объекта хранилища; у Redis — ключ */
+  id: string;
+  /**
+   * `gone` — личное человека: строки нет; `kept` — общее или организации: строка есть (исчезла —
+   * лишнее удаление), имени человека в ней нет; `scrubbed` — томбстоун: строка есть, ни маркера
+   * текста, ни имени.
+   */
+  expect: 'gone' | 'kept' | 'scrubbed';
+  /** Строка организации канарейки: после её purge-каскада строки нет (кроме политик `retain_legal`) */
+  tenant?: boolean;
+  /** Колонка ключа строки сырой таблицы (`table:*`), по умолчанию `id` */
+  key?: string;
+}
+
+export type LifecycleCanarySeed = (ctx: LifecycleCanaryContext) => Promise<readonly LifecycleCanaryPlant[]>;
+
+/** Организация канарейки заводится модулем организаций — теми же строками, что и живой путь. */
+export interface LifecycleCanaryWorkspaceFactory {
+  /** Организация: владелец `ownerId`, сотрудник `memberId` (строка, членства, роли, объект по умолчанию) */
+  create(ownerId: string, memberId: string, name: string): Promise<string>;
+  /** В архив (purge-каскад принимает только архивную организацию) */
+  archive(workspaceId: string): Promise<void>;
+}
+
+/**
+ * Посев канарейки (Meta DELF, deletion canaries): модуль-владелец таблицы сеет строки
+ * синтетического человека СВОИМ кодом — рядом со своим хуком стирания, теми колонками, что
+ * пишет живой путь. Посев без эффектов наружу: ни доставки уведомлений, ни продуктовой
+ * аналитики, ни вебхуков. Полнота: политика плана стирания без посева видна в отчёте прогона
+ * (`unseeded`) и роняет сьют — канарейка обязана проверять КАЖДОЕ хранилище плана.
+ */
+@Injectable()
+export class LifecycleCanaryRegistry {
+  private readonly logger = new Logger(LifecycleCanaryRegistry.name);
+  private readonly seeds = new Map<string, LifecycleCanarySeed>();
+  private factory: LifecycleCanaryWorkspaceFactory | null = null;
+
+  register(key: string, seed: LifecycleCanarySeed): void {
+    if (this.seeds.has(key)) this.logger.warn(`canary seed "${key}" is already registered — overwriting`);
+    this.seeds.set(key, seed);
+  }
+
+  get(key: string): LifecycleCanarySeed | undefined {
+    return this.seeds.get(key);
+  }
+
+  entries(): Array<[string, LifecycleCanarySeed]> {
+    return [...this.seeds.entries()];
+  }
+
+  setWorkspaceFactory(factory: LifecycleCanaryWorkspaceFactory): void {
+    this.factory = factory;
+  }
+
+  workspaceFactory(): LifecycleCanaryWorkspaceFactory | null {
+    return this.factory;
+  }
+}

@@ -30,6 +30,11 @@
       "require": "./dist/chatter.js",
       "types": "./dist/chatter.d.ts"
     },
+    "./person-marker": {
+      "import": "./dist/person-marker.js",
+      "require": "./dist/person-marker.js",
+      "types": "./dist/person-marker.d.ts"
+    },
     "./messages/*": "./dist/messages/*"
   },
   "scripts": {

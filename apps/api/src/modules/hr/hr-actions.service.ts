@@ -145,9 +145,12 @@ export class HrActionsService {
     return role;
   }
 
-  /** Имя в payload: данные под своим именем либо слово ключом */
-  private namePayload(name: string | null): Record<string, string> {
-    return name ? { targetName: name } : { targetNameKey: 'common.labels.someone' };
+  /**
+   * Имя в payload: данные под своим именем (парой с id человека — стирание перепишет имя
+   * меткой, lifecycle/person-refs) либо слово ключом.
+   */
+  private namePayload(userId: string, name: string | null): Record<string, string> {
+    return name ? { targetUserId: userId, targetName: name } : { targetNameKey: 'common.labels.someone' };
   }
 
   /**
@@ -928,7 +931,7 @@ export class HrActionsService {
     const payload = {
       kindLabelKey: `hr.actionKind.${action.kind}`,
       // Имя — данные; его отсутствие — слово продукта, и оно едет ключом.
-      ...(targetName ? { targetName } : { targetNameKey: 'common.labels.someone' }),
+      ...(targetName ? { targetName, targetUserId: action.userId } : { targetNameKey: 'common.labels.someone' }),
       effectiveAt: dateStr(action.effectiveAt),
       workspaceId: action.workspaceId,
       hrActionId: action.id,
@@ -1032,7 +1035,7 @@ export class HrActionsService {
           type: 'hr.action.withdrawn',
           to: [{ userId: action.createdById }],
           payload: {
-            ...this.namePayload(await this.nameOf(action.userId)),
+            ...this.namePayload(action.userId, await this.nameOf(action.userId)),
             ...(issued.issuedLeft > 0 ? { noteKey: 'hr.withdrawn.orderIssued' } : {}),
             workspaceId,
           },

@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap, OnModuleInit } from '@nestjs/common';
-import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { LifecycleHoldsService } from '../../core/lifecycle/lifecycle.holds.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { RRule } from 'rrule';
 import { CalendarEvent as CalEventRow, Prisma } from '@prisma/client';
@@ -71,6 +72,12 @@ interface OccCtx {
   resourceName: string | null;
 }
 
+/** Шаг раннера/стирания: «releasable» движка → «всё свободно» (мастер и исключения серии). */
+const allFree =
+  (releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>) =>
+  async (tx: Prisma.TransactionClient, ids: readonly string[]): Promise<boolean> =>
+    (await releasable(tx, ids)).length >= new Set(ids).size;
+
 @Injectable()
 export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(CalendarService.name);
@@ -90,6 +97,7 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     private graphHooks: PersonalGraphRegistry,
     private i18n: I18nService,
     private analytics: AnalyticsService,
+    private holds: LifecycleHoldsService,
   ) {}
 
   onModuleInit(): void {
@@ -583,7 +591,8 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
     if (scope === 'all' || (!root.recurrenceRule && !any.recurrenceParentId)) {
       // Всё событие — навсегда, и только из корзины (`POST events/:id/trash` — первым шагом)
       if (!root.deletedAt) throw badRequest('calendar.trashFirst');
-      await this.hardDeleteEvent(root);
+      // Под заморозкой (событие, исключение серии, хранитель, класс) — 409, ничего не удаляется
+      if (!(await this.hardDeleteEvent(root, (tx, ids) => this.holds.allReleasable(tx, 'CalendarEvent', ids)))) throw conflict('lifecycle.held');
       return;
     }
     // Правка серии (исключить повтор / обрезать хвост) — только у живой серии
@@ -714,21 +723,62 @@ export class CalendarService implements OnModuleInit, OnApplicationBootstrap {
       take,
     });
     if (!rows.length) return { rows: 0, more: false, cursor: null };
-    const ok = new Set(await this.db.$transaction((tx) => opts.releasable(tx, rows.map((r) => r.id))));
-    for (const r of rows) if (ok.has(r.id)) await this.hardDeleteEvent(r);
+    let deleted = 0;
+    for (const r of rows) if (await this.hardDeleteEvent(r, allFree(opts.releasable))) deleted++;
     const last = rows[rows.length - 1]!;
-    return { rows: ok.size, more: rows.length === take, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
+    return { rows: deleted, more: rows.length === take, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
   }
 
   countTrashDue(before: Date): Promise<number> {
     return this.db.calendarEvent.count({ where: { recurrenceParentId: null, deletedAt: { lt: before } } });
   }
 
-  /** Окончательное удаление: строка (исключения, напоминания, участники — каскадом FK). */
-  private async hardDeleteEvent(master: CalEventRow): Promise<void> {
-    await this.db.calendarEvent.delete({ where: { id: master.id } });
+  /**
+   * Стирание человека (шаг `calendar.subject`): его события (мастера; исключения, напоминания,
+   * участники — каскадом FK, копия в Google снимается) и его ЛИЧНЫЕ ресурсы (ресурсы
+   * организации остаются ей). Участие в чужих событиях уходит общим шагом по `userId`.
+   * Под заморозкой событие остаётся.
+   */
+  async erasePersonalCalendar(
+    userId: string,
+    opts: { deadline: number | null; held: (rows: number) => void; releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]> },
+  ): Promise<{ rows: number; done: boolean }> {
+    let rows = 0;
+    let after: string | undefined;
+    for (;;) {
+      if (opts.deadline !== null && Date.now() > opts.deadline) return { rows, done: false };
+      const batch = await this.db.calendarEvent.findMany({
+        where: { userId, recurrenceParentId: null, ...(after ? { id: { gt: after } } : {}) },
+        orderBy: { id: 'asc' },
+        take: CALENDAR_LIMITS.purgeBatch,
+      });
+      if (!batch.length) break;
+      after = batch[batch.length - 1]!.id;
+      for (const r of batch) {
+        if (await this.hardDeleteEvent(r, allFree(opts.releasable))) rows++;
+        else opts.held(1);
+      }
+    }
+    const { count } = await this.db.resource.deleteMany({ where: { ownerId: userId, workspaceId: null } });
+    return { rows: rows + count, done: true };
+  }
+
+  /**
+   * Окончательное удаление: строка (исключения, напоминания, участники — каскадом FK).
+   * Заморозка — В транзакции удаления и на мастер вместе с исключениями серии (они уходят
+   * каскадом): `false` — удерживается, ничего не удалено.
+   */
+  private async hardDeleteEvent(master: CalEventRow, guard: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<boolean>): Promise<boolean> {
+    const deleted = await this.db.$transaction(async (tx) => {
+      const exceptions = await tx.calendarEvent.findMany({ where: { recurrenceParentId: master.id }, select: { id: true } });
+      if (!(await guard(tx, [master.id, ...exceptions.map((e) => e.id)]))) return false;
+      await tx.calendarEvent.delete({ where: { id: master.id } });
+      return true;
+    });
+    if (!deleted) return false;
     // Копию в Google сняли при скрытии; повтор безвреден (удалённое там — no-op)
     if (master.googleEventId) this.events.emit('google.push', { userId: master.userId, op: 'delete', googleEventId: master.googleEventId }, 'calendar');
+    return true;
   }
 
   /** Full event detail (for the editor/card): owner & participants only. */

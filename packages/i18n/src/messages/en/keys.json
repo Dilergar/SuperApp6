@@ -371,7 +371,9 @@
       "security_consents_recorded": "Security: consents",
       "security_detect_recorded": "Security: detections",
       "security_sharing_recorded": "Security: access and public links",
-      "security_files_recorded": "Security: files"
+      "security_files_recorded": "Security: files",
+      "lifecycle_person_redact": "Person erased — delete their data",
+      "lifecycle_workspace_redact": "Organization archived — delete its data"
     },
     "createdTitle": "Webhook created",
     "createdNote": "This is the signing secret. It is shown only once — put it into the receiver now.",

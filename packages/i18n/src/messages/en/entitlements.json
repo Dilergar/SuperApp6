@@ -31,7 +31,8 @@
     "visibilityExplain": "Check what an employee sees",
     "visibilityPresets": "Visibility rule presets",
     "visibilityMaxRules": "Visibility rules",
-    "visibilityRevealsPerDay": "Data reveals per day"
+    "visibilityRevealsPerDay": "Data reveals per day",
+    "lifecycleHolds": "Legal holds"
   },
   "lock": {
     "quotaFull": "Storage is full",
@@ -73,7 +74,8 @@
     "shop": "Shop",
     "workspaces": "Organizations",
     "audit": "Security log",
-    "visibility": "Visibility rules"
+    "visibility": "Visibility rules",
+    "lifecycle": "Data lifecycle"
   },
   "source": {
     "grant": "Gift until {date}",

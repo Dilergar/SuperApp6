@@ -27,7 +27,8 @@ import { ChatterService, ChatterLogInput, ChatterTrackSpec } from '../../core/ch
 import { ChatterRefRegistry } from '../../core/chatter/chatter-ref.registry';
 import { WorkspaceContextService } from '../../shared/context/workspace-context.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
-import { badRequest, forbidden, notFound } from '../../shared/errors/api-error';
+import { badRequest, conflict, forbidden, notFound } from '../../shared/errors/api-error';
+import { LifecycleHoldsService } from '../../core/lifecycle/lifecycle.holds.service';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { fullName } from '../../shared/utils/user-name';
 import { Prisma } from '@prisma/client';
@@ -80,6 +81,15 @@ const truncate = (s: string, max: number) => (s.length > max ? `${s.slice(0, max
 // «было → стало». Сравнение — по display-строкам (см. ChatterService.diffTracked).
 type TaskTrackRow = { title: string; priority: string; dueDate: Date | null; allDay: boolean; coinReward: number };
 
+/** Проверка заморозки поддерева в транзакции удаления: `true` — всё свободно, можно удалять. */
+type SubtreeGuard = (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<boolean>;
+
+/** Шаг раннера/каскада/стирания: «releasable» движка → «всё поддерево свободно». */
+const allFree =
+  (releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]>): SubtreeGuard =>
+  async (tx, ids) =>
+    (await releasable(tx, ids)).length >= new Set(ids).size;
+
 @Injectable()
 export class TasksService implements OnModuleInit {
   private readonly logger = new Logger(TasksService.name);
@@ -105,6 +115,7 @@ export class TasksService implements OnModuleInit {
     private analytics: AnalyticsService,
     private webhooks: WebhooksService,
     private replay: IdempotencyReplayRegistry,
+    private holds: LifecycleHoldsService,
   ) {}
 
   /**
@@ -1234,7 +1245,9 @@ export class TasksService implements OnModuleInit {
     if (!task) throw notFound('task.notFound');
     if (task.creatorId !== userId) throw forbidden('task.deleteCreatorOnly');
     if (!task.deletedAt) throw badRequest('task.trashFirst');
-    await this.hardDelete(taskId);
+    // Под заморозкой (запись, хранитель, класс) — 409 с нейтральным текстом; ничего не удаляется
+    const deleted = await this.hardDelete(taskId, (tx, ids) => this.holds.allReleasable(tx, 'Task', ids));
+    if (!deleted) throw conflict('lifecycle.held');
   }
 
   /** Корзина старше срока — навсегда (крон под Redis-локом; раннер purge core/lifecycle). */
@@ -1264,10 +1277,10 @@ export class TasksService implements OnModuleInit {
       take,
     });
     if (!rows.length) return { rows: 0, more: false, cursor: null };
-    const ok = await this.db.$transaction((tx) => opts.releasable(tx, rows.map((r) => r.id)));
-    for (const id of ok) await this.hardDelete(id);
+    let deleted = 0;
+    for (const r of rows) if (await this.hardDelete(r.id, allFree(opts.releasable))) deleted++;
     const last = rows[rows.length - 1]!;
-    return { rows: ok.length, more: rows.length === take, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
+    return { rows: deleted, more: rows.length === take, cursor: encodeCursor({ d: last.deletedAt, i: last.id }) };
   }
 
   /** Сколько корней корзины к удалению (ожидание прогона). */
@@ -1305,10 +1318,43 @@ export class TasksService implements OnModuleInit {
         take: TASK_LIMITS.purgeBatch,
       });
       if (!roots.length) return { rows, done: true };
-      const ok = await this.db.$transaction((tx) => opts.releasable(tx, roots.map((r) => r.id)));
-      for (const id of ok) await this.hardDelete(id);
-      rows += ok.length;
+      for (const r of roots) if (await this.hardDelete(r.id, allFree(opts.releasable))) rows++;
       after = roots[roots.length - 1]!.id;
+    }
+  }
+
+  /**
+   * Стирание человека (шаг `tasks.subject`): ЛИЧНЫЕ задачи, которые он создал (вне
+   * организации), уходят путём «навсегда» — поддерево, вложения, права, чаты, возврат наград
+   * плательщикам (живой эскроу блокирует само удаление аккаунта). Задачи организаций остаются
+   * ей, участие человека в чужих задачах — ссылкой на томбстоун. Корни — задачи без родителя
+   * или под чужим/организационным родителем; подзадачи уходят поддеревом. Под заморозкой — остаются.
+   */
+  async purgePersonalTasks(
+    creatorId: string,
+    opts: { deadline: number | null; held: (rows: number) => void; releasable: (tx: Prisma.TransactionClient, ids: readonly string[]) => Promise<string[]> },
+  ): Promise<{ rows: number; done: boolean }> {
+    let rows = 0;
+    let after: string | undefined;
+    for (;;) {
+      if (opts.deadline !== null && Date.now() > opts.deadline) return { rows, done: false };
+      const roots = await this.db.task.findMany({
+        where: {
+          workspaceId: null,
+          creatorId,
+          OR: [{ parentId: null }, { parent: { creatorId: { not: creatorId } } }, { parent: { workspaceId: { not: null } } }],
+          ...(after ? { id: { gt: after } } : {}),
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: TASK_LIMITS.purgeBatch,
+      });
+      if (!roots.length) return { rows, done: true };
+      after = roots[roots.length - 1]!.id;
+      for (const r of roots) {
+        if (await this.hardDelete(r.id, allFree(opts.releasable))) rows++;
+        else opts.held(1);
+      }
     }
   }
 
@@ -1318,17 +1364,22 @@ export class TasksService implements OnModuleInit {
    * загрузившего), кортежи прав, чаты задач. Награды вернулись ещё при скрытии; повтор
    * `releaseAll` — страховка для задачи, ушедшей в корзину до этого правила.
    */
-  private async hardDelete(taskId: string): Promise<void> {
+  private async hardDelete(taskId: string, guard: SubtreeGuard): Promise<boolean> {
     const ids = await this.subtreeIds(taskId);
-    await this.db.$transaction(async (tx) => {
+    // Заморозка — В транзакции удаления и на ВСЁ поддерево (подзадачи уходят каскадом FK)
+    const deleted = await this.db.$transaction(async (tx) => {
+      if (!(await guard(tx, ids))) return false;
       for (const id of ids) await this.escrow.releaseAll(tx, { refType: 'task', refId: id });
       await tx.task.delete({ where: { id: taskId } });
+      return true;
     });
+    if (!deleted) return false;
     for (const id of ids) {
       await this.files.unlinkAllForRef('task', id).catch(() => undefined);
       await this.accessProjection.taskDeleted(id);
       await this.messenger.deleteTaskChat(id);
     }
+    return true;
   }
 
   /** Живая задача и все её живые потомки (подзадачи любой глубины). */
