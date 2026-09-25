@@ -12,22 +12,8 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    services:
-      postgres:
-        # Мажорная и минорная — те же, что в docker-compose.yml (PG18: uuidv7(), fast-path локов)
-        image: postgres:18.6
-        env:
-          POSTGRES_USER: superapp
-          POSTGRES_PASSWORD: superapp
-          POSTGRES_DB: superapp6
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U superapp"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # Сьюты подряд ≈ 26 минут + установка, сборки, линтеры ≈ 10: запас под рост набора
+    timeout-minutes: 60
 
     env:
       DATABASE_URL: postgresql://superapp:superapp@localhost:5432/superapp6
@@ -46,6 +32,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2 # страж документации сравнивает HEAD~1..HEAD
+
+      # PostgreSQL — НЕ service-контейнер (сервисы стартуют до checkout и не видят конфигов
+      # репозитория): тот же образ, что в docker-compose.yml (тег берётся оттуда, второго пина нет),
+      # настройки проекта infra/postgres/superapp6.conf (max_locks, lz4, потолок WAL слотов,
+      # pg_stat_statements + auto_explain, логи без значений параметров) подключает init-скрипт —
+      # как у нового dev-тома. Без них сьют проверял бы другую базу, чем dev и прод.
+      - name: Start PostgreSQL (project config)
+        run: |
+          image=$(grep -m1 -oE 'image: postgres:[^[:space:]]+' docker-compose.yml | cut -d' ' -f2)
+          echo "PostgreSQL image (docker-compose.yml): $image"
+          docker run -d --name postgres -p 5432:5432 \
+            -e POSTGRES_USER=superapp -e POSTGRES_PASSWORD=superapp -e POSTGRES_DB=superapp6 \
+            -v "$PWD/infra/postgres/superapp6.conf:/etc/postgresql/superapp6.conf:ro" \
+            -v "$PWD/infra/postgres/init:/docker-entrypoint-initdb.d:ro" \
+            "$image"
+          # Готовность — после рестарта entrypoint'а (init-сервер → боевой с include): проверяем настройку
+          for i in $(seq 1 60); do
+            v=$(docker exec postgres psql -U superapp -d superapp6 -Atc "SHOW max_slot_wal_keep_size" 2>/dev/null || true)
+            [ "$v" = "50GB" ] && break
+            sleep 1
+          done
+          docker exec postgres psql -U superapp -d superapp6 -Atc "SHOW max_slot_wal_keep_size" | grep -qx 50GB || { docker logs postgres; exit 1; }
+          docker exec postgres psql -U superapp -d superapp6 -Atc "SHOW shared_preload_libraries"
 
       # Redis — НЕ service-контейнер: сервисы стартуют до checkout и не видят конфигов репозитория.
       # Оба инстанса — как в docker-compose.yml: тот же образ (тег берётся оттуда, второго пина нет),
@@ -259,6 +268,7 @@ jobs:
         run: |
           tail -200 api.log || true
           docker logs redis-state 2>&1 | tail -30 || true
+          docker logs postgres 2>&1 | tail -40 || true
 
       - name: Stop API
         if: always()

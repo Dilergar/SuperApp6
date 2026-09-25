@@ -77,6 +77,22 @@ const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
 const read = (p) => fs.readFileSync(p, 'utf8');
 const exists = (p) => fs.existsSync(p);
 
+/**
+ * Пути, которые git игнорирует (`apps/api/.env`, `apps/api/.keys/root.key`): доки законно их
+ * называют, но в чистом клоне CI их нет — на машине разработчика страж был зелёным, в CI красным.
+ * `git check-ignore` сверяет с шаблонами `.gitignore` и для несуществующих путей.
+ */
+function gitIgnored(paths) {
+  if (!paths.length) return new Set();
+  try {
+    const out = require('node:child_process').execFileSync('git', ['check-ignore', '--stdin'], { cwd: ROOT, input: paths.join('\n'), encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+    return new Set(out.split(/\r?\n/).filter(Boolean));
+  } catch (e) {
+    // код 1 — ни один путь не игнорируется; вывод при этом пуст
+    return new Set(String(e.stdout ?? '').split(/\r?\n/).filter(Boolean));
+  }
+}
+
 function walk(dir, pred, out = []) {
   if (!exists(dir)) return out;
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -110,6 +126,8 @@ const listModules = () => {
 // ---------- paths ----------
 function checkPaths() {
   const re = /(?:^|[\s`'"(\[])((?:apps|packages|infra|docs|scripts|\.claude|\.serena|\.github)\/[A-Za-z0-9_\-./\[\]@]+)/g;
+  // Путь проверяется по диску И по .gitignore: локальный артефакт есть не у всех (чистый клон CI)
+  const missing = [];
   for (const doc of [...rootDocs(), ...listDocs()]) {
     const txt = read(doc);
     const seen = new Set();
@@ -119,7 +137,7 @@ function checkPaths() {
       if (/[<>*{}…]/.test(p) || p.endsWith('-') || p.endsWith('/')) continue; // шаблоны вида verify-<name>
       if (seen.has(p)) continue;
       seen.add(p);
-      if (!exists(path.join(ROOT, p))) err('paths', `${rel(doc)}: путь не существует — ${p}`);
+      if (!exists(path.join(ROOT, p))) missing.push({ doc, p });
     }
     if (doc.startsWith(DOCS_DIR)) {
       const linkRe = /\]\(([^)#\s]+\.md)(#[^)]*)?\)/g;
@@ -130,6 +148,8 @@ function checkPaths() {
       }
     }
   }
+  const ignored = gitIgnored(missing.map((x) => x.p));
+  for (const { doc, p } of missing) if (!ignored.has(p)) err('paths', `${rel(doc)}: путь не существует — ${p}`);
 }
 
 // ---------- index ----------

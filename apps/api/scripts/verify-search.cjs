@@ -152,10 +152,18 @@ async function main() {
   console.log('\n-- projection → entity join uses the primary key --');
   const { searchSourceUuid } = require(path.join(__dirname, '..', 'dist', 'core', 'search', 'search.sql.js'));
   const { Prisma } = require('@prisma/client');
+  // На почти пустой базе (CI) планировщик законно выбирает полный скан маленькой таблицы — поэтому
+  // Seq Scan запрещён на время EXPLAIN, и проверяется ТОЧЕЧНЫЙ поиск: под сканом PK обязано стоять
+  // `Index Cond: (id = …)`. Старая форма `n."id"::text = sd."source_id"` при запрете Seq Scan тоже
+  // берёт индекс PK — но целиком, источником хэш-соединения, без условия по ключу
   for (const [table, type, pk] of [['drive_nodes', 'drive_node', 'drive_nodes_pkey'], ['notes', 'note', 'notes_pkey']]) {
-    const plan = await prisma.$queryRaw(Prisma.sql`EXPLAIN (COSTS OFF) SELECT n."id" FROM "search_documents" sd JOIN ${Prisma.raw(`"${table}"`)} n ON n."id" = ${searchSourceUuid('sd')} WHERE sd."source_type" = ${type} AND sd.search_vector @@ websearch_to_tsquery('russian', 'test') LIMIT 20`);
+    const plan = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe('SET LOCAL enable_seqscan = off');
+      return tx.$queryRaw(Prisma.sql`EXPLAIN (COSTS OFF) SELECT n."id" FROM "search_documents" sd JOIN ${Prisma.raw(`"${table}"`)} n ON n."id" = ${searchSourceUuid('sd')} WHERE sd."source_type" = ${type} AND sd.search_vector @@ websearch_to_tsquery('russian', 'test') LIMIT 20`);
+    });
     const text = plan.map((r) => r['QUERY PLAN']).join('\n');
-    check(`${table}: join by ${pk} (no Seq Scan of the entity table)`, text.includes(pk) && !new RegExp(`Seq Scan on "?${table}`).test(text), text.replace(/\s+/g, ' ').slice(0, 160));
+    const lookup = new RegExp(`using ${pk} on ${table} n\\s*\\n\\s*Index Cond: \\(id = `).test(text);
+    check(`${table}: join is a point lookup by ${pk} (Index Cond on id)`, lookup, text.replace(/\s+/g, ' ').slice(0, 200));
   }
 
   await prisma.$disconnect();
