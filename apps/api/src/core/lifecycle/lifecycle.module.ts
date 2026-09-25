@@ -17,7 +17,12 @@ import { LifecycleCanaryService } from './lifecycle.canary';
 import { LifecycleCanaryRegistry, LifecyclePurgeHandlerRegistry, LifecycleSubjectHookRegistry, LifecycleTenantHookRegistry } from './lifecycle.purge.registry';
 import { LifecycleRuns } from './lifecycle.runs';
 import { LifecycleSettings } from './lifecycle.settings';
+import { LifecycleOverrides } from './lifecycle.overrides';
+import { LifecycleDashboardService } from './lifecycle.dashboard.service';
+import { LifecycleDashboardController, LifecycleOpsController } from './lifecycle.dashboard.controller';
+import { LifecycleSettingsService } from './lifecycle.settings.service';
 import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
+import { lifecycleTableOf, lifecycleTenantScopeSql } from './lifecycle.sql';
 
 /**
  * core/lifecycle — 28-й платформенный движок: жизненный цикл данных. Один реестр политик на
@@ -44,13 +49,16 @@ import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
  */
 @Global()
 @Module({
-  controllers: [LifecycleController, LifecycleDevController],
+  controllers: [LifecycleController, LifecycleDevController, LifecycleDashboardController, LifecycleOpsController],
   providers: [
     LifecycleMetrics,
     LifecyclePartitions,
     LifecycleHealth,
     LifecycleRuns,
     LifecycleSettings,
+    LifecycleSettingsService,
+    LifecycleOverrides,
+    LifecycleDashboardService,
     LifecyclePurgeHandlerRegistry,
     LifecycleTenantHookRegistry,
     LifecycleSubjectHookRegistry,
@@ -74,6 +82,9 @@ import { LifecycleTenantPurgeService } from './lifecycle.tenant-purge';
     LifecyclePurgeRunner,
     LifecycleRuns,
     LifecycleSettings,
+    LifecycleSettingsService,
+    LifecycleOverrides,
+    LifecycleDashboardService,
     LifecycleHoldsService,
     LifecycleErasureService,
   ],
@@ -106,6 +117,16 @@ export class LifecycleModule implements OnModuleInit, OnApplicationBootstrap {
   async onApplicationBootstrap(): Promise<void> {
     const problems = lifecycleRegistryProblems();
     problems.push(...(await this.personIdsProblems()));
+    // Срок, выбранный организацией, раннер режет только по условию «строка организации»: без
+    // него правило организации срезало бы строки всех — политика без условия (и без своего
+    // шага purge) не может быть настраиваемой
+    for (const id of LIFECYCLE_POLICY_IDS) {
+      const p = lifecyclePolicy(id)!;
+      if (!p.retention.tenantConfigurable) continue;
+      if (p.enforcement.kind === 'batched_delete' && p.enforcement.handler) continue;
+      const table = lifecycleTableOf(p);
+      if (!table || !lifecycleTenantScopeSql(p, table, '00000000-0000-0000-0000-000000000000')) problems.push(`${id}: tenantConfigurable, but rows of an organisation cannot be scoped (ownerKey)`);
+    }
     // Каждый шаг purge и хук каскада из реестра зарегистрирован модулем (кроме ждущих этапа):
     // иначе раннер молча пропускал бы политику, а каскад организации вставал бы на полпути
     const { handlers, hooks, subjectHooks } = lifecycleRegistrationKeys();

@@ -95,6 +95,7 @@
 - `WEBHOOKS_DEV_LOOPBACK` — `true` разрешает доставку вебхуков на `http://127.0.0.1` (приёмник сьюта `verify-webhooks.cjs`); только development/test, в production бут падает — [webhooks_engine.md](webhooks_engine.md)
 - `NODE_OPTIONS` — читается только стражем бута (`main.ts`): в production флаги `--inspect*`, `--heapsnapshot-*`, `--report-on-*`, `--cpu-prof`/`--heap-prof` в нём или в `execArgv` роняют старт (память процесса содержит распакованные ключи) — [security.md](security.md), «Секреты»
 - `METRICS_TOKEN` — токен скрейпера метрик `GET /metrics` (`shared/metrics`, ≥ 16 символов): задан → `Authorization: Bearer` обязателен; пусто → в production маршрут отвечает 404, в development открыт — [keys_engine.md](keys_engine.md), «Журнал и наблюдаемость»
+- `LIFECYCLE_OPS_TOKEN` — токен скриптов эксплуатации (pgBackRest, restore-drill) для `POST /lifecycle/ops/backups/report` (≥ 32 символов): Bearer + ключ HMAC-подписи тела (`X-Lifecycle-Signature: t=<unix>,v1=<hex>`, окно 300 с); пусто → в production 404, в development открыт — [lifecycle_settings.md](lifecycle_settings.md)
 
 ## Идемпотентность повторов (`core/idempotency`) — [idempotency_engine.md](idempotency_engine.md)
 

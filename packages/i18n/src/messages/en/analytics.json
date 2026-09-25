@@ -435,7 +435,8 @@
     "webhooks": "Webhooks",
     "consents": "Consents and documents",
     "audit": "Security",
-    "visibility": "Visibility rules"
+    "visibility": "Visibility rules",
+    "lifecycle": "Data retention"
   },
   "events": {
     "analytics": {
@@ -745,6 +746,20 @@
         "changed": {
           "title": "Personal visibility changed",
           "description": "A person changed who sees fields of their card"
+        }
+      }
+    },
+    "lifecycle": {
+      "retention": {
+        "changed": {
+          "title": "Retention changed",
+          "description": "An organization changed how long a class of its data is kept (shorter takes effect after 30 days)"
+        }
+      },
+      "timer": {
+        "set": {
+          "title": "Chat auto-delete set",
+          "description": "A member turned on, changed or turned off the auto-delete timer of a chat"
         }
       }
     }

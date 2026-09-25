@@ -94,6 +94,8 @@ async function bootstrap() {
   // Потолок тела занижен до 64kb: вебхуки LiveKit — маленькие JSON'ы (<10kb), а эндпоинт
   // @Public (без JWT) — узкий лимит режет DoS-амплификацию на неаутентифицированном пути.
   app.use('/api/calls/livekit/webhook', express.raw({ type: () => true, limit: '64kb' }));
+  // Отчёт бэкапа/учения (core/lifecycle): подпись HMAC — по СЫРОМУ телу, как у вебхука выше
+  app.use('/api/lifecycle/ops/backups/report', express.raw({ type: () => true, limit: '64kb' }));
 
   // PutFile движка документов (core/docs): тело — БАЙТЫ документа, а не JSON. Принимаем
   // потоком на диск (десятки мегабайт в памяти на каждое автосохранение = OOM) до того,

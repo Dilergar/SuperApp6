@@ -32,7 +32,10 @@
     "visibilityPresets": "Көріну ережелерінің үлгілері",
     "visibilityMaxRules": "Көріну ережелері",
     "visibilityRevealsPerDay": "Тәулігіне деректерді ашу саны",
-    "lifecycleHolds": "Тоқтатулар"
+    "lifecycleHolds": "Тоқтатулар",
+    "lifecycleRetentionMessages": "Хабарламаларды сақтаудың ең ұзақ мерзімі, күн",
+    "lifecycleRetentionRecords": "Жазбалар тарихын сақтаудың ең ұзақ мерзімі, күн",
+    "lifecycleRetentionIntegrations": "Вебхук жеткізу журналын сақтаудың ең ұзақ мерзімі, күн"
   },
   "lock": {
     "quotaFull": "Дискідегі орын толды",

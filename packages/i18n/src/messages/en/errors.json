@@ -399,7 +399,8 @@
     "versionNotDraft": "Only a draft version can be edited",
     "versionNotFound": "The plan version was not found",
     "versionNotPublished": "A subscription can only point to a published version",
-    "versionPinned": "This version is used by live subscriptions and cannot be archived"
+    "versionPinned": "This version is used by live subscriptions and cannot be archived",
+    "aboveCeiling": "The plan allows at most {value} here"
   },
   "files": {
     "alreadyChanged": "The file has already changed — try again",
@@ -1620,6 +1621,19 @@
     "holdRecordTypeUnsupported": "Records of this type can’t be held one by one — hold the person or the data class instead",
     "receiptNotFound": "No erasure was found for this receipt code",
     "holdClassUnsupported": "Data of this class is not preserved by legal holds (credentials and caches expire on their own)",
-    "canaryRunning": "A canary run is already in progress"
+    "canaryRunning": "A canary run is already in progress",
+    "retentionBelowFloor": "The law requires keeping this data at least {days, plural, one {# day} other {# days}}",
+    "retentionAboveCeiling": "This data can be kept at most {days, plural, one {# day} other {# days}}",
+    "noPendingChange": "There is no planned change of the retention to cancel",
+    "timerNotSupported": "Auto-delete is available in personal chats and groups",
+    "timerAboveWorkspace": "The organization keeps messages for {days, plural, one {# day} other {# days}} — a longer timer isn’t possible",
+    "policyNotFound": "Retention policy not found",
+    "policyNotEnforced": "This policy keeps data forever — there is nothing to run",
+    "overrideNotSupported": "The retention of this policy is enforced by the database (partitions) or by its module — a command can’t override it",
+    "erasureNotFound": "Erasure request not found",
+    "erasureFinished": "This erasure is already finished",
+    "backupReportInvalid": "The backup report is not valid",
+    "opsTokenInvalid": "Invalid operations token",
+    "opsSignatureInvalid": "The report signature is missing, expired or does not match"
   }
 }

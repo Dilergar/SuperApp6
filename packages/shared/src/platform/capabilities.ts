@@ -65,6 +65,13 @@ export const PLATFORM_CAPABILITIES = [
   // Заморозки (legal hold) платформы и снятие любой заморозки — тоже через второго сотрудника
   'lifecycle.holds.write',
   'lifecycle.holds.approve',
+  // Дашборд «Данные» (база, бэкапы, партиции, сроки, стирания, канарейка) и отчёты по нему ·
+  // пауза и срок политики хранения (пара «пишет / одобряет»: сокращение срока у всей
+  // платформы — через второго сотрудника) · повтор этапа застрявшего стирания
+  'data.read',
+  'lifecycle.retention.write',
+  'lifecycle.retention.approve',
+  'lifecycle.erasure.write',
 ] as const;
 
 export type PlatformCapability = (typeof PLATFORM_CAPABILITIES)[number];

@@ -44,6 +44,7 @@ const CATEGORY_ORDER: Record<ChatterCategory, number> = {
   objects: 8,
   notes: 9,
   visibility: 10,
+  lifecycle: 11,
 };
 
 const CATEGORY_CHIPS: (ChatterCategory | null)[] = [

@@ -12,7 +12,8 @@ import { MetricsService } from '../../shared/metrics/metrics.service';
  * (кэп радиуса / факт обогнал ожидание — человек смотрит ДО следующей ночи); рост
  * `lifecycle_loose_fk_backlog` дольше суток; `lifecycle_tenant_purge_step_failures_total`;
  * `lifecycle_erasure_stuck > 0` (стирание без прогресса больше 7 дней — DELF: застревание
- * на 45 дней); любой `lifecycle_canary_failures_total` (стирание где-то протекает);
+ * на 45 дней); `lifecycle_erasure_failed > 0` (стирание остановилось ошибкой и само не
+ * продолжится — повтор командой Кабинета); любой `lifecycle_canary_failures_total` (стирание где-то протекает);
  * `time() - lifecycle_canary_last_success_seconds > 2 суток` (канарейка не бежит);
  * `lifecycle_canary_unseeded_policies > 0` (хранилище плана стирания канарейка не проверяет).
  */
@@ -37,6 +38,7 @@ export class LifecycleMetrics {
   private readonly erasureRows: Counter<string>;
   private readonly erasureStuck: Gauge<string>;
   private readonly erasureHeld: Gauge<string>;
+  private readonly erasureFailed: Gauge<string>;
   private readonly canaryFailures: Counter<string>;
   private readonly canaryLastOk: Gauge<string>;
   private readonly canaryUnseeded: Gauge<string>;
@@ -61,6 +63,7 @@ export class LifecycleMetrics {
     this.erasureRows = metrics.counter('lifecycle_erasure_rows_total', 'Rows erased, pseudonymized or redacted by subject erasure steps', ['step']);
     this.erasureStuck = metrics.gauge('lifecycle_erasure_stuck', 'Erasure requests without progress for more than the SLO (waiting for backups excluded)');
     this.erasureHeld = metrics.gauge('lifecycle_erasure_held', 'Erasure requests waiting for a legal hold to be released');
+    this.erasureFailed = metrics.gauge('lifecycle_erasure_failed', 'Erasure requests stopped by an error (no automatic progress until retried)');
     this.canaryFailures = metrics.counter('lifecycle_canary_failures_total', 'Canary runs that found a trace of an erased synthetic subject', ['store']);
     this.canaryLastOk = metrics.gauge('lifecycle_canary_last_success_seconds', 'Unix time of the last clean canary run');
     this.canaryUnseeded = metrics.gauge('lifecycle_canary_unseeded_policies', 'Stores of the erasure plan the last canary run did not seed (not verified)');
@@ -125,9 +128,10 @@ export class LifecycleMetrics {
     if (n > 0) this.erasureRows.inc({ step }, n);
   }
 
-  erasureBacklog(stuck: number, held: number): void {
+  erasureBacklog(stuck: number, held: number, failed: number): void {
     this.erasureStuck.set(stuck);
     this.erasureHeld.set(held);
+    this.erasureFailed.set(failed);
   }
 
   canaryFailed(store: string): void {

@@ -11,6 +11,7 @@ import { PersonAvatar } from '@/app/messenger/messenger-ui';
 import { fetchPlatformLookup, platformLookupKey } from '@/lib/platform/api';
 import { PLATFORM_RECENT_KEY } from '@/lib/platform-api';
 import { IdempotencyLookup } from '@/components/platform/IdempotencyLookup';
+import { DataHealthTile } from '@/components/platform/data/DataHealthTile';
 
 // ============================================================
 // Поиск — главный вход кабинета. Тип запроса распознаётся на лету (чип-подсказка),
@@ -92,7 +93,8 @@ export default function PlatformSearchPage() {
       />
       {/* Разбор с интегратором «мой запрос прошёл?» — рядом с поиском, а не отдельной страницей */}
       {!q && (
-        <div style={{ marginBottom: 'var(--spacing-4)' }}>
+        <div className="ui-stack" style={{ gap: 'var(--spacing-4)', marginBottom: 'var(--spacing-4)' }}>
+          <DataHealthTile />
           <IdempotencyLookup />
         </div>
       )}

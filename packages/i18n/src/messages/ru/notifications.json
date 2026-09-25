@@ -600,7 +600,8 @@
     "wallet": "Кошелёк",
     "workspaces": "Организации",
     "consents": "Согласия и документы",
-    "visibility": "Правила видимости"
+    "visibility": "Правила видимости",
+    "lifecycle": "Данные и сроки хранения"
   },
   "settings": {
     "always": {
@@ -964,6 +965,39 @@
         "title": "Опубликованы правила видимости",
         "body": "{recordTypeLabel}, версия {version}",
         "label": "Публикация правил видимости"
+      }
+    }
+  },
+  "lifecycle": {
+    "retention": {
+      "changed": {
+        "title": "Срок хранения изменён в «{workspaceName}»",
+        "body": "{classLabel}: {toDays, plural, =0 {храним вечно} one {храним # день} few {храним # дня} many {храним # дней} other {храним # дня}}{shortened, select, true { с {effectiveOn} — до этого сохраните нужное} other {}}.",
+        "label": "Срок хранения изменён"
+      },
+      "cancelled": {
+        "title": "Запланированное удаление отменено в «{workspaceName}»",
+        "body": "{classLabel}: срок остаётся {toDays, plural, =0 {вечным} one {# день} few {# дня} many {# дней} other {# дня}}.",
+        "label": "Удаление отменено"
+      }
+    },
+    "hold": {
+      "created": {
+        "title": "Заморозка данных в «{workspaceName}»",
+        "body": "{scopeLabel} · {reasonLabel}: удаление этих данных остановлено до снятия заморозки.",
+        "label": "Данные заморожены"
+      },
+      "released": {
+        "title": "Заморозка снята в «{workspaceName}»",
+        "body": "{scopeLabel}: удаление возобновится по политике хранения.",
+        "label": "Заморозка снята"
+      }
+    },
+    "erasure": {
+      "completed": {
+        "title": "Организация стёрта",
+        "body": "Организация, отправленная в архив {requestedOn}, стёрта из всех систем, сертификат подписан. Проверьте его по коду квитанции.",
+        "label": "Стирание завершено"
       }
     }
   }

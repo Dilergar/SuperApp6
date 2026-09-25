@@ -44,7 +44,7 @@ ChatterRefRegistry.registerChatSink(refType)      // плашки контекс
 
 ## «Журнал организации»
 
-`GET /workspaces/:id/journal?category=` — сводный B2B-аудит (гейт через canView-резолвер `workspace` = manager+; движок доменную ранг-логику не держит). Веб — переиспользуемый `components/chatter/ChronicleFeed.tsx` (день-группы по локальной дате зрителя; актёр `PersonAvatar`, цель `PersonChip`; чипы «было → стало» внутри предложения). Запись категории без чипа-фильтра видна только в общей ленте — новой категории сразу давать чип.
+`GET /workspaces/:id/journal?category=` — сводный B2B-аудит (гейт через canView-резолвер `workspace` = manager+; движок доменную ранг-логику не держит). **Срок хранения организации режет чтение сразу** — журнал и лента записи организации отдают только `createdAt ≥ LifecycleSettings.readCutoff('ChatterEntry', ws)`; раннер ночью лишь освобождает место ([lifecycle_settings.md](lifecycle_settings.md)). Категория `lifecycle` — хроника раздела сроков (`refType: lifecycle_settings`, видят владелец и админ). Веб — переиспользуемый `components/chatter/ChronicleFeed.tsx` (день-группы по локальной дате зрителя; актёр `PersonAvatar`, цель `PersonChip`; чипы «было → стало» внутри предложения). Запись категории без чипа-фильтра видна только в общей ленте — новой категории сразу давать чип.
 
 ## API
 

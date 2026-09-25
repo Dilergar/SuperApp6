@@ -632,6 +632,12 @@
     },
     "LifecyclePartitionArchive": {
       "title": "Archives of log partitions"
+    },
+    "LifecycleStorageDaily": {
+      "title": "Daily storage size snapshots"
+    },
+    "LifecyclePolicyOverride": {
+      "title": "Retention overrides set by staff"
     }
   },
   "tables": {
@@ -838,6 +844,45 @@
       "space": "Chat or organization",
       "record": "One record",
       "class": "Data class"
+    },
+    "title": "Legal holds",
+    "description": "A hold stops every deletion of the chosen data — for a dispute, an investigation or an audit. The person whose data is held is not notified.",
+    "create": "Place a hold",
+    "empty": "No legal holds",
+    "emptyText": "Place a hold when data must survive a dispute or an audit.",
+    "more": "Show more",
+    "status": {
+      "active": "Held",
+      "released": "Released"
+    },
+    "release": "Release",
+    "releaseTitle": "Release the hold?",
+    "releaseText": "Deletion of these data resumes by the retention policy. The hold stays in the history.",
+    "columns": {
+      "target": "What is held",
+      "reason": "Reason",
+      "by": "Placed by",
+      "since": "Since",
+      "status": "Status"
+    },
+    "target": {
+      "workspace": "The whole organization",
+      "chat": "A chat",
+      "record": "One record"
+    },
+    "form": {
+      "title": "Place a legal hold",
+      "scope": "What to hold",
+      "scopeCustodian": "A member’s data",
+      "scopeWorkspace": "The whole organization",
+      "scopeClass": "A class of data",
+      "member": "Choose a member",
+      "class": "Class of data",
+      "reason": "Reason",
+      "note": "Comment for admins",
+      "noteHint": "Only admins and the platform see it; the person does not.",
+      "cancel": "Cancel",
+      "submit": "Hold"
     }
   },
   "receipt": {
@@ -890,6 +935,75 @@
     "download": "Download certificate",
     "notFound": "No erasure was found for this code. Check it: the code was shown once, when the deletion was requested.",
     "badCode": "This doesn’t look like a receipt code: it has 26 letters and digits.",
-    "loadFailed": "Couldn’t load the receipt. Try again a bit later."
+    "loadFailed": "Couldn’t load the receipt. Try again a bit later.",
+    "lookupIntro": "Enter the receipt code to see the stages of the erasure and, when everything is done, the certificate signed by the platform."
+  },
+  "settings": {
+    "classes": {
+      "user_content_shared": {
+        "title": "Messages in organization chats",
+        "description": "Group, task, meeting and order chats of the organization. Personal chats of people are not affected."
+      },
+      "tenant_record": {
+        "title": "History of records",
+        "description": "Who changed what and when: the history of tasks, documents, sites, the org chart and the organization journal."
+      },
+      "operational": {
+        "title": "Webhook delivery log",
+        "description": "Attempts to deliver events to the systems of the organization. Bodies turn into a hash after 7 days in any case."
+      }
+    }
+  },
+  "duration": {
+    "forever": "Forever",
+    "days": "{days, plural, one {# day} other {# days}}",
+    "years": "{years, plural, one {# year} other {# years}}"
+  },
+  "data": {
+    "title": "Data and retention",
+    "description": "How long the organization keeps its data, what is preserved for a dispute or an audit, and who changed it.",
+    "tabs": {
+      "retention": "Retention",
+      "holds": "Legal holds",
+      "history": "History"
+    },
+    "noAccess": "Only the owner and admins manage data",
+    "noAccessText": "Ask them if you need to change how long the organization keeps its data.",
+    "tiles": {
+      "storage": "Storage used",
+      "storageOf": "Storage used of {limit}",
+      "records": "Messages, history and delivery records",
+      "next": "Next automatic deletion",
+      "nextNone": "Nothing due",
+      "nextPending": "{classLabel}: shorter retention starts",
+      "nextNightly": "{classLabel}: nightly deletion",
+      "holds": "Active legal holds"
+    },
+    "historyEmpty": "No changes yet"
+  },
+  "retention": {
+    "current": "Kept: {duration}",
+    "default": "Default",
+    "aboveCeiling": "Above the plan — stays until you change it",
+    "pending": "Shortening to {duration} starts on {date}",
+    "pendingDaysLeft": "{days, plural, one {# day left to cancel} other {# days left to cancel}}",
+    "cancelPending": "Cancel the shortening",
+    "cancelTitle": "Cancel the planned shortening?",
+    "cancelText": "The retention stays {duration}. Members get a notification.",
+    "changedBy": "Changed {date}",
+    "custom": "Other…",
+    "customLabel": "Days",
+    "customCancel": "Cancel",
+    "range": "From {min} to {max}",
+    "apply": "Apply",
+    "confirmShortenTitle": "Shorten the retention?",
+    "confirmShortenText": "Data older than {duration} will be deleted: about {rows} records now. Deletion starts on {date} (in {delay} days); until then everyone can save what they need, and you can cancel.",
+    "confirmShortenType": "To confirm, type the organization name: {name}",
+    "confirmShortenAction": "Shorten",
+    "lengthenTitle": "Keep the data longer?",
+    "lengthenText": "The new retention applies now: {duration}.",
+    "lawTitle": "Kept by law",
+    "lawText": "These records are kept as long as the law requires; the organization can’t shorten it.",
+    "lawFloor": "By law: {duration}"
   }
 }

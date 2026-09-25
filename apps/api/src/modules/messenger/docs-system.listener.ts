@@ -58,6 +58,7 @@ export class DocsSystemListener implements OnModuleInit {
       if (!message || message.deletedAt) return;
       await this.messenger.postChatSystemMessage(message.chatId, 'docs.document.created', {
         typeKey: 'docs.document_created',
+        actorId: p.actorId ?? null,
         // Имени файла может не быть — тогда едет КЛЮЧ («документ»), а слово к нему
         // подберёт язык читателя (`resolveLabelKeys`).
         values: {

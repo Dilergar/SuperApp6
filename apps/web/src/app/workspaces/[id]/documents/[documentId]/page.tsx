@@ -53,6 +53,7 @@ import { SendToCounterpartyModal } from '../SendToCounterpartyModal';
 import { ExternalStageBlock } from '../ExternalStageBlock';
 import { ShareCardModal } from '@/app/messenger/ShareCardModal';
 import { DocStatusChip } from '../documents-ui';
+import { HeldChip } from '@/components/lifecycle/HeldChip';
 import { CampaignAckBanner, DeliveryBlock } from '../HrDocBlocks';
 
 import { toastApiError } from '@/lib/api-errors';
@@ -216,7 +217,13 @@ export default function OrgDocumentPage() {
       <PageHeader
         breadcrumb={doc.docTypeName}
         title={doc.number ? `${doc.title} № ${doc.number}` : doc.title}
-        chip={<DocStatusChip status={doc.status} />}
+        chip={
+          <span style={{ display: 'inline-flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+            <DocStatusChip status={doc.status} />
+            {/* Заморозка документа — видит руководитель и выше (решает сервер); ведущему документ — запрос */}
+            {can.manage && <HeldChip workspaceId={doc.workspaceId} type="OrgDocument" id={doc.id} />}
+          </span>
+        }
         actions={
           <div style={{ display: 'flex', gap: 'var(--spacing-2)', flexWrap: 'wrap' }}>
             <Button variant="ghost" icon="arrowLeft" href={`/workspaces/${id}/documents`}>

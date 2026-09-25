@@ -59,6 +59,7 @@ import {
 import { ActionsCard, EmploymentCard, HrActionModal } from './member-hr-ui';
 import { MemberRequisitesBlock } from '../members-lib';
 import { isTopOfStructure } from '../org/org-lib';
+import { HeldChip } from '@/components/lifecycle/HeldChip';
 
 import { toastApiError } from '@/lib/api-errors';
 type Tab = 'overview' | 'employment' | 'requisites' | 'documents' | 'chronicle';
@@ -144,7 +145,11 @@ export default function MemberCardPage() {
         description={card.assignments.map((a) => a.positionName).join(', ') || t('card.noPosition')}
         chip={
           card.role ? (
-            <Chip tone="accent" icon="staff">{roleLabel(card.role)}</Chip>
+            <span style={{ display: 'inline-flex', gap: 'var(--spacing-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+              <Chip tone="accent" icon="staff">{roleLabel(card.role)}</Chip>
+              {/* Заморозка данных человека — видит руководитель и выше (решает сервер) */}
+              {card.canManage && <HeldChip workspaceId={workspaceId} type="user" id={userId} />}
+            </span>
           ) : (
             <Chip tone="neutral" icon="signOut">{t('card.notInOrg')}</Chip>
           )

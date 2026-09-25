@@ -23,6 +23,7 @@ import { KEYS_ANALYTICS_EVENTS } from './keys';
 import { CONSENTS_ANALYTICS_EVENTS } from './consents';
 import { AUDIT_ANALYTICS_EVENTS } from './audit';
 import { VISIBILITY_ANALYTICS_EVENTS } from './visibility';
+import { LIFECYCLE_ANALYTICS_EVENTS } from './lifecycle';
 
 export * from './types';
 export * from './routes';
@@ -36,6 +37,7 @@ const REGISTRY_RAW = {
   ...CONSENTS_ANALYTICS_EVENTS,
   ...AUDIT_ANALYTICS_EVENTS,
   ...VISIBILITY_ANALYTICS_EVENTS,
+  ...LIFECYCLE_ANALYTICS_EVENTS,
 } as const satisfies Record<string, AnalyticsEventDef>;
 
 /** Union ключей — выводится из реестра. Ключ вне реестра в `track()` — ошибка компиляции. */

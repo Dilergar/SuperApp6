@@ -264,6 +264,26 @@
     "lifecycleHoldRelease": {
       "title": "Release a legal hold",
       "description": "Deletion of the held data resumes by its retention policy. The hold stays in the history. Needs a second staff member to approve."
+    },
+    "lifecycleRetentionDryRun": {
+      "title": "Dry-run a retention policy",
+      "description": "Counts the rows the policy would delete now, without deleting anything. The report appears in the «Retention» tab."
+    },
+    "lifecycleRetentionPause": {
+      "title": "Pause or resume a retention policy",
+      "description": "While paused, the nightly runner does not delete rows of this policy. Legal holds and subject erasure are not affected. Needs a fresh confirmation code."
+    },
+    "lifecycleRetentionOverride": {
+      "title": "Override the retention of a policy",
+      "description": "Sets how many days rows of the policy are kept, instead of the registry default; never below the legal floor. Empty — back to the registry. Needs a second staff member to approve."
+    },
+    "lifecycleErasureRetry": {
+      "title": "Retry a stuck erasure",
+      "description": "Queues the erasure step again now. A failed erasure goes back to work; a stage that waits for its date (keys, backups) is not sped up."
+    },
+    "lifecycleIndexesReport": {
+      "title": "Report unused indexes",
+      "description": "Lists non-unique indexes with zero scans since statistics were reset, largest first. The result is not stored in the command log."
     }
   },
   "fields": {
@@ -356,7 +376,8 @@
     "search": "Search",
     "staff": "Staff",
     "consents": "Consents",
-    "security": "Security"
+    "security": "Security",
+    "data": "Data"
   },
   "noAccess": {
     "text": "This account is not on the platform staff, or it has been suspended.",
@@ -386,7 +407,9 @@
     "userIdempotency": "Disputed operations",
     "userSecurity": "Security",
     "workspaceSecurity": "Security log",
-    "workspaceVisibility": "Visibility rules"
+    "workspaceVisibility": "Visibility rules",
+    "userLifecycle": "Deletion and erasure",
+    "workspaceLifecycle": "Data retention"
   },
   "picker": {
     "change": "change",
@@ -713,6 +736,43 @@
       "exportOff": "No export on the plan",
       "streamOn": "SIEM stream is on",
       "streamOff": "No SIEM stream on the plan"
+    }
+  },
+  "data": {
+    "title": "Data",
+    "tileText": "The worst of six signals: database, backups, partitions, retention, erasure, canary",
+    "open": "Open dashboard",
+    "level": {
+      "ok": "OK",
+      "warning": "Attention",
+      "critical": "Critical",
+      "unknown": "No data"
+    },
+    "erasureStatus": {
+      "scheduled": "Scheduled",
+      "held": "Held",
+      "running": "In progress",
+      "hot_purged": "Removed from live systems",
+      "keys_destroyed": "Keys destroyed",
+      "completed": "Completed",
+      "cancelled": "Cancelled",
+      "failed": "Failed"
+    },
+    "panel": {
+      "deletionScheduled": "Account deletion",
+      "notScheduled": "Not scheduled",
+      "custodianHolds": "Holds on this person",
+      "erasure": "Erasure",
+      "noErasure": "No erasure requests",
+      "completed": "completed {date}",
+      "effective": "takes effect {date}",
+      "archived": "Archived",
+      "active": "Active",
+      "purgeAt": "Final deletion",
+      "activeHolds": "Active holds",
+      "settings": "Retention settings",
+      "defaults": "Platform defaults",
+      "pending": "→ {duration} from {date}"
     }
   }
 }

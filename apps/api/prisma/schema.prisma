@@ -2260,6 +2260,12 @@ model Chat {
   // Monotonic per-chat message counter; assigned to Message.seq under row lock.
   lastSeq Int @default(0) @map("last_seq")
 
+  /// Таймер автоудаления сообщений (core/lifecycle Э5): 1 | 7 | 30 дней, null — выключен.
+  /// CHECK chats_message_ttl_days_check — в миграции. Чтение режет старше сразу, раннер удаляет.
+  messageTtlDays    Int?      @map("message_ttl_days")
+  messageTtlSetById String?   @map("message_ttl_set_by_id") @db.Uuid
+  messageTtlSetAt   DateTime? @map("message_ttl_set_at") @db.Timestamptz(3)
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -6251,6 +6257,8 @@ model LifecycleErasureRequest {
   /// { eraseMessages: boolean }
   options         Json      @default("{}")
   receiptHash     String?   @unique @map("receipt_hash")
+  /// Кому сообщить о завершении (владелец организации на момент архива) — только id
+  notifyUserId    String?   @map("notify_user_id") @db.Uuid
   certificate     Json?
   signature       Bytes?
   kid             String?
@@ -6359,10 +6367,44 @@ model LifecycleBackupRun {
   bytes      BigInt?
   details    Json      @default("{}")
   reportedAt DateTime  @default(now()) @map("reported_at") @db.Timestamptz(3)
+  /// Метка прогона у источника (pgBackRest label, id учения): повтор отчёта не заводит вторую строку
+  externalId String?   @map("external_id")
 
+  @@unique([kind, repo, externalId])
   @@index([kind, startedAt(sort: Desc)])
   @@index([startedAt])
   @@map("lifecycle_backup_runs")
+}
+
+/// Суточный снимок размеров по таблицам (дашборд «Данные»: рост за 90 дней по классам, рост
+/// таблицы за 7 дней, старейшая строка — отставание сроков). Пишет ночной крон движка (upsert
+/// дня), удаляет раннер по сроку политики.
+model LifecycleStorageDaily {
+  day       DateTime  @db.Date
+  tableName String    @map("table_name")
+  policyId  String?   @map("policy_id")
+  dataClass String    @map("data_class")
+  bytes     BigInt
+  rows      BigInt
+  /// Старейшая строка по колонке срока (у ведомых раннером политик; null — не считалась)
+  oldestAt  DateTime? @map("oldest_at") @db.Timestamptz(3)
+
+  @@id([day, tableName])
+  @@index([day, dataClass])
+  @@map("lifecycle_storage_daily")
+}
+
+/// Пауза и срок политики хранения, заданные командой Кабинета (пара «пишет / одобряет»).
+/// Раннер читает на каждом прогоне; строки нет — действует реестр. CHECK days > 0 — в миграции.
+model LifecyclePolicyOverride {
+  policyId    String   @id @map("policy_id")
+  paused      Boolean  @default(false)
+  days        Int?
+  reason      String
+  changedById String?  @map("changed_by_id") @db.Uuid
+  changedAt   DateTime @default(now()) @map("changed_at") @db.Timestamptz(3)
+
+  @@map("lifecycle_policy_overrides")
 }
 
 /// Правила партиционированного родителя для функций владельца `lifecycle_ensure_partition` /

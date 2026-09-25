@@ -68,7 +68,15 @@
     "scheduled": "Запланированные сообщения",
     "search": "Поиск в чате",
     "searchPlaceholder": "Поиск в этом чате…",
-    "send": "Отправить"
+    "send": "Отправить",
+    "timer": {
+      "label": "Автоудаление сообщений",
+      "off": "Выкл",
+      "offOrg": "Как в организации: {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+      "option": "{days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+      "chip": "Исчезают через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+      "byOrg": "Задано организацией: {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}"
+    }
   },
   "chatFallback": "Чат",
   "dmFallback": "Личный чат",

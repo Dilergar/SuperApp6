@@ -600,7 +600,8 @@
     "wallet": "Әмиян",
     "workspaces": "Ұйымдар",
     "consents": "Келісімдер мен құжаттар",
-    "visibility": "Көріну ережелері"
+    "visibility": "Көріну ережелері",
+    "lifecycle": "Деректер және сақтау мерзімдері"
   },
   "settings": {
     "always": {
@@ -964,6 +965,39 @@
         "title": "Көріну ережелері жарияланды",
         "body": "{recordTypeLabel}, {version}-нұсқа",
         "label": "Көріну ережелері жарияланды"
+      }
+    }
+  },
+  "lifecycle": {
+    "retention": {
+      "changed": {
+        "title": "«{workspaceName}» ұйымында сақтау мерзімі өзгерді",
+        "body": "{classLabel}: {toDays, plural, =0 {мәңгі сақталады} one {# күн сақталады} other {# күн сақталады}}{shortened, select, true { — {effectiveOn} бастап, оған дейін қажеттісін сақтап алыңыз} other {}}.",
+        "label": "Сақтау мерзімі өзгерді"
+      },
+      "cancelled": {
+        "title": "«{workspaceName}» ұйымында жоспарланған жою тоқтатылды",
+        "body": "{classLabel}: мерзім {toDays, plural, =0 {мәңгі} one {# күн} other {# күн}} болып қалады.",
+        "label": "Жою тоқтатылды"
+      }
+    },
+    "hold": {
+      "created": {
+        "title": "«{workspaceName}» ұйымында деректер тоқтатылды",
+        "body": "{scopeLabel} · {reasonLabel}: бұл деректерді жою тоқтату алынғанша тоқтатылды.",
+        "label": "Деректер тоқтатылды"
+      },
+      "released": {
+        "title": "«{workspaceName}» ұйымында тоқтату алынды",
+        "body": "{scopeLabel}: жою сақтау саясаты бойынша жалғасады.",
+        "label": "Тоқтату алынды"
+      }
+    },
+    "erasure": {
+      "completed": {
+        "title": "Ұйым өшірілді",
+        "body": "{requestedOn} мұрағатқа жіберілген ұйым барлық жүйелерден өшірілді, сертификатқа қол қойылды. Оны түбіртек коды арқылы тексеріңіз.",
+        "label": "Өшіру аяқталды"
       }
     }
   }

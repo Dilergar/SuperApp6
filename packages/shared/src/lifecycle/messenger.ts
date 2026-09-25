@@ -23,6 +23,7 @@ import {
   tenantHook,
   withParent,
 } from './helpers';
+import { MESSAGE_PERSON_ID_KEYS } from './person-refs';
 import type { LifecyclePolicyInput } from './types';
 
 export const MESSENGER_LIFECYCLE = {
@@ -31,7 +32,8 @@ export const MESSENGER_LIFECYCLE = {
     version: 1,
     dataClass: 'user_content_shared',
     ownerKey: byChat('id'),
-    subjects: [subject('createdById', 'author')],
+    // Кто включил таймер автоудаления — ссылка на человека (стирание его не ведёт)
+    subjects: [subject('createdById', 'author'), subject('messageTtlSetById', 'actor')],
     legalBasis: CONTRACT,
     retention: keep(),
     onSubjectErasure: BY_REFERENCE,
@@ -69,6 +71,9 @@ export const MESSENGER_LIFECYCLE = {
     dataClass: 'user_content_shared',
     ownerKey: byChat('chatId'),
     subjects: [subject('authorId', 'author')],
+    // Имена людей в системных плашках (актор, цель, «было → стало», событие уведомления) —
+    // парой с id; стирание переписывает их меткой и пересобирает снимок текста
+    personIds: { fn: 'message_person_ids', args: ['payload'], keys: MESSAGE_PERSON_ID_KEYS },
     legalBasis: CONTRACT,
     // Личный чат — вечно + таймер человека (1/7/30 дней); чат организации — коридор [1 день; вечно]
     // по тарифу. Сокращённый срок действует НЕМЕДЛЕННО при чтении (seq ≥ пол чата), purge лишь

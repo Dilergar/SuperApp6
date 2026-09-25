@@ -4,10 +4,11 @@
 import type { ReactNode } from 'react';
 import { ServiceMessages } from '@/i18n/ServiceMessages';
 import { PlatformShell } from '@/components/platform/PlatformShell';
+import { PLATFORM_NS } from './namespaces';
 
 export default function PlatformLayout({ children }: { children: ReactNode }) {
   return (
-    <ServiceMessages ns={['platform', 'entitlements', 'circles', 'auth', 'analytics', 'consents', 'audit', 'keys', 'visibility']}>
+    <ServiceMessages ns={PLATFORM_NS}>
       <PlatformShell>{children}</PlatformShell>
     </ServiceMessages>
   );

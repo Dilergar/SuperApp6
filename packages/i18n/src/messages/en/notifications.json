@@ -600,7 +600,8 @@
     "wallet": "Wallet",
     "workspaces": "Organizations",
     "consents": "Consents and documents",
-    "visibility": "Visibility rules"
+    "visibility": "Visibility rules",
+    "lifecycle": "Data and retention"
   },
   "settings": {
     "always": {
@@ -964,6 +965,39 @@
         "title": "Visibility rules published",
         "body": "{recordTypeLabel}, version {version}",
         "label": "Visibility rules published"
+      }
+    }
+  },
+  "lifecycle": {
+    "retention": {
+      "changed": {
+        "title": "Retention changed in «{workspaceName}»",
+        "body": "{classLabel}: {toDays, plural, =0 {kept forever} one {kept # day} other {kept # days}}{shortened, select, true { from {effectiveOn} — export what you need before then} other {}}.",
+        "label": "Retention changed"
+      },
+      "cancelled": {
+        "title": "Planned deletion cancelled in «{workspaceName}»",
+        "body": "{classLabel}: the retention stays {toDays, plural, =0 {forever} one {# day} other {# days}}.",
+        "label": "Planned deletion cancelled"
+      }
+    },
+    "hold": {
+      "created": {
+        "title": "Legal hold placed in «{workspaceName}»",
+        "body": "{scopeLabel} · {reasonLabel}: deletion of this data is stopped until the hold is released.",
+        "label": "Legal hold placed"
+      },
+      "released": {
+        "title": "Legal hold released in «{workspaceName}»",
+        "body": "{scopeLabel}: deletion resumes by the retention policy.",
+        "label": "Legal hold released"
+      }
+    },
+    "erasure": {
+      "completed": {
+        "title": "The organization is erased",
+        "body": "The organization archived on {requestedOn} is erased from all systems, and the certificate is signed. Check it with the receipt code.",
+        "label": "Erasure completed"
       }
     }
   }

@@ -31,6 +31,7 @@ const NAV: { key: string; href: string; icon: IconName; exact?: boolean; capabil
   { key: 'consents', href: '/platform/consents', icon: 'docs', capability: 'consents.read' },
   { key: 'requests', href: '/platform/requests', icon: 'check', capability: 'platform.audit.read' },
   { key: 'security', href: '/platform/audit', icon: 'shieldWarning', capability: ['security.read', 'platform.audit.read'] },
+  { key: 'data', href: '/platform/data', icon: 'database', capability: 'data.read' },
   { key: 'staff', href: '/platform/staff', icon: 'shield', capability: 'platform.staff.read' },
 ];
 

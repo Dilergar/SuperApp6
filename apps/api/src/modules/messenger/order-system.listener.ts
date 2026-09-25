@@ -2,8 +2,6 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { DatabaseService } from '../../shared/database/database.service';
-import { SOURCE_LOCALE } from '@superapp/shared';
-import { I18nService } from '../../shared/i18n/i18n.service';
 import { MessengerService } from './messenger.service';
 
 /**
@@ -18,6 +16,8 @@ import { MessengerService } from './messenger.service';
  *  - confirmed / rejected / cancelled: plaque ONLY if a chat already exists (a normal order may
  *    have none — its chat is created on demand via getOrderChat / the 'listing.talk' DM path).
  *
+ * Плашки структурные (ключ типа): текст собирается при чтении в языке зрителя.
+ *
  * Lives in the messenger module (depends only on EventBus + AccessProjection + DB + Messenger —
  * no cycle). Separate from the notifications listener.
  */
@@ -30,13 +30,7 @@ export class OrderSystemListener implements OnModuleInit {
     private readonly projection: AccessProjectionService,
     private readonly db: DatabaseService,
     private readonly messenger: MessengerService,
-    private readonly i18n: I18nService,
   ) {}
-
-  /** Снимок плашки в языке источника (перерисовывается при чтении). */
-  private src(key: string, params?: Record<string, string>): string {
-    return this.i18n.translateFor(SOURCE_LOCALE, key, params);
-  }
 
   onModuleInit() {
     this.events.onPattern('shop.order.*').subscribe((e) => {
@@ -55,16 +49,12 @@ export class OrderSystemListener implements OnModuleInit {
       if (type === 'shop.order.funded') {
         // Campaign fully collected → ensure the shared chat exists with all contributors.
         await this.messenger.syncOrderChatMembers(orderId);
-        await this.messenger.postOrderSystemMessage(
-          orderId,
-          'order.funded',
-          this.src('chatter.type.order.collecting_done'),
-        );
+        await this.messenger.postOrderSystemMessage(orderId, 'order.funded', { typeKey: 'order.collecting_done' });
         return;
       }
 
-      const text = this.textFor(type);
-      if (!text) return; // event type we don't render as a plaque
+      const typeKey = this.typeKeyFor(type);
+      if (!typeKey) return; // event type we don't render as a plaque
 
       // Plaque only if a chat already exists; never create one here for normal orders.
       const chat = await this.db.chat.findFirst({
@@ -73,7 +63,7 @@ export class OrderSystemListener implements OnModuleInit {
       });
       if (!chat) return;
       await this.messenger.syncOrderChatMembers(orderId);
-      await this.messenger.postOrderSystemMessage(orderId, type, text);
+      await this.messenger.postOrderSystemMessage(orderId, type, { typeKey });
     } catch (err) {
       this.logger.warn(
         `order system message failed (non-fatal): ${String((err as Error)?.message ?? err)}`,
@@ -81,15 +71,15 @@ export class OrderSystemListener implements OnModuleInit {
     }
   }
 
-  /** Russian plaque text per shop.order.* event, or null for events we ignore. */
-  private textFor(type: string): string | null {
+  /** Ключ плашки (`chatter.type.<key>`) на событие shop.order.*, или null — плашки нет. */
+  private typeKeyFor(type: string): string | null {
     switch (type) {
       case 'shop.order.confirmed':
-        return this.src('chatter.type.order.confirmed');
+        return 'order.confirmed';
       case 'shop.order.rejected':
-        return this.src('chatter.type.order.rejected');
+        return 'order.rejected';
       case 'shop.order.cancelled':
-        return this.src('chatter.type.order.cancelled');
+        return 'order.cancelled';
       default:
         return null;
     }

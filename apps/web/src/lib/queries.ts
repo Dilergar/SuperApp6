@@ -66,6 +66,14 @@ export const consentArchiveKey = (documentKey: string) => ['consents', 'archive'
 /** Квитанция стирания по коду (публичная страница) и архивная проверка её подписи */
 export const erasureReceiptKey = (code: string) => ['lifecycle', 'erasure-receipt', code] as const;
 export const erasureVerificationKey = (code: string) => ['lifecycle', 'erasure-receipt', code, 'verification'] as const;
+/** Сроки хранения организации (core/lifecycle): карточки классов, сводка страницы, заморозки */
+export const lifecycleSettingsKey = (wsId: string) => ['workspaces', wsId, 'lifecycle', 'settings'] as const;
+export const lifecycleSummaryKey = (wsId: string) => ['workspaces', wsId, 'lifecycle', 'summary'] as const;
+export const lifecycleHoldsKey = (wsId: string) => ['workspaces', wsId, 'lifecycle', 'holds'] as const;
+/** Чип «Заморожено» карточки записи: постановка/снятие заморозки инвалидирует корень раздела */
+export const lifecycleHoldStatusKey = (wsId: string, type: string, id: string) => ['workspaces', wsId, 'lifecycle', 'holdStatus', type, id] as const;
+/** Корень раздела — мутация сроков или заморозки инвалидирует его целиком */
+export const lifecycleRootKey = (wsId: string) => ['workspaces', wsId, 'lifecycle'] as const;
 /** Корень личных согласий: приёмка/отзыв инвалидируют его целиком (pending, state, history, receipt) */
 export const consentsMineRootKey = ['consents', 'mine'] as const;
 export const consentsPendingKey = ['consents', 'mine', 'pending'] as const;

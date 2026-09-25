@@ -107,6 +107,8 @@ export const ANALYTICS_AREAS = {
   audit: { kind: 'platform', order: 985 },
   /** Правила видимости: политики организаций, личные настройки, раскрытия (core/visibility) */
   visibility: { kind: 'platform', order: 986 },
+  /** Сроки хранения организации и таймеры чатов (core/lifecycle) */
+  lifecycle: { kind: 'platform', order: 987 },
   platform: { kind: 'platform', order: 970 },
   other: { kind: 'platform', order: 999 },
 } as const satisfies Record<string, { kind: 'product' | 'platform'; order: number }>;

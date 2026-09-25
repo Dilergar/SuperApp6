@@ -37,9 +37,11 @@ export class ChatterChatSink implements OnModuleInit {
   onModuleInit() {
     this.chatterRegistry.registerChatSink('task', {
       post: async (entry: ChatterEntryDto) => {
+        // Имя актора — парой с его id: стирание находит плашку и переписывает имя
         const source = {
           refType: entry.refType,
           actorName: entry.actorName,
+          ...(entry.actorName && entry.actorId ? { actorId: entry.actorId } : {}),
           changes: entry.changes,
           payload: entry.payload,
         };

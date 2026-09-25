@@ -68,7 +68,15 @@
     "scheduled": "Scheduled messages",
     "search": "Search in the chat",
     "searchPlaceholder": "Search in this chat…",
-    "send": "Send"
+    "send": "Send",
+    "timer": {
+      "label": "Auto-delete messages",
+      "off": "Off",
+      "offOrg": "As in the organization: {days, plural, one {# day} other {# days}}",
+      "option": "{days, plural, one {# day} other {# days}}",
+      "chip": "Disappear after {days, plural, one {# day} other {# days}}",
+      "byOrg": "Set by the organization: {days, plural, one {# day} other {# days}}"
+    }
   },
   "chatFallback": "Chat",
   "dmFallback": "Direct chat",

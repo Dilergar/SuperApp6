@@ -46,6 +46,7 @@ export class OfficeSystemListener implements OnModuleInit {
         await this.messenger.postOfficeRoomSystemMessage(roomId, type, {
           typeKey: 'office.room_created',
           values: { actorName: (await this.nameOf(p.byUserId)) ?? '' },
+          actorId: p.byUserId ?? null,
         });
         return;
       }
@@ -54,6 +55,7 @@ export class OfficeSystemListener implements OnModuleInit {
         await this.messenger.postOfficeRoomSystemMessage(roomId, type, {
           typeKey: 'office.room_invited',
           values: { actorName: (await this.nameOf(p.byUserId)) ?? '' },
+          actorId: p.byUserId ?? null,
         });
         return;
       }

@@ -601,7 +601,7 @@ export class WorkspacesService implements OnModuleInit {
       if (count === 0) return false;
       // Заявка на стирание (оркестратор core/lifecycle): срок = конец архива, скрыта с архива.
       // Код квитанции — владельцу; через 48 ч интеграциям уйдёт lifecycle.workspace.redact
-      receipt = (await this.erasure.request(tx, { subject: { type: 'workspace', id: workspaceId }, effectiveAt: workspacePurgeAt(archivedAt), hiddenAt: archivedAt })).receipt;
+      receipt = (await this.erasure.request(tx, { subject: { type: 'workspace', id: workspaceId }, effectiveAt: workspacePurgeAt(archivedAt), hiddenAt: archivedAt, notifyUserId: userId })).receipt;
       // Журнал безопасности организации (core/audit): архив — событие той же транзакцией
       await this.audit.record(tx, { key: 'org.workspace.archived', workspaceId, target: { type: 'workspace', id: workspaceId }, details: {} });
       await this.analytics.track(tx, 'workspaces.workspace.archived', {}, { userId, workspaceId });

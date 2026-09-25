@@ -19,6 +19,8 @@ import type {
   PlatformUserSecurityPanelDto,
   PlatformWorkspaceSecurityPanelDto,
   PlatformWorkspaceVisibilityPanelDto,
+  PlatformUserLifecyclePanelDto,
+  PlatformWorkspaceLifecyclePanelDto,
 } from '@superapp/shared';
 import { Alert, BentoGrid, Button, Card, CardHeader, Chip, LoadingBlock, Menu, PageHeader, type MenuAction } from '@/components/ui';
 import { PersonAvatar } from '@/app/messenger/messenger-ui';
@@ -30,6 +32,7 @@ import { SubjectEntitlements } from './SubjectEntitlements';
 import { ActivityPanel } from './analytics/ActivityPanel';
 import { UserSecurityPanel, WorkspaceSecurityPanel } from './SecurityPanel';
 import { WorkspaceVisibilityPanel } from './VisibilityPanel';
+import { UserLifecyclePanel, WorkspaceLifecyclePanel } from './data/LifecyclePanels';
 
 // ============================================================
 // Карточка 360: шапка + чипы состояния + меню «Действия» из команд реестра (без права —
@@ -118,6 +121,14 @@ function initialInputFor(c: PlatformCommandDto, entity: PlatformEntity, id: stri
   if (c.key.startsWith('platform.staff.')) return { userId: id };
   if (c.key === 'platform.pii.reveal') return { entity, id, fields: ['phone'] };
   if (c.key.startsWith('entitlements.')) return { subject: { type: entity, id } };
+  // Команды жизненного цикла из карточки — предмет подставлен: окончательное удаление этой
+  // организации; заморозка этого человека (хранитель) или этой организации целиком
+  if (c.key === 'lifecycle.workspace.purge' && entity === 'workspace') return { workspaceId: id };
+  if (c.key === 'lifecycle.hold.create') {
+    return entity === 'user'
+      ? { scope: 'custodian', custodianUserId: id }
+      : { scope: 'space', spaceType: 'workspace', spaceId: id, workspaceId: id };
+  }
   return {};
 }
 
@@ -239,6 +250,8 @@ function PanelBody({
   if (panelKey === 'user.security') return <UserSecurityPanel data={data as PlatformUserSecurityPanelDto} userId={entityId} />;
   if (panelKey === 'workspace.security') return <WorkspaceSecurityPanel data={data as PlatformWorkspaceSecurityPanelDto} workspaceId={entityId} />;
   if (panelKey === 'workspace.visibility') return <WorkspaceVisibilityPanel data={data as PlatformWorkspaceVisibilityPanelDto} />;
+  if (panelKey === 'user.lifecycle') return <UserLifecyclePanel data={data as PlatformUserLifecyclePanelDto} />;
+  if (panelKey === 'workspace.lifecycle') return <WorkspaceLifecyclePanel data={data as PlatformWorkspaceLifecyclePanelDto} />;
   if (panelKey.endsWith('.audit')) return <AuditRows page={data as PlatformAuditPageDto} compact />;
   if (panelKey.endsWith('.analytics')) {
     return <ActivityPanel data={data as AnalyticsActivityPanelDto} onOpenPlans={panelOpener(panelKey.replace(/\.analytics$/, '.entitlements'))} />;

@@ -19,11 +19,20 @@ import { CallsRefRegistry } from '../../core/calls/calls-ref.registry';
 import { DriveRoutingRegistry } from '../drive/drive-routing.registry';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { NotificationsRenderer } from '../../core/notifications/notifications.render';
-import { renderChatter, resolveLabelKeys, type ChatterEntryLike } from '@superapp/i18n';
-import { MESSENGER_LIMITS, OFFICE_ROOM_ROLE_LABEL_KEYS, attachmentPreviewKind, lifecyclePolicy } from '@superapp/shared';
+import { DELETED_USER_MARKER, renderChatter, resolveLabelKeys, type ChatterEntryLike } from '@superapp/i18n';
+import {
+  MESSENGER_LIMITS,
+  OFFICE_ROOM_ROLE_LABEL_KEYS,
+  attachmentPreviewKind,
+  lifecyclePolicy,
+  plaquePersonProblems,
+  redactPlaquePersonRefs,
+} from '@superapp/shared';
+import { isDevEnv } from '../../shared/config/env.validation';
 import { deletableSql, holdFreeSql, lifecycleTableOf, lockHoldsShared } from '../../core/lifecycle/lifecycle.sql';
 import type { LifecycleSubjectEraseContext } from '../../core/lifecycle/lifecycle.purge.registry';
 import { LifecycleHoldsService } from '../../core/lifecycle/lifecycle.holds.service';
+import { CHAT_TIMER_TYPES, MessengerRetentionService } from './messenger-retention.service';
 import { utcTs } from '../../shared/database/sql-time';
 import type {
   CallActiveDto,
@@ -81,6 +90,7 @@ const MESSAGE_REPLY_INCLUDE = {
   replyTo: {
     select: {
       id: true,
+      seq: true,
       authorId: true,
       type: true,
       content: true,
@@ -129,9 +139,15 @@ const EVENT_ROLE_LABEL_KEYS: Record<string, string> = {
  * (`chatter.type.<typeKey>`) и значения ICU. Готового текста здесь нет намеренно —
  * он собирается при чтении в языке зрителя (правило render-at-read, docs/i18n.md).
  */
+/** Плашек за пачку в шаге стирания (у активного человека их тысячи). */
+const PLAQUE_REDACT_BATCH = 500;
+
 export interface SystemPlaque {
   typeKey: string;
+  /** Имена людей — парами `PERSON_NAME_REFS` (`targetName` ↔ `targetUserId`), иначе стирание их не найдёт */
   values?: Record<string, string | number>;
+  /** Чьё имя в `values.actorName` — обязателен, когда имя есть */
+  actorId?: string | null;
 }
 
 @Injectable()
@@ -156,6 +172,7 @@ export class MessengerService implements OnModuleInit {
     private notificationsRenderer: NotificationsRenderer,
     private analytics: AnalyticsService,
     private holds: LifecycleHoldsService,
+    private retention: MessengerRetentionService,
   ) {}
 
   /** Снимок для БД — в языке ИСТОЧНИКА (зритель перерисует его при чтении). */
@@ -170,9 +187,10 @@ export class MessengerService implements OnModuleInit {
       canView: async (viewerId, messageId) => {
         const m = await this.db.message.findUnique({
           where: { id: messageId },
-          select: { chatId: true, deletedAt: true },
+          select: { chatId: true, deletedAt: true, seq: true, chat: { select: { id: true, type: true, workspaceId: true, messageTtlDays: true } } },
         });
-        if (!m || m.deletedAt) return false;
+        // Сообщение вне срока чата (таймер, срок организации) уже не показывается — и его файл тоже
+        if (!m || m.deletedAt || (await this.retention.isExpired(m.chat, m))) return false;
         return this.access.can(this.user(viewerId), 'chat.view', m.chatId);
       },
       canAttach: async (uid, messageId) => {
@@ -190,9 +208,9 @@ export class MessengerService implements OnModuleInit {
       canEditContent: async (uid, messageId) => {
         const m = await this.db.message.findUnique({
           where: { id: messageId },
-          select: { chatId: true, deletedAt: true },
+          select: { chatId: true, deletedAt: true, seq: true, chat: { select: { id: true, type: true, workspaceId: true, messageTtlDays: true } } },
         });
-        if (!m || m.deletedAt) return false;
+        if (!m || m.deletedAt || (await this.retention.isExpired(m.chat, m))) return false;
         return this.access.can(this.user(uid), 'chat.post', m.chatId);
       },
       // 'drive_file' — чтобы работала кнопка «Прикрепить с Диска»: файл, загруженный
@@ -562,12 +580,17 @@ export class MessengerService implements OnModuleInit {
     await this.analytics.track(null, 'messenger.chat.created', { kind: 'group' }, { userId });
 
     const creator = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
-    await this.postStructuredSystemMessage(chat.id, 'group.created', {
-      // Имени нет → пустая строка: рендер плашки подставит слово каталога в языке
-      // ЧИТАТЕЛЯ. Записанное здесь, оно застыло бы английским навсегда.
-      actorName: fullNameOrNull(creator) ?? '',
-      name,
-    });
+    await this.postStructuredSystemMessage(
+      chat.id,
+      'group.created',
+      {
+        // Имени нет → пустая строка: рендер плашки подставит слово каталога в языке
+        // ЧИТАТЕЛЯ. Записанное здесь, оно застыло бы английским навсегда.
+        actorName: fullNameOrNull(creator) ?? '',
+        name,
+      },
+      userId,
+    );
 
     return this.getChatDetail(userId, chat.id);
   }
@@ -577,10 +600,7 @@ export class MessengerService implements OnModuleInit {
     await this.db.chat.update({ where: { id: chatId }, data: { title } });
 
     const actor = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
-    await this.postStructuredSystemMessage(chatId, 'group.renamed', {
-      actorName: fullNameOrNull(actor) ?? '',
-      title,
-    });
+    await this.postStructuredSystemMessage(chatId, 'group.renamed', { actorName: fullNameOrNull(actor) ?? '', title }, userId);
     return this.getChatDetail(userId, chatId);
   }
 
@@ -616,9 +636,7 @@ export class MessengerService implements OnModuleInit {
     if (added.length > 0) {
       const names = await this.namesOf(added);
       for (const id of added) {
-        await this.postStructuredSystemMessage(chatId, 'group.member_added', {
-          name: names.get(id) ?? this.src('messenger.participantFallback'),
-        });
+        await this.postStructuredSystemMessage(chatId, 'group.member_added', this.targetValues(id, names));
       }
     }
     return this.getChatDetail(userId, chatId);
@@ -638,9 +656,7 @@ export class MessengerService implements OnModuleInit {
     await this.access.revoke(this.memberTuple(chatId, targetId));
 
     const names = await this.namesOf([targetId]);
-    await this.postStructuredSystemMessage(chatId, 'group.member_removed', {
-      name: names.get(targetId) ?? this.src('messenger.participantFallback'),
-    });
+    await this.postStructuredSystemMessage(chatId, 'group.member_removed', this.targetValues(targetId, names));
     return this.getChatDetail(userId, chatId);
   }
 
@@ -665,9 +681,7 @@ export class MessengerService implements OnModuleInit {
     await this.access.revoke(this.memberTuple(chatId, userId));
 
     const actor = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
-    await this.postStructuredSystemMessage(chatId, 'group.member_left', {
-      actorName: fullNameOrNull(actor) ?? '',
-    });
+    await this.postStructuredSystemMessage(chatId, 'group.member_left', { actorName: fullNameOrNull(actor) ?? '' }, userId);
   }
 
   async setAdmin(
@@ -691,9 +705,7 @@ export class MessengerService implements OnModuleInit {
 
     if (makeAdmin) {
       const names = await this.namesOf([targetId]);
-      await this.postStructuredSystemMessage(chatId, 'group.admin_granted', {
-        name: names.get(targetId) ?? this.src('messenger.participantFallback'),
-      });
+      await this.postStructuredSystemMessage(chatId, 'group.admin_granted', this.targetValues(targetId, names));
     }
     return this.getChatDetail(userId, chatId);
   }
@@ -917,6 +929,14 @@ export class MessengerService implements OnModuleInit {
    */
   async eraseMember(userId: string, ctx: LifecycleSubjectEraseContext): Promise<{ rows: number; done: boolean }> {
     let rows = 0;
+    // Имена человека в системных плашках чатов — метка томбстоуна. Хранитель заморозки — улика:
+    // имена остаются до снятия, шаг досчитает следующим заходом
+    if (ctx.subjectHeld) ctx.held(1);
+    else {
+      const r = await this.redactPlaques(userId, ctx.deadline);
+      rows += r.rows;
+      if (!r.done) return { rows, done: false };
+    }
     if (ctx.options.eraseMessages) {
       const r = await this.eraseAuthoredMessages(userId, ctx.deadline, (n) => ctx.held(n));
       rows += r.rows;
@@ -967,6 +987,65 @@ export class MessengerService implements OnModuleInit {
       rows++;
     }
     return { rows, done: true };
+  }
+
+  /**
+   * Имена стираемого человека в системных плашках (реестр: `Message.personIds`): актор записи,
+   * цель, «было → стало», событие уведомления — метка томбстоуна вместо имени и пересобранный
+   * снимок текста в языке источника. Плашки находит частичный GIN-индекс `message_person_ids`
+   * (без скана переписки); id остаётся — зритель рисует «удалённого пользователя» на своём
+   * языке. Оригинал плашки под заморозкой уходит в hold store той же транзакцией. Идемпотентно:
+   * переписанная плашка при повторе не меняется.
+   */
+  private async redactPlaques(userId: string, deadline: number | null): Promise<{ rows: number; done: boolean }> {
+    const label = DELETED_USER_MARKER;
+    let rows = 0;
+    let after: string | null = null;
+    for (;;) {
+      if (deadline !== null && Date.now() > deadline) return { rows, done: false };
+      const batch: Array<{ id: string; chatId: string; authorId: string | null; type: string; content: string | null; payload: Prisma.JsonValue | null; seq: number; replyToId: string | null; editedAt: Date | null; deletedAt: Date | null; createdAt: Date }> =
+        await this.db.$queryRaw`
+          SELECT id::text AS id, chat_id::text AS "chatId", author_id::text AS "authorId", type, content, payload, seq,
+                 reply_to_id::text AS "replyToId", edited_at AS "editedAt", deleted_at AS "deletedAt", created_at AS "createdAt"
+            FROM "messages"
+           WHERE type = 'system' AND message_person_ids(payload) <> '{}'::text[]
+             AND message_person_ids(payload) @> ARRAY[${userId}]::text[]
+             ${after ? Prisma.sql`AND id > ${after}::uuid` : Prisma.empty}
+           ORDER BY id LIMIT ${PLAQUE_REDACT_BATCH}`;
+      if (!batch.length) return { rows, done: true };
+      for (const m of batch) {
+        const next = redactPlaquePersonRefs(m.payload, userId, label);
+        if (!next.changed) continue;
+        const payload = { ...(next.payload as Record<string, unknown>) };
+        const text = this.plaqueSnapshot(payload);
+        // Снимок не пересобрать (тип ушёл из каталога) — старый с именем не остаётся
+        if (text === null) delete payload.text;
+        else payload.text = text;
+        await this.db.$transaction(async (tx) => {
+          await this.holds.preserve(tx, 'Message', m.id, messageSnapshot(m));
+          await tx.message.update({ where: { id: m.id }, data: { payload: payload as Prisma.InputJsonValue } });
+        });
+        rows++;
+      }
+      after = batch[batch.length - 1]!.id;
+      if (batch.length < PLAQUE_REDACT_BATCH) return { rows, done: true };
+    }
+  }
+
+  /** Снимок плашки в языке источника — после правки её структуры. `null` — не пересобрать. */
+  private plaqueSnapshot(p: Record<string, unknown>): string | null {
+    const typeKey = typeof p.eventType === 'string' ? p.eventType : null;
+    if (typeKey === 'notification') {
+      const n = p.notification as { type?: string; payload?: Record<string, unknown> } | undefined;
+      if (!n?.type) return null;
+      const r = this.notificationsRenderer.render(SOURCE_LOCALE, n.type, n.payload ?? {});
+      return r.body ? `${r.title}\n${r.body}` : r.title;
+    }
+    const source = p.chatter as ChatterEntryLike | undefined;
+    const key = typeof p.chatterTypeKey === 'string' ? p.chatterTypeKey : typeKey;
+    if (!key || !source) return null;
+    const rendered = renderChatter(this.i18n.forLocale(SOURCE_LOCALE), key, source, this.i18n.format(SOURCE_LOCALE));
+    return rendered === key ? null : rendered;
   }
 
   /**
@@ -1221,14 +1300,17 @@ export class MessengerService implements OnModuleInit {
     await this.purgeContextChat('order', orderId);
   }
 
-  /** Public: post a system plaque to an order's chat, ensuring the chat exists. */
+  /**
+   * Public: плашка в чат заказа (чат создаётся при необходимости). Структурная: текст
+   * собирается при чтении в языке зрителя, в БД — снимок языка источника.
+   */
   async postOrderSystemMessage(
     orderId: string,
     eventType: SystemMessageEvent | string,
-    text: string,
+    plaque: SystemPlaque,
   ): Promise<void> {
     const chat = await this.getOrCreateOrderChat(orderId);
-    await this.postSystemMessage(chat.id, eventType, text);
+    await this.postPlaque(chat.id, eventType, plaque);
   }
 
   // ============================================================
@@ -1360,14 +1442,17 @@ export class MessengerService implements OnModuleInit {
     await this.purgeContextChat('event', eventId);
   }
 
-  /** Public: post a system plaque to an event's chat, ensuring the chat exists. */
+  /**
+   * Public: плашка в чат события календаря (чат создаётся при необходимости). Структурная,
+   * имена людей — парами с id (стирание их находит).
+   */
   async postEventSystemMessage(
     eventId: string,
     eventType: SystemMessageEvent | string,
-    text: string,
+    plaque: SystemPlaque,
   ): Promise<void> {
     const chat = await this.getOrCreateEventChat(eventId);
-    await this.postSystemMessage(chat.id, eventType, text);
+    await this.postPlaque(chat.id, eventType, plaque);
   }
 
   // ============================================================
@@ -1540,7 +1625,7 @@ export class MessengerService implements OnModuleInit {
     );
     await this.postSystemMessage(chatId, eventType, snapshot, {
       chatterTypeKey: plaque.typeKey,
-      chatter: { refType: 'chat', actorName, payload: values },
+      chatter: { refType: 'chat', actorName, ...(actorName && plaque.actorId ? { actorId: plaque.actorId } : {}), payload: values },
     });
   }
 
@@ -1641,11 +1726,23 @@ export class MessengerService implements OnModuleInit {
     chatId: string,
     eventType: SystemMessageEvent,
     payload: Record<string, string>,
+    /** Чьё имя в `payload.actorName` (стирание находит плашку по id) */
+    actorId: string | null = null,
   ): Promise<void> {
-    const snapshot = this.i18n.translateFor(SOURCE_LOCALE, `chatter.type.${eventType}`, payload);
+    const src = this.i18n.forLocale(SOURCE_LOCALE);
+    const snapshot = src(`chatter.type.${eventType}`, resolveLabelKeys(src, payload));
     await this.postSystemMessage(chatId, eventType, snapshot, {
-      chatter: { refType: 'chat', actorName: payload.actorName ?? null, payload },
+      chatter: { refType: 'chat', actorName: payload.actorName ?? null, ...(actorId && payload.actorName ? { actorId } : {}), payload },
     });
+  }
+
+  /**
+   * Цель плашки участника группы: имя парой с id (`PERSON_NAME_REFS`); нет имени — ключ слова
+   * «участник», его подберёт язык читателя.
+   */
+  private targetValues(userId: string, names: ReadonlyMap<string, string>): Record<string, string> {
+    const name = names.get(userId);
+    return name ? { targetName: name, targetUserId: userId } : { targetNameKey: 'messenger.participantFallback', targetUserId: userId };
   }
 
   private async postSystemMessage(
@@ -1657,6 +1754,16 @@ export class MessengerService implements OnModuleInit {
     // Идемпотентность плашки хроники: движок мог переклеймить запись после краха
     // между постом и отметкой успеха — если сообщение для этой записи уже есть,
     // выходим без дубля (chatterEntryId кладёт ChatterChatSink).
+    // Имя человека в плашке — только парой с его id: иначе стирание его не найдёт и имя
+    // переживёт аккаунт. В деве и сьютах — ошибка (ловится сразу), в проде — журнал. Проекция
+    // записи хроники (`chatterEntryId`) проверена движком хроники при записи (актор без id
+    // там законен: система, гость)
+    const problems = extra.chatterEntryId ? [] : plaquePersonProblems(extra.chatter as Parameters<typeof plaquePersonProblems>[0], DELETED_USER_MARKER);
+    if (problems.length) {
+      const msg = `messenger plaque ${eventType}: person names without ids — ${problems.join('; ')}`;
+      if (isDevEnv()) throw new Error(msg);
+      this.logger.error(msg);
+    }
     const chatterEntryId =
       typeof extra.chatterEntryId === 'string' ? extra.chatterEntryId : null;
     if (chatterEntryId) {
@@ -1736,16 +1843,25 @@ export class MessengerService implements OnModuleInit {
     // A fresh group/context chat always has its 'created' system message, so it shows.
     const visible = memberships.filter((m) => m.chat.messages[0] || m.pinned);
 
+    // Срок чата (таймер, срок организации): превью и непрочитанные — только в нём
+    const cutoffs = new Map<string, Date>();
+    for (const m of visible) {
+      const cutoff = await this.retention.cutoffOf(m.chat);
+      if (cutoff) cutoffs.set(m.chatId, cutoff);
+    }
+
     // Unread per chat in ONE indexed range query (seq > cursor) — NOT a scan of the
     // full history (the old groupBy counted every message of every chat ever).
-    const unreadByChat = await this.computeUnread(userId, visible.map((m) => m.chatId));
+    const unreadByChat = await this.computeUnread(userId, visible.map((m) => m.chatId), cutoffs);
 
     // Живые созвоны батчем (баннер «Идёт звонок» в инбоксе) — движок читает свои таблицы сам
     const activeCalls = await this.calls.getActiveForRefs('chat', visible.map((m) => m.chatId));
 
     const summaries: ChatSummary[] = visible.map((m) => {
       const chat = m.chat;
-      const last = chat.messages[0] ?? null;
+      const newest = chat.messages[0] ?? null;
+      const cutoff = cutoffs.get(chat.id);
+      const last = newest && (!cutoff || newest.createdAt >= cutoff) ? newest : null;
       const peerMember = chat.type === 'dm' ? chat.members[0] : null;
       const peer = peerMember?.user ?? null;
 
@@ -1780,16 +1896,21 @@ export class MessengerService implements OnModuleInit {
    * member's visibility floor (visibleFromSeq — group members don't "unread" pre-join
    * history) and excludes own + system + deleted messages.
    */
-  private async computeUnread(userId: string, chatIds: string[]): Promise<Map<string, number>> {
+  private async computeUnread(userId: string, chatIds: string[], cutoffs: ReadonlyMap<string, Date> = new Map()): Promise<Map<string, number>> {
     const result = new Map<string, number>();
     if (!chatIds.length) return result;
+    // Сообщения вне срока чата не «непрочитанные»: граница — момент (колонка без пояса, UTC)
+    const cutIds = [...cutoffs.keys()];
+    const cutAt = cutIds.map((id) => cutoffs.get(id)!.toISOString());
 
     const rows = await this.db.$queryRaw<Array<{ chatId: string; unread: number }>>(Prisma.sql`
       SELECT m.chat_id AS "chatId", COUNT(*)::int AS unread
       FROM messages m
       JOIN chat_members cm
         ON cm.chat_id = m.chat_id AND cm.user_id = ${userId}::uuid AND cm.left_at IS NULL
+      LEFT JOIN unnest(${cutIds}::uuid[], ${cutAt}::timestamptz[]) AS rc(chat_id, cutoff) ON rc.chat_id = m.chat_id
       WHERE m.chat_id = ANY(${chatIds}::uuid[])
+        AND (rc.cutoff IS NULL OR m.created_at >= (rc.cutoff AT TIME ZONE 'UTC'))
         AND m.deleted_at IS NULL
         AND m.type <> 'system'
         AND m.author_id <> ${userId}::uuid
@@ -1859,6 +1980,8 @@ export class MessengerService implements OnModuleInit {
       muted: me?.mutedUntil ? me.mutedUntil > new Date() : false,
       pinned: me?.pinned ?? false,
       activeCall: (await this.calls.getActiveForRefs('chat', [chatId])).get(chatId) ?? null,
+      // Таймер меняет любой участник личного чата, в группе — владелец и админ
+      retention: await this.retention.describe(chat, chat.type === 'dm' || me?.role === 'owner' || me?.role === 'admin'),
     };
   }
 
@@ -1878,20 +2001,21 @@ export class MessengerService implements OnModuleInit {
     });
     const visibleFrom = me?.visibleFromSeq ?? 0;
 
+    const chat = await this.db.chat.findUnique({
+      where: { id: chatId },
+      select: { id: true, type: true, parentType: true, parentId: true, workspaceId: true, messageTtlDays: true },
+    });
+    // Срок чата (таймер, срок организации) действует на чтении сразу: старше пола — не показывается
+    const floor = chat ? await this.retention.floorOf(chat) : 0;
+
     const rows = await this.db.message.findMany({
       where: {
         chatId,
-        seq: { gt: visibleFrom, ...(beforeSeq ? { lt: beforeSeq } : {}) },
+        seq: { gt: Math.max(visibleFrom, floor - 1), ...(beforeSeq ? { lt: beforeSeq } : {}) },
       },
       orderBy: { seq: 'desc' },
       take,
       include: MESSAGE_REPLY_INCLUDE,
-    });
-
-    // Resolve author role tags for group/task chats (batch, no N+1).
-    const chat = await this.db.chat.findUnique({
-      where: { id: chatId },
-      select: { type: true, parentType: true, parentId: true },
     });
 
     // Delivery ticks (sent/delivered/read) are a DM-only feature: in a 1:1 chat the
@@ -1932,7 +2056,7 @@ export class MessengerService implements OnModuleInit {
     await this.attachViewsTo(rows);
     return rows
       .reverse()
-      .map((r) => this.toMessage(r, userId, minDelivered, minRead, labelMap, showStatus));
+      .map((r) => this.toMessage(r, userId, minDelivered, minRead, labelMap, showStatus, floor));
   }
 
   /**
@@ -1976,11 +2100,64 @@ export class MessengerService implements OnModuleInit {
     if (!replyToId) return;
     const parent = await this.db.message.findUnique({
       where: { id: replyToId },
-      select: { chatId: true },
+      select: { chatId: true, seq: true },
     });
     if (!parent || parent.chatId !== chatId) {
       throw badRequest('chat.quoteSameChat');
     }
+    if (await this.expiredMessage(parent)) throw notFound('chat.messageNotFound');
+  }
+
+  /** Сообщение вне срока своего чата (таймер, срок организации) — чтение его уже не показывает. */
+  private async expiredMessage(msg: { chatId: string; seq: number }): Promise<boolean> {
+    const chat = await this.db.chat.findUnique({ where: { id: msg.chatId }, select: { id: true, type: true, workspaceId: true, messageTtlDays: true } });
+    return !!chat && (await this.retention.isExpired(chat, msg));
+  }
+
+  // ============================================================
+  // Таймер автоудаления сообщений (core/lifecycle Э5)
+  // ============================================================
+
+  /**
+   * Включить, сменить или выключить таймер: личный чат — любой участник, группа — владелец и
+   * админ; контекстный чат живёт жизнью предмета — таймера нет. В чате организации таймер не
+   * длиннее её срока сообщений («выкл» = действует срок организации). Смена — системная
+   * плашка всем (по ней клиенты перечитывают чат), факт аналитики; пол ленты этого процесса — сразу.
+   */
+  async setTimer(userId: string, chatId: string, days: number | null): Promise<ChatDetail> {
+    await this.assertAccess(userId, chatId);
+    const chat = await this.db.chat.findUnique({ where: { id: chatId }, select: { id: true, type: true, workspaceId: true, messageTtlDays: true } });
+    if (!chat) throw notFound('chat.notFound');
+    if (!CHAT_TIMER_TYPES.includes(chat.type)) throw badRequest('lifecycle.timerNotSupported');
+    if (chat.type === 'group') {
+      const me = await this.db.chatMember.findUnique({ where: { chatId_userId: { chatId, userId } }, select: { role: true, leftAt: true } });
+      if (!me || me.leftAt || (me.role !== 'owner' && me.role !== 'admin')) throw forbidden('chat.notEnoughRights');
+    }
+    const workspaceDays = await this.retention.workspaceDays(chat.workspaceId);
+    if (days !== null && workspaceDays !== null && days > workspaceDays) throw badRequest('lifecycle.timerAboveWorkspace', { days: workspaceDays });
+    if (chat.messageTtlDays === days) return this.getChatDetail(userId, chatId);
+
+    const changed = await this.db.$transaction(async (tx) => {
+      // Переход status-guarded: двойной клик не даёт двух плашек и двух фактов
+      const { count } = await tx.chat.updateMany({
+        where: { id: chatId, messageTtlDays: chat.messageTtlDays },
+        data: { messageTtlDays: days, messageTtlSetById: userId, messageTtlSetAt: new Date() },
+      });
+      if (!count) return false;
+      await this.analytics.track(tx, 'lifecycle.timer.set', { days: days ?? 0, chatType: chat.type, workspace: !!chat.workspaceId }, { userId, workspaceId: chat.workspaceId });
+      return true;
+    });
+    this.retention.invalidate(chatId);
+    if (changed) {
+      const actor = await this.db.user.findUnique({ where: { id: userId }, select: USER_LITE });
+      await this.postStructuredSystemMessage(
+        chatId,
+        days === null ? 'chat.timer_off' : 'chat.timer_set',
+        { actorName: fullNameOrNull(actor) ?? '', ...(days !== null ? { days: String(days) } : {}) },
+        userId,
+      );
+    }
+    return this.getChatDetail(userId, chatId);
   }
 
   /**
@@ -2178,6 +2355,7 @@ export class MessengerService implements OnModuleInit {
     // Access first: a user removed from the chat (Hard Revoke) loses edit rights even
     // on their own old messages. Authorship alone is not enough.
     await this.assertAccess(userId, msg.chatId);
+    if (await this.expiredMessage(msg)) throw notFound('chat.messageNotFound');
     if (msg.authorId !== userId) throw forbidden('chat.editOwnOnly');
     if (msg.deletedAt) throw badRequest('chat.messageDeleted');
     // attachment: редактируется только подпись (она и живёт в content — К-1)
@@ -2236,7 +2414,8 @@ export class MessengerService implements OnModuleInit {
     // Access first (see editMessage): removal from the chat revokes delete rights too.
     await this.assertAccess(userId, msg.chatId);
     if (msg.authorId !== userId) throw forbidden('chat.deleteOwnOnly');
-    if (msg.deletedAt) return;
+    // Вне срока чата сообщение уже скрыто и уйдёт раннером — удалять нечего
+    if (msg.deletedAt || (await this.expiredMessage(msg))) return;
 
     // Томбстоун несёт только id, тип и момент: текст и payload (имя, размер, превью файла) — NULL.
     // Под заморозкой оригинал уходит в hold store той же транзакцией (человек не блокируется)
@@ -2491,6 +2670,8 @@ export class MessengerService implements OnModuleInit {
     peerReadSeq = 0,
     labelMap?: Map<string, string | null>,
     showStatus = true,
+    /** Пол ленты чата: цитата старше — как удалённая (вне срока чата) */
+    floor = 0,
   ): ChatMessage {
     const mine = r.authorId === viewerId;
     let status: MessageDeliveryStatus | undefined;
@@ -2521,13 +2702,13 @@ export class MessengerService implements OnModuleInit {
       createdAt: r.createdAt.toISOString(),
       mine,
       status,
-      replyTo: r.replyTo ? this.toReplyPreview(r.replyTo) : null,
+      replyTo: r.replyTo ? this.toReplyPreview(r.replyTo, floor) : null,
     };
   }
 
-  /** Compact preview of a quoted message (Phase 7). Null text for a deleted quote. */
-  private toReplyPreview(rt: any): MessageReplyPreview {
-    const deleted = !!rt.deletedAt;
+  /** Compact preview of a quoted message (Phase 7). Null text for a deleted quote or one past the chat retention. */
+  private toReplyPreview(rt: any, floor = 0): MessageReplyPreview {
+    const deleted = !!rt.deletedAt || (floor > 0 && typeof rt.seq === 'number' && rt.seq < floor);
     let text: string | null;
     if (deleted) text = null;
     else if (rt.type === 'text') text = rt.content ?? '';

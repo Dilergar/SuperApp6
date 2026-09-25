@@ -6,6 +6,8 @@ import { LifecycleErasureService } from './lifecycle.erasure.service';
 import { LifecycleLooseFk } from './lifecycle.loose-fk';
 import { LifecyclePartitions } from './lifecycle.partitions';
 import { LifecyclePurgeRunner } from './lifecycle.purge';
+import { LifecycleSettingsService } from './lifecycle.settings.service';
+import { LifecycleDashboardService } from './lifecycle.dashboard.service';
 
 /**
  * Ночное обслуживание движка — в окне массового ретеншна 01:00–06:00 по Алматы (plan §6.1):
@@ -14,7 +16,8 @@ import { LifecyclePurgeRunner } from './lifecycle.purge';
  * родителя не ждёт ночи, хвосты детей — тоже). Стирание субъекта — круглосуточно: тик
  * оркестратора каждые 10 минут (ключи → окно бэкапов → сертификат, страховка потерянных
  * джобов, SLO), журнал стираний выгружается вне базы каждый час. Канарейка стирания — в 02:30
- * (джоб на сутки: синтетический человек и организация посеяны, стёрты, проверены).
+ * (джоб на сутки: синтетический человек и организация посеяны, стёрты, проверены). Вступившие
+ * отложенные сокращения сроков организаций переносятся в действующий срок раз в час.
  * Под Redis-локом — один инстанс (`null` от withLock = лок занят, не результат).
  */
 @Injectable()
@@ -28,7 +31,33 @@ export class LifecycleCron {
     private readonly looseFk: LifecycleLooseFk,
     private readonly erasure: LifecycleErasureService,
     private readonly canary: LifecycleCanaryService,
+    private readonly settings: LifecycleSettingsService,
+    private readonly dashboard: LifecycleDashboardService,
   ) {}
+
+  /**
+   * Суточный снимок размеров по таблицам (дашборд «Данные»: рост, отставание сроков) — после
+   * окна ретеншна, когда ночное удаление уже прошло.
+   */
+  @Cron('40 6 * * *', { timeZone: 'Asia/Almaty' })
+  async storageSnapshot(): Promise<void> {
+    const ran = await this.redis.withLock('cron:lifecycle-storage-snapshot', 30 * 60_000, async () => {
+      const n = await this.dashboard.snapshotStorage();
+      this.logger.log(`storage snapshot: ${n} table(s)`);
+    });
+    if (ran === null) this.logger.debug('storage snapshot skipped: lock held by another instance');
+  }
+
+  /** Вступившие отложенные сокращения — в действующий срок строки (принуждение учитывает их и без этого). */
+  @Cron('7 * * * *')
+  async settingsPromote(): Promise<void> {
+    try {
+      const n = await this.settings.promoteDue();
+      if (n) this.logger.log(`retention settings: ${n} pending shortening(s) took effect`);
+    } catch (err) {
+      this.logger.warn(`retention settings promotion failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
 
   /** План ночи: прогон каждой ведомой политики (джоб ждёт окна сам, живой дубль не ставится). */
   @Cron('10 1 * * *', { timeZone: 'Asia/Almaty' })

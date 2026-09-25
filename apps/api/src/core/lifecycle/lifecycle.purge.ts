@@ -20,13 +20,14 @@ import { LifecycleMetrics } from './lifecycle.metrics';
 import { LifecycleBlastRadiusError, LifecyclePurgeHandlerRegistry, type LifecyclePurgeHandler } from './lifecycle.purge.registry';
 import { LifecycleRuns, type LifecycleRunRow } from './lifecycle.runs';
 import { LifecycleSettings } from './lifecycle.settings';
+import { LifecycleOverrides } from './lifecycle.overrides';
 import {
   deleteBatchSql,
   estimateSql,
   isQueryTimeout,
   lifecycleRules,
   lifecycleTableOf,
-  lifecycleWorkspaceColumn,
+  lifecycleTenantScopeSql,
   lockHoldsShared,
   releasableIds,
   ruleCutoff,
@@ -77,6 +78,9 @@ export type LifecyclePurgeMode = { kind: 'generic'; table: LifecycleTable; rules
  *    подтверждения человеком; факт обогнал ожидание на 20 % — стоп и тревога;
  *  - кэп строк за прогон — хвост следующей ночью; dry-run — только счёт.
  */
+/** Проба «у политики есть условие организации» — SQL строится, но не исполняется. */
+const NIL_UUID = '00000000-0000-0000-0000-000000000000';
+
 @Injectable()
 export class LifecyclePurgeRunner implements OnModuleInit {
   private readonly logger = new Logger(LifecyclePurgeRunner.name);
@@ -90,6 +94,7 @@ export class LifecyclePurgeRunner implements OnModuleInit {
     private readonly runs: LifecycleRuns,
     private readonly metrics: LifecycleMetrics,
     private readonly settings: LifecycleSettings,
+    private readonly overrides: LifecycleOverrides,
   ) {}
 
   onModuleInit(): void {
@@ -108,6 +113,12 @@ export class LifecyclePurgeRunner implements OnModuleInit {
   /** Как раннер ведёт политику; `null` — не ведёт (срок вечен, шаг не зарегистрирован и т.п.). */
   mode(policy: LifecyclePolicy): LifecyclePurgeMode | null {
     const en = policy.enforcement;
+    // Секционированный журнал: общий срок — сброс партиции (функции владельца), а срок,
+    // выбранный организацией короче, — пачками её строк внутри партиций
+    if (en.kind === 'drop_partition') {
+      const table = lifecycleTableOf(policy);
+      return table && policy.retention.tenantConfigurable && lifecycleTenantScopeSql(policy, table, NIL_UUID) ? { kind: 'generic', table, rules: [] } : null;
+    }
     if (en.kind !== 'batched_delete') return null;
     if (en.handler) {
       const handler = this.handlers.get(en.handler);
@@ -116,34 +127,55 @@ export class LifecyclePurgeRunner implements OnModuleInit {
     const table = lifecycleTableOf(policy);
     const rules = lifecycleRules(policy);
     // Срок, выбранный организациями, — правила по организациям (читаются на каждом заходе)
-    const tenant = !!policy.retention.tenantConfigurable && !!lifecycleWorkspaceColumn(policy);
+    const tenant = !!table && !!policy.retention.tenantConfigurable && !!lifecycleTenantScopeSql(policy, table, NIL_UUID);
     return table && (rules.length || tenant) ? { kind: 'generic', table, rules } : null;
   }
 
-  /** Правила прогона: статические реестра + по организациям с конечным выбранным сроком. */
-  private async rulesOf(policy: LifecyclePolicy, mode: Extract<LifecyclePurgeMode, { kind: 'generic' }>): Promise<LifecycleRule[]> {
-    const wsColumn = lifecycleWorkspaceColumn(policy);
-    if (!policy.retention.tenantConfigurable || !wsColumn || policy.enforcement.kind !== 'batched_delete') return mode.rules;
+  /**
+   * Как раннер ведёт политику СЕЙЧАС: к реестру добавляется срок, заданный командой Кабинета
+   * (`lifecycle.retention.override`), — политика «вечно» с таким сроком становится ведомой.
+   */
+  async modeOf(policy: LifecyclePolicy): Promise<LifecyclePurgeMode | null> {
+    const base = this.mode(policy);
+    if (base) return base;
     const en = policy.enforcement;
+    if (en.kind !== 'batched_delete' || en.handler) return null;
+    const ov = await this.overrides.get(policy.id);
+    const table = lifecycleTableOf(policy);
+    return ov?.days && table ? { kind: 'generic', table, rules: [] } : null;
+  }
+
+  /** Правила прогона: статические реестра (срок — с переопределением Кабинета) + по организациям с конечным выбранным сроком. */
+  private async rulesOf(policy: LifecyclePolicy, mode: Extract<LifecyclePurgeMode, { kind: 'generic' }>): Promise<LifecycleRule[]> {
+    const en = policy.enforcement;
+    let base = mode.rules;
+    const ov = await this.overrides.get(policy.id);
+    if (ov?.days && en.kind === 'batched_delete') {
+      // Срок команды не ниже пола закона (проверила команда) — главное правило берёт его
+      const floor = policy.retention.floorDays;
+      const days = typeof floor === 'number' && ov.days < floor ? floor : ov.days;
+      base = [{ index: 0, column: en.column, days, ...(en.filter ? { filter: en.filter } : {}) }, ...base.filter((r) => r.index !== 0)];
+    }
+    if (!policy.retention.tenantConfigurable || (en.kind !== 'batched_delete' && en.kind !== 'drop_partition')) return base;
+    if (!lifecycleTenantScopeSql(policy, mode.table, NIL_UUID)) return base;
     const tenant = (await this.settings.tenantRetentions(policy)).map((r, i) => ({
       index: 1000 + i,
       column: en.column,
       days: r.days,
-      filter: en.filter,
+      ...(en.kind === 'batched_delete' && en.filter ? { filter: en.filter } : {}),
       workspaceId: r.workspaceId,
-      wsColumn,
     }));
-    return [...mode.rules, ...tenant];
+    return [...base, ...tenant];
   }
 
   /** Политики, которые раннер ведёт по ночам (без ждущих этапа и выключенных). */
-  enforceablePolicies(): LifecyclePolicy[] {
+  async enforceablePolicies(): Promise<LifecyclePolicy[]> {
     const out: LifecyclePolicy[] = [];
     for (const id of LIFECYCLE_POLICY_IDS) {
       const p = lifecyclePolicy(id)!;
-      if (p.pause || p.enforcement.kind !== 'batched_delete') continue;
-      if (p.enforcement.handler && LIFECYCLE_PENDING_KEYS[p.enforcement.handler]) continue;
-      if (this.mode(p)) out.push(p);
+      if (p.pause || (p.enforcement.kind !== 'batched_delete' && p.enforcement.kind !== 'drop_partition')) continue;
+      if (p.enforcement.kind === 'batched_delete' && p.enforcement.handler && LIFECYCLE_PENDING_KEYS[p.enforcement.handler]) continue;
+      if (await this.modeOf(p)) out.push(p);
     }
     return out;
   }
@@ -154,7 +186,7 @@ export class LifecyclePurgeRunner implements OnModuleInit {
    */
   async schedule(policyId: string, opts: { dryRun?: boolean; force?: boolean; anytime?: boolean } = {}): Promise<{ runId: string | null; queued: boolean }> {
     const policy = lifecyclePolicy(policyId);
-    if (!policy || !this.mode(policy)) throw new Error(`lifecycle purge: policy "${policyId}" is not enforceable by the runner`);
+    if (!policy || !(await this.modeOf(policy))) throw new Error(`lifecycle purge: policy "${policyId}" is not enforceable by the runner`);
     const NOT_QUEUED = Symbol('not-queued');
     try {
       const runId = await this.db.$transaction(async (tx) => {
@@ -174,7 +206,7 @@ export class LifecyclePurgeRunner implements OnModuleInit {
   /** Ночной план: прогон каждой ведомой политики. Возвращает число поставленных. */
   async planNightly(): Promise<number> {
     let queued = 0;
-    for (const p of this.enforceablePolicies()) {
+    for (const p of await this.enforceablePolicies()) {
       try {
         if ((await this.schedule(p.id)).queued) queued++;
       } catch (err) {
@@ -190,7 +222,7 @@ export class LifecyclePurgeRunner implements OnModuleInit {
    */
   async runInline(policyId: string, opts: { dryRun?: boolean; force?: boolean } = {}): Promise<{ run: LifecycleRunRow; outcome: Outcome; healthReason?: string | null }> {
     const policy = lifecyclePolicy(policyId);
-    if (!policy || !this.mode(policy)) throw new Error(`lifecycle purge: policy "${policyId}" is not enforceable by the runner`);
+    if (!policy || !(await this.modeOf(policy))) throw new Error(`lifecycle purge: policy "${policyId}" is not enforceable by the runner`);
     const runId = await this.runs.start(null, { kind: 'purge', policyId, dryRun: opts.dryRun, report: { force: !!opts.force, anytime: true, inline: true } });
     const res = await this.execute({ policyId, runId, dryRun: opts.dryRun, force: opts.force, anytime: true }, Number.POSITIVE_INFINITY);
     // Прогон в процессе не продолжает никто — прерванный здоровьем закрывается, а не висит «running»
@@ -225,8 +257,8 @@ export class LifecyclePurgeRunner implements OnModuleInit {
     let run = await this.runs.get(p.runId);
     if (!run) throw new JobDiscardError(`lifecycle.purge: run ${p.runId} is gone`);
     if (run.status !== 'running') return { outcome: 'done' };
-    if (policy.pause) return this.stop(run, 'paused');
-    const mode = this.mode(policy);
+    if (policy.pause || (await this.overrides.get(policy.id))?.paused) return this.stop(run, 'paused');
+    const mode = await this.modeOf(policy);
     if (!mode) return this.stop(run, 'handler_missing');
 
     // Ожидание — до первой пачки: и кэп радиуса, и отчёт dry-run, и сверка «факт/ожидание»
@@ -289,7 +321,7 @@ export class LifecyclePurgeRunner implements OnModuleInit {
           const res = await mode.handler.purgeBatch({
             policy,
             runId: run.id,
-            cutoff: this.handlerCutoff(policy),
+            cutoff: await this.handlerCutoff(policy),
             limit,
             cursor: state.cursor ?? null,
             force: !!p.force,
@@ -343,15 +375,18 @@ export class LifecyclePurgeRunner implements OnModuleInit {
   }
 
   /** Срок политики для шага модуля; вечный — окно решает модуль (корзина 30 дней). */
-  private handlerCutoff(policy: LifecyclePolicy): Date | null {
+  private async handlerCutoff(policy: LifecyclePolicy): Promise<Date | null> {
+    const ov = await this.overrides.get(policy.id);
     const { days } = resolveLifecycleRetention({ policy });
-    return days === LIFECYCLE_FOREVER || days === 0 ? null : new Date(Date.now() - days * 86_400_000);
+    const floor = policy.retention.floorDays;
+    const effective = ov?.days ? (typeof floor === 'number' && ov.days < floor ? floor : ov.days) : days;
+    return effective === LIFECYCLE_FOREVER || effective === 0 ? null : new Date(Date.now() - effective * 86_400_000);
   }
 
   private async estimate(policy: LifecyclePolicy, mode: LifecyclePurgeMode): Promise<number | null> {
     if (mode.kind === 'handler') {
       if (!mode.handler.estimate) return null;
-      return mode.handler.estimate({ policy, cutoff: this.handlerCutoff(policy) });
+      return mode.handler.estimate({ policy, cutoff: await this.handlerCutoff(policy) });
     }
     let total = 0;
     const now = new Date();

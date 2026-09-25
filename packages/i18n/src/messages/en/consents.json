@@ -46,7 +46,9 @@
     "securityLogTitle": "Security log",
     "securityLogHint": "Every security event of your account for the whole retention period, with the full IP addresses of your own sign-ins and actions. A JSON file.",
     "securityLogDownload": "Download",
-    "securityLogTruncated": "The file holds the newest {count, number} events"
+    "securityLogTruncated": "The file holds the newest {count, number} events",
+    "erasureTitle": "Erasure receipts",
+    "erasureHint": "If you deleted an account or archived an organization, open its erasure receipt by the code: the stages and, when everything is done, the signed certificate."
   },
   "purposes": {
     "otp_sms": "Confirmation code by SMS",

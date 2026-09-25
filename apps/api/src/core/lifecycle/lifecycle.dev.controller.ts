@@ -80,12 +80,12 @@ export class LifecycleDevController {
 
   @Get('plan')
   @ApiOperation({ summary: '[dev] Retention plan: policies the runner enforces, the organisation purge plan, loose-FK tracked tables' })
-  plan() {
+  async plan() {
     this.assertDev();
     return {
       success: true,
       data: {
-        enforced: this.purge.enforceablePolicies().map((p) => ({ id: p.id, mode: this.purge.mode(p)?.kind ?? null })),
+        enforced: await Promise.all((await this.purge.enforceablePolicies()).map(async (p) => ({ id: p.id, mode: (await this.purge.modeOf(p))?.kind ?? null }))),
         tenantPlan: lifecycleTenantPurgePlan().map((s) => ({ key: s.key, kind: s.kind })),
         looseFkTables: this.looseFk.trackedTables(),
       },

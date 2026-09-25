@@ -16,4 +16,41 @@ export const LIFECYCLE_ENTITLEMENTS = defineEntitlements({
     service: 'lifecycle',
     labelKey: 'entitlements.keys.lifecycleHolds',
   },
+  /**
+   * Потолок срока хранения класса данных, который может выбрать организация (глубина
+   * истории — рычаг тарифа, Slack). `limit` без счётчика: MAX грантов, null — без потолка
+   * («вечно»). Ограничивает ВЫБОР (коридор при сохранении → 402 с unlock); ретроактивно
+   * не режет — смена тарифа молча данные не удаляет. Свободное значение null у всех
+   * планов: в день запуска поведение продукта не меняется.
+   */
+  'lifecycle.retention.user_content_shared.ceilingDays': {
+    kind: 'limit',
+    carrier: 'container',
+    subjects: ['workspace'],
+    unit: 'count',
+    defaultFree: null,
+    hasUsage: false,
+    service: 'lifecycle',
+    labelKey: 'entitlements.keys.lifecycleRetentionMessages',
+  },
+  'lifecycle.retention.tenant_record.ceilingDays': {
+    kind: 'limit',
+    carrier: 'container',
+    subjects: ['workspace'],
+    unit: 'count',
+    defaultFree: null,
+    hasUsage: false,
+    service: 'lifecycle',
+    labelKey: 'entitlements.keys.lifecycleRetentionRecords',
+  },
+  'lifecycle.retention.operational.ceilingDays': {
+    kind: 'limit',
+    carrier: 'container',
+    subjects: ['workspace'],
+    unit: 'count',
+    defaultFree: null,
+    hasUsage: false,
+    service: 'lifecycle',
+    labelKey: 'entitlements.keys.lifecycleRetentionIntegrations',
+  },
 });

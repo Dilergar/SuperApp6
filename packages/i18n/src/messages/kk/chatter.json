@@ -92,7 +92,7 @@
     "calendar": {
       "event_created": "{actorName} оқиға құрды",
       "event_invited": "{actorName} қатысушыларды шақырды",
-      "event_left": "{name} енді қатысушы емес",
+      "event_left": "{targetName} енді қатысушы емес",
       "event_updated": "Оқиға жаңартылды"
     },
     "call": {
@@ -128,11 +128,11 @@
       "version_saved": "{actorName} {versionNo} нұсқасын сақтады"
     },
     "group": {
-      "admin_granted": "{name} әкімші болып тағайындалды",
+      "admin_granted": "{targetName} әкімші болып тағайындалды",
       "created": "{actorName} «{name}» тобын құрды",
-      "member_added": "{name} топқа қосылды",
+      "member_added": "{targetName} топқа қосылды",
       "member_left": "{actorName} топтан шықты",
-      "member_removed": "{name} топтан шығарылды",
+      "member_removed": "{targetName} топтан шығарылды",
       "renamed": "{actorName} топтың атын «{title}» деп өзгертті"
     },
     "hr": {
@@ -275,6 +275,14 @@
     },
     "visibility_policy": {
       "published": "{actorName} «{typeLabel}» көріну ережелерін жариялады, {version}-нұсқа"
+    },
+    "lifecycle_settings": {
+      "retention_changed": "{actorName} «{classLabel}» сақтау мерзімін өзгертті: {fromDays, plural, =0 {мәңгі} one {# күн} other {# күн}} → {toDays, plural, =0 {мәңгі} one {# күн} other {# күн}}{shortened, select, true { ({effectiveOn} бастап)} other {}}",
+      "retention_cancelled": "{actorName} «{classLabel}» мерзімін қысқартудан бас тартты: {toDays, plural, =0 {мәңгі} one {# күн} other {# күн}} болып қалады"
+    },
+    "chat": {
+      "timer_set": "{actorName} автоматты жоюды қосты: хабарламалар {days, plural, one {# күннен} other {# күннен}} кейін жойылады",
+      "timer_off": "{actorName} автоматты жоюды өшірді"
     }
   }
 }

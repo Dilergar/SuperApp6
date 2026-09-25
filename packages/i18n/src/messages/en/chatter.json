@@ -92,7 +92,7 @@
     "calendar": {
       "event_created": "{actorName} created an event",
       "event_invited": "{actorName} invited participants",
-      "event_left": "{name} is no longer a participant",
+      "event_left": "{targetName} is no longer a participant",
       "event_updated": "The event was updated"
     },
     "call": {
@@ -128,11 +128,11 @@
       "version_saved": "{actorName} saved version {versionNo}"
     },
     "group": {
-      "admin_granted": "{name} was made an administrator",
+      "admin_granted": "{targetName} was made an administrator",
       "created": "{actorName} created the group «{name}»",
-      "member_added": "{name} was added to the group",
+      "member_added": "{targetName} was added to the group",
       "member_left": "{actorName} left the group",
-      "member_removed": "{name} was removed from the group",
+      "member_removed": "{targetName} was removed from the group",
       "renamed": "{actorName} renamed the group to «{title}»"
     },
     "hr": {
@@ -275,6 +275,14 @@
     },
     "visibility_policy": {
       "published": "{actorName} published visibility rules «{typeLabel}», version {version}"
+    },
+    "lifecycle_settings": {
+      "retention_changed": "{actorName} changed the retention of “{classLabel}”: {fromDays, plural, =0 {forever} one {# day} other {# days}} → {toDays, plural, =0 {forever} one {# day} other {# days}}{shortened, select, true { (from {effectiveOn})} other {}}",
+      "retention_cancelled": "{actorName} cancelled the planned shortening of “{classLabel}”: it stays {toDays, plural, =0 {forever} one {# day} other {# days}}"
+    },
+    "chat": {
+      "timer_set": "{actorName} turned on auto-delete: messages disappear after {days, plural, one {# day} other {# days}}",
+      "timer_off": "{actorName} turned off auto-delete"
     }
   }
 }

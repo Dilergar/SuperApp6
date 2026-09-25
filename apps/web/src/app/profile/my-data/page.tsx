@@ -14,6 +14,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useLocale, useTranslations } from 'next-intl';
 import type { ConsentAcceptResultDto, ConsentDocumentKey, ConsentReceiptDto, ConsentStateItemDto, CursorPage, Locale, PdTransferDto, SecurityMyDataExportDto } from '@superapp/shared';
 import { Alert, Button, Card, Chip, EmptyState, LoadingBlock, Modal, Toggle, type Tone } from '@/components/ui';
+import { ErasureReceiptLookup } from '@/components/lifecycle/ErasureReceiptLookup';
 import { ConsentDocumentModal } from '@/components/consents/ConsentDocumentModal';
 import { analytics } from '@/lib/analytics';
 import { apiErrorMessage, apiGet, apiPost } from '@/lib/api';
@@ -121,9 +122,29 @@ export default function MyDataPage() {
 
       <SecurityLogSection />
 
+      <ErasureReceiptsSection />
+
       <ConsentDocumentModal open={!!openDoc} onClose={() => setOpenDoc(null)} versionId={openDoc?.versionId} documentKey={openDoc?.documentKey} />
       {receiptId && <ReceiptModal acceptanceId={receiptId} onClose={() => setReceiptId(null)} />}
     </div>
+  );
+}
+
+// ------------------------------------------------------------
+// Квитанции стирания (core/lifecycle): аккаунт или организация стёрты — код квитанции у
+// человека (показан один раз, организации — ещё и SMS), здесь его можно открыть.
+// ------------------------------------------------------------
+
+function ErasureReceiptsSection() {
+  const t = useTranslations('consents');
+  return (
+    <>
+      <h3 className="title-md" style={{ margin: 'var(--spacing-8) 0 var(--spacing-3)' }}>{t('myData.erasureTitle')}</h3>
+      <Card>
+        <p className="label-sm" style={{ margin: '0 0 var(--spacing-3)' }}>{t('myData.erasureHint')}</p>
+        <ErasureReceiptLookup />
+      </Card>
+    </>
   );
 }
 

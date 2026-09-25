@@ -8,6 +8,7 @@ import { SearchProjectionService } from '../../core/search/search-projection.ser
 import type { SearchProviderOpts, SearchProviderResult } from '../../core/search/search.types';
 import { ContactsService } from '../contacts/contacts.service';
 import { I18nService } from '../../shared/i18n/i18n.service';
+import { MessengerRetentionService } from './messenger-retention.service';
 
 const USER_LITE = { id: true, firstName: true, lastName: true, avatar: true } as const;
 
@@ -47,6 +48,7 @@ export class MessengerSearchService implements OnModuleInit {
     private readonly projection: SearchProjectionService,
     private readonly contacts: ContactsService,
     private readonly i18n: I18nService,
+    private readonly retention: MessengerRetentionService,
   ) {}
 
   onModuleInit(): void {
@@ -158,7 +160,19 @@ export class MessengerSearchService implements OnModuleInit {
       this.db.$executeRaw`SET LOCAL pg_trgm.word_similarity_threshold = 0.4`,
       this.db.$queryRaw<MessageHitRow[]>(querySql),
     ]);
-    const rows = (result[1] as MessageHitRow[]) ?? [];
+    const raw = (result[1] as MessageHitRow[]) ?? [];
+    // Срок чата (таймер, срок организации) действует на чтении сразу: вне срока — не находится,
+    // даже пока проекция не убрана раннером. Курсор страницы — по сырым строкам (keyset не рвётся)
+    const chatIds = [...new Set(raw.map((r) => r.chatId))];
+    const chats = chatIds.length
+      ? await this.db.chat.findMany({ where: { id: { in: chatIds } }, select: { id: true, type: true, workspaceId: true, messageTtlDays: true } })
+      : [];
+    const cutoffOf = new Map<string, Date | null>();
+    for (const c of chats) cutoffOf.set(c.id, await this.retention.cutoffOf(c));
+    const rows = raw.filter((r) => {
+      const cutoff = cutoffOf.get(r.chatId);
+      return !cutoff || new Date(r.itemCreatedAt) >= cutoff;
+    });
 
     // Fill DM titles (DM chats carry no stored title) with the peer's name.
     const dmChatIds = [...new Set(rows.filter((r) => r.chatType === 'dm').map((r) => r.chatId))];
@@ -186,8 +200,8 @@ export class MessengerSearchService implements OnModuleInit {
 
     // Pagination only in page mode (stable recency keyset).
     let nextCursor: string | null = null;
-    if (isPage && rows.length === limit) {
-      const last = rows[rows.length - 1];
+    if (isPage && raw.length === limit) {
+      const last = raw[raw.length - 1];
       nextCursor = encodeRecencyCursor(last.itemCreatedAt, last.messageId);
     }
     return { items, nextCursor };

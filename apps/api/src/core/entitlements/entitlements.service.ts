@@ -360,6 +360,11 @@ export class EntitlementsService implements OnModuleInit {
     return typeof v === 'number' ? v : null;
   }
 
+  /** Куда идти за бо́льшим значением ключа — замок в интерфейсе без отказа (пресеты выше потолка). */
+  async unlockOf(subject: EntitlementSubjectRef, key: EntitlementKey): Promise<EntitlementUnlockDto> {
+    return this.unlockFor(subject, key, await this.valueOf(subject, key));
+  }
+
   /**
    * Кому идти за разблокировкой. Владельцу и админу организации не сообщают «решает
    * владелец» — они и есть те, кто решает: им замок говорит «доступно на ступени X»
@@ -610,6 +615,8 @@ export class EntitlementsService implements OnModuleInit {
     code: EntitlementErrorCode,
     value: EntitlementValue,
     used: number | null,
+    /** Своя фраза отказа (код остаётся машинным): потолок выбора — не «израсходовано N из M» */
+    catalogKeyOverride?: string,
   ) {
     const unlock = await this.unlockFor(subject, key, value);
     const CATALOG_KEY_OF: Record<EntitlementErrorCode, string> = {
@@ -620,7 +627,7 @@ export class EntitlementsService implements OnModuleInit {
       [ENTITLEMENT_ERROR_CODES.limitReached]: 'entitlement.limitReached',
       [ENTITLEMENT_ERROR_CODES.keyNotForSubject]: 'entitlement.keyNotForSubject',
     };
-    const catalogKey = CATALOG_KEY_OF[code];
+    const catalogKey = catalogKeyOverride ?? CATALOG_KEY_OF[code];
     // Числа в тексте отказа остаются МАШИННЫМИ: объём собирает в «4,1 ГБ» фильтр
     // отказов в языке запроса (конвенция `<имя>Bytes`, docs/i18n.md), счётные идут
     // числом и форматируются ICU по правилам зрителя. Сервис строку не печёт: он не
@@ -640,6 +647,20 @@ export class EntitlementsService implements OnModuleInit {
   async assertFeature(userId: string, key: EntitlementKey, subject?: EntitlementSubjectRef): Promise<void> {
     const s = this.subjectForKey(userId, key, subject);
     if (!(await this.can(userId, key, s))) throw await this.denial(s, key, ENTITLEMENT_ERROR_CODES.featureLocked, false, null);
+  }
+
+  /**
+   * Значение не выше потолка ключа-лимита БЕЗ счётчика (потолок выбора: срок хранения,
+   * глубина истории). `requested = null` — «без ограничения» (вечно): проходит только при
+   * потолке null. Выше потолка — 402 `limit_reached` с разблокировкой (ступень тарифа).
+   */
+  async assertAtMost(subject: EntitlementSubjectRef, key: EntitlementKey, requested: number | null): Promise<void> {
+    const def = ENTITLEMENT_REGISTRY[key];
+    if (def.kind !== 'limit') throw new Error(`entitlements: assertAtMost is for limit keys, got ${key} (${def.kind})`);
+    const value = await this.valueOf(subject, key);
+    if (value === null) return;
+    if (typeof value === 'number' && requested !== null && requested <= value) return;
+    throw await this.denial(subject, key, ENTITLEMENT_ERROR_CODES.limitReached, value, requested, 'entitlement.aboveCeiling');
   }
 
   /**

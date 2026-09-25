@@ -76,6 +76,23 @@ export const lifecycleHoldsQuerySchema = z
 export type LifecycleHoldsQuery = z.infer<typeof lifecycleHoldsQuerySchema>;
 
 /**
+ * «Запись под заморозкой?» для чипа на карточке записи (сотрудник — `user`, документ и прочие —
+ * id политики реестра). Отвечает любому участнику организации: руководитель и выше видит факт,
+ * остальным — всегда `false` (заморозка тихая, отказ был бы оракулом); хранитель о своей
+ * заморозке не узнаёт ни по карточке, ни по своим записям.
+ */
+export const lifecycleHoldStatusQuerySchema = z
+  .object({
+    type: z.string().regex(/^(user|[A-Z][A-Za-z0-9]{1,63})$/),
+    id: z.string().uuid(),
+  })
+  .strict();
+export type LifecycleHoldStatusQuery = z.infer<typeof lifecycleHoldStatusQuerySchema>;
+export interface LifecycleHoldStatusDto {
+  held: boolean;
+}
+
+/**
  * Команды Кабинета: заморозка платформы (`workspaceId` пуст — держит данные всех организаций и
  * личное человека) или от имени организации; снятие любой заморозки.
  */

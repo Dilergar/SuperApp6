@@ -34,6 +34,13 @@ export const LIFECYCLE_DATA_CLASSES = [
 ] as const;
 export type LifecycleDataClass = (typeof LIFECYCLE_DATA_CLASSES)[number];
 
+/**
+ * Классы, срок которых выбирает организация (коридор, страница «Данные и сроки хранения»).
+ * Политика с `tenantConfigurable` обязана быть одного из них (страж реестра).
+ */
+export const LIFECYCLE_TENANT_CLASSES = ['user_content_shared', 'tenant_record', 'operational'] as const satisfies readonly LifecycleDataClass[];
+export type LifecycleTenantClass = (typeof LIFECYCLE_TENANT_CLASSES)[number];
+
 /** Классы, где legal hold обязан перекрывать удаление (`holdAware: false` запрещён стражем). */
 export const LIFECYCLE_HOLD_REQUIRED_CLASSES: readonly LifecycleDataClass[] = [
   'legal_record',

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { z } from 'zod';
 import { CurrentUser, JwtPayload } from '../../shared/decorators/current-user.decorator';
@@ -15,6 +15,7 @@ import {
   scheduleMessageSchema,
   updateScheduledMessageSchema,
   PRESENCE,
+  lifecycleChatTimerSchema,
   type PresenceQueryResult,
 } from '@superapp/shared';
 import { MessengerService } from './messenger.service';
@@ -145,6 +146,13 @@ export class MessengerController {
   ) {
     const { admin } = setAdminSchema.parse(body);
     return { success: true, data: await this.messenger.setAdmin(user.sub, id, targetId, admin) };
+  }
+
+  @Put('chats/:id/timer')
+  @ApiOperation({ summary: 'Auto-delete timer of a chat: 1 / 7 / 30 days or null (off); in an organization chat — not longer than its message retention' })
+  async setTimer(@CurrentUser() user: JwtPayload, @Param('id') id: string, @Body() body: unknown) {
+    const { days } = lifecycleChatTimerSchema.parse(body ?? {});
+    return { success: true, data: await this.messenger.setTimer(user.sub, id, days) };
   }
 
   @Get('chats/:id/messages')

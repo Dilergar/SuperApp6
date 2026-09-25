@@ -13,6 +13,7 @@ import { useTranslations } from 'next-intl';
 import { createPortal } from 'react-dom';
 import { Button } from './Button';
 import { CloseChip } from './Button';
+import { Input } from './Input';
 import { cx } from './tones';
 
 export type ModalSize = 'sm' | 'md' | 'lg' | 'xl';
@@ -169,6 +170,14 @@ export interface ConfirmDialogProps {
   /** Опасное действие — кнопка подтверждения красная. */
   danger?: boolean;
   loading?: boolean;
+  /**
+   * Подтверждение вводом (GitHub «введите имя репозитория»): кнопка активна, только когда
+   * введён ровно этот текст. Для действий с последствиями для многих людей — сокращение
+   * срока хранения организации, удаление её данных.
+   */
+  requireText?: string;
+  /** Подпись поля ввода (что именно ввести) */
+  requireTextLabel?: string;
 }
 
 export function ConfirmDialog({
@@ -181,8 +190,12 @@ export function ConfirmDialog({
   cancelLabel,
   danger,
   loading,
+  requireText,
+  requireTextLabel,
 }: ConfirmDialogProps) {
   const t = useTranslations('common');
+  const [typed, setTyped] = useState('');
+  const matched = requireText === undefined || typed.trim() === requireText.trim();
   return (
     <Modal
       open={open}
@@ -199,6 +212,7 @@ export function ConfirmDialog({
             variant="primary"
             tone={danger ? 'danger' : 'success'}
             loading={loading}
+            disabled={!matched}
             onClick={() => void onConfirm()}
           >
             {confirmLabel ?? t('actions.confirm')}
@@ -207,6 +221,11 @@ export function ConfirmDialog({
       }
     >
       {typeof message === 'string' ? <p className="body-sm" style={{ margin: 0 }}>{message}</p> : message}
+      {requireText !== undefined && (
+        <div style={{ marginTop: 'var(--spacing-3)' }}>
+          <Input label={requireTextLabel} value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" spellCheck={false} />
+        </div>
+      )}
     </Modal>
   );
 }

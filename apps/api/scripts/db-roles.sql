@@ -108,9 +108,10 @@ END $$;
 --   можно только осознанно, `SET ROLE sa6_data_owner`.
 -- sa6_readonly — чтение для поддержки и отчётов (pg_read_all_data, без записи).
 -- sa6_backup — pgBackRest и логические выгрузки (чтение + функции резервного копирования).
--- sa6_monitor — владелец ОДНОЙ функции `lifecycle_health_signals` (сигналы здоровья раннера
---   сроков): pg_read_all_stats живёт у неё, а не у роли приложения — иначе приложению видны
---   тексты запросов всех сессий (pg_stat_activity.query). Приложению — только EXECUTE.
+-- sa6_monitor — владелец функций-сводок `lifecycle_health_signals` (сигналы здоровья раннера
+--   сроков) и `lifecycle_db_overview` (дашборд «Данные»): pg_read_all_stats живёт у неё, а не
+--   у роли приложения — иначе приложению видны тексты запросов всех сессий
+--   (pg_stat_activity.query). Приложению — только EXECUTE.
 -- Все роли создаются NOLOGIN: вход и пароль выдаёт эксплуатация из хранилища секретов
 -- (`ALTER ROLE … LOGIN PASSWORD …`) — секретов в этом файле нет.
 -- Аварийный выход (суперпользователь): `ALTER EVENT TRIGGER lifecycle_guard_drop DISABLE`.
@@ -222,6 +223,10 @@ GRANT EXECUTE ON FUNCTION lifecycle_ensure_partition(text, timestamptz), lifecyc
 ALTER FUNCTION lifecycle_health_signals(regclass) OWNER TO sa6_monitor;
 REVOKE ALL ON FUNCTION lifecycle_health_signals(regclass) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION lifecycle_health_signals(regclass) TO :"app_role";
+-- Сводка кластера дашборда «Данные» (Э5): тот же приём — наружу только числа
+ALTER FUNCTION lifecycle_db_overview() OWNER TO sa6_monitor;
+REVOKE ALL ON FUNCTION lifecycle_db_overview() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION lifecycle_db_overview() TO :"app_role";
 
 -- ---- Событийный триггер: DROP защищённой таблицы — только роли владельца ----
 -- Срабатывает на sql_drop (DROP TABLE, DROP SCHEMA … CASCADE, DROP OWNED, DROP COLUMN) ДО

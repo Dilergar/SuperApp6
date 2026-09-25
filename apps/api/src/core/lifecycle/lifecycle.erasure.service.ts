@@ -26,7 +26,7 @@ import { DELETED_USER_MARKER } from '@superapp/i18n';
 import { DatabaseService } from '../../shared/database/database.service';
 import { appTmpPath } from '../../shared/fs/temp-file.util';
 import { RedisService } from '../../shared/redis/redis.service';
-import { notFound } from '../../shared/errors/api-error';
+import { conflict, notFound } from '../../shared/errors/api-error';
 import { AuditService } from '../audit/audit.service';
 import { STORAGE_DRIVER, type StorageDriver } from '../files/storage/storage-driver';
 import { JobDiscardError, JobSnoozeError, JobsRegistry } from '../jobs/jobs.registry';
@@ -35,6 +35,7 @@ import { userScope, workspaceScope } from '../keys/keys.constants';
 import { KeysMacService } from '../keys/keys.mac.service';
 import { KeysSigningService } from '../keys/keys.signing.service';
 import { WebhooksService } from '../webhooks/webhooks.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { LifecycleHoldsService } from './lifecycle.holds.service';
 import { LifecycleMetrics } from './lifecycle.metrics';
 import { LifecyclePurgeHandlerRegistry, LifecycleSubjectHookRegistry, type LifecycleSubjectEraseContext } from './lifecycle.purge.registry';
@@ -127,6 +128,7 @@ export class LifecycleErasureService implements OnModuleInit {
     private readonly webhooks: WebhooksService,
     private readonly redis: RedisService,
     @Inject(STORAGE_DRIVER) private readonly storage: StorageDriver,
+    private readonly notifications: NotificationsService,
   ) {}
 
   onModuleInit(): void {
@@ -181,7 +183,7 @@ export class LifecycleErasureService implements OnModuleInit {
    */
   async request(
     tx: Tx,
-    input: { subject: LifecycleErasureSubject; effectiveAt: Date; options?: { eraseMessages?: boolean }; hiddenAt?: Date | null; inline?: boolean },
+    input: { subject: LifecycleErasureSubject; effectiveAt: Date; options?: { eraseMessages?: boolean }; hiddenAt?: Date | null; inline?: boolean; notifyUserId?: string | null },
   ): Promise<{ requestId: string; receipt: string }> {
     await this.cancelWhere(tx, input.subject, 'superseded');
     const receipt = receiptCode();
@@ -194,6 +196,7 @@ export class LifecycleErasureService implements OnModuleInit {
         hiddenAt: input.hiddenAt ?? null,
         options: { eraseMessages: !!input.options?.eraseMessages },
         receiptHash: sha256(receipt),
+        notifyUserId: input.notifyUserId ?? null,
       },
     });
     await this.journal(tx, row, 'requested');
@@ -552,12 +555,15 @@ export class LifecycleErasureService implements OnModuleInit {
     const redacted = await this.workspaceRedactDue(now);
     // SLO: без прогресса дольше N дней — кроме ожидания ключей и бэкапов (это срок, а не застревание)
     const stuckBefore = new Date(now.getTime() - LIFECYCLE_LIMITS.erasure.stuckDays * DAY);
-    const [stuck, held] = await Promise.all([
+    const [stuck, held, failed] = await Promise.all([
       this.db.lifecycleErasureRequest.count({ where: { status: { in: ['scheduled', 'running'] }, effectiveAt: { lt: stuckBefore }, lastProgressAt: { lt: stuckBefore } } }),
       this.db.lifecycleErasureRequest.count({ where: { status: 'held' } }),
+      // Упавшее стирание само не продолжится (повтор — команда Кабинета): его видно сразу, не через SLO
+      this.db.lifecycleErasureRequest.count({ where: { status: 'failed' } }),
     ]);
-    this.metrics.erasureBacklog(stuck, held);
+    this.metrics.erasureBacklog(stuck, held, failed);
     if (stuck) this.logger.error(`${stuck} erasure request(s) made no progress for ${LIFECYCLE_LIMITS.erasure.stuckDays}+ days`);
+    if (failed) this.logger.error(`${failed} erasure request(s) stopped by an error — retry with the console command lifecycle.erasure.retry`);
     return { keys, completed, requeued, redacted, legacy };
   }
 
@@ -640,6 +646,17 @@ export class LifecycleErasureService implements OnModuleInit {
         target: { type: 'lifecycle_erasure', id: r.id },
         details: { subjectType: r.subjectType as 'user' | 'workspace', rows: total, policies: Object.keys(policies).length, keys: cert.keyIds.length },
       });
+      // Владельцу стёртой организации — «всё стёрто, сертификат подписан» (человеку не шлём:
+      // аккаунта уже нет). Код квитанции в уведомление не кладётся — он только у владельца
+      if (r.subjectType === 'workspace' && r.notifyUserId) {
+        await this.notifications.send(tx, {
+          type: 'lifecycle.erasure.completed',
+          to: [{ userId: r.notifyUserId }],
+          payload: { requestedOnIso: r.requestedAt.toISOString().slice(0, 10) },
+          actionUrl: '/legal/erasure',
+          idempotencyKey: `lifecycle:erasure:completed:${r.id}`,
+        });
+      }
       return true;
     });
     if (done) this.metrics.erasureStage(r.subjectType, 'completed');
@@ -649,6 +666,24 @@ export class LifecycleErasureService implements OnModuleInit {
   // ============================================================
   // Квитанция и проверка подписи
   // ============================================================
+
+  /**
+   * Повтор застрявшего стирания командой Кабинета (`lifecycle.erasure.retry`): ждущий бэкоффа
+   * джоб снимается, новый ставится сейчас; упавшая заявка (`failed`) возвращается в работу.
+   * Этап, который ждёт срока (ключи, окно бэкапов), повтор не ускоряет — его ведёт тик.
+   */
+  async retry(tx: Tx, requestId: string): Promise<{ status: LifecycleErasureStatus }> {
+    const r = await tx.lifecycleErasureRequest.findUnique({ where: { id: requestId }, select: { id: true, status: true } });
+    if (!r) throw notFound('lifecycle.erasureNotFound');
+    if (r.status === 'completed' || r.status === 'cancelled') throw conflict('lifecycle.erasureFinished');
+    if (r.status === 'failed') {
+      // `completedAt` падения снимается: иначе повторяемая заявка выглядела бы завершённой
+      await tx.lifecycleErasureRequest.updateMany({ where: { id: r.id, status: 'failed' }, data: { status: 'running', attempts: 0, errorCode: null, completedAt: null, lastProgressAt: new Date() } });
+    }
+    await this.jobs.cancelByUniqueKey(tx, LIFECYCLE_JOBS.erasure, `erasure:${r.id}`);
+    await this.jobs.enqueue(tx, { type: LIFECYCLE_JOBS.erasure, payload: { requestId: r.id }, uniqueKey: `erasure:${r.id}` });
+    return { status: r.status === 'failed' ? 'running' : (r.status as LifecycleErasureStatus) };
+  }
 
   async receipt(code: string): Promise<LifecycleErasureReceiptDto> {
     const r = await this.db.lifecycleErasureRequest.findUnique({ where: { receiptHash: sha256(code) } });

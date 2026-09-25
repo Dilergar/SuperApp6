@@ -99,6 +99,8 @@ export * from './validation/platform';
 export * from './validation/analytics';
 export * from './validation/keys';
 export * from './validation/lifecycle';
+export * from './validation/lifecycle-settings';
+export * from './validation/lifecycle-platform';
 export * from './validation/consents';
 export * from './validation/audit';
 export * from './validation/visibility';

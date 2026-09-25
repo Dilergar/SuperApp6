@@ -2,8 +2,6 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { EventBusService } from '../../shared/events/event-bus.service';
 import { AccessProjectionService } from '../../core/access/access-projection.service';
 import { DatabaseService } from '../../shared/database/database.service';
-import { SOURCE_LOCALE } from '@superapp/shared';
-import { I18nService } from '../../shared/i18n/i18n.service';
 import { MessengerService } from './messenger.service';
 
 /**
@@ -28,13 +26,7 @@ export class CalendarSystemListener implements OnModuleInit {
     private readonly projection: AccessProjectionService,
     private readonly db: DatabaseService,
     private readonly messenger: MessengerService,
-    private readonly i18n: I18nService,
   ) {}
-
-  /** Снимок плашки в языке источника (перерисовывается при чтении). */
-  private src(key: string, params?: Record<string, string>): string {
-    return this.i18n.translateFor(SOURCE_LOCALE, key, params);
-  }
 
   onModuleInit() {
     this.events.onPattern('calendar.event.*').subscribe((e) => {
@@ -55,40 +47,36 @@ export class CalendarSystemListener implements OnModuleInit {
 
       await this.projection.resyncEventRoles(eventId);
 
-      if (type === 'calendar.event.created') {
-        const who = (p.byName ?? (await this.nameOf(p.byUserId)))?.trim() || this.src('messenger.somebody');
-        await this.messenger.postEventSystemMessage(
-          eventId,
-          type,
-          this.src('chatter.type.calendar.event_created', { actorName: who }),
-        );
-        return;
-      }
-
-      if (type === 'calendar.event.invited') {
-        const who = (p.byName ?? (await this.nameOf(p.byUserId)))?.trim() || this.src('messenger.somebody');
-        await this.messenger.syncEventChatMembers(eventId);
-        await this.messenger.postEventSystemMessage(
-          eventId,
-          type,
-          this.src('chatter.type.calendar.event_invited', { actorName: who }),
-        );
+      // Плашки структурные: текст собирается при чтении в языке зрителя, имена людей лежат
+      // парами с id (стирание их находит). Нет имени — пусто/ключ, слово подберёт язык читателя
+      if (type === 'calendar.event.created' || type === 'calendar.event.invited') {
+        if (type === 'calendar.event.invited') await this.messenger.syncEventChatMembers(eventId);
+        // Имя без id стирание не нашло бы — актор без id остаётся «кем-то»
+        const who = p.byUserId ? (p.byName ?? (await this.nameOf(p.byUserId)))?.trim() || '' : '';
+        await this.messenger.postEventSystemMessage(eventId, type, {
+          typeKey: type === 'calendar.event.created' ? 'calendar.event_created' : 'calendar.event_invited',
+          values: { actorName: who },
+          actorId: p.byUserId ?? null,
+        });
         return;
       }
 
       if (type === 'calendar.event.participant_removed') {
-        const name = (await this.nameOf(p.removedUserId))?.trim() || this.src('messenger.participantFallback');
+        const name = (await this.nameOf(p.removedUserId))?.trim() || '';
         await this.messenger.syncEventChatMembers(eventId);
         // Plaque only if a chat already exists (don't create one just to announce a removal).
-        if (await this.chatExists(eventId)) {
-          await this.messenger.postEventSystemMessage(eventId, type, this.src('chatter.type.calendar.event_left', { name }));
+        if (await this.chatExists(eventId) && p.removedUserId) {
+          await this.messenger.postEventSystemMessage(eventId, type, {
+            typeKey: 'calendar.event_left',
+            values: name ? { targetName: name, targetUserId: p.removedUserId } : { targetNameKey: 'messenger.participantFallback', targetUserId: p.removedUserId },
+          });
         }
         return;
       }
 
       if (type === 'calendar.event.updated') {
         if (!(await this.chatExists(eventId))) return;
-        await this.messenger.postEventSystemMessage(eventId, type, this.src('chatter.type.calendar.event_updated'));
+        await this.messenger.postEventSystemMessage(eventId, type, { typeKey: 'calendar.event_updated' });
         return;
       }
       // calendar.event.rsvp and others: tuples already resynced; no plaque.

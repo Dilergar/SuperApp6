@@ -193,6 +193,8 @@ export const NOTIFICATION_SERVICES = {
   security: { contexts: 'both', order: 900 },
   /** Правила видимости (core/visibility): раскрытия, публикация политики, пауза раскрытий */
   visibility: { contexts: 'workspace', order: 902 },
+  /** Данные и сроки хранения (core/lifecycle): смена срока организацией, заморозки, завершение стирания */
+  lifecycle: { contexts: 'both', order: 903 },
   /** Согласия и документы платформы (core/consents): новые версии условий, квитанции, удаление аккаунта */
   consents: { contexts: 'both', order: 905 },
   /** Кабинет платформы (core/platform): security-alert владельцам, заявки four-eyes — только сотрудникам платформы */

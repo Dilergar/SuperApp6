@@ -20,6 +20,7 @@ import {
   ChronicleQueryInput,
   JournalQueryInput,
   chatterTypeKeysOf,
+  lifecyclePolicy,
 } from '@superapp/shared';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { DatabaseService } from '../../shared/database/database.service';
@@ -27,6 +28,7 @@ import { fullName } from '../../shared/utils/user-name';
 import { JobDiscardError, JobsRegistry } from '../jobs/jobs.registry';
 import { JobsService } from '../jobs/jobs.service';
 import { ChatterRefRegistry } from './chatter-ref.registry';
+import { LifecycleSettings } from '../lifecycle/lifecycle.settings';
 import { I18nService } from '../../shared/i18n/i18n.service';
 import { forbidden, notFound } from '../../shared/errors/api-error';
 import { DELETED_USER_MARKER, renderChatter, chatterChangeDisplay, type ChatterRawKind } from '@superapp/i18n';
@@ -100,6 +102,7 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     private readonly jobs: JobsService,
     private readonly jobsRegistry: JobsRegistry,
     private readonly i18n: I18nService,
+    private readonly lifecycleSettings: LifecycleSettings,
   ) {}
 
   /**
@@ -497,7 +500,32 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
     const ok = await resolver.canView(viewerId, refId);
     if (!ok) throw forbidden('chatter.forbidden');
 
-    return this.page({ refType, refId }, q.cursor, q.limit, viewerId);
+    const where: Prisma.ChatterEntryWhereInput = { refType, refId };
+    return this.page({ ...where, ...(await this.retentionWhere(where)) }, q.cursor, q.limit, viewerId);
+  }
+
+  /**
+   * Срок хранения хроники, выбранный организацией, действует на ЧТЕНИИ сразу (правило
+   * принуждения при чтении): записи организации старше её срока не показываются, раннер
+   * лишь освобождает место. Лента одной записи почти всегда принадлежит одной организации —
+   * берём их до пяти; личные записи (без организации) срока организации не знают.
+   */
+  private async retentionWhere(where: Prisma.ChatterEntryWhereInput): Promise<Prisma.ChatterEntryWhereInput> {
+    const policy = lifecyclePolicy('ChatterEntry')!;
+    const owners = await this.db.chatterEntry.findMany({ where: { ...where, workspaceId: { not: null } }, select: { workspaceId: true }, distinct: ['workspaceId'], take: 5 });
+    const cut: Array<{ workspaceId: string; cutoff: Date }> = [];
+    for (const o of owners) {
+      const cutoff = await this.lifecycleSettings.readCutoff(policy, o.workspaceId!);
+      if (cutoff) cut.push({ workspaceId: o.workspaceId!, cutoff });
+    }
+    if (!cut.length) return {};
+    return {
+      OR: [
+        { workspaceId: null },
+        { workspaceId: { notIn: cut.map((c) => c.workspaceId) } },
+        ...cut.map((c) => ({ workspaceId: c.workspaceId, createdAt: { gte: c.cutoff } })),
+      ],
+    };
   }
 
   /**
@@ -518,6 +546,9 @@ export class ChatterService implements OnModuleInit, OnApplicationBootstrap {
 
     const where: Prisma.ChatterEntryWhereInput = { workspaceId };
     if (q.category) where.typeKey = { in: chatterTypeKeysOf(q.category) };
+    // Срок хроники организации действует на чтении сразу
+    const cutoff = await this.lifecycleSettings.readCutoff(lifecyclePolicy('ChatterEntry')!, workspaceId);
+    if (cutoff) where.createdAt = { gte: cutoff };
     return this.page(where, q.cursor, q.limit, viewerId);
   }
 

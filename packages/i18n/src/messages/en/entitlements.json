@@ -32,7 +32,10 @@
     "visibilityPresets": "Visibility rule presets",
     "visibilityMaxRules": "Visibility rules",
     "visibilityRevealsPerDay": "Data reveals per day",
-    "lifecycleHolds": "Legal holds"
+    "lifecycleHolds": "Legal holds",
+    "lifecycleRetentionMessages": "Longest retention of chat messages, days",
+    "lifecycleRetentionRecords": "Longest retention of record history, days",
+    "lifecycleRetentionIntegrations": "Longest retention of the webhook delivery log, days"
   },
   "lock": {
     "quotaFull": "Storage is full",

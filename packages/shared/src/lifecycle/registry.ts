@@ -6,6 +6,7 @@
 // <id>.title` в трёх каталогах. Проверки ниже — общий источник для смоука бута API и стража
 // `pnpm check:lifecycle` (он же сверяет реестр со схемой Prisma, миграциями и кодом).
 import { AUDIT_REGISTRY } from '../audit';
+import { ENTITLEMENT_REGISTRY } from '../entitlements';
 import { CORE_LIFECYCLE } from './core';
 import { MESSENGER_LIFECYCLE } from './messenger';
 import { PERSONAL_LIFECYCLE } from './personal';
@@ -19,6 +20,7 @@ import {
   LIFECYCLE_HOLD_REQUIRED_CLASSES,
   LIFECYCLE_ROOTS,
   LIFECYCLE_SUBJECT_ROLES,
+  LIFECYCLE_TENANT_CLASSES,
   type LifecycleDataClass,
   type LifecycleDuration,
   type LifecycleEffectiveRetention,
@@ -597,12 +599,20 @@ export function lifecycleRegistryProblems(): string[] {
     if (r.tenantConfigurable) {
       if (r.floorDays === undefined) add(at, 'tenantConfigurable needs a legal floor (floorDays)');
       if (!r.entitlementKey) add(at, 'tenantConfigurable needs entitlementKey (the plan ceiling)');
+      // Класс вне списка организация не увидит на странице сроков — выбор был бы недостижим
+      if (!(LIFECYCLE_TENANT_CLASSES as readonly string[]).includes(p.dataClass)) add(at, `tenantConfigurable class "${p.dataClass}" is not in LIFECYCLE_TENANT_CLASSES`);
     }
     if (r.userConfigurable && !p.dataClass.startsWith('user_content')) add(at, 'userConfigurable only for user content');
     if (r.entitlementKey) {
       const m = ENTITLEMENT_KEY_RE.exec(r.entitlementKey);
       if (!m) add(at, `entitlementKey "${r.entitlementKey}" must be lifecycle.retention.<class>.ceilingDays`);
       else if (m[1] !== p.dataClass) add(at, `entitlementKey class "${m[1]}" ≠ data class "${p.dataClass}"`);
+      else {
+        // Потолок тарифа — ключ движка тарифов вида limit у организации (null = без потолка)
+        const def = (ENTITLEMENT_REGISTRY as Readonly<Record<string, { kind: string; subjects: readonly string[] } | undefined>>)[r.entitlementKey];
+        if (!def) add(at, `entitlementKey "${r.entitlementKey}" is not in the entitlements registry`);
+        else if (def.kind !== 'limit' || !def.subjects.includes('workspace')) add(at, `entitlementKey "${r.entitlementKey}" must be a workspace limit (null = no ceiling)`);
+      }
     }
 
     // стирание субъекта
@@ -703,6 +713,12 @@ export function lifecycleRegistryProblems(): string[] {
     // Каскадная политика обязана иметь того, кто её удаляет
     if (p.enforcement.kind === 'cascade' && !lifecycleIncomingEdges(id).some((e) => DELETION_EDGE_KINDS.has(e.kind))) {
       add(id, 'cascade enforcement without an incoming deep/refcount/async_delete edge — nothing deletes it');
+    }
+  }
+  // Каждый класс страницы сроков организации настраивается хоть одной политикой
+  for (const cls of LIFECYCLE_TENANT_CLASSES) {
+    if (!LIFECYCLE_POLICY_IDS.some((id) => LIFECYCLE_POLICIES[id].dataClass === cls && LIFECYCLE_POLICIES[id].retention.tenantConfigurable)) {
+      add(`class ${cls}`, 'in LIFECYCLE_TENANT_CLASSES but no policy of the class is tenantConfigurable');
     }
   }
   // Каскад организации обязан упорядочиваться: цикл шагов = удаление, которое никогда не закончится

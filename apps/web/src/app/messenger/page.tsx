@@ -427,6 +427,12 @@ function MessengerInner() {
       const mine = p.message.authorId === currentUserId;
       const msg: ChatMessage = { ...p.message, mine };
       upsertMessageInCache(p.chatId, msg);
+      // Таймер автоудаления сменился (системная плашка): сроки в шапке и граница ленты — заново
+      const ev = (p.message.payload as { eventType?: string } | null)?.eventType;
+      if (ev === 'chat.timer_set' || ev === 'chat.timer_off') {
+        void queryClient.invalidateQueries({ queryKey: messengerChatDetailKey(p.chatId) });
+        void queryClient.invalidateQueries({ queryKey: messengerMessagesKey(p.chatId) });
+      }
 
       const isOpen = activeChatIdRef.current === p.chatId;
       bumpInboxPreview(p.chatId, msg, { incrementUnread: !mine && !isOpen });

@@ -28,6 +28,77 @@ export const NOTIFICATION_PERSON_ID_KEYS = ['targetUserId', 'otherUserId', 'from
 export const CHANGE_PERSON_ID_KEYS = ['fromUserId', 'toUserId'] as const;
 
 /**
+ * Системная плашка чата (`messages.payload` системного сообщения): структура записи
+ * `chatter = { actorName, actorId, payload, changes }` (группы, задачи, сервисы, таймер) или
+ * событие уведомления `notification = { type, payload }`, плюс снимок `text` в языке-источнике.
+ * Имя актора лежит парой `actorName` ↔ `actorId`, прочие имена — парами `PERSON_NAME_REFS`.
+ * Ключи функции `message_person_ids(payload)` (частичный GIN-индекс по системным сообщениям).
+ */
+export const PLAQUE_ACTOR_ID_KEY = 'actorId';
+export const MESSAGE_PERSON_ID_KEYS = [
+  PLAQUE_ACTOR_ID_KEY,
+  ...new Set<string>([...CHATTER_PERSON_ID_KEYS, ...CHANGE_PERSON_ID_KEYS, ...NOTIFICATION_PERSON_ID_KEYS]),
+] as readonly string[];
+
+type Json = Record<string, unknown>;
+const asObj = (v: unknown): Json | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Json) : null);
+
+/**
+ * Нарушения правила в плашке: имя актора без `actorId` (кроме пустого — «кто-то» — и метки
+ * удалённого, которые не имена), имена в payload без пары. Пусто — порядок.
+ */
+export function plaquePersonProblems(chatter: { actorName?: unknown; actorId?: unknown; payload?: unknown } | null | undefined, deletedLabel: string): string[] {
+  if (!chatter) return [];
+  const out: string[] = [];
+  const name = typeof chatter.actorName === 'string' ? chatter.actorName.trim() : '';
+  if (name && name !== deletedLabel && !(typeof chatter.actorId === 'string' && chatter.actorId)) out.push('actorName without actorId');
+  out.push(...personRefProblems(asObj(chatter.payload), CHATTER_PERSON_ID_KEYS));
+  return out;
+}
+
+/**
+ * Переписать имена человека в payload системной плашки меткой (стирание): актор структуры,
+ * пары в её payload и изменениях, пары в payload события уведомления. Снимок `text` пересобирает
+ * вызывающий (ему нужен каталог) — по флагу `changed`. Id остаются: зритель рисует томбстоун.
+ */
+export function redactPlaquePersonRefs(payload: unknown, userId: string, label: string): { payload: unknown; changed: boolean } {
+  const p = asObj(payload);
+  if (!p) return { payload, changed: false };
+  const next: Json = { ...p };
+  let changed = false;
+  const chatter = asObj(p.chatter);
+  if (chatter) {
+    const c: Json = { ...chatter };
+    if (c[PLAQUE_ACTOR_ID_KEY] === userId && typeof c.actorName === 'string' && c.actorName !== label) {
+      c.actorName = label;
+      changed = true;
+    }
+    const inner = redactPersonRefs(c.payload ?? null, c.changes ?? null, userId, label);
+    if (inner.changed) {
+      if (c.payload !== undefined) c.payload = inner.payload;
+      if (c.changes !== undefined) c.changes = inner.changes;
+      changed = true;
+    }
+    // Имя актора продублировано в значениях шаблона (`payload.actorName` групповых плашек)
+    const values = asObj(c.payload);
+    if (values && c[PLAQUE_ACTOR_ID_KEY] === userId && typeof values.actorName === 'string' && values.actorName !== label) {
+      c.payload = { ...values, actorName: label };
+      changed = true;
+    }
+    next.chatter = c;
+  }
+  const notification = asObj(p.notification);
+  if (notification) {
+    const inner = redactPersonRefs(notification.payload ?? null, null, userId, label);
+    if (inner.changed) {
+      next.notification = { ...notification, payload: inner.payload };
+      changed = true;
+    }
+  }
+  return { payload: changed ? next : payload, changed };
+}
+
+/**
  * `targetName` — имя ЦЕЛИ записи: человека (тогда рядом `targetUserId`) или объекта (файл,
  * папка Диска и Заметок — без id). Проверке пары не подлежит: имя человека-цели обязан
  * сопровождать `targetUserId` сам писатель.

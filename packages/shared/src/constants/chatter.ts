@@ -6,7 +6,7 @@
 // ============================================================
 
 /** Категории для фильтра «Журнала организации» */
-export const CHATTER_CATEGORIES = ['tasks', 'staff', 'hr', 'drive', 'share', 'documents', 'processes', 'objects', 'notes', 'visibility'] as const;
+export const CHATTER_CATEGORIES = ['tasks', 'staff', 'hr', 'drive', 'share', 'documents', 'processes', 'objects', 'notes', 'visibility', 'lifecycle'] as const;
 export type ChatterCategory = (typeof CHATTER_CATEGORIES)[number];
 
 export interface ChatterTypeMeta {
@@ -716,6 +716,9 @@ export const CHATTER_REGISTRY = {
   'note.folder.restored': { icon: '♻️', category: 'notes', chatPost: false },
   // ---- Правила видимости (core/visibility; refType='visibility_policy', refId = организация) ----
   'visibility_policy.published': { icon: '👁️', category: 'visibility', chatPost: false },
+  // ---- Сроки хранения организации (core/lifecycle; refType='lifecycle_settings', refId = организация) ----
+  'lifecycle_settings.retention_changed': { icon: '🗄️', category: 'lifecycle', chatPost: false },
+  'lifecycle_settings.retention_cancelled': { icon: '↩️', category: 'lifecycle', chatPost: false },
 } as const satisfies Record<string, ChatterTypeMeta>;
 
 export type ChatterTypeKey = keyof typeof CHATTER_REGISTRY;

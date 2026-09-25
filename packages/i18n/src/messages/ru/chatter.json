@@ -92,7 +92,7 @@
     "calendar": {
       "event_created": "{actorName} создал(а) событие",
       "event_invited": "{actorName} пригласил(а) участников",
-      "event_left": "{name} больше не участник",
+      "event_left": "{targetName} больше не участник",
       "event_updated": "Событие обновлено"
     },
     "call": {
@@ -128,11 +128,11 @@
       "version_saved": "{actorName} сохранил(а) версию {versionNo}"
     },
     "group": {
-      "admin_granted": "{name} назначен(а) администратором",
+      "admin_granted": "{targetName} назначен(а) администратором",
       "created": "{actorName} создал(а) группу «{name}»",
-      "member_added": "{name} добавлен(а) в группу",
+      "member_added": "{targetName} добавлен(а) в группу",
       "member_left": "{actorName} покинул(а) группу",
-      "member_removed": "{name} удалён(а) из группы",
+      "member_removed": "{targetName} удалён(а) из группы",
       "renamed": "{actorName} переименовал(а) группу в «{title}»"
     },
     "hr": {
@@ -275,6 +275,14 @@
     },
     "visibility_policy": {
       "published": "{actorName} опубликовал(а) правила видимости «{typeLabel}», версия {version}"
+    },
+    "lifecycle_settings": {
+      "retention_changed": "{actorName} изменил(а) срок хранения «{classLabel}»: {fromDays, plural, =0 {вечно} one {# день} few {# дня} many {# дней} other {# дня}} → {toDays, plural, =0 {вечно} one {# день} few {# дня} many {# дней} other {# дня}}{shortened, select, true { (с {effectiveOn})} other {}}",
+      "retention_cancelled": "{actorName} отменил(а) сокращение срока «{classLabel}»: остаётся {toDays, plural, =0 {вечно} one {# день} few {# дня} many {# дней} other {# дня}}"
+    },
+    "chat": {
+      "timer_set": "{actorName} включил(а) автоудаление: сообщения исчезают через {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
+      "timer_off": "{actorName} выключил(а) автоудаление"
     }
   }
 }

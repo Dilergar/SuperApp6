@@ -42,6 +42,7 @@ import { PLATFORM_NOTIFICATIONS } from './platform';
 import { KEYS_NOTIFICATIONS } from './keys';
 import { CONSENTS_NOTIFICATIONS } from './consents';
 import { VISIBILITY_NOTIFICATIONS } from './visibility';
+import { LIFECYCLE_NOTIFICATIONS } from './lifecycle';
 
 export * from './types';
 
@@ -73,6 +74,7 @@ const REGISTRY_RAW = {
   ...KEYS_NOTIFICATIONS,
   ...CONSENTS_NOTIFICATIONS,
   ...VISIBILITY_NOTIFICATIONS,
+  ...LIFECYCLE_NOTIFICATIONS,
 } as const satisfies Record<string, NotificationTypeDef>;
 
 /** Union типов — выводится из реестра, а не пишется руками. */

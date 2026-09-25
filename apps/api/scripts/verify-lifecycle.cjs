@@ -24,7 +24,7 @@
 const { PrismaClient, Prisma } = require('@prisma/client');
 const Redis = require('ioredis');
 const nodeCrypto = require('node:crypto');
-const { BASE, SUITE, makeChecker, crash, call, login, devCode, createSuiteWorkspace } = require('./_lib.cjs');
+const { BASE, SUITE, makeChecker, crash, call, login, devCode, createSuiteWorkspace, archiveSuiteWorkspace, consoleLogin, consoleSudo } = require('./_lib.cjs');
 const { registrationConsents, acceptAllPending } = require('./_consents.cjs');
 const { LIFECYCLE_POLICIES, LIFECYCLE_POLICY_IDS, lifecycleCertificatePayload } = require('@superapp/shared');
 
@@ -45,7 +45,7 @@ const CANARY_STORES = [
   'PdIncidentEvent', 'IdempotencyInbox', 'SecurityEvent', 'SecurityDigest', 'SecurityPartitionArchive',
   'SecurityAlert', 'VisibilityPolicy', 'VisibilityRule', 'WorkspaceVisibilitySettings', 'LifecycleSetting',
   'LifecycleHold', 'LifecycleHoldStore', 'LifecycleHoldExtraction', 'LifecycleErasureRequest',
-  'LifecycleErasureJournal', 'LifecycleExport', 'LifecycleDeletedRow', 'LifecycleRun', 'LifecycleBackupRun',
+  'LifecycleErasureJournal', 'LifecycleExport', 'LifecycleDeletedRow', 'LifecycleRun', 'LifecycleBackupRun', 'LifecycleStorageDaily', 'LifecyclePolicyOverride',
   'LifecyclePartitionSpec', 'LifecyclePartitionArchive', 'Chat', 'ChatMember',
   'Message', 'ScheduledMessage', 'Workspace', 'WorkspaceMember', 'WorkspaceInvitation', 'LegalEntity',
   'WorkspaceBankAccount', 'StaffDepartment', 'StaffPosition', 'StaffBranch', 'StaffAssignment',
@@ -258,6 +258,14 @@ async function erasureEndToEnd(prisma, s1) {
   const holds = holdsOf(t1);
   const lastName = `Лцс${rnd()}`;
   const acc = await registerThrowaway(lastName);
+  // Группа соседа с двумя плашками о человеке (он актор и цель): имя парой с id
+  const plaqueName = `Сьют ${lastName}`;
+  const plaqueChat = await prisma.chat.create({ data: { type: 'group', title: `Сьют плашки ${rnd()}`, createdById: s1.id, lastSeq: 2, members: { create: [{ userId: s1.id, role: 'owner' }] } }, select: { id: true } });
+  const plaques = await Promise.all([
+    prisma.message.create({ data: { chatId: plaqueChat.id, type: 'system', seq: 1, payload: { eventType: 'group.renamed', text: `${plaqueName} renamed the group to «T»`, chatter: { refType: 'chat', actorName: plaqueName, actorId: acc.id, payload: { actorName: plaqueName, title: 'T' } } } }, select: { id: true } }),
+    prisma.message.create({ data: { chatId: plaqueChat.id, type: 'system', seq: 2, payload: { eventType: 'group.member_added', text: `${plaqueName} was added to the group`, chatter: { refType: 'chat', actorName: null, payload: { targetName: plaqueName, targetUserId: acc.id } } } }, select: { id: true } }),
+  ]);
+  const plaqueJson = async () => (await prisma.message.findMany({ where: { id: { in: plaques.map((m) => m.id) } }, select: { payload: true } })).map((m) => JSON.stringify(m.payload));
   try {
     await acceptAllPending(BASE, acc.token);
     await call('POST', '/tasks', acc.token, { title: `личное ${lastName}` });
@@ -275,10 +283,17 @@ async function erasureEndToEnd(prisma, s1) {
     let r = await call('POST', '/lifecycle/dev/erasure/run', t1, { requestId: req.id, now: true });
     let u = await prisma.user.findUnique({ where: { id: acc.id }, select: { deletedAt: true, lastName: true, phone: true } });
     check('стирание под заморозкой хранителя: аккаунт скрыт, ПДн на месте, заявка ждёт', r.ok && r.json?.data?.status === 'held' && !!u?.deletedAt && u?.lastName === lastName, `${r.status} ${r.json?.data?.status} last=${u?.lastName}`);
+    check('плашки чатов под заморозкой хранителя — улика: имя на месте', (await plaqueJson()).every((j) => j.includes(lastName)));
     await holds.release(hAcc.json?.data?.id);
     r = await call('POST', '/lifecycle/dev/erasure/run', t1, { requestId: req.id });
     u = await prisma.user.findUnique({ where: { id: acc.id }, select: { lastName: true, phone: true, firstName: true } });
     check('после снятия — горячее стёрто: номер освобождён, фамилии нет, строка — томбстоун', r.ok && r.json?.data?.status === 'hot_purged' && u?.lastName === null && u?.phone === `deleted:${acc.id}`, `${r.json?.data?.status} ${u?.phone}`);
+    const pj = await plaqueJson();
+    check(
+      'плашки чатов соседа: имени нет ни в структуре, ни в снимке текста, id остался (томбстоун по id)',
+      pj.length === 2 && pj.every((j) => !j.includes(lastName) && j.includes(acc.id) && j.includes('A deleted user')),
+      pj.map((j) => j.slice(0, 160)).join(' | '),
+    );
     check('личная задача стёрта', (await prisma.task.count({ where: { creatorId: acc.id, workspaceId: null } })) === 0);
 
     // Ключи на уничтожение → окно бэкапов → сертификат
@@ -310,6 +325,7 @@ async function erasureEndToEnd(prisma, s1) {
     check('журнал без ПДн: псевдоним вместо id', jr.length > 0 && jr.every((j) => j.pseudonym && !j.pseudonym.includes(acc.id)));
   } finally {
     await holds.releaseAll();
+    await prisma.chat.delete({ where: { id: plaqueChat.id } }).catch(() => undefined);
   }
 }
 
@@ -336,6 +352,262 @@ async function canary(prisma, s1) {
   const m = await fetch(metricsUrl, { headers: process.env.METRICS_TOKEN ? { Authorization: `Bearer ${process.env.METRICS_TOKEN}` } : {} });
   const text = m.ok ? await m.text() : '';
   check('метрики канарейки в /metrics (находки по хранилищу, последний чистый прогон, полнота)', /lifecycle_canary_failures_total\{store="Task"\}/.test(text) && /lifecycle_canary_last_success_seconds \d/.test(text) && /lifecycle_canary_unseeded_policies 0/.test(text), `${m.status}`);
+}
+
+// ---------------------------------------------------------------- 7. сроки хранения организации и таймер чата (Э5)
+async function retentionSettings(prisma, s1) {
+  console.log('\n-- 7. сроки организации: коридор, отложенное сокращение, чтение в сроке, таймер чата --');
+  const t1 = s1.token;
+  const s2 = await login(SUITE.p2);
+  const s3 = await login(SUITE.p3);
+  // Владелец — suite2: сотрудник платформы (suite1) задаёт ей условия тарифа не «на себя»
+  const owner = s2;
+  const tO = owner.token;
+  const ws = await createSuiteWorkspace(tO, 'Сьют-Сроки');
+  const wsId = ws.json?.data?.id;
+  // Член организации (получатель уведомления) — suite1, админ (получатель уведомления о заморозке) — suite3
+  for (const [who, phone] of [[s1, SUITE.p1], [s3, SUITE.p3]]) {
+    const inv = await call('POST', `/workspaces/${wsId}/invitations`, tO, { phone });
+    const mine = (await call('GET', '/workspaces/invitations/incoming', who.token)).json?.data?.find((i) => i.workspaceId === wsId);
+    await call('POST', `/workspaces/invitations/${mine?.id ?? inv.json?.data?.id}/accept`, who.token);
+  }
+  await call('PATCH', `/workspaces/${wsId}/members/${s3.id}`, tO, { role: 'admin' });
+  const member = s1;
+  const base = `/workspaces/${wsId}/lifecycle`;
+
+  let r = await call('GET', `${base}/settings`, tO);
+  const byClass = Object.fromEntries((r.json?.data?.classes ?? []).map((c) => [c.dataClass, c]));
+  check('настройки: три класса организации, умолчание — «вечно» у сообщений и хроники', r.ok && byClass.user_content_shared?.current === 'forever' && byClass.tenant_record?.current === 'forever' && !!byClass.operational, `${r.status}`);
+  check('коридор журнала вебхуков: пол 7, потолок = общий срок партиций (30)', byClass.operational?.min === 7 && byClass.operational?.max === 30, JSON.stringify({ min: byClass.operational?.min, max: byClass.operational?.max }));
+  check('классы «по закону» показаны с нормой (без выбора)', (r.json?.data?.law ?? []).some((l) => l.citation), JSON.stringify((r.json?.data?.law ?? []).map((l) => l.dataClass)));
+  r = await call('GET', `${base}/settings`, member.token);
+  check('рядовой член страницу сроков не видит (404, не оракул)', r.status === 404, `${r.status}`);
+
+  r = await call('PUT', `${base}/settings`, tO, { dataClass: 'operational', days: 3 });
+  check('ниже пола закона → 400 lifecycle.retentionBelowFloor', r.status === 400 && r.code === 'lifecycle.retentionBelowFloor', `${r.status} ${r.code}`);
+  r = await call('PUT', `${base}/settings`, tO, { dataClass: 'operational', days: 60 });
+  check('выше потолка политики → 400 lifecycle.retentionAboveCeiling', r.status === 400 && r.code === 'lifecycle.retentionAboveCeiling', `${r.status} ${r.code}`);
+  r = await call('PUT', `${base}/settings`, tO, { dataClass: 'tenant_record', days: '10' });
+  check('срок строкой-числом — не срок (400)', r.status === 400, `${r.status}`);
+
+  // Потолок тарифа — индивидуальным условием Кабинета: «вечно» выше потолка → 402 с разблокировкой
+  const c = await consoleLogin(SUITE.p1);
+  const ct = c.token;
+  await consoleSudo(ct);
+  const ceilingKey = 'lifecycle.retention.tenant_record.ceilingDays';
+  const until = new Date(Date.now() + 86_400_000).toISOString();
+  r = await call('POST', '/platform/commands/entitlements.override.set', ct, {
+    input: { subject: { type: 'workspace', id: wsId }, key: ceilingKey, mode: 'set', value: 90, reason: 'suite: plan ceiling of the record history', validUntil: until },
+    idempotencyKey: nodeCrypto.randomUUID(),
+    reason: 'suite: plan ceiling of the record history',
+  });
+  const ceilingSet = r.ok;
+  check('условие Кабинета: потолок хроники 90 дней', ceilingSet, `${r.status} ${r.code ?? ''}`);
+  r = await call('GET', `${base}/settings`, tO);
+  const rec = (r.json?.data?.classes ?? []).find((x) => x.dataClass === 'tenant_record');
+  check('карточка видит потолок тарифа и «выше тарифа» у текущего «вечно»', rec?.planCeiling === 90 && rec?.max === 90 && rec?.aboveCeiling === true && !!rec?.unlock, JSON.stringify({ ceiling: rec?.planCeiling, max: rec?.max, above: rec?.aboveCeiling }));
+  r = await call('PUT', `${base}/settings`, tO, { dataClass: 'tenant_record', days: 365 });
+  check('выше потолка тарифа → 402 entitlement.limit_reached с разблокировкой', r.status === 402 && r.code === 'entitlement.limit_reached', `${r.status} ${r.code}`);
+
+  // Предпросмотр и отложенное сокращение
+  r = await call('POST', `${base}/settings/preview`, tO, { dataClass: 'tenant_record', days: 30 });
+  const pv = r.json?.data;
+  const in30 = Date.now() + 30 * 86_400_000;
+  check('предпросмотр: сокращение, вступит через 30 дней, счёт по политикам класса', r.ok && pv?.shortened === true && Math.abs(new Date(pv?.effectiveAt).getTime() - in30) < 120_000 && Array.isArray(pv?.counts) && pv.counts.some((x) => x.policyId === 'ChatterEntry'), JSON.stringify(pv));
+  const t0 = new Date();
+  r = await call('PUT', `${base}/settings`, tO, { dataClass: 'tenant_record', days: 30 });
+  check('сокращение сохранено отложенным: действует прежний срок, дата вступления через 30 дней', r.ok && r.json?.data?.current === 'forever' && r.json?.data?.pending?.days === 30, JSON.stringify(r.json?.data?.pending));
+  check('смена срока: событие журнала безопасности (организация видит)', (await prisma.securityEvent.count({ where: { eventKey: 'lifecycle.settings.changed', workspaceId: wsId, occurredAt: { gte: t0 } } })) === 1);
+  let notif = 0;
+  for (let i = 0; i < 20 && !notif; i++) {
+    await new Promise((res) => setTimeout(res, 300));
+    notif = await prisma.notification.count({ where: { userId: member.id, event: { type: 'lifecycle.retention.changed', workspaceId: wsId } } });
+  }
+  check('уведомление «срок изменён» — рядовому члену организации', notif === 1, notif);
+  r = await call('GET', `/chatter/lifecycle_settings/${wsId}`, tO);
+  check('хроника раздела сроков: запись о смене', r.ok && (r.json?.data?.items ?? []).some((e) => e.typeKey === 'lifecycle_settings.retention_changed'), `${r.status}`);
+  r = await call('GET', `/chatter/lifecycle_settings/${wsId}`, member.token);
+  check('хроника раздела — только владельцу и админу (403 члену)', r.status === 403, `${r.status}`);
+  r = await call('DELETE', `${base}/settings/tenant_record/pending`, tO);
+  check('отмена отложенного сокращения', r.ok && r.json?.data?.pending === null, `${r.status}`);
+  r = await call('DELETE', `${base}/settings/tenant_record/pending`, tO);
+  check('отменять нечего → 404 lifecycle.noPendingChange', r.status === 404 && r.code === 'lifecycle.noPendingChange', `${r.status} ${r.code}`);
+
+  // Чтение в сроке: вступившее сокращение (время подвинуто в своей строке) режет хронику сразу
+  await call('PUT', `${base}/settings`, tO, { dataClass: 'tenant_record', days: 30 });
+  await prisma.lifecycleSetting.update({ where: { workspaceId_dataClass: { workspaceId: wsId, dataClass: 'tenant_record' } }, data: { pendingEffectiveAt: new Date(Date.now() - 1000) } });
+  // Повтор того же срока — no-op, сбрасывающий кэш выбора этого процесса
+  await call('PUT', `${base}/settings`, tO, { dataClass: 'tenant_record', days: 30 });
+  const old = await prisma.chatterEntry.create({ data: { refType: 'workspace', refId: wsId, workspaceId: wsId, actorId: owner.id, typeKey: 'staff.unit_created', payload: { unitLabelKey: 'staff.unitLabel.department', unitName: 'Сьют старое' }, createdAt: new Date(Date.now() - 40 * 86_400_000) } });
+  const fresh = await prisma.chatterEntry.create({ data: { refType: 'workspace', refId: wsId, workspaceId: wsId, actorId: owner.id, typeKey: 'staff.unit_created', payload: { unitLabelKey: 'staff.unitLabel.department', unitName: 'Сьют свежее' } } });
+  r = await call('GET', `/workspaces/${wsId}/journal?limit=100`, tO);
+  const ids = new Set((r.json?.data?.items ?? []).map((e) => String(e.id)));
+  check('журнал организации: запись старше срока скрыта сразу, свежая видна', r.ok && !ids.has(String(old.id)) && ids.has(String(fresh.id)), `${r.status} old=${ids.has(String(old.id))} fresh=${ids.has(String(fresh.id))}`);
+  r = await call('GET', `/chatter/workspace/${wsId}?limit=100`, tO);
+  const ids2 = new Set((r.json?.data?.items ?? []).map((e) => String(e.id)));
+  check('лента записи: то же правило', r.ok && !ids2.has(String(old.id)) && ids2.has(String(fresh.id)), `${r.status}`);
+  r = await call('POST', '/lifecycle/dev/purge/run', t1, { policyId: 'ChatterEntry' });
+  check('раннер: правило организации удаляет только её строки старше срока', r.ok && (await prisma.chatterEntry.count({ where: { id: old.id } })) === 0 && (await prisma.chatterEntry.count({ where: { id: fresh.id } })) === 1, `${r.status} ${r.code ?? ''}`);
+  await prisma.chatterEntry.deleteMany({ where: { id: fresh.id } }).catch(() => undefined);
+
+  // Заморозка организации (тариф — условием Кабинета): уведомление админу, хранителю — нет
+  await call('POST', '/platform/commands/entitlements.override.set', ct, {
+    input: { subject: { type: 'workspace', id: wsId }, key: 'lifecycle.holds', mode: 'set', value: true, reason: 'suite: legal holds of the organisation', validUntil: until },
+    idempotencyKey: nodeCrypto.randomUUID(),
+    reason: 'suite: legal holds of the organisation',
+  });
+  const t2h = new Date();
+  const hold = await call('POST', `${base}/holds`, tO, { scope: 'custodian', custodianUserId: member.id, reasonCode: 'audit' });
+  let adminNotified = 0;
+  for (let i = 0; i < 20 && !adminNotified; i++) {
+    await new Promise((res) => setTimeout(res, 300));
+    adminNotified = await prisma.notification.count({ where: { userId: s3.id, event: { type: 'lifecycle.hold.created', workspaceId: wsId, createdAt: { gte: t2h } } } });
+  }
+  check('заморозка: уведомление админу организации', hold.ok && adminNotified === 1, `${hold.status} ${adminNotified}`);
+  check('заморозка тихая: хранителю уведомления нет', (await prisma.notification.count({ where: { userId: member.id, event: { type: 'lifecycle.hold.created', createdAt: { gte: t2h } } } })) === 0);
+
+  // Чип «Заморожено» карточки: руководитель и выше видит; рядовой и сам хранитель — «нет» без
+  // отказа (тихая заморозка); не участник — 404; запись не своей организации — 404
+  const st = (token, type, id, ws = wsId) => call('GET', `/workspaces/${ws}/lifecycle/holds/status?type=${type}&id=${id}`, token);
+  r = await st(tO, 'user', member.id);
+  check('статус заморозки: владелец видит хранителя под заморозкой', r.ok && r.json?.data?.held === true, `${r.status} ${JSON.stringify(r.json?.data)}`);
+  r = await st(s3.token, 'user', member.id);
+  check('статус заморозки: админ видит тоже', r.ok && r.json?.data?.held === true, `${r.status}`);
+  r = await st(member.token, 'user', member.id);
+  check('статус заморозки: хранитель о себе не узнаёт — «нет» без отказа', r.ok && r.json?.data?.held === false, `${r.status}`);
+  r = await st(tO, 'user', s3.id);
+  check('статус заморозки: человек без заморозки — «нет»', r.ok && r.json?.data?.held === false, `${r.status}`);
+  // Хранитель — сам руководитель: по роли видел бы, но о своей заморозке не узнаёт
+  const hAdm = await call('POST', `${base}/holds`, tO, { scope: 'custodian', custodianUserId: s3.id, reasonCode: 'audit' });
+  r = await st(s3.token, 'user', s3.id);
+  const selfHidden = r.ok && r.json?.data?.held === false;
+  r = await st(tO, 'user', s3.id);
+  check('хранитель-админ о своей заморозке не узнаёт, владелец видит', hAdm.ok && selfHidden && r.json?.data?.held === true, `${hAdm.status} self=${selfHidden} owner=${r.json?.data?.held}`);
+  if (hAdm.json?.data?.id) await call('POST', `${base}/holds/${hAdm.json.data.id}/release`, tO, {});
+  r = await st(tO, 'user', member.id, nodeCrypto.randomUUID());
+  check('статус заморозки в чужой организации → 404 (не оракул)', r.status === 404, `${r.status} ${r.code}`);
+  r = await st(tO, 'OrgDocument', nodeCrypto.randomUUID());
+  check('статус записи не своей организации → 404', r.status === 404 && r.code === 'lifecycle.holdTargetInvalid', `${r.status} ${r.code}`);
+  r = await st(tO, 'user', 'not-a-uuid');
+  check('статус заморозки: кривой id → 400', r.status === 400, `${r.status}`);
+
+  if (hold.json?.data?.id) await call('POST', `${base}/holds/${hold.json.data.id}/release`, tO, {});
+  r = await st(tO, 'user', member.id);
+  check('статус заморозки: после снятия — «нет»', r.ok && r.json?.data?.held === false, `${r.status}`);
+
+  r = await call('GET', `${base}/summary`, tO);
+  check('сводка страницы: место, записи по классам, заморозки', r.ok && Array.isArray(r.json?.data?.counts) && r.json.data.counts.length === 3 && typeof r.json?.data?.activeHolds === 'number', `${r.status}`);
+
+  for (const key of [ceilingKey, 'lifecycle.holds']) {
+    await call('POST', '/platform/commands/entitlements.override.clear', ct, { input: { subject: { type: 'workspace', id: wsId }, key }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: plan conditions cleanup' });
+  }
+  // Организация прогона — в архив (не копится у suite2 за места тарифа)
+  await archiveSuiteWorkspace(wsId);
+
+  // ---- Таймер чата ----
+  r = await call('POST', '/messenger/chats/group', t1, { name: `Сьют-Таймер ${rnd()}`, memberIds: [s2.id] });
+  const chatId = r.json?.data?.id;
+  check('группа для таймера создана', r.ok && !!chatId, `${r.status} ${r.code ?? ''}`);
+  r = await call('PUT', `/messenger/chats/${chatId}/timer`, s2.token, { days: 7 });
+  check('таймер группы — только владелец и админ (403 участнику)', r.status === 403, `${r.status} ${r.code}`);
+  r = await call('PUT', `/messenger/chats/${chatId}/timer`, t1, { days: 5 });
+  check('таймер вне пресетов (1/7/30) → 400', r.status === 400, `${r.status}`);
+  // Старые сообщения: плашка создания и одно «старое» — задним числом (seq и время растут вместе)
+  const before = await prisma.chat.findUnique({ where: { id: chatId }, select: { lastSeq: true } });
+  await prisma.message.create({ data: { chatId, authorId: s1.id, type: 'text', content: 'Сьют старое', seq: before.lastSeq + 1 } });
+  await prisma.chat.update({ where: { id: chatId }, data: { lastSeq: before.lastSeq + 1 } });
+  await prisma.message.updateMany({ where: { chatId }, data: { createdAt: new Date(Date.now() - 10 * 86_400_000) } });
+  r = await call('PUT', `/messenger/chats/${chatId}/timer`, t1, { days: 7 });
+  check('таймер 7 дней включён: сроки в деталях чата', r.ok && r.json?.data?.retention?.timerDays === 7 && r.json?.data?.retention?.effectiveDays === 7 && r.json?.data?.retention?.canChange === true, JSON.stringify(r.json?.data?.retention));
+  r = await call('GET', `/messenger/chats/${chatId}/messages`, t1);
+  const msgs = r.json?.data ?? [];
+  check('лента: сообщения старше таймера скрыты сразу, плашка «таймер включён» видна', r.ok && !msgs.some((m) => m.content === 'Сьют старое') && msgs.some((m) => m.payload?.eventType === 'chat.timer_set'), JSON.stringify(msgs.map((m) => m.payload?.eventType ?? m.content)));
+  r = await call('POST', '/lifecycle/dev/purge/run', t1, { policyId: 'Message' });
+  check('раннер: таймер удаляет сообщения старше срока чата', r.ok && (await prisma.message.count({ where: { chatId, content: 'Сьют старое' } })) === 0, `${r.status} ${r.code ?? ''}`);
+  r = await call('PUT', `/messenger/chats/${chatId}/timer`, t1, { days: null });
+  check('таймер выключен: плашка «выключил»', r.ok && r.json?.data?.retention?.timerDays === null, `${r.status}`);
+  await call('DELETE', `/messenger/chats/${chatId}`, t1);
+}
+
+// ---------------------------------------------------------------- 8. дашборд «Данные» Кабинета и отчёты бэкапов (Э5)
+async function dataDashboard(prisma, s1) {
+  console.log('\n-- 8. дашборд «Данные»: вкладки, отчёт бэкапа с подписью, команды --');
+  const c = await consoleLogin(SUITE.p1);
+  const ct = c.token;
+  check('вход в Кабинет (suite1 — сотрудник платформы)', !!ct, c.login?.status);
+  // Отчёт бэкапа: в разработке токен не задан — открыто; с токеном — подпись обязательна (проверяется в проде)
+  const report = { kind: 'full', repo: 'repo1', status: 'ok', externalId: `suite-${rnd()}`, startedAt: new Date(Date.now() - 3600_000).toISOString(), finishedAt: new Date().toISOString(), bytes: 1024 };
+  let r = await fetch(`${BASE}/lifecycle/ops/backups/report`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(report) });
+  let j = await r.json().catch(() => ({}));
+  check('отчёт бэкапа принят (dev без токена)', r.ok && j.data?.created === true, r.status);
+  r = await fetch(`${BASE}/lifecycle/ops/backups/report`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(report) });
+  j = await r.json().catch(() => ({}));
+  check('повтор отчёта идемпотентен (та же строка)', r.ok && j.data?.created === false, r.status);
+  r = await fetch(`${BASE}/lifecycle/ops/backups/report`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...report, kind: 'nonsense' }) });
+  check('кривой отчёт → 400', r.status === 400, r.status);
+
+  for (const tab of ['overview', 'storage', 'retention', 'erasure', 'backups', 'canary', 'summary']) {
+    const t = await call('GET', `/platform/data/${tab}`, ct);
+    check(`вкладка «${tab}» отвечает`, t.ok, `${t.status} ${t.code ?? ''}`);
+    if (tab === 'overview') check('обзор: шесть плиток и «Нужно внимание»', ['database', 'backups', 'partitions', 'retention', 'erasure', 'canary'].every((k) => !!t.json?.data?.[k]?.level) && Array.isArray(t.json?.data?.attention), JSON.stringify(Object.keys(t.json?.data ?? {})));
+    if (tab === 'backups') check('бэкапы: отчёт в прогонах, покрытие окна 35 суток', (t.json?.data?.runs ?? []).some((x) => x.repo === 'repo1') && (t.json?.data?.coverage ?? []).length === 35, `${(t.json?.data?.coverage ?? []).length}`);
+    if (tab === 'retention') {
+      // Кабинет не предлагает отвергаемого: признаки строки совпадают с условиями команд
+      const rows = t.json?.data?.rows ?? [];
+      const by = (id) => rows.find((x) => x.policyId === id);
+      check(
+        'сроки: «срок командой» только у построчного удаления без своего шага, прогон — у ведомых раннером',
+        by('LifecycleRun')?.overridable === true && by('LifecycleRun')?.runnable === true && by('SecurityEvent')?.overridable === false && by('OrgDocument')?.runnable === false && by('OrgDocument')?.overridable === false,
+        JSON.stringify(['LifecycleRun', 'SecurityEvent', 'OrgDocument'].map((id) => ({ id, run: by(id)?.runnable, ov: by(id)?.overridable }))),
+      );
+    }
+  }
+  const plain = await login(SUITE.p2);
+  r = await call('GET', '/platform/data/overview', plain.token);
+  check('продуктовый токен в Кабинет не пускает', r.status === 401 || r.status === 403, r.status);
+
+  // Команды: пауза (step-up), срок политики (не ниже пола), пробный прогон, отчёт индексов
+  await consoleSudo(ct);
+  const pol = 'LifecycleRun';
+  r = await call('POST', '/platform/commands/lifecycle.retention.pause', ct, { input: { policyId: pol, paused: true }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: pause the retention of runs' });
+  check('пауза политики командой', r.ok && !!(await prisma.lifecyclePolicyOverride.findUnique({ where: { policyId: pol } }))?.paused, `${r.status} ${r.code ?? ''}`);
+  const run = await call('POST', '/lifecycle/dev/purge/run', s1.token, { policyId: pol });
+  check('раннер уважает паузу (stopped: paused)', run.ok && run.json?.data?.stoppedReason === 'paused', JSON.stringify(run.json?.data?.stoppedReason));
+  r = await call('POST', '/platform/commands/lifecycle.retention.pause', ct, { input: { policyId: pol, paused: false }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: resume the retention of runs' });
+  check('пауза снята — строки переопределения нет', r.ok && !(await prisma.lifecyclePolicyOverride.findUnique({ where: { policyId: pol } })), `${r.status}`);
+  // Пол закона у тревог безопасности — 3 года: срок короче командой не задать
+  r = await call('POST', '/platform/commands/lifecycle.retention.override', ct, { input: { policyId: 'SecurityAlert', days: 30 }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: override below the floor' });
+  check('срок ниже пола закона → 400 lifecycle.retentionBelowFloor', r.status === 400 && r.code === 'lifecycle.retentionBelowFloor' && !(await prisma.lifecyclePolicyOverride.findUnique({ where: { policyId: 'SecurityAlert' } })), `${r.status} ${r.code}`);
+  // Длиннее реестра — безопасное направление: задаётся и снимается
+  r = await call('POST', '/platform/commands/lifecycle.retention.override', ct, { input: { policyId: 'SecurityAlert', days: 2000 }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: longer retention of alerts' });
+  check('срок политики командой (длиннее реестра)', r.ok && (await prisma.lifecyclePolicyOverride.findUnique({ where: { policyId: 'SecurityAlert' } }))?.days === 2000, `${r.status} ${r.code ?? ''}`);
+  r = await call('POST', '/platform/commands/lifecycle.retention.override', ct, { input: { policyId: 'SecurityAlert', days: null }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: back to the registry' });
+  check('срок снят — снова по реестру', r.ok && !(await prisma.lifecyclePolicyOverride.findUnique({ where: { policyId: 'SecurityAlert' } })), `${r.status}`);
+  r = await call('POST', '/platform/commands/lifecycle.retention.override', ct, { input: { policyId: 'WebhookDelivery', days: 10 }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: override of a partitioned log' });
+  check('срок секционированного журнала командой не переопределяется', r.status === 400 && r.code === 'lifecycle.overrideNotSupported', `${r.status} ${r.code}`);
+  r = await call('POST', '/platform/commands/lifecycle.indexes.report', ct, { input: {}, idempotencyKey: nodeCrypto.randomUUID() });
+  check('отчёт неиспользуемых индексов', r.ok && Array.isArray(r.json?.data?.result?.indexes), `${r.status} ${r.code ?? ''}`);
+  r = await call('POST', '/platform/commands/lifecycle.retention.dryRun', ct, { input: { policyId: 'LifecycleRun' }, idempotencyKey: nodeCrypto.randomUUID() });
+  check('пробный прогон политики ставится', r.ok, `${r.status} ${r.code ?? ''}`);
+  await prisma.lifecycleBackupRun.deleteMany({ where: { externalId: report.externalId } });
+
+  // Упавшее стирание: в очереди дашборда сразу «застряло», повтор командой возвращает в работу и
+  // снимает completedAt падения. Синтетическая заявка: случайная несуществующая организация и срок
+  // в будущем — джоб повтора только ждёт срока; своя строка и свой джоб убираются по id
+  const failedReq = await prisma.lifecycleErasureRequest.create({
+    data: { subjectType: 'workspace', subjectId: nodeCrypto.randomUUID(), pseudonym: `suite-${rnd()}`, status: 'failed', errorCode: 'suite', effectiveAt: new Date(Date.now() + 30 * 86_400_000), completedAt: new Date() },
+  });
+  try {
+    r = await call('GET', '/platform/data/erasure', ct);
+    const row = (r.json?.data?.queue ?? []).find((x) => x.id === failedReq.id);
+    check('упавшее стирание — в очереди дашборда и сразу «застряло»', r.ok && row?.status === 'failed' && row?.stuck === true, JSON.stringify(row ?? null));
+    r = await call('POST', '/platform/commands/lifecycle.erasure.retry', ct, { input: { requestId: failedReq.id }, idempotencyKey: nodeCrypto.randomUUID(), reason: 'suite: retry a failed erasure' });
+    const after = await prisma.lifecycleErasureRequest.findUnique({ where: { id: failedReq.id } });
+    check('повтор стирания: снова в работе, completedAt и код ошибки сняты', r.ok && after?.status === 'running' && after?.completedAt === null && after?.errorCode === null, `${r.status} ${r.code ?? ''} ${after?.status} ${after?.completedAt}`);
+  } finally {
+    await prisma.job.deleteMany({ where: { uniqueKey: `erasure:${failedReq.id}` } });
+    await prisma.lifecycleErasureRequest.delete({ where: { id: failedReq.id } }).catch(() => undefined);
+  }
 }
 
 async function main() {
@@ -443,6 +715,10 @@ async function main() {
     await holdsOnEveryPath(prisma, redis, s1);
     await erasureEndToEnd(prisma, s1);
     await canary(prisma, s1);
+
+    // ---- Э5 ----
+    await retentionSettings(prisma, s1);
+    await dataDashboard(prisma, s1);
   } finally {
     await prisma.$disconnect().catch(() => undefined);
     redis.disconnect();

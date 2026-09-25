@@ -54,4 +54,7 @@ export const SYSTEM_MESSAGE_EVENTS = [
   // calls (плашка только по завершении: итог «Звонок · N мин» / «Пропущенный звонок»)
   'call.ended',
   'call.missed',
+  // таймер автоудаления сообщений (core/lifecycle): включён / сменён · выключен
+  'chat.timer_set',
+  'chat.timer_off',
 ] as const;

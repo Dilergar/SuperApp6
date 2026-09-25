@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { Prisma, type LifecycleHold } from '@prisma/client';
 import {
   WORKSPACE_ROLE_RANK,
@@ -10,6 +10,8 @@ import {
   type LifecycleHoldCreateInput,
   type LifecycleHoldDto,
   type LifecycleHoldReason,
+  type LifecycleHoldStatusDto,
+  type LifecycleHoldStatusQuery,
   type LifecycleHoldsQuery,
   type WorkspaceRole,
 } from '@superapp/shared';
@@ -20,6 +22,9 @@ import { EntitlementsService } from '../entitlements/entitlements.service';
 import { RolesService } from '../roles/roles.service';
 import { LifecycleMetrics } from './lifecycle.metrics';
 import { KeysEnvelopeService } from '../keys/keys.envelope.service';
+import { AudiencesService } from '../audiences/audiences.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationRefRegistry } from '../notifications/notifications.registry';
 import { colSql, deletableSql, deleteNeedsHoldCheck, eqSql, holdsCoveringRowSql, lifecycleTableOf, lockHoldsExclusive, lockHoldsShared, releasableIds } from './lifecycle.sql';
 
 type Tx = Prisma.TransactionClient;
@@ -48,7 +53,7 @@ export interface LifecycleHoldActor {
  * хранения данных».
  */
 @Injectable()
-export class LifecycleHoldsService {
+export class LifecycleHoldsService implements OnModuleInit {
   constructor(
     private readonly db: DatabaseService,
     private readonly roles: RolesService,
@@ -56,7 +61,48 @@ export class LifecycleHoldsService {
     private readonly audit: AuditService,
     private readonly metrics: LifecycleMetrics,
     private readonly envelope: KeysEnvelopeService,
+    private readonly audiences: AudiencesService,
+    private readonly notifications: NotificationsService,
+    private readonly notificationRefs: NotificationRefRegistry,
   ) {}
+
+  onModuleInit(): void {
+    // Уведомление о заморозке видят владелец и админ её организации (хранитель — никогда)
+    this.notificationRefs.register('lifecycle_hold', {
+      canViewMany: async (userIds, holdId) => {
+        const h = await this.db.lifecycleHold.findUnique({ where: { id: holdId }, select: { workspaceId: true, custodianUserId: true, createdByKind: true } });
+        if (!h?.workspaceId || h.createdByKind !== 'user') return [];
+        const managers = new Set(await this.managersOf(h.workspaceId));
+        return userIds.filter((id) => managers.has(id) && id !== h.custodianUserId);
+      },
+      href: (ref, ctx) => (ctx.workspaceId ? `/workspaces/${ctx.workspaceId}/profile/data/holds` : null),
+    });
+  }
+
+  /** Владелец и админы организации (адресаты уведомлений о заморозках). */
+  private managersOf(workspaceId: string): Promise<string[]> {
+    return this.audiences.resolve([{ type: 'workspace', id: workspaceId }], { workspaceId }, { max: 50, onOverflow: 'truncate', roles: ['owner', 'admin'] }).catch(() => [] as string[]);
+  }
+
+  /**
+   * Заморозка организации поставлена или снята — владельцу и админам (кроме хранителя: заморозка
+   * тихая, M365/Dropbox). Заморозки платформы организация не видит — о них не сообщается.
+   */
+  private async notifyManagers(tx: Tx, type: 'lifecycle.hold.created' | 'lifecycle.hold.released', row: LifecycleHold, actorId: string): Promise<void> {
+    if (!row.workspaceId || row.createdByKind !== 'user') return;
+    const to = (await this.managersOf(row.workspaceId)).filter((id) => id !== row.custodianUserId);
+    if (!to.length) return;
+    const ws = await tx.workspace.findUnique({ where: { id: row.workspaceId }, select: { name: true } });
+    await this.notifications.send(tx, {
+      type,
+      to: to.map((userId) => ({ userId })),
+      payload: { workspaceName: ws?.name ?? '', scopeLabelKey: `lifecycle.holds.scopes.${row.scope}`, reasonLabelKey: `lifecycle.holds.reasons.${row.reasonCode}` },
+      ref: { type: 'lifecycle_hold', id: row.id },
+      actorId,
+      workspaceId: row.workspaceId,
+      idempotencyKey: `${type}:${row.id}`,
+    });
+  }
 
   // ============================================================
   // Организация: владелец и админ живой организации, тариф `lifecycle.holds`
@@ -99,6 +145,40 @@ export class LifecycleHoldsService {
     return this.list({ workspaceId }, q);
   }
 
+  /**
+   * Чип «Заморожено до снятия» на карточке записи. Считаются только заморозки ЭТОЙ организации
+   * (заморозку платформы организация не видит). Не участнику — 404; участнику ниже руководителя —
+   * `false` без отказа (тихая заморозка); хранитель не узнаёт о себе ни по своей карточке, ни по
+   * записи, которую держит только его заморозка.
+   */
+  async statusForWorkspace(userId: string, workspaceId: string, q: LifecycleHoldStatusQuery): Promise<LifecycleHoldStatusDto> {
+    const role = await this.roleIn(userId, workspaceId);
+    if (!role) throw notFound('workspace.notFound');
+    if (WORKSPACE_ROLE_RANK[role] < WORKSPACE_ROLE_RANK.manager) return { held: false };
+    if (q.type === 'user') {
+      if (q.id === userId) return { held: false };
+      const n = await this.db.lifecycleHold.count({
+        where: {
+          releasedAt: null,
+          workspaceId,
+          OR: [
+            { scope: 'custodian', custodianUserId: q.id },
+            { scope: 'space', spaceType: 'workspace', spaceId: workspaceId },
+          ],
+        },
+      });
+      return { held: n > 0 };
+    }
+    await this.assertRecord(q.type, q.id, workspaceId);
+    const policy = lifecyclePolicy(q.type)!;
+    const t = lifecycleTableOf(policy)!;
+    const covering = await this.db.$queryRaw<Array<{ id: string; workspaceId: string | null }>>(holdsCoveringRowSql(policy, t, q.id));
+    const own = covering.filter((h) => h.workspaceId === workspaceId).map((h) => h.id);
+    if (!own.length) return { held: false };
+    const rows = await this.db.lifecycleHold.findMany({ where: { id: { in: own } }, select: { custodianUserId: true } });
+    return { held: rows.some((r) => r.custodianUserId !== userId) };
+  }
+
   // ============================================================
   // Общее ядро (организация и команды Кабинета)
   // ============================================================
@@ -132,6 +212,7 @@ export class LifecycleHoldsService {
         target: { type: 'lifecycle_hold', id: row.id },
         details: { scope: target.scope, holdId: row.id },
       });
+      await this.notifyManagers(t, 'lifecycle.hold.created', row, actor.id);
       return row;
     };
     const row = tx ? await run(tx) : await this.db.$transaction(run);
@@ -157,11 +238,18 @@ export class LifecycleHoldsService {
         target: { type: 'lifecycle_hold', id: row.id },
         details: { scope: row.scope as LifecycleHoldDto['scope'], holdId: row.id },
       });
+      await this.notifyManagers(t, 'lifecycle.hold.released', row, actor.id);
       return row;
     };
     const row = tx ? await run(tx) : await this.db.$transaction(run);
     this.metrics.holdsChanged('released', row.scope);
     return this.toDto(row);
+  }
+
+  /** Действующие заморозки, поставленные платформой (в том числе на данных организаций) — дашборд Кабинета. */
+  async platformActive(limit = 100): Promise<LifecycleHoldDto[]> {
+    const rows = await this.db.lifecycleHold.findMany({ where: { createdByKind: 'platform', releasedAt: null }, orderBy: { createdAt: 'desc' }, take: limit });
+    return rows.map((r) => this.toDto(r));
   }
 
   /** `workspaceId: null` — заморозки платформы; поле не задано — все (Кабинет). */

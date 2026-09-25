@@ -80,7 +80,8 @@
       "share": "Guest links",
       "staff": "Employees",
       "tasks": "Tasks",
-      "visibility": "Visibility"
+      "visibility": "Visibility",
+      "lifecycle": "Data retention"
     },
     "description": "The chronicle of events: hiring and roles, positions, the movement of tasks — who, what and when",
     "empty": "Nothing here yet — hiring, role changes and the movement of the organization tasks will show up here",
@@ -205,7 +206,8 @@
       "settings": "Settings",
       "stats": "Statistics",
       "subscription": "Plan and limits",
-      "visibility": "Data visibility"
+      "visibility": "Data visibility",
+      "data": "Data and retention"
     },
     "sectionTitle": {
       "anketa": "Company details",

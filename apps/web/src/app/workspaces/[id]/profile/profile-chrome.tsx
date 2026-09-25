@@ -22,6 +22,8 @@ const SECTIONS: { key: string; gate: Gate }[] = [
   { key: 'notifications', gate: 'manage' },
   // Правила видимости данных организации (core/visibility): владелец и админ
   { key: 'visibility', gate: 'manage' },
+  // Данные и сроки хранения, заморозки (core/lifecycle): владелец и админ; у раздела свои вкладки
+  { key: 'data', gate: 'manage' },
   { key: 'security', gate: 'owner' },
 ];
 
@@ -71,7 +73,8 @@ export function WorkspaceProfileChrome({ children }: { children: React.ReactNode
         </Link>
         <h2 className="title-md" style={{ marginBottom: 'var(--spacing-4)' }}>{t('profile.title')}</h2>
         {SECTIONS.filter((s) => visible(s.gate)).map((s) => {
-          const active = pathname === `/workspaces/${id}/profile/${s.key}`;
+          const href = `/workspaces/${id}/profile/${s.key}`;
+          const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
             <Link
               key={s.key}

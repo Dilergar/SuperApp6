@@ -68,7 +68,15 @@
     "scheduled": "Жоспарланған хабарламалар",
     "search": "Чаттан іздеу",
     "searchPlaceholder": "Осы чаттан іздеу…",
-    "send": "Жіберу"
+    "send": "Жіберу",
+    "timer": {
+      "label": "Хабарламаларды автоматты жою",
+      "off": "Өшірулі",
+      "offOrg": "Ұйымдағыдай: {days, plural, one {# күн} other {# күн}}",
+      "option": "{days, plural, one {# күн} other {# күн}}",
+      "chip": "{days, plural, one {# күннен} other {# күннен}} кейін жойылады",
+      "byOrg": "Ұйым белгілеген: {days, plural, one {# күн} other {# күн}}"
+    }
   },
   "chatFallback": "Чат",
   "dmFallback": "Жеке чат",

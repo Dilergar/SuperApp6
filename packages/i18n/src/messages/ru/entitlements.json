@@ -32,7 +32,10 @@
     "visibilityPresets": "Пресеты правил видимости",
     "visibilityMaxRules": "Правила видимости",
     "visibilityRevealsPerDay": "Раскрытий данных в сутки",
-    "lifecycleHolds": "Заморозки данных"
+    "lifecycleHolds": "Заморозки данных",
+    "lifecycleRetentionMessages": "Максимальный срок хранения сообщений, дней",
+    "lifecycleRetentionRecords": "Максимальный срок хранения хроники записей, дней",
+    "lifecycleRetentionIntegrations": "Максимальный срок хранения журнала доставок вебхуков, дней"
   },
   "lock": {
     "quotaFull": "Место на Диске закончилось",

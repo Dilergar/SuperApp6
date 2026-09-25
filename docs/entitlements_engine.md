@@ -46,8 +46,11 @@ await ent.assertFeature(subject, 'skins.perGroup');                 // 402 entit
 await ent.assertCanCreate(tx, subject, 'shop.maxShowcases', 1);     // 402 entitlement.limit_reached — В ТРАНЗАКЦИИ создания
 await ent.consume(tx, subject, 'notifications.smsPerDay', 1);       // 402 entitlement.quota_exhausted; release(tx, …) при откате
 await ent.assertQuotaHeadroom(subject, 'files.storageBytes', bytes); // до дорогой работы (загрузка), consume — после
+await ent.assertAtMost(subject, 'lifecycle.retention.tenant_record.ceilingDays', 365); // 402 limit_reached: ВЫБОР выше потолка (null — «вечно»)
 const v = await ent.valueOf(subject, key); const ok = await ent.can(subject, key); const lim = await ent.limit(subject, key);
 ```
+
+- `assertAtMost(subject, key, requested)` — потолок ВЫБРАННОГО значения, а не числа сущностей (срок хранения организации: [lifecycle_settings.md](lifecycle_settings.md)). `requested = null` — «без ограничения/вечно», проходит только при потолке `null`. Потолок проверяется при выборе и ретроактивно ничего не режет: смена тарифа не удаляет данные молча.
 
 - `assertCanCreate` считает факт своим SQL (`countFor` из реестра потребителя) под `pg_advisory_xact_lock(hash(subject, key))` — два параллельных «создать» не проскочат потолок. Отказ ДО эффектов и в той же транзакции.
 - Квоты: `INSERT … ON CONFLICT DO NOTHING` + условный `UPDATE used = used + delta WHERE used + delta <= limit`; период сбрасывается лениво по `resetAt` (UTC). `quotaState` — для шкал. Расходуемый эффект, который может не случиться (SMS через шлюз), берёт квоту РЕЗЕРВОМ до эффекта и возвращает `release` на КАЖДОМ пути неуспеха — иначе сбой и каждый ретрей джоба сжигали бы платную квоту, ничего не доставив.

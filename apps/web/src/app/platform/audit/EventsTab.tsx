@@ -41,10 +41,14 @@ export function EventsTab({ canReveal }: { canReveal: boolean }) {
   const ta = useTranslations('audit');
   const tc = useTranslations('common');
   const fmt = useFormatters();
-  // Переход из карточки 360: «Открыть в журнале» несёт субъекта или организацию в адресе
+  // Переход из карточки 360: «Открыть в журнале» несёт субъекта или организацию в адресе;
+  // из дашборда «Данные» — ключ события (провал канарейки). Ключ проверяется формой
   const search = useSearchParams();
   const [category, setCategory] = useState<AuditCategory | null>(null);
-  const [key, setKey] = useState<string | null>(null);
+  const [key, setKey] = useState<string | null>(() => {
+    const k = search.get('key');
+    return k && /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/.test(k) ? k : null;
+  });
   const [actorKind, setActorKind] = useState<AuditActorKind | null>(null);
   const [actorId, setActorId] = useState('');
   const [subjectId, setSubjectId] = useState(search.get('subject') ?? '');

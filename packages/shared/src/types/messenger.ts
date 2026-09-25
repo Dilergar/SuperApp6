@@ -1,3 +1,4 @@
+import type { ChatRetentionDto } from '../validation/lifecycle-settings';
 import {
   CHAT_TYPES,
   MESSAGE_TYPES,
@@ -169,6 +170,8 @@ export interface ChatDetail {
   pinned: boolean;
   /** Живой созвон в этом чате (refType='chat'); null — звонка нет. */
   activeCall?: CallActiveDto | null;
+  /** Сроки сообщений: таймер автоудаления, срок организации, действующий срок (core/lifecycle) */
+  retention: ChatRetentionDto;
 }
 
 /**

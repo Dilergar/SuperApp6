@@ -28,6 +28,13 @@ import type {
   SecurityNetworkLookupDto,
   SecurityPartitionDto,
   SecurityPartitionManifestDto,
+  LifecycleDataBackupsDto,
+  LifecycleDataCanaryDto,
+  LifecycleDataErasureDto,
+  LifecycleDataOverviewDto,
+  LifecycleDataRetentionDto,
+  LifecycleDataStorageDto,
+  LifecycleHealthLevel,
 } from '@superapp/shared';
 import { platformGet, platformPost } from '@/lib/platform-api';
 
@@ -51,6 +58,15 @@ export const platformSecurityManifestKey = (partition: string) => ['platform', '
 /** Отдельный корень от списка тревог: одна форма кэша на ключ (страница ≠ сводка) */
 export const platformSecurityAlertSummaryKey = ['platform', 'security', 'alertSummary'] as const;
 export const platformSecurityExportsKey = ['platform', 'security', 'exports'] as const;
+// Дашборд «Данные» (core/lifecycle): вкладки и сводный светофор главной
+export const platformDataKey = (tab: string) => ['platform', 'data', tab] as const;
+export const fetchPlatformDataSummary = () => platformGet<{ level: LifecycleHealthLevel }>('/platform/data/summary');
+export const fetchPlatformDataOverview = () => platformGet<LifecycleDataOverviewDto>('/platform/data/overview');
+export const fetchPlatformDataStorage = () => platformGet<LifecycleDataStorageDto>('/platform/data/storage');
+export const fetchPlatformDataRetention = () => platformGet<LifecycleDataRetentionDto>('/platform/data/retention');
+export const fetchPlatformDataErasure = () => platformGet<LifecycleDataErasureDto>('/platform/data/erasure');
+export const fetchPlatformDataBackups = () => platformGet<LifecycleDataBackupsDto>('/platform/data/backups');
+export const fetchPlatformDataCanary = () => platformGet<LifecycleDataCanaryDto>('/platform/data/canary');
 
 export const fetchPlatformCommands = () => platformGet<PlatformCommandDto[]>('/platform/commands');
 export const fetchPlatformStaff = () => platformGet<PlatformStaffDto[]>('/platform/staff');

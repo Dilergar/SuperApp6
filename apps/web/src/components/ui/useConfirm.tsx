@@ -28,6 +28,9 @@ export interface ConfirmOptions {
   cancelLabel?: string;
   /** Необратимое действие — кнопка подтверждения красная. */
   danger?: boolean;
+  /** Подтверждение вводом: кнопка активна, только когда введён ровно этот текст */
+  requireText?: string;
+  requireTextLabel?: string;
 }
 
 interface ConfirmState extends ConfirmOptions {
@@ -73,6 +76,8 @@ export function useConfirm(): [(options: ConfirmOptions, onConfirm: () => void |
       cancelLabel={state.cancelLabel}
       danger={state.danger}
       loading={busy}
+      requireText={state.requireText}
+      requireTextLabel={state.requireTextLabel}
     />
   ) : null;
 

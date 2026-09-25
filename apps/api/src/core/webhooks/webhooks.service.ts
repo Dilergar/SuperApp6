@@ -17,7 +17,7 @@ import {
   type WebhookEndpointDto,
   type WebhookEndpointUpdateInput,
   type WebhookEventKey,
-  type WebhookRotateSecretInput, uuidv7, uuidv7Time } from '@superapp/shared';
+  type WebhookRotateSecretInput, lifecyclePolicy, uuidv7, uuidv7Time } from '@superapp/shared';
 import { isDevEnv } from '../../shared/config/env.validation';
 import { DatabaseService } from '../../shared/database/database.service';
 import { badRequest, conflict, notFound, tooMany } from '../../shared/errors/api-error';
@@ -38,6 +38,7 @@ import { KeysEnvelopeService } from '../keys/keys.envelope.service';
 import { ed25519RawPublic, generateEd25519 } from '../keys/keys.jwt';
 import { KeysFieldRegistry } from '../keys/keys.registry';
 import { byIdWithTimeHint } from '../lifecycle/lifecycle.time-hint';
+import { LifecycleSettings } from '../lifecycle/lifecycle.settings';
 import { NotificationRefRegistry } from '../notifications/notifications.registry';
 import { NotificationsService } from '../notifications/notifications.service';
 import { WEBHOOK_AUDIT, WEBHOOK_ENTITY, WEBHOOK_JOBS, isRedactedBody } from './webhooks.constants';
@@ -97,7 +98,13 @@ export class WebhooksService implements OnModuleInit {
     private readonly keys: ApiKeysService,
     private readonly registry: WebhooksRegistry,
     private readonly redis: RedisService,
+    private readonly lifecycleSettings: LifecycleSettings,
   ) {}
+
+  /** Граница журнала доставок организации: её срок хранения (операционный класс) действует на чтении сразу. */
+  private deliveriesCutoff(workspaceId: string): Promise<Date | null> {
+    return this.lifecycleSettings.readCutoff(lifecyclePolicy('WebhookDelivery')!, workspaceId);
+  }
 
   onModuleInit(): void {
     // Секреты endpoint'а — envelope под KEK организации: rewrap при ротации KEK через реестр колонок
@@ -349,9 +356,11 @@ export class WebhooksService implements OnModuleInit {
       ? await this.db.webhookDelivery.findFirst({ where: { ...byIdWithTimeHint(q.cursor), endpointId: id }, select: { id: true, createdAt: true } })
       : null;
     if (q.cursor && !after) return { items: [], nextCursor: null };
+    const cutoff = await this.deliveriesCutoff(workspaceId);
     const rows = await this.db.webhookDelivery.findMany({
       where: {
         endpointId: id,
+        ...(cutoff ? { createdAt: { gte: cutoff } } : {}),
         ...(after ? { OR: [{ createdAt: { lt: after.createdAt } }, { createdAt: after.createdAt, id: { lt: after.id } }] } : {}),
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -367,7 +376,9 @@ export class WebhooksService implements OnModuleInit {
     const row = await this.load(workspaceId, id);
     if (row.status === 'disabled') throw conflict('keys.webhook.disabled');
     const d = await this.db.webhookDelivery.findFirst({ where: { ...byIdWithTimeHint(deliveryId), endpointId: id } });
-    if (!d) throw notFound('keys.webhook.deliveryNotFound');
+    // Старше срока хранения организации — строки для неё уже нет (удалит раннер)
+    const cutoff = d ? await this.deliveriesCutoff(workspaceId) : null;
+    if (!d || (cutoff && d.createdAt < cutoff)) throw notFound('keys.webhook.deliveryNotFound');
     // Тело старше недели заменено отпечатком (минимизация) — повторять нечего
     if (isRedactedBody(d.payload)) throw conflict('keys.webhook.deliveryBodyExpired');
     await this.assertManualBudget(id);

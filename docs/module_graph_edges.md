@@ -18,7 +18,7 @@
 | `core/files` | `core/audit`, `core/entitlements`, `core/jobs`, `core/keys`, `core/lifecycle` |
 | `core/idempotency` | `core/keys`, `core/lifecycle`, `core/platform` |
 | `core/keys` | `core/analytics`, `core/audiences`, `core/audit`, `core/entitlements`, `core/jobs`, `core/lifecycle`, `core/notifications`, `core/platform`, `core/realtime`, `core/roles`, `core/verify` |
-| `core/lifecycle` | `core/audit`, `core/entitlements`, `core/files`, `core/jobs`, `core/keys`, `core/platform`, `core/roles`, `core/webhooks` |
+| `core/lifecycle` | `core/analytics`, `core/audiences`, `core/audit`, `core/chatter`, `core/entitlements`, `core/files`, `core/jobs`, `core/keys`, `core/notifications`, `core/platform`, `core/roles`, `core/webhooks` |
 | `core/notifications` | `core/analytics`, `core/audiences`, `core/consents`, `core/entitlements`, `core/jobs`, `core/lifecycle`, `core/realtime`, `core/roles`, `core/verify` |
 | `core/platform` | `core/approvals`, `core/audiences`, `core/audit`, `core/keys`, `core/notifications`, `core/verify` |
 | `core/quick-actions` | `core/access` |

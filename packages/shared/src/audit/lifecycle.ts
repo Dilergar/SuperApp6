@@ -101,7 +101,7 @@ export const LIFECYCLE_AUDIT_EVENTS = defineAuditEvents({
   /** Организация сменила срок хранения класса данных (сокращение вступает через 30 дней) */
   'lifecycle.settings.changed': {
     category: 'lifecycle',
-    status: 'planned',
+    status: 'live',
     severity: 'medium',
     visibility: AUDIT_VIS.workspace,
     details: z

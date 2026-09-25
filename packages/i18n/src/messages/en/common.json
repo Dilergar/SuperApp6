@@ -292,6 +292,13 @@
     "text": "Keep this code: it shows the erasure stages and, when everything is done, the signed certificate. The code is shown once — we don’t store it and can’t send it again.",
     "copied": "Copied",
     "copyFailed": "Couldn’t copy the code — select it and copy it by hand",
-    "open": "Open the receipt"
+    "open": "Open the receipt",
+    "lookupLabel": "Receipt code",
+    "lookupHint": "26 letters and digits — shown once and sent by SMS to the organization owner",
+    "lookupBad": "This doesn’t look like a receipt code"
+  },
+  "heldChip": {
+    "label": "Held until released",
+    "hint": "A legal hold of the organization keeps this data: nothing is deleted until the hold is released"
   }
 }

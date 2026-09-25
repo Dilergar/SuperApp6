@@ -1,6 +1,6 @@
 'use client';
 
-import { GlyphPickerButton, Icon, IconButton, parseGlyph } from '@/components/ui';
+import { Chip, GlyphPickerButton, Icon, IconButton, Menu, parseGlyph } from '@/components/ui';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
@@ -22,6 +22,9 @@ import { VoiceRecordButton } from './VoiceRecordButton';
 import { AttachCardModal } from './AttachCardModal';
 import { MentionInput } from './MentionInput';
 import { searchInChat, getQuickActions } from '@/lib/messenger-api';
+import { setChatTimer } from '@/lib/lifecycle-api';
+import { toastApiError } from '@/lib/api-errors';
+import { messengerChatDetailKey, messengerMessagesKey } from '@/lib/queries';
 import { QuickActionMenu, quickActionsKey } from './QuickActionMenu';
 import { ScheduledPanel, usePendingScheduledCount, scheduledKey } from './ScheduledPanel';
 import { CreateTaskModal, ScheduleMessageModal } from './QuickActionModals';
@@ -336,6 +339,20 @@ export function Conversation({
     setMsgModal(null);
   }, [detail.id]);
 
+  /** Таймер автоудаления: плашка в чат уходит всем, у себя — перечитать сроки и ленту сразу. */
+  const changeTimer = async (days: number | null) => {
+    if (days === detail.retention.timerDays) return;
+    try {
+      await setChatTimer(detail.id, days);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: messengerChatDetailKey(detail.id) }),
+        queryClient.invalidateQueries({ queryKey: messengerMessagesKey(detail.id) }),
+      ]);
+    } catch (err) {
+      toastApiError(err);
+    }
+  };
+
   // ---- live header status line ----
   // Priority: typing → DM contextual/online/lastSeen → nothing.
   // Group/context chats show ONLY typing (no presence line).
@@ -409,7 +426,37 @@ export function Conversation({
               </div>
             )
           )}
+          {/* Сроки сообщений (core/lifecycle): тихий постоянный чип — сообщения исчезают сами */}
+          {detail.retention.effectiveDays !== null && (
+            <div style={{ marginTop: 2 }}>
+              <Chip size="sm" tone="neutral" icon="hourglass">
+                {detail.retention.timerDays !== null && detail.retention.timerDays === detail.retention.effectiveDays
+                  ? t('chat.timer.chip', { days: detail.retention.effectiveDays })
+                  : t('chat.timer.byOrg', { days: detail.retention.effectiveDays })}
+              </Chip>
+            </div>
+          )}
         </div>
+        {detail.retention.canChange && (
+          <Menu
+            label={t('chat.timer.label')}
+            trigger={(p) => <IconButton {...p} icon="hourglass" label={t('chat.timer.label')} size={34} style={{ flexShrink: 0 }} />}
+            items={[
+              {
+                key: 'off',
+                label: detail.retention.workspaceDays !== null ? t('chat.timer.offOrg', { days: detail.retention.workspaceDays }) : t('chat.timer.off'),
+                icon: detail.retention.timerDays === null ? 'check' : undefined,
+                onClick: () => void changeTimer(null),
+              },
+              ...detail.retention.allowedPresets.map((d) => ({
+                key: String(d),
+                label: t('chat.timer.option', { days: d }),
+                icon: detail.retention.timerDays === d ? ('check' as const) : undefined,
+                onClick: () => void changeTimer(d),
+              })),
+            ]}
+          />
+        )}
         {callsEnabled && onStartCall && detail.parentType !== 'office_room' && !activeCall && (
           <button
             onClick={onStartCall}

@@ -292,17 +292,8 @@ export interface LifecycleRule {
   column: string;
   days: number;
   filter?: LifecycleRowFilter;
-  /** Срок выбран организацией: правило только для её строк (колонка организации — `wsColumn`) */
+  /** Срок выбран организацией: правило только для её строк (`lifecycleTenantScopeSql`) */
   workspaceId?: string;
-  wsColumn?: string;
-}
-
-/** Колонка организации политики (срок, настраиваемый организацией, режется по ней). */
-export function lifecycleWorkspaceColumn(policy: LifecyclePolicy): string | null {
-  const ok = policy.ownerKey;
-  if (ok.kind === 'scoped') return ok.workspaceColumn;
-  if (ok.kind === 'workspace' && 'column' in ok) return ok.column;
-  return null;
 }
 
 /** Правила срока общей пачки: основное (если срок конечен) + дополнительные. */
@@ -322,7 +313,13 @@ export function ruleCutoff(rule: Pick<LifecycleRule, 'days'>, now: Date): Date {
 
 function candidatesWhere(policy: LifecyclePolicy, t: LifecycleTable, rule: LifecycleRule, cutoff: Date): Prisma.Sql {
   const hold = deletableSql(policy, t);
-  const tenant = rule.workspaceId && rule.wsColumn ? Prisma.sql` AND ${eqSql(t, rule.wsColumn, rule.workspaceId)}` : Prisma.empty;
+  let tenant: Prisma.Sql = Prisma.empty;
+  if (rule.workspaceId) {
+    const scope = lifecycleTenantScopeSql(policy, t, rule.workspaceId);
+    // Без условия организации правило срезало бы строки ВСЕХ организаций — отказ, а не удаление
+    if (!scope) throw new Error(`lifecycle sql: ${policy.id} has no organisation scope for a tenant rule`);
+    tenant = Prisma.sql` AND ${scope}`;
+  }
   return Prisma.sql`${colSql(t, rule.column)} < ${timeParamSql(t, rule.column, cutoff)}${tenant} AND ${filterSql(t, rule.filter)} AND ${hold}`;
 }
 
@@ -549,6 +546,36 @@ export function userReferencedSql(policy: LifecyclePolicy, t: LifecycleTable, us
     parts.push(Prisma.sql`(${call} @> ARRAY[${userId}]::text[] AND ${call} <> '{}'::text[])`);
   }
   return parts.length ? Prisma.sql`(${Prisma.join(parts, ' OR ')})` : null;
+}
+
+/**
+ * «Строка организации» для срока, выбранного ею: по ключу владельца, а у политики, чей
+ * владелец задан через родителя (`via`), — через ребро реестра от родителя к ней (журнал
+ * доставок → адрес вебхука организации). `null` — организации строку не приписать.
+ */
+export function lifecycleTenantScopeSql(policy: LifecyclePolicy, t: LifecycleTable, workspaceId: string, alias = 't'): Prisma.Sql | null {
+  const own = workspaceOwnedSql(policy, t, workspaceId, alias);
+  if (own) return own;
+  const ok = policy.ownerKey;
+  if (ok.kind !== 'workspace' || !('via' in ok)) return null;
+  const parent = lifecyclePolicy(ok.via);
+  const edge = parent?.edges.find((e) => e.to === policy.id && !!e.via);
+  const pt = parent ? lifecycleTableOf(parent) : null;
+  if (!parent || !edge?.via || !pt || pt.pk.length !== 1) return null;
+  const parentOwn = workspaceOwnedSql(parent, pt, workspaceId, 'p');
+  if (!parentOwn) return null;
+  return Prisma.sql`${colSql(t, edge.via, alias)} IN (SELECT ${Prisma.raw(`p.${q(pt.pk[0])}`)} FROM ${pt.ident} p WHERE ${parentOwn})`;
+}
+
+/** Строки организации старше момента — оценка «что удалится» (предпросмотр срока, сводка). */
+export function tenantOlderThanSql(policy: LifecyclePolicy, t: LifecycleTable, column: string, workspaceId: string, cutoff: Date, cap: number): Prisma.Sql | null {
+  const scope = lifecycleTenantScopeSql(policy, t, workspaceId);
+  if (!scope) return null;
+  const en = policy.enforcement;
+  const filter = en.kind === 'batched_delete' ? filterSql(t, en.filter) : Prisma.sql`TRUE`;
+  return Prisma.sql`SELECT count(*)::bigint AS n FROM (
+    SELECT 1 FROM ${t.ident} t WHERE ${scope} AND ${colSql(t, column)} < ${timeParamSql(t, column, cutoff)} AND ${filter} LIMIT ${cap}
+  ) x`;
 }
 
 /** «Строка организации» по ключу владельца (у беседы — чат организации); `null` — организация строкой не владеет. */
