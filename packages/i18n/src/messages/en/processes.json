@@ -160,9 +160,21 @@
       "label": "Due in (hours from the step)",
       "placeholder": "24"
     },
+    "effort": {
+      "help": "How much the model reasons before it answers. Lower is faster and cheaper; leave empty for the model default.",
+      "label": "Thinking depth",
+      "option": {
+        "high": "High",
+        "low": "Low",
+        "max": "Maximum",
+        "medium": "Medium",
+        "xhigh": "Very high"
+      }
+    },
     "maxTokens": {
+      "help": "For Claude the limit also covers its thinking.",
       "label": "Answer token limit",
-      "placeholder": "1024"
+      "placeholder": "Claude 16000 · GPT 1024"
     },
     "message": {
       "label": "Text"

@@ -149,8 +149,11 @@ export const messageSendNode: ProcessNodeProvider = {
     tool: {
       name: 'send_message',
       // Описание инструмента читает МОДЕЛЬ — оно остаётся английским.
-      description: 'Send a message to a chat or a direct message (the recipient is set on the node; the agent writes the text).',
-      schema: { type: 'object', properties: { text: { type: 'string', description: 'The message text' } }, required: ['text'] },
+      description:
+        'Send a message in the SuperApp6 messenger. The recipient (a chat or a person) is fixed on the node, ' +
+        'so the tool only takes the text. The message goes out at once on behalf of the person who started the process ' +
+        'and cannot be recalled; each call is a separate message. Returns a confirmation.',
+      schema: { type: 'object', properties: { text: { type: 'string', description: 'The full message text, as the recipient will read it' } }, required: ['text'] },
       async execute(ctx, input) {
         await sendMessageImpl(ctx, String(input.text ?? ''));
         return 'The message was sent';

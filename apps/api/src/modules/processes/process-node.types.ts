@@ -160,12 +160,13 @@ export interface AgentModel {
   model: string;
   baseUrl?: string;
   temperature?: number;
+  effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   maxTokens?: number;
 }
 
-/** Память агента (по ключу сессии в Redis) — закрывашки строит движок. */
+/** Память агента (по ключу сессии в Redis) — закрывашки строит движок. Реплики уходят модели ходами диалога. */
 export interface AgentMemory {
-  load: () => Promise<string>;
+  load: () => Promise<Array<{ user: string; assistant: string }>>;
   append: (userText: string, assistantText: string) => Promise<void>;
 }
 
@@ -175,8 +176,8 @@ export interface AgentCluster {
   memory?: AgentMemory;
   tools: AgentTool[];
   systemPrompt?: string;
-  /** Парсер структурированного ответа (под-нода «Структурированный ответ»): инструкция для LLM. */
-  outputParser?: { instruction: string };
+  /** Парсер структурированного ответа (под-нода «Структурированный ответ»): схема для Claude, инструкция для openai-провайдеров. */
+  outputParser?: { instruction: string; schema: Record<string, unknown> };
 }
 
 /** Описание инструмента, которое под-нода-инструмент отдаёт агенту (имя/схема для LLM + исполнение). */

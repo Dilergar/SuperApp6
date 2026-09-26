@@ -14,7 +14,7 @@ import { KeysEnvelopeService } from '../../core/keys/keys.envelope.service';
 import { DI_TOKENS } from '../../shared/di-tokens';
 import { PROCESS_ORIGIN_TYPE } from './process-builtin-nodes';
 import { ProcessNodeRegistry } from './process-node.registry';
-import { parserInstruction, resolveLlmConfig, runAgentWithCluster } from './process-ai-nodes';
+import { parserSpec, resolveLlmConfig, runAgentWithCluster } from './process-ai-nodes';
 import { evalExpression } from './process-expression';
 import type { AgentCluster, AgentTool, CompiledPlan, NodeRunContext, NodeRunResult } from './process-node.types';
 
@@ -1103,9 +1103,8 @@ export class ProcessEngineService {
           const raw = await client.lrange(key, -window, -1);
           return raw
             .map((s) => { try { return JSON.parse(s) as { u: string; a: string }; } catch { return null; } })
-            .filter((t): t is { u: string; a: string } => !!t)
-            .map((t) => `User: ${t.u}\nAgent: ${t.a}`)
-            .join('\n\n');
+            .filter((t): t is { u: string; a: string } => !!t && typeof t.u === 'string' && typeof t.a === 'string')
+            .map((t) => ({ user: t.u, assistant: t.a }));
         },
         append: async (u, a) => {
           await client.rpush(key, JSON.stringify({ u: u.slice(0, 2000), a: a.slice(0, 2000) }));
@@ -1116,7 +1115,16 @@ export class ProcessEngineService {
     }
 
     // Инструменты: под-ноды-инструменты + под-агенты (рекурсивно).
+    // Имя инструмента уникально в запросе (иначе API отвечает 400, а модель не отличит
+    // две ноды одного типа): повтор получает суффикс, у ноды — её подпись в описании.
     const tools: AgentTool[] = [];
+    const taken = new Set<string>();
+    const uniqueName = (base: string): string => {
+      let name = base;
+      for (let n = 2; taken.has(name); n++) name = `${base.slice(0, 44)}_${n}`;
+      taken.add(name);
+      return name;
+    };
     for (const toolId of att.ai_tool ?? []) {
       const toolNode = plan.nodes[toolId];
       if (!toolNode) continue;
@@ -1124,18 +1132,28 @@ export class ProcessEngineService {
       const spec = provider?.descriptor.tool;
       if (spec) {
         const toolCtx = await this.buildContext(instance, { id: '', nodeId: toolId }, toolNode);
-        tools.push({ name: spec.name, description: spec.description, schema: spec.schema, run: (input) => spec.execute(toolCtx, input) });
+        const description = toolNode.label ? `${spec.description} Node: «${toolNode.label}».` : spec.description;
+        tools.push({ name: uniqueName(spec.name), description, schema: spec.schema, run: (input) => spec.execute(toolCtx, input) });
       } else if (toolNode.cluster) {
         // под-агент как инструмент (оркестратор → специалист)
         const subCluster = await this.buildAgentCluster(instance, plan, toolId, depth + 1);
         const subCtx = await this.buildContext(instance, { id: '', nodeId: toolId }, toolNode);
         subCluster.systemPrompt = toolNode.config.systemPrompt ? subCtx.render(String(toolNode.config.systemPrompt)) : undefined;
-        const name = (toolNode.label || `agent`).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48) || `agent_${toolId.slice(0, 6)}`;
+        // Подпись по-русски целиком сносится регэкспом в подчёркивания — такое имя ничего не говорит модели.
+        const ascii = (toolNode.label || '').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48);
+        const name = uniqueName(/[a-zA-Z0-9]/.test(ascii) ? ascii : `agent_${toolId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8)}`);
         const maxIter = Math.min(8, Math.max(1, Number(toolNode.config.maxIterations ?? 5)));
+        const role = String(toolNode.config.toolDescription || `the agent «${toolNode.label || name}»`);
         tools.push({
           name,
-          description: String(toolNode.config.toolDescription || `Delegate the task to the agent «${toolNode.label}»`),
-          schema: { type: 'object', properties: { input: { type: 'string', description: 'A task or a question for the agent' } }, required: ['input'] },
+          description:
+            `Delegate a task to a sub-agent: ${role}. The sub-agent does not see this conversation — ` +
+            `put everything it needs into input. Returns the sub-agent's final answer as text.`,
+          schema: {
+            type: 'object',
+            properties: { input: { type: 'string', description: 'A self-contained task or question, with all the context the sub-agent needs' } },
+            required: ['input'],
+          },
           run: async (input) => (await runAgentWithCluster(subCluster, String(input.input ?? ''), maxIter)).text,
         });
       }
@@ -1145,7 +1163,7 @@ export class ProcessEngineService {
     let outputParser: AgentCluster['outputParser'];
     const parserId = att.ai_output?.[0];
     if (parserId && plan.nodes[parserId]) {
-      outputParser = { instruction: parserInstruction(String(plan.nodes[parserId].config.fields ?? '')) };
+      outputParser = parserSpec(String(plan.nodes[parserId].config.fields ?? ''));
     }
 
     return { model, memory, tools, outputParser };

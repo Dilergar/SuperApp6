@@ -69,12 +69,16 @@ export const telegramNode: ProcessNodeProvider = {
     auto: true,
     tool: {
       name: 'send_telegram',
-      description: 'Send a message to a Telegram chat (the chat id is set on the node; the agent writes the text).',
-      schema: { type: 'object', properties: { text: { type: 'string', description: 'The message text' } }, required: ['text'] },
+      description:
+        'Send a message to a Telegram chat through the bot set on the node. The chat is fixed on the node, ' +
+        'so the tool only takes the text. The message goes out at once and cannot be recalled; each call is a separate message. ' +
+        'Telegram accepts up to 4096 characters. Returns a confirmation, or an error with the Telegram status code.',
+      schema: { type: 'object', properties: { text: { type: 'string', description: 'The full message text, up to 4096 characters' } }, required: ['text'] },
       async execute(ctx, input) {
         const cfg = ctx.config as { credentialId: string; chatId: string };
         const res = await sendTelegram(ctx, cfg.credentialId, ctx.render(cfg.chatId), String(input.text ?? ''));
-        return res.ok ? 'The message was sent' : `Telegram error ${res.status}`;
+        if (!res.ok) throw new Error(`Telegram error ${res.status}`);
+        return 'The message was sent';
       },
     },
   },

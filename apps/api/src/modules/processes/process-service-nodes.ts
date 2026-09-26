@@ -62,12 +62,19 @@ export const httpNode: ProcessNodeProvider = {
       name: 'http_get',
       // Описание инструмента читает МОДЕЛЬ, а не человек — оно остаётся английским
       // (тот же довод, что у промптов: язык модели не следует за языком зрителя).
-      description: 'Fetch data from a public HTTPS URL (GET, read only). Returns the response body.',
-      schema: { type: 'object', properties: { url: { type: 'string', description: 'A full https URL' } }, required: ['url'] },
+      description:
+        'Read a public web page or API over HTTPS with a GET request; nothing is sent or changed. ' +
+        'Use it when the task needs data from the internet. Only https:// addresses on the public internet work: ' +
+        'internal and private addresses are refused, up to 5 redirects are followed, the wait is 15 seconds. ' +
+        'Returns the HTTP status on the first line, then the response body as text, cut at 8000 characters. ' +
+        'It cannot send headers, cookies or a request body.',
+      schema: { type: 'object', properties: { url: { type: 'string', description: 'A full https:// URL, with the query string if the API needs one' } }, required: ['url'] },
       async execute(_ctx, input) {
         // URL выбирает LLM (prompt-injectable) → жёсткая SSRF-проверка обязательна.
-        const res = await safeFetch(String(input.url ?? ''), { headers: { 'User-Agent': 'SuperApp6-Processes/1' } }, { timeoutMs: 15_000 });
-        return (await res.text()).slice(0, 8000);
+        const url = String(input.url ?? '');
+        if (!/^https:\/\//i.test(url)) throw new Error('only https:// URLs are allowed');
+        const res = await safeFetch(url, { headers: { 'User-Agent': 'SuperApp6-Processes/1' } }, { timeoutMs: 15_000 });
+        return `HTTP ${res.status}\n${(await res.text()).slice(0, 8000)}`;
       },
     },
   },

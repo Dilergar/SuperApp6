@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { AgentCluster, NodeRunContext, ProcessNodeProvider } from './process-node.types';
 import { decryptCredential } from './process-crypto';
 import { credentialKey } from './process-service-nodes';
-import { llmAgentLoop, llmGenerateText, type LlmConfig, type LlmProvider } from './process-ai-client';
+import { llmAgentLoop, llmGenerateText, type LlmConfig, type LlmEffort, type LlmProvider, type LlmUsage } from './process-ai-client';
 
 // ============================================================
 // AI-ноды Ф4 + cluster-модель Ф4.5 (n8n: агент + под-ноды через порты).
@@ -14,6 +14,7 @@ import { llmAgentLoop, llmGenerateText, type LlmConfig, type LlmProvider } from 
 // ============================================================
 
 const PROVIDER_OPTS = ['anthropic', 'openai', 'openai-compatible'] as const;
+const EFFORT_OPTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
 
 const llmConfigShape = {
   provider: z.enum(['anthropic', 'openai', 'openai-compatible']),
@@ -21,27 +22,33 @@ const llmConfigShape = {
   model: z.string().min(1).max(120),
   baseUrl: z.string().max(300).optional(),
   temperature: z.coerce.number().min(0).max(2).optional(),
-  maxTokens: z.coerce.number().int().min(16).max(8192).optional(),
+  effort: z.enum(EFFORT_OPTS).optional(),
+  // У Claude в лимит входят и размышления; 16000 — потолок ответа без стриминга.
+  maxTokens: z.coerce.number().int().min(16).max(16_000).optional(),
 };
 
+// Sampling — только у openai-провайдеров (текущие Claude отвечают на него 400); у Claude — effort.
 const llmFields = [
   { key: 'provider', kind: 'select' as const, required: true, options: PROVIDER_OPTS },
   { key: 'credentialId', kind: 'credential' as const, required: true },
   { key: 'model', kind: 'text' as const, required: true },
   { key: 'baseUrl', kind: 'text' as const, showIf: { field: 'provider', in: ['openai-compatible'] } },
-  { key: 'temperature', kind: 'number' as const },
+  { key: 'temperature', kind: 'number' as const, showIf: { field: 'provider', in: ['openai', 'openai-compatible'] } },
+  { key: 'effort', kind: 'select' as const, options: EFFORT_OPTS, showIf: { field: 'provider', in: ['anthropic'] } },
   { key: 'maxTokens', kind: 'number' as const },
 ];
 
 /** Резолвим модель: достаём ключ из bearer-креда сейфа. Используется и нодой AI, и движком (под-нода Модель). */
 export async function resolveLlmConfig(
   ctx: NodeRunContext,
-  cfg: { provider: LlmProvider; credentialId: string; model: string; baseUrl?: string; temperature?: number; maxTokens?: number },
+  cfg: { provider: LlmProvider; credentialId: string; model: string; baseUrl?: string; temperature?: number; effort?: LlmEffort; maxTokens?: number },
 ): Promise<LlmConfig> {
   const cred = await ctx.deps.db.processCredential.findUnique({ where: { id: cfg.credentialId } });
   if (!cred || cred.workspaceId !== ctx.workspaceId) throw new Error('the API key is not in the safe');
   const apiKey = credentialKey(JSON.parse(await decryptCredential(ctx.deps.keys, cred)));
-  return { provider: cfg.provider, apiKey, model: cfg.model, baseUrl: cfg.baseUrl, temperature: cfg.temperature, maxTokens: cfg.maxTokens };
+  // Скрытое поле хранит старое значение — отсекаем по провайдеру, а не по видимости в редакторе.
+  const tuning = cfg.provider === 'anthropic' ? { effort: cfg.effort } : { temperature: cfg.temperature };
+  return { provider: cfg.provider, apiKey, model: cfg.model, baseUrl: cfg.baseUrl, maxTokens: cfg.maxTokens, ...tuning };
 }
 
 // ------------------------------------------------------------
@@ -68,11 +75,11 @@ export const aiGenerateNode: ProcessNodeProvider = {
     auto: true,
   },
   async run(ctx) {
-    const cfg = ctx.config as { provider: LlmProvider; credentialId: string; model: string; baseUrl?: string; systemPrompt?: string; userPrompt: string; temperature?: number; maxTokens?: number };
+    const cfg = ctx.config as { provider: LlmProvider; credentialId: string; model: string; baseUrl?: string; systemPrompt?: string; userPrompt: string; temperature?: number; effort?: LlmEffort; maxTokens?: number };
     try {
       const llm = await resolveLlmConfig(ctx, cfg);
-      const text = await llmGenerateText(llm, cfg.systemPrompt ? ctx.render(cfg.systemPrompt) : undefined, ctx.render(cfg.userPrompt));
-      return { kind: 'complete', outputKey: 'success', output: { text } };
+      const { text, usage } = await llmGenerateText(llm, cfg.systemPrompt ? ctx.render(cfg.systemPrompt) : undefined, ctx.render(cfg.userPrompt));
+      return { kind: 'complete', outputKey: 'success', output: { text, usage } };
     } catch (err) {
       return { kind: 'complete', outputKey: 'error', output: { error: (err as Error).message } };
     }
@@ -148,18 +155,44 @@ export const aiParserNode: ProcessNodeProvider = {
   run: noop,
 };
 
-/** Построить инструкцию для LLM из описания полей парсера. */
-export function parserInstruction(fieldsText: string): string {
-  const lines = fieldsText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  const fields = lines.map((l) => {
-    const i = l.indexOf(':');
-    return i > 0 ? `«${l.slice(0, i).trim()}» — ${l.slice(i + 1).trim()}` : `«${l}»`;
-  });
-  // Инструкция адресована МОДЕЛИ — остаётся английской, как и остальные промпты.
-  return `Answer with a STRICTLY valid JSON object with the fields: ${fields.join('; ')}. No markdown, no explanations around it — JSON only.`;
+/** Значение поля парсера: тип полей в описании не задаётся — допускаем простые виды и пустоту. */
+const PARSER_VALUE = {
+  anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'boolean' }, { type: 'array', items: { type: 'string' } }, { type: 'null' }],
+};
+
+/**
+ * Разобрать описание полей парсера («имя: пояснение» построчно).
+ * schema — для Claude (structured outputs: валидный JSON гарантирует API);
+ * instruction — для openai-провайдеров, где ответ форматирует только текст промпта.
+ */
+export function parserSpec(fieldsText: string): { instruction: string; schema: Record<string, unknown> } {
+  const fields = fieldsText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const i = l.indexOf(':');
+      return i > 0 ? { name: l.slice(0, i).trim(), hint: l.slice(i + 1).trim() } : { name: l, hint: '' };
+    });
+  const properties: Record<string, unknown> = {};
+  for (const f of fields) properties[f.name] = f.hint ? { ...PARSER_VALUE, description: f.hint } : PARSER_VALUE;
+  const listed = fields.map((f) => (f.hint ? `«${f.name}» — ${f.hint}` : `«${f.name}»`));
+  return {
+    // Инструкция адресована МОДЕЛИ — остаётся английской, как и остальные промпты.
+    instruction: `Answer with a STRICTLY valid JSON object with the fields: ${listed.join('; ')}. No markdown, no explanations around it — JSON only.`,
+    schema: { type: 'object', properties, required: Object.keys(properties), additionalProperties: false },
+  };
 }
 
-/** Достать JSON из ответа модели (модель иногда оборачивает его в текст/markdown). */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Достать JSON из ответа модели openai-провайдера (он иногда оборачивает его в текст/markdown). */
 function extractJson(text: string): unknown {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   const candidate = fenced ? fenced[1] : text;
@@ -182,24 +215,27 @@ export async function runAgentWithCluster(
   cluster: AgentCluster,
   userPrompt: string,
   maxIterations: number,
-): Promise<{ text: string; toolCalls: number; data?: unknown }> {
-  const prior = cluster.memory ? await cluster.memory.load() : '';
-  const system = [cluster.systemPrompt, prior && `Earlier conversation context:\n${prior}`].filter(Boolean).join('\n\n') || undefined;
-  const user = cluster.outputParser ? `${userPrompt}\n\n${cluster.outputParser.instruction}` : userPrompt;
-  const result = await llmAgentLoop(
-    cluster.model,
-    system,
-    user,
-    cluster.tools.map((t) => ({ name: t.name, description: t.description, schema: t.schema })),
-    async (name, input) => {
+): Promise<{ text: string; toolCalls: number; data?: unknown; usage: LlmUsage }> {
+  const history = cluster.memory ? await cluster.memory.load() : [];
+  const parser = cluster.outputParser;
+  const claude = cluster.model.provider === 'anthropic';
+  const result = await llmAgentLoop(cluster.model, {
+    system: cluster.systemPrompt || undefined,
+    history,
+    // Claude получает схему ответа параметром; openai-провайдеры — инструкцией в тексте.
+    user: parser && !claude ? `${userPrompt}\n\n${parser.instruction}` : userPrompt,
+    tools: cluster.tools.map((t) => ({ name: t.name, description: t.description, schema: t.schema })),
+    execute: async (name, input) => {
       const tool = cluster.tools.find((t) => t.name === name);
-      return tool ? tool.run(input) : `Unknown tool: ${name}`;
+      if (!tool) throw new Error(`unknown tool: ${name}`);
+      return tool.run(input);
     },
     maxIterations,
-  );
+    outputSchema: parser && claude ? parser.schema : undefined,
+  });
   if (cluster.memory) await cluster.memory.append(userPrompt, result.text);
-  const data = cluster.outputParser ? extractJson(result.text) : undefined;
-  return { text: result.text, toolCalls: result.toolCallCount, data };
+  const data = parser ? (claude ? parseJson(result.text) : extractJson(result.text)) : undefined;
+  return { text: result.text, toolCalls: result.toolCallCount, data, usage: result.usage };
 }
 
 export const aiAgentNode: ProcessNodeProvider = {
@@ -241,7 +277,7 @@ export const aiAgentNode: ProcessNodeProvider = {
     try {
       const cluster = { ...ctx.cluster, systemPrompt: cfg.systemPrompt ? ctx.render(cfg.systemPrompt) : ctx.cluster.systemPrompt };
       const r = await runAgentWithCluster(cluster, ctx.render(cfg.userPrompt), cfg.maxIterations ?? 5);
-      return { kind: 'complete', outputKey: 'success', output: { text: r.text, toolCalls: r.toolCalls, data: r.data } };
+      return { kind: 'complete', outputKey: 'success', output: { text: r.text, toolCalls: r.toolCalls, data: r.data, usage: r.usage } };
     } catch (err) {
       return { kind: 'complete', outputKey: 'error', output: { error: (err as Error).message } };
     }
